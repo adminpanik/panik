@@ -11,7 +11,7 @@ This doc covers setup, the moving parts, and the anti-spam design.
 | Trigger | `packages/scoring/src/profile.ts` (`statusFor`) | pure | within / approaching / outside vs the profile threshold (25 / 50 / 75) |
 | Debounce | `packages/scoring/src/watch/loop.ts` (`WatchService.confirmTicks`) | worker | a status must hold N consecutive 60s ticks before it emits |
 | Send gate | `packages/scoring/src/watch/alertPolicy.ts` (`decideSend`) | worker | materiality + cooldown + escalation bypass |
-| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`) | worker | plain text, hyphens only |
+| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`) | worker | plain text + emoji pictograms, hyphens only |
 | Worker | `scripts/watch-worker.ts` (`npm run worker`) | standalone | scores, persists transitions, dispatches |
 | Send | `server/telegram.ts` (`sendMessage`) | worker + webhook | Bot API, fetch-only |
 | Link store | `server/telegramStore.ts` | Vercel functions | Supabase REST, no pg/viem |

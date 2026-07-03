@@ -3,7 +3,13 @@
  *
  * Pure + deterministic so it is unit-testable in-package; the HTTP send lives
  * in server/telegram.ts. Plain text (no MarkdownV2) so addresses, dots and
- * hyphens need no escaping. House style: hyphens only, never em dashes.
+ * hyphens need no escaping; emojis are literal text and need no escaping
+ * either. House style: hyphens only, never em dashes.
+ *
+ * Emoji layout: the header emoji doubles as the severity signal in the push
+ * notification preview (🚨 outside, ⚠️ approaching); each fact line gets a
+ * stable pictogram so the eye can find a field without reading labels; the
+ * health-factor heart flips to 💔 below the near-liquidation threshold.
  */
 
 import { ALERT_THRESHOLD } from "../profile";
@@ -47,16 +53,16 @@ function usd(n: number | null | undefined): string | null {
  */
 export function formatWelcome(wallet: string): string {
   return [
-    "Welcome to PANIK alerts.",
+    "👋 Welcome to PANIK alerts.",
     "",
-    `This chat is now linked to wallet ${truncateWallet(wallet)}.`,
+    `🔗 This chat is now linked to wallet ${truncateWallet(wallet)}.`,
     "",
-    "I'll message you here the moment this position drifts toward its liquidation limit. Alerts are debounced and deduped, so only real risk reaches you - never spam.",
+    "🛡️ I'll message you here the moment this position drifts toward its liquidation limit. Alerts are debounced and deduped, so only real risk reaches you - never spam.",
     "",
     "Commands:",
-    "/stop - pause alerts anytime",
+    "🔕 /stop - pause alerts anytime",
     "",
-    "Stay safe out there.",
+    "Stay safe out there. 🧡",
   ].join("\n");
 }
 
@@ -73,32 +79,32 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
   const lines: string[] = [];
   lines.push(
     outside
-      ? "Panik alert - position past your risk limit"
-      : "Panik alert - position approaching your risk limit",
+      ? "🚨 Panik alert - position past your risk limit"
+      : "⚠️ Panik alert - position approaching your risk limit",
   );
   lines.push("");
-  lines.push(`Wallet ${wallet}`);
-  lines.push(`Protocol ${protocol}`);
-  lines.push(`Risk score ${t.score} / 100 (${t.band}), your ${t.profile} limit is ${limit}`);
+  lines.push(`👛 Wallet ${wallet}`);
+  lines.push(`🏦 Protocol ${protocol}`);
+  lines.push(`📊 Risk score ${t.score} / 100 (${t.band}), your ${t.profile} limit is ${limit}`);
 
   if (extras.healthFactor != null && Number.isFinite(extras.healthFactor)) {
     const hf = extras.healthFactor.toFixed(2);
     lines.push(
       extras.healthFactor < NEAR_LIQUIDATION_HF
-        ? `Health factor ${hf} - near liquidation`
-        : `Health factor ${hf}`,
+        ? `💔 Health factor ${hf} - near liquidation`
+        : `❤️ Health factor ${hf}`,
     );
   }
 
   const collateral = usd(extras.collateralUsd);
   const borrow = usd(extras.borrowUsd);
-  if (collateral && borrow) lines.push(`Position ${collateral} collateral / ${borrow} debt`);
+  if (collateral && borrow) lines.push(`💰 Position ${collateral} collateral / ${borrow} debt`);
 
   lines.push("");
   lines.push(
     outside
-      ? "Your position has crossed your risk threshold and is trending toward liquidation. Act now: add collateral or repay debt to pull it back."
-      : "This position is getting close to your liquidation comfort zone. Consider adding collateral or repaying debt before it crosses the line.",
+      ? "⛔ Your position has crossed your risk threshold and is trending toward liquidation. Act now: add collateral or repay debt to pull it back."
+      : "⏳ This position is getting close to your liquidation comfort zone. Consider adding collateral or repaying debt before it crosses the line.",
   );
 
   return lines.join("\n");

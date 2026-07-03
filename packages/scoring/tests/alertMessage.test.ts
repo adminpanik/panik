@@ -46,6 +46,27 @@ describe("formatAlert", () => {
     const msg = formatAlert({ ...base, to: "approaching", score: 44, band: "ELEVATED" }, { healthFactor: 1.3, borrowUsd: 800 });
     expect(msg).toContain("approaching your risk limit");
   });
+
+  it("leads with the severity emoji (push-preview signal)", () => {
+    const outside = formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600 });
+    expect(outside.startsWith("🚨")).toBe(true);
+
+    const approaching = formatAlert({ ...base, to: "approaching", score: 44, band: "ELEVATED" }, { healthFactor: 1.3, borrowUsd: 800 });
+    expect(approaching.startsWith("⚠️")).toBe(true);
+  });
+
+  it("pictograms each fact line and flips the heart below the near-liquidation HF", () => {
+    const low = formatAlert(base, { healthFactor: 1.08, collateralUsd: 5000, borrowUsd: 2600 });
+    expect(low).toContain("👛 Wallet");
+    expect(low).toContain("🏦 Protocol");
+    expect(low).toContain("📊 Risk score");
+    expect(low).toContain("💰 Position");
+    expect(low).toContain("💔 Health factor 1.08");
+
+    const safe = formatAlert(base, { healthFactor: 1.4, borrowUsd: 2600 });
+    expect(safe).toContain("❤️ Health factor 1.40");
+    expect(safe).not.toContain("💔");
+  });
 });
 
 describe("formatWelcome", () => {
@@ -60,6 +81,12 @@ describe("formatWelcome", () => {
 
   it("contains no em dash or en dash (house style)", () => {
     expect(LONG_DASH.test(formatWelcome(wallet))).toBe(false);
+  });
+
+  it("opens with the wave emoji and marks the mute command", () => {
+    const msg = formatWelcome(wallet);
+    expect(msg.startsWith("👋")).toBe(true);
+    expect(msg).toContain("🔕 /stop");
   });
 });
 
