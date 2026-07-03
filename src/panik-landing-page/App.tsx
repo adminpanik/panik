@@ -143,15 +143,15 @@ export default function App() {
       {/* Protocol coverage benchmarks (Temporarily hidden from frontend as requested, file kept intact) */}
       {/* <ProtocolCoverage /> */}
 
+      {/* Backtest Results */}
+      <BacktestResults />
+
       {/* Bottom CTA & Live allowed addresses queue */}
       <WaitlistCTA
         subscribersList={subscribers}
         hasSubscribed={hasSubscribed}
         onOpenWaitlistModal={handleOpenWaitlistModal}
       />
-
-      {/* Backtest Results */}
-      <BacktestResults />
 
       {/* Frequently Asked Questions */}
       <FAQ />

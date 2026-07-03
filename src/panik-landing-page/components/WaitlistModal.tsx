@@ -268,6 +268,13 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
     });
     setSubmitting(false);
     if (!result.ok) {
+      const isDuplicate = result.error?.includes("23505") || result.error?.includes("http_409") || result.error?.includes("duplicate");
+      if (isDuplicate) {
+        sessionStorage.removeItem(DRAFT_KEY);
+        setStep(1); setQIndex(0);
+        setEmailError("This email is already on the waitlist.");
+        return;
+      }
       setSubmitError(mapSubmitError(result.error));
       return;
     }
@@ -510,7 +517,13 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                   <label htmlFor="manual-wallet-input" className="block text-[11px] font-mono tracking-wider text-white/50 uppercase">Enter a public EVM address</label>
                   <div className="relative flex items-center">
                     <Wallet className="absolute left-4 w-4.5 h-4.5 text-white/30" />
-                    <input type="text" id="manual-wallet-input" value={wallet} onChange={(e) => { setWallet(e.target.value.trim()); if (walletError) setWalletError(""); }} placeholder="0x…"
+                    <input type="text" id="manual-wallet-input" value={wallet}
+                      onChange={(e) => { setWallet(e.target.value.trim()); if (walletError) setWalletError(""); }}
+                      onBlur={() => {
+                        if (wallet && !isValidEvmAddress(wallet))
+                          setWalletError("That doesn't look like a valid EVM address (0x + 40 hex characters).");
+                      }}
+                      placeholder="0x…"
                       className="w-full h-12 pl-12 pr-4 bg-[#111318] border border-white/[0.08] hover:border-white/18 focus:border-panik-orange/50 focus:ring-1 focus:ring-panik-orange/20 text-[#F0F4FF] placeholder-white/25 text-sm font-mono rounded-lg outline-none transition-all" />
                   </div>
                 </div>
