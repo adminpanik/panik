@@ -103,8 +103,10 @@ export function useWalletPositions(wallet: string | null, profile: string) {
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
+    // Reset on every wallet change so a switch never shows the PREVIOUS
+    // wallet's positions while the new fetch is in flight.
+    setData(null);
     if (!wallet) {
-      setData(null);
       setOffline(false);
       return;
     }
@@ -142,6 +144,22 @@ export function useCompassScores() {
     ? Object.fromEntries(data.scores.map((s) => [s.id, s]))
     : null;
   return { scores: byId, offline };
+}
+
+export interface PoolYield {
+  apy: number;
+  tvlUsd: number;
+  apySeries: number[]; // last 30 daily points, oldest first
+  tvlSeries: number[];
+}
+
+/** 30d APY/TVL history per Compass preset id (DefiLlama via the API, 1h server cache). */
+export function useCompassYields() {
+  const { data, offline } = usePolled<{ updatedAt: number; pools: Record<string, PoolYield> }>(
+    "/api/poolhistory",
+    600_000,
+  );
+  return { pools: data?.pools ?? null, offline };
 }
 
 export interface RegistryWallet {

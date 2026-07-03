@@ -29,12 +29,14 @@ import {
   FileText,
   X
 } from "lucide-react";
-import { calculateDynamicPosition, formatCurrency } from "./lib/utils";
+import { calculateDynamicPosition, formatCompactUsd, formatCurrency } from "./lib/utils";
 import { PositionState } from "./lib/types";
 import { LivePositions } from "./components/LivePositions";
+import { Sparkline } from "./components/Sparkline";
 import {
   useChainTelemetry,
   useCompassScores,
+  useCompassYields,
   useLiveScores,
   useProspective,
   useWalletPositions,
@@ -75,6 +77,25 @@ const TIER_BADGE: Record<RiskTier, string> = {
 
 const truncateAddress = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
 
+// ── Per-wallet onboarding profiles ──────────────────────────────────────────
+// Answers persist per wallet so switching BACK to a previously onboarded
+// address restores its profile instantly (the quiz is never asked twice).
+const PROFILE_STORE_KEY = "panik_profiles_by_wallet";
+
+function loadProfileStore(): Record<string, ProfileResult> {
+  try {
+    return JSON.parse(localStorage.getItem(PROFILE_STORE_KEY) ?? "{}") as Record<string, ProfileResult>;
+  } catch {
+    return {};
+  }
+}
+
+function saveProfileForWallet(wallet: string, result: ProfileResult): void {
+  const store = loadProfileStore();
+  store[wallet.toLowerCase()] = result;
+  localStorage.setItem(PROFILE_STORE_KEY, JSON.stringify(store));
+}
+
 interface VaultPreset {
   id: string;
   protocol: "Aave V3" | "Moonwell" | "Morpho" | "Compound V3";
@@ -87,13 +108,52 @@ interface VaultPreset {
   defaultCollateral: number;
   defaultBorrow: number;
   defaultPrice: number;
+  /** Static fallback; overridden by live DefiLlama pool APY when the API is up. */
   apy: number;
-  baseRisk: number; // Offline fallback — overridden by live engine scores when the API is up
+  baseRisk: number; // Offline fallback, overridden by live engine scores when the API is up
   riskStatus: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL";
-  protocolCount: number;
-  poolCount: number;
-  positionCount: number;
 }
+
+/**
+ * Composite weights mirrored from packages/scoring params.COMPOSITE_WEIGHTS
+ * (0.40 position / 0.25 asset / 0.20 protocol / 0.15 systemic). Display-only;
+ * keep in sync if the engine weights change.
+ */
+const SUB_SCORE_WEIGHTS = { positionHealth: 0.4, assetRisk: 0.25, protocolSafety: 0.2, systemicRisk: 0.15 } as const;
+
+/**
+ * Offline-only sub-score estimates whose WEIGHTED SUM reproduces the composite
+ * (the old UI showed fabricated Position/Pool/Protocol numbers that did not
+ * reconcile with the headline score - the exact QA complaint). Live engine
+ * sub-scores replace these whenever /api/compass is reachable.
+ */
+function demoSubScores(total: number) {
+  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+  const positionHealth = clamp(total + 12);
+  const assetRisk = clamp(total + 2);
+  const protocolSafety = clamp(total - 10);
+  const systemicRisk = clamp(
+    (total -
+      SUB_SCORE_WEIGHTS.positionHealth * positionHealth -
+      SUB_SCORE_WEIGHTS.assetRisk * assetRisk -
+      SUB_SCORE_WEIGHTS.protocolSafety * protocolSafety) /
+      SUB_SCORE_WEIGHTS.systemicRisk,
+  );
+  return { positionHealth, assetRisk, protocolSafety, systemicRisk };
+}
+
+/**
+ * Simulator scenario presets (one-tap answers before sliders). Magnitudes are
+ * anchored to the backtest event set (docs/technical-docs/BACKTEST_METHODOLOGY.md)
+ * rather than arbitrary round numbers.
+ */
+const PRICE_SCENARIOS = [
+  { key: "current", label: "Current", pct: 0, note: "market price" },
+  { key: "stress", label: "Stress", pct: -0.2, note: "sharp correction" },
+  { key: "crash", label: "Crash", pct: -0.4, note: "FTX week, Nov 2022" },
+  { key: "blackswan", label: "Black swan", pct: -0.55, note: "ETH, Jun 2022" },
+] as const;
+type ScenarioKey = (typeof PRICE_SCENARIOS)[number]["key"] | "custom";
 
 // Engine-supported presets (Aave V3 + Moonwell on Base — the camp scope).
 // USD sizes mirror the API's COMPASS_SCENARIOS so live scores map 1:1 by id.
@@ -112,9 +172,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     apy: 8.2,
     baseRisk: 8,
     riskStatus: "LOW",
-    protocolCount: 12,
-    poolCount: 8,
-    positionCount: 4
   },
   {
     id: "moonwell-usdc-supply",
@@ -130,9 +187,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     apy: 7.4,
     baseRisk: 15,
     riskStatus: "LOW",
-    protocolCount: 14,
-    poolCount: 10,
-    positionCount: 7
   },
   {
     id: "aave-wsteth-vault",
@@ -148,9 +202,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     apy: 5.2,
     baseRisk: 41,
     riskStatus: "ELEVATED",
-    protocolCount: 18,
-    poolCount: 12,
-    positionCount: 9
   },
   {
     id: "aave-weth-borrow",
@@ -166,9 +217,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     apy: 6.9,
     baseRisk: 22,
     riskStatus: "LOW",
-    protocolCount: 16,
-    poolCount: 14,
-    positionCount: 12
   },
   {
     id: "moonwell-weth-debt",
@@ -184,9 +232,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     apy: 5.7,
     baseRisk: 52,
     riskStatus: "HIGH",
-    protocolCount: 22,
-    poolCount: 18,
-    positionCount: 18
   },
   {
     id: "moonwell-cbeth-max",
@@ -202,9 +247,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     apy: 12.5,
     baseRisk: 76,
     riskStatus: "CRITICAL",
-    protocolCount: 45,
-    poolCount: 24,
-    positionCount: 32
   },
   {
     id: "morpho-weth-loop",
@@ -220,9 +262,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     apy: 7.8,
     baseRisk: 38,
     riskStatus: "ELEVATED",
-    protocolCount: 28,
-    poolCount: 31,
-    positionCount: 22
   },
   {
     id: "compound-weth-borrow",
@@ -238,9 +277,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     apy: 6.1,
     baseRisk: 30,
     riskStatus: "ELEVATED",
-    protocolCount: 19,
-    poolCount: 9,
-    positionCount: 11
   }
 ];
 
@@ -271,6 +307,7 @@ export function AppDemo() {
   );
 
   const handleOnboardingComplete = (result: ProfileResult, wallet: string) => {
+    saveProfileForWallet(wallet.trim(), result); // per-wallet memory (wallet-switch flow)
     localStorage.setItem("panik_onboarded", "true");
     localStorage.setItem("panik_risk_profile", result.riskProfile3); // 3-level (Compass)
     localStorage.setItem("panik_risk_tier", result.riskTier);         // 5-level (display)
@@ -286,6 +323,31 @@ export function AppDemo() {
     // No-op for non-EVM wallets. Enables Watch-worker scoring + Telegram alerts.
     void registerWatchedWallet(wallet.trim(), result.riskProfile3);
   };
+
+  // Backfill: users onboarded before per-wallet profiles existed only have
+  // the flat localStorage keys. Persist their profile into the store once so
+  // they can switch away and back without redoing the quiz.
+  useEffect(() => {
+    if (!onboardedWallet || !userSegment || !riskTier) return;
+    if (loadProfileStore()[onboardedWallet.toLowerCase()]) return;
+    saveProfileForWallet(onboardedWallet, {
+      riskScore: Number(localStorage.getItem("panik_risk_score") ?? 50),
+      riskTier,
+      riskTierLabel: RISK_TIER_LABELS[riskTier],
+      riskProfile3: selectedRiskProfile,
+      segment: userSegment,
+      segmentLabel: SEGMENT_LABELS[userSegment],
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardedWallet, userSegment, riskTier]);
+
+  // Saved per-wallet profiles for the wallet-switch flow. Recomputed whenever
+  // the overlay opens so a just-saved profile is seen.
+  const savedProfiles = useMemo(
+    () => loadProfileStore(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onboardedWallet, showOnboarding],
+  );
 
   // Telemetry simulation
   const [blockNumber, setBlockNumber] = useState<number>(19384910);
@@ -305,6 +367,7 @@ export function AppDemo() {
   // Declared FIRST — the memos below consume these (const = TDZ).
   const { positions: livePositions, updatedAt: liveUpdatedAt, offline: liveOffline } = useLiveScores();
   const { scores: compassLive } = useCompassScores();
+  const { pools: poolYields } = useCompassYields();
   const chainTel = useChainTelemetry();
 
   // Once a user has onboarded with their OWN wallet, the dashboard follows that
@@ -341,10 +404,17 @@ export function AppDemo() {
   }, [boundMode, onboardedWallet, registry, livePositions]);
 
   useEffect(() => {
+    // boundMode: the selection ALWAYS tracks the onboarded wallet. (Previously
+    // a registry wallet selected before onboarding finished stuck around,
+    // making the header show a different address than the onboarding chip.)
+    if (boundMode && onboardedWallet) {
+      if (selectedWallet !== onboardedWallet) setSelectedWallet(onboardedWallet);
+      return;
+    }
     if (selectedWallet === null && wallets.length > 0) {
       setSelectedWallet(wallets[0]!.wallet);
     }
-  }, [wallets, selectedWallet]);
+  }, [boundMode, onboardedWallet, wallets, selectedWallet]);
 
   const portfolioPositions = useMemo(() => {
     // boundMode: ownLive is already this one wallet's positions — no filtering.
@@ -366,6 +436,35 @@ export function AppDemo() {
       }),
     [compassLive],
   );
+
+  // Risk-breakdown panel source data (QA fix: the panel used to fabricate
+  // Position/Pool/Protocol sub-scores from baseRisk offsets, so its numbers
+  // never reconciled with the headline score). Live engine values when
+  // /api/compass is up; weighted-consistent demo estimates otherwise.
+  const breakdownData = useMemo(() => {
+    const p = selectedRiskBreakdownPreset;
+    if (!p) return null;
+    const live = compassLive?.[p.id] ?? null;
+    const subs = live
+      ? {
+          positionHealth: Math.round(live.subScores.positionHealth),
+          assetRisk: Math.round(live.subScores.assetRisk),
+          protocolSafety: Math.round(live.subScores.protocolSafety),
+          systemicRisk: Math.round(live.subScores.systemicRisk),
+        }
+      : demoSubScores(p.baseRisk);
+    // null HF = no debt (live); the demo fallback keeps the old derivation.
+    const healthFactor = live ? live.healthFactor : Math.round((2.5 - p.baseRisk / 60) * 100) / 100;
+    const drawdown = live ? live.liquidationDrawdown : 0.28;
+    return {
+      isLive: Boolean(live),
+      subs,
+      healthFactor,
+      liqPrice: drawdown != null ? p.defaultPrice * (1 - drawdown) : null,
+      bufferPct: drawdown != null ? Math.round(drawdown * 100) : null,
+      poolYield: poolYields?.[p.id] ?? null,
+    };
+  }, [selectedRiskBreakdownPreset, compassLive, poolYields]);
 
   // Portfolio macro metrics from the SELECTED wallet's live positions
   const liveMacro = useMemo(() => {
@@ -413,10 +512,16 @@ export function AppDemo() {
   // Load selected preset for Watch/Simulator tab
   const activePreset = presetsWithLive.find(p => p.id === selectedPresetId) || presetsWithLive[4];
 
-  // Simulator Sliders
+  // Simulator parameters (sliders + direct numeric inputs)
   const [collateralAmount, setCollateralAmount] = useState<number>(activePreset.defaultCollateral);
   const [borrowAmount, setBorrowAmount] = useState<number>(activePreset.defaultBorrow);
   const [assetPrice, setAssetPrice] = useState<number>(activePreset.defaultPrice);
+  // Borrowed-asset price (USDC presets default $1; movable for depeg scenarios
+  // like the Mar 2023 USDC/SVB event in the backtest set).
+  const [debtPrice, setDebtPrice] = useState<number>(1);
+  // Which one-tap scenario chip the price currently matches ("custom" = slider).
+  const [activeScenario, setActiveScenario] = useState<ScenarioKey>("current");
+  const borrowUsd = borrowAmount * debtPrice;
 
   // Recommendations internal sub-tab
   const [recommendationsSubTab, setRecommendationsSubTab] = useState<"advisor" | "breakdown">("advisor");
@@ -429,6 +534,8 @@ export function AppDemo() {
     setCollateralAmount(activePreset.defaultCollateral);
     setBorrowAmount(activePreset.defaultBorrow);
     setAssetPrice(activePreset.defaultPrice);
+    setDebtPrice(1);
+    setActiveScenario("current");
     addLog(`Position simulation loaded: ${activePreset.protocol} (${activePreset.collateralAsset}/${activePreset.debtAsset})`);
   }, [selectedPresetId]);
 
@@ -440,9 +547,20 @@ export function AppDemo() {
     return calculateDynamicPosition(
       protocolName,
       collateralAmount,
-      borrowAmount,
+      borrowUsd,
       assetPrice
     );
+  };
+
+  // Scenario helpers (#3): one-tap price presets before free-form sliders.
+  const scenarioPrice = (pct: number) => {
+    const target = activePreset.defaultPrice * (1 + pct);
+    return activePreset.defaultPrice < 10 ? Math.round(target * 100) / 100 : Math.round(target);
+  };
+  const applyScenario = (key: ScenarioKey, pct: number) => {
+    setAssetPrice(scenarioPrice(pct));
+    setActiveScenario(key);
+    addLog(`Scenario applied: ${key} (${Math.round(pct * 100)}% ${activePreset.collateralAsset} move)`);
   };
 
   // LIVE Watch scoring: sliders → the real engine (debounced /api/prospective,
@@ -453,9 +571,9 @@ export function AppDemo() {
       protocol: activePreset.engineProtocol,
       symbol: activePreset.collateralSymbol,
       collateralUsd: Math.max(0, Math.round(collateralAmount * assetPrice * 100) / 100),
-      borrowUsd: Math.max(0, borrowAmount),
+      borrowUsd: Math.max(0, Math.round(borrowUsd * 100) / 100),
     }),
-    [activePreset.engineProtocol, activePreset.collateralSymbol, collateralAmount, assetPrice, borrowAmount],
+    [activePreset.engineProtocol, activePreset.collateralSymbol, collateralAmount, assetPrice, borrowUsd],
   );
   const liveWatch = useProspective(prospectiveArgs);
 
@@ -476,7 +594,7 @@ export function AppDemo() {
         riskScore: liveWatch.total,
         status: liveWatch.band,
         collateralValue: collateralAmount * assetPrice,
-        borrowValue: borrowAmount,
+        borrowValue: borrowUsd,
         healthFactor: liveWatch.healthFactor ?? 9.99,
         liquidationPrice:
           liveWatch.liquidationDrawdown !== null
@@ -594,9 +712,16 @@ export function AppDemo() {
 
   return (
     <>
-    {/* First-time onboarding overlay: 5-question profiling quiz → wallet.
-        Wallet is mandatory (no skip) — the overlay only closes on completion. */}
-    {showOnboarding && <Onboarding onComplete={handleOnboardingComplete} />}
+    {/* Onboarding overlay. First run: mandatory (no cancel). Wallet-switch
+        (header chip): cancellable, and a previously onboarded wallet restores
+        its saved profile without re-asking the quiz. */}
+    {showOnboarding && (
+      <Onboarding
+        onComplete={handleOnboardingComplete}
+        savedProfiles={savedProfiles}
+        onCancel={onboardedWallet ? () => setShowOnboarding(false) : undefined}
+      />
+    )}
 
     <div className="flex h-screen w-screen overflow-hidden bg-[#0A0A0B] text-[#F0F4FF] font-sans antialiased text-sm">
 
@@ -730,16 +855,22 @@ export function AppDemo() {
               <strong className="text-emerald-400 bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10">{gasPrice} GWEI</strong>
             </div>
             <div className="h-4 w-px bg-white/10 hidden md:block"></div>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.05] text-[11px] font-semibold text-white/80">
+            <button
+              type="button"
+              onClick={() => setShowOnboarding(true)}
+              title="Change wallet - a previously onboarded address restores its saved profile instantly"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.05] hover:border-panik-orange/30 text-[11px] font-semibold text-white/80 transition-colors cursor-pointer group"
+            >
               <Wallet className="w-3.5 h-3.5 text-panik-orange" />
               <span>
                 {selectedWallet && selectedWallet !== "all"
-                  ? `${selectedWallet.slice(0, 6)}…${selectedWallet.slice(-4)}`
+                  ? truncateAddress(selectedWallet)
                   : selectedWallet === "all"
                     ? `Registry (${wallets.length} wallets)`
-                    : "0x8F94…42fA"}
+                    : "Connect wallet"}
               </span>
-            </div>
+              <RefreshCw className="w-3 h-3 text-white/25 group-hover:text-panik-orange transition-colors" />
+            </button>
           </div>
         </header>
 
@@ -845,26 +976,38 @@ export function AppDemo() {
                           </button>
                         </div>
 
-                        {/* APY indicator */}
-                        <div className="mb-3">
-                          <span className="text-xs text-emerald-400 font-mono font-bold">APY Rate: {preset.apy}%</span>
-                        </div>
-
-                        {/* Figma UI submetrics grid layout of Protocol, Pool, Position */}
-                        <div className="grid grid-cols-3 gap-2 border-t border-white/[0.04] pt-4.5 mt-2.5">
-                          <div>
-                            <span className="block text-[8px] font-mono uppercase text-panik-text-secondary">Protocol Index</span>
-                            <span className="text-sm font-mono font-bold text-white">{preset.protocolCount}</span>
-                          </div>
-                          <div>
-                            <span className="block text-[8px] font-mono uppercase text-panik-text-secondary">Pool Count</span>
-                            <span className="text-sm font-mono font-bold text-white">{preset.poolCount}</span>
-                          </div>
-                          <div>
-                            <span className="block text-[8px] font-mono uppercase text-panik-text-secondary">Position Count</span>
-                            <span className="text-sm font-mono font-bold text-white">{preset.positionCount}</span>
-                          </div>
-                        </div>
+                        {/* Yield reality: live APY + TVL + 30d trend (DefiLlama via /api/poolhistory) */}
+                        {(() => {
+                          const py = poolYields?.[preset.id];
+                          return (
+                            <>
+                              <div className="mb-2 flex items-baseline justify-between">
+                                <span className="text-xs text-emerald-400 font-mono font-bold">
+                                  APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
+                                </span>
+                                {py && (
+                                  <span className="text-[9px] font-mono text-panik-text-secondary uppercase">
+                                    TVL {formatCompactUsd(py.tvlUsd)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="border-t border-white/[0.04] pt-3 mt-2">
+                                {py ? (
+                                  <>
+                                    <Sparkline data={py.apySeries} stroke="#34d399" height={36} />
+                                    <span className="block text-[8px] font-mono uppercase text-panik-text-secondary mt-1">
+                                      Supply APY, last 30 days
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="block text-[9px] font-mono text-white/25 py-3">
+                                    30d yield history unavailable
+                                  </span>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
 
                         {/* Direct action links to load this into simulator watch window */}
                         <div className="mt-5 pt-3 border-t border-white/[0.03] flex justify-between items-center opacity-80 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
@@ -925,25 +1068,38 @@ export function AppDemo() {
                           </button>
                         </div>
 
-                        {/* APY indicator */}
-                        <div className="mb-3">
-                          <span className="text-xs text-white/40 font-mono">APY Rate: {preset.apy}%</span>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2 border-t border-white/[0.02] pt-4 mt-2">
-                          <div>
-                            <span className="block text-[8px] font-mono uppercase text-[#748BAA]/40 font-bold">Protocol Index</span>
-                            <span className="text-sm font-mono font-bold text-white/40">{preset.protocolCount}</span>
-                          </div>
-                          <div>
-                            <span className="block text-[8px] font-mono uppercase text-[#748BAA]/40 font-bold">Pool Count</span>
-                            <span className="text-sm font-mono font-bold text-white/40">{preset.poolCount}</span>
-                          </div>
-                          <div>
-                            <span className="block text-[8px] font-mono uppercase text-[#748BAA]/40 font-bold">Position Count</span>
-                            <span className="text-sm font-mono font-bold text-white/40">{preset.positionCount}</span>
-                          </div>
-                        </div>
+                        {/* Yield reality (muted): live APY + TVL + 30d trend */}
+                        {(() => {
+                          const py = poolYields?.[preset.id];
+                          return (
+                            <>
+                              <div className="mb-2 flex items-baseline justify-between">
+                                <span className="text-xs text-white/40 font-mono">
+                                  APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
+                                </span>
+                                {py && (
+                                  <span className="text-[9px] font-mono text-white/30 uppercase">
+                                    TVL {formatCompactUsd(py.tvlUsd)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="border-t border-white/[0.02] pt-3 mt-2">
+                                {py ? (
+                                  <>
+                                    <Sparkline data={py.apySeries} stroke="#64748b" height={36} className="opacity-70" />
+                                    <span className="block text-[8px] font-mono uppercase text-[#748BAA]/40 font-bold mt-1">
+                                      Supply APY, last 30 days
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="block text-[9px] font-mono text-white/20 py-3">
+                                    30d yield history unavailable
+                                  </span>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
 
                         <div className="mt-5 pt-3 border-t border-white/[0.03] flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
                           <span className="text-[9px] font-mono text-[#F0F4FF]/25">Outside safety triggers</span>
@@ -1054,6 +1210,34 @@ export function AppDemo() {
                             {positionState.status === "ELEVATED" && "Moderate leverage risk. Position is stable but vulnerable to short-term market volatile swings."}
                             {positionState.status === "LOW" && "Safe operating range. Robust collateral buffer easily withstands active market swings."}
                           </p>
+
+                          {/* Dollar-framed verdict: what this scenario means in money, not percentages */}
+                          {(() => {
+                            const cv = positionState.collateralValue;
+                            const lp = positionState.liquidationPrice;
+                            if (borrowUsd <= 0 || cv <= 0) return null;
+                            if (positionState.healthFactor <= 1.0) {
+                              return (
+                                <p className="text-[11px] font-sans leading-relaxed text-red-400 font-semibold">
+                                  At this simulated price your {formatCurrency(cv)} collateral is past the
+                                  liquidation threshold - liquidators could seize it.
+                                </p>
+                              );
+                            }
+                            if (lp > 0 && lp < positionState.currentPrice) {
+                              const dropPct = Math.round((1 - lp / positionState.currentPrice) * 100);
+                              return (
+                                <p className="text-[11px] font-sans leading-relaxed text-[#A0AEC0]">
+                                  A further <span className="text-panik-orange font-semibold">-{dropPct}%</span>{" "}
+                                  {activePreset.collateralAsset} move (to{" "}
+                                  <span className="text-panik-orange font-semibold">{formatCurrency(lp)}</span>) puts
+                                  your <span className="text-white font-semibold">{formatCurrency(cv)}</span> collateral
+                                  up for liquidation.
+                                </p>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
 
@@ -1168,7 +1352,7 @@ export function AppDemo() {
                         <span className="block text-[10px] font-mono text-panik-text-secondary uppercase tracking-wider mb-1">POSITION LTV</span>
                         <div className="flex items-baseline gap-1">
                           <span className="text-4xl font-mono font-bold tracking-tight text-white/95">
-                            {Math.round((borrowAmount / (collateralAmount * assetPrice)) * 100)}%
+                            {Math.round((borrowUsd / (collateralAmount * assetPrice)) * 100)}%
                           </span>
                         </div>
                         <span className="text-[9px] font-mono text-[#F0F4FF]/45 block mt-2">Maximum risk cap parameter: {activePreset.protocol === "Aave V3" ? "82%" : "78%"}</span>
@@ -1222,57 +1406,190 @@ export function AppDemo() {
                 {/* Automation triggers & Telemetry feed column (lg:col-span-4) */}
                 <div className="col-span-1 lg:col-span-4 space-y-6">
                   
-                  {/* Slider Adjusters: Completely accessible and non-occluded! */}
+                  {/* Scenario presets (#3): the answer first, sliders second */}
+                  <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-2xl space-y-3">
+                    <span className="text-[10px] font-mono text-white tracking-widest uppercase block border-b border-white/[0.05] pb-2">
+                      Price Scenarios
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {PRICE_SCENARIOS.map((s) => {
+                        const price = scenarioPrice(s.pct);
+                        const maxLTV = activePreset.protocol === "Aave V3" ? 0.82 : 0.78;
+                        const estHf = borrowUsd > 0 ? (collateralAmount * price * maxLTV) / borrowUsd : Infinity;
+                        const active = activeScenario === s.key;
+                        const liquidated = Number.isFinite(estHf) && estHf < 1;
+                        return (
+                          <button
+                            key={s.key}
+                            onClick={() => applyScenario(s.key, s.pct)}
+                            className={`text-left p-2.5 rounded-lg border transition-all cursor-pointer ${
+                              active
+                                ? "bg-panik-orange/10 border-panik-orange/40"
+                                : "bg-white/[0.01] border-white/[0.05] hover:bg-white/[0.04]"
+                            }`}
+                          >
+                            <div className="flex items-baseline justify-between">
+                              <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${active ? "text-panik-orange" : "text-white/80"}`}>
+                                {s.label}
+                              </span>
+                              {s.pct !== 0 && (
+                                <span className="text-[9px] font-mono text-red-400/80">{Math.round(s.pct * 100)}%</span>
+                              )}
+                            </div>
+                            <span className="block text-[10px] font-mono text-white/60 mt-1">
+                              {formatCurrency(price)}
+                              {borrowUsd > 0 && (
+                                <span className={`ml-1.5 font-bold ${liquidated ? "text-red-400" : estHf < 1.3 ? "text-amber-400" : "text-emerald-400"}`}>
+                                  {liquidated ? "LIQUIDATED" : `HF ~${estHf.toFixed(2)}`}
+                                </span>
+                              )}
+                            </span>
+                            <span className="block text-[8px] font-mono text-white/25 mt-0.5">{s.note}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[8px] font-mono text-white/25 leading-relaxed">
+                      Crash and black-swan magnitudes mirror the backtest event set. HF preview is an
+                      estimate; the headline score uses the live engine.
+                    </p>
+                  </div>
+
+                  {/* Advanced parameters (#4): direct inputs for amounts + prices */}
                   <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-2xl space-y-4">
                     <span className="text-[10px] font-mono text-white tracking-widest uppercase block border-b border-white/[0.05] pb-2">
                        Simulate Fluctuation Parameters
                     </span>
 
-                    {/* Price Slider */}
+                    {/* Collateral amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
-                      <div className="flex justify-between text-xs font-mono text-panik-text-secondary">
-                        <span>Collateral Asset Mock Price ({activePreset.collateralAsset}):</span>
-                        <span className={assetPrice < (activePreset.defaultPrice * 0.8) ? "text-red-400 font-bold" : "text-white"}>
-                          {formatCurrency(assetPrice)} USD
-                        </span>
+                      <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
+                        <span>Collateral Deposited ({activePreset.collateralAsset}):</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={activePreset.defaultCollateral < 10 ? 0.1 : 100}
+                          value={collateralAmount}
+                          onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
+                          className="w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-white text-xs font-mono outline-none focus:border-panik-orange/60"
+                          aria-label="Collateral amount"
+                        />
                       </div>
                       <input
                         type="range"
-                        min={Math.round(activePreset.defaultPrice * 0.6)}
+                        min={0}
+                        max={activePreset.defaultCollateral * 2.5}
+                        step={activePreset.defaultCollateral < 10 ? 0.05 : 50}
+                        value={Math.min(collateralAmount, activePreset.defaultCollateral * 2.5)}
+                        onChange={(e) => setCollateralAmount(Number(e.target.value))}
+                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
+                        id="watch-collateral-slider"
+                      />
+                      <div className="flex justify-between text-[8px] font-mono text-white/20">
+                        <span>Withdrawn (0)</span>
+                        <span>Topped up (2.5x) - worth {formatCurrency(collateralAmount * assetPrice)}</span>
+                      </div>
+                    </div>
+
+                    {/* Collateral price */}
+                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
+                      <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
+                        <span>Collateral Asset Price ({activePreset.collateralAsset}):</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={activePreset.defaultPrice < 10 ? 0.01 : 10}
+                          value={assetPrice}
+                          onChange={(e) => {
+                            setAssetPrice(Math.max(0, Number(e.target.value)));
+                            setActiveScenario("custom");
+                          }}
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-none focus:border-panik-orange/60 ${
+                            assetPrice < activePreset.defaultPrice * 0.8 ? "text-red-400 font-bold" : "text-white"
+                          }`}
+                          aria-label="Collateral asset price in USD"
+                        />
+                      </div>
+                      <input
+                        type="range"
+                        min={Math.round(activePreset.defaultPrice * 0.4)}
                         max={Math.round(activePreset.defaultPrice * 1.3)}
                         step={activePreset.defaultPrice < 10 ? "0.05" : "20"}
                         value={assetPrice}
-                        onChange={(e) => setAssetPrice(Number(e.target.value))}
+                        onChange={(e) => {
+                          setAssetPrice(Number(e.target.value));
+                          setActiveScenario("custom");
+                        }}
                         className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
                         id="watch-price-slider"
                       />
                       <div className="flex justify-between text-[8px] font-mono text-white/20">
-                        <span>Minus -40% Downside ({formatCurrency(activePreset.defaultPrice * 0.6)})</span>
+                        <span>Minus -60% Downside ({formatCurrency(activePreset.defaultPrice * 0.4)})</span>
                         <span>Plus +30% Upside ({formatCurrency(activePreset.defaultPrice * 1.3)})</span>
                       </div>
                     </div>
 
-                    {/* Debt Slider */}
+                    {/* Borrowed amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
-                      <div className="flex justify-between text-xs font-mono text-panik-text-secondary">
-                        <span>Borrowed Outstanding Liability:</span>
-                        <span className={borrowAmount > (activePreset.defaultBorrow * 1.2) ? "text-red-400 font-bold" : "text-white"}>
-                          {borrowAmount.toFixed(1)} {activePreset.debtAsset}
-                        </span>
+                      <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
+                        <span>Borrowed Amount ({activePreset.debtAsset}):</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={activePreset.defaultBorrow < 10 ? 0.1 : 50}
+                          value={borrowAmount}
+                          onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-none focus:border-panik-orange/60 ${
+                            borrowAmount > activePreset.defaultBorrow * 1.2 ? "text-red-400 font-bold" : "text-white"
+                          }`}
+                          aria-label="Borrowed amount"
+                        />
                       </div>
                       <input
                         type="range"
-                        min={Math.round(activePreset.defaultBorrow * 0.5)}
+                        min={0}
                         max={Math.round(activePreset.defaultBorrow * 1.6)}
                         step={activePreset.defaultBorrow < 10 ? "0.1" : "50"}
-                        value={borrowAmount}
+                        value={Math.min(borrowAmount, activePreset.defaultBorrow * 1.6)}
                         onChange={(e) => setBorrowAmount(Number(e.target.value))}
                         className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
                         id="watch-borrow-slider"
                       />
                       <div className="flex justify-between text-[8px] font-mono text-white/20">
-                        <span>Repaid (-50% Debt)</span>
+                        <span>Fully repaid (0)</span>
                         <span>Leveraged (+60% Debt)</span>
+                      </div>
+                    </div>
+
+                    {/* Borrowed asset price (depeg scenarios) */}
+                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
+                      <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
+                        <span>Borrowed Asset Price ({activePreset.debtAsset}):</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.005}
+                          value={debtPrice}
+                          onChange={(e) => setDebtPrice(Math.max(0, Number(e.target.value)))}
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-none focus:border-panik-orange/60 ${
+                            Math.abs(debtPrice - 1) > 0.02 ? "text-amber-400 font-bold" : "text-white"
+                          }`}
+                          aria-label="Borrowed asset price in USD"
+                        />
+                      </div>
+                      <input
+                        type="range"
+                        min={0.85}
+                        max={1.05}
+                        step={0.005}
+                        value={Math.min(Math.max(debtPrice, 0.85), 1.05)}
+                        onChange={(e) => setDebtPrice(Number(e.target.value))}
+                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
+                        id="watch-debt-price-slider"
+                      />
+                      <div className="flex justify-between text-[8px] font-mono text-white/20">
+                        <span>Depeg ($0.85 - USDC hit $0.87 in Mar 2023)</span>
+                        <span>Premium ($1.05)</span>
                       </div>
                     </div>
                   </div>
@@ -1699,13 +2016,22 @@ export function AppDemo() {
                   <div className="bg-[#111318]/40 border border-white/[0.06] rounded-xl p-4 space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] font-mono text-white/50 uppercase tracking-widest">Panik Risk Score</span>
-                      <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded border ${
-                        selectedRiskBreakdownPreset.baseRisk < 20 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25" :
-                        selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-amber-500/10 text-amber-500 border-amber-500/25" :
-                        "bg-red-500/10 text-red-400 border-red-500/25"
-                      }`}>
-                        {selectedRiskBreakdownPreset.riskStatus}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
+                          breakdownData?.isLive
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
+                            : "bg-white/[0.04] text-white/40 border-white/10"
+                        }`}>
+                          {breakdownData?.isLive ? "● LIVE" : "DEMO"}
+                        </span>
+                        <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded border ${
+                          selectedRiskBreakdownPreset.baseRisk < 25 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25" :
+                          selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-amber-500/10 text-amber-500 border-amber-500/25" :
+                          "bg-red-500/10 text-red-400 border-red-500/25"
+                        }`}>
+                          {selectedRiskBreakdownPreset.riskStatus}
+                        </span>
+                      </div>
                     </div>
                     
                     <div className="flex items-baseline justify-center gap-1.5">
@@ -1716,9 +2042,9 @@ export function AppDemo() {
                     </div>
 
                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className={`h-full rounded-full ${
-                          selectedRiskBreakdownPreset.baseRisk < 20 ? "bg-emerald-500" :
+                          selectedRiskBreakdownPreset.baseRisk < 25 ? "bg-emerald-500" :
                           selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-amber-500" :
                           "bg-red-500"
                         }`}
@@ -1726,21 +2052,33 @@ export function AppDemo() {
                       ></div>
                     </div>
 
-                    {/* Sub scores (Position, Pool, Protocol Score) */}
-                    <div className="grid grid-cols-3 gap-2 pt-2 text-center text-xs font-mono">
-                      <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
-                        <span className="block text-[8px] text-white/40 uppercase mb-0.5">Position</span>
-                        <strong className="text-white">{selectedRiskBreakdownPreset.baseRisk}</strong>
-                      </div>
-                      <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
-                        <span className="block text-[8px] text-white/40 uppercase mb-0.5">Pool</span>
-                        <strong className="text-white">{Math.max(10, selectedRiskBreakdownPreset.baseRisk - 8)}</strong>
-                      </div>
-                      <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
-                        <span className="block text-[8px] text-white/40 uppercase mb-0.5">Protocol</span>
-                        <strong className="text-white">{Math.max(10, selectedRiskBreakdownPreset.baseRisk - 14)}</strong>
-                      </div>
-                    </div>
+                    {/* Score components: the engine's real weighted sub-scores.
+                        The composite above IS the weighted sum of these four. */}
+                    {breakdownData && (
+                      <>
+                        <div className="grid grid-cols-4 gap-2 pt-2 text-center text-xs font-mono">
+                          <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
+                            <span className="block text-[8px] text-white/40 uppercase mb-0.5">Position ×40%</span>
+                            <strong className="text-white">{breakdownData.subs.positionHealth}</strong>
+                          </div>
+                          <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
+                            <span className="block text-[8px] text-white/40 uppercase mb-0.5">Asset ×25%</span>
+                            <strong className="text-white">{breakdownData.subs.assetRisk}</strong>
+                          </div>
+                          <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
+                            <span className="block text-[8px] text-white/40 uppercase mb-0.5">Protocol ×20%</span>
+                            <strong className="text-white">{breakdownData.subs.protocolSafety}</strong>
+                          </div>
+                          <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
+                            <span className="block text-[8px] text-white/40 uppercase mb-0.5">Systemic ×15%</span>
+                            <strong className="text-white">{breakdownData.subs.systemicRisk}</strong>
+                          </div>
+                        </div>
+                        <p className="text-[9px] font-mono text-white/30 leading-relaxed">
+                          The headline score is the weighted sum of these four components.
+                        </p>
+                      </>
+                    )}
                   </div>
 
                   {/* 10 Risk Dimensions Table/Cards Grid */}
@@ -1758,22 +2096,26 @@ export function AppDemo() {
                         </span>
                       </div>
 
-                      {/* Dimension 2: Health Factor */}
+                      {/* Dimension 2: Health Factor (live engine value when available) */}
                       <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
                         <span className="text-[8px] font-mono text-white/40 uppercase">2. Health Factor</span>
-                        <span className={`text-base font-mono font-bold mt-1 ${
-                          (2.5 - (selectedRiskBreakdownPreset.baseRisk / 60)) < 1.3 ? "text-red-400" :
-                          (2.5 - (selectedRiskBreakdownPreset.baseRisk / 60)) < 1.70 ? "text-amber-400" : "text-emerald-400"
-                        }`}>
-                          {(2.5 - (selectedRiskBreakdownPreset.baseRisk / 60)).toFixed(2)}
-                        </span>
+                        {breakdownData?.healthFactor == null ? (
+                          <span className="text-base font-mono font-bold mt-1 text-emerald-400">No debt</span>
+                        ) : (
+                          <span className={`text-base font-mono font-bold mt-1 ${
+                            breakdownData.healthFactor < 1.3 ? "text-red-400" :
+                            breakdownData.healthFactor < 1.7 ? "text-amber-400" : "text-emerald-400"
+                          }`}>
+                            {breakdownData.healthFactor.toFixed(2)}
+                          </span>
+                        )}
                       </div>
 
-                      {/* Dimension 3: Liquidation Price */}
+                      {/* Dimension 3: Liquidation Price (from the engine's drawdown when live) */}
                       <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
                         <span className="text-[8px] font-mono text-white/40 uppercase">3. Liquidation Price</span>
                         <span className="text-sm font-mono font-bold text-panik-orange mt-1">
-                          {formatCurrency(selectedRiskBreakdownPreset.defaultPrice * 0.72)}
+                          {breakdownData?.liqPrice != null ? formatCurrency(breakdownData.liqPrice) : "-"}
                         </span>
                       </div>
 
@@ -1781,7 +2123,7 @@ export function AppDemo() {
                       <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
                         <span className="text-[8px] font-mono text-white/40 uppercase">4. Buffer to Liquidation</span>
                         <span className="text-base font-mono font-bold text-white mt-1">
-                          {Math.round(((selectedRiskBreakdownPreset.defaultPrice - (selectedRiskBreakdownPreset.defaultPrice * 0.72)) / selectedRiskBreakdownPreset.defaultPrice) * 100)}%
+                          {breakdownData?.bufferPct != null ? `${breakdownData.bufferPct}%` : "-"}
                         </span>
                       </div>
 
@@ -1808,6 +2150,38 @@ export function AppDemo() {
                           {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (Optimal range)
                         </span>
                       </div>
+
+                      {/* Dimension 8: Supply APY with 30d trend (DefiLlama) */}
+                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
+                        <span className="text-[8px] font-mono text-white/40 uppercase">8. Supply APY (30d)</span>
+                        {breakdownData?.poolYield ? (
+                          <>
+                            <span className="text-base font-mono font-bold text-emerald-400 mt-1">
+                              {breakdownData.poolYield.apy.toFixed(2)}%
+                            </span>
+                            <Sparkline data={breakdownData.poolYield.apySeries} stroke="#34d399" height={24} className="mt-1" />
+                          </>
+                        ) : (
+                          <span className="text-base font-mono font-bold text-white/30 mt-1">
+                            {selectedRiskBreakdownPreset.apy.toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Dimension 9: Pool TVL with 30d trend (DefiLlama) */}
+                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
+                        <span className="text-[8px] font-mono text-white/40 uppercase">9. Pool TVL (30d)</span>
+                        {breakdownData?.poolYield ? (
+                          <>
+                            <span className="text-base font-mono font-bold text-white mt-1">
+                              {formatCompactUsd(breakdownData.poolYield.tvlUsd)}
+                            </span>
+                            <Sparkline data={breakdownData.poolYield.tvlSeries} stroke="#38bdf8" height={24} className="mt-1" />
+                          </>
+                        ) : (
+                          <span className="text-base font-mono font-bold text-white/30 mt-1">-</span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -1818,9 +2192,9 @@ export function AppDemo() {
                     </span>
 
                     <div className="space-y-2 text-xs font-mono">
-                      {/* Dimension 8: Protocol Signals */}
+                      {/* Dimension 10: Protocol Signals */}
                       <div className="bg-white/[0.01] border border-white/[0.04] p-3 rounded-lg leading-relaxed">
-                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">8. Protocol Security Signal</span>
+                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">10. Protocol Security Signal</span>
                         <p className="text-white/80">
                           {selectedRiskBreakdownPreset.protocol === "Aave V3" && "Aave V3 safety module is funded and active. Dynamic interest-rate curves and isolation mode in place. Governance secured by multi-sig and timelock."}
                           {selectedRiskBreakdownPreset.protocol === "Moonwell" && "Moonwell markets run on Base with a 48-hour governance timelock on system parameters. Collateral factors monitored continuously."}
@@ -1829,17 +2203,17 @@ export function AppDemo() {
                         </p>
                       </div>
 
-                      {/* Dimension 9: Pool Signals */}
+                      {/* Dimension 11: Pool Signals */}
                       <div className="bg-white/[0.01] border border-white/[0.04] p-3 rounded-lg leading-relaxed">
-                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">9. Pool Liquidity Signal</span>
+                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">11. Pool Liquidity Signal</span>
                         <p className="text-white/80">
                           Primary pool depth exceeds $82,000,000 in active vault lines. Slippage parameters on decentralized exchanges index &lt; 0.15% depth buffer. No oracle drift.
                         </p>
                       </div>
 
-                      {/* Dimension 10: Position Signals */}
+                      {/* Dimension 12: Position Signals */}
                       <div className="bg-white/[0.01] border border-white/[0.04] p-3 rounded-lg leading-relaxed">
-                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">10. Position Watch Signal</span>
+                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">12. Position Watch Signal</span>
                         <p className="text-white/80">
                           {selectedRiskBreakdownPreset.baseRisk < 20 
                             ? "Position health maintains normal volatility parameters. No automated hedges currently required."

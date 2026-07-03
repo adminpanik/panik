@@ -9,6 +9,7 @@
  *   GET /api/scores       live wallet positions (Supabase registry → chain)
  *   GET /api/compass      the 6 Compass preset scenarios, scored live
  *   GET /api/prospective  ?protocol&symbol&collateralUsd&borrowUsd (Watch sliders)
+ *   GET /api/poolhistory  30d APY/TVL per Compass preset (DefiLlama, 1h cache)
  *   GET /api/profile      ?wallet  DeFi-persona prediction (Dune history → AI)
  *   GET /api/chain        real Base block number + gas price
  */
@@ -207,6 +208,67 @@ async function getCompass(): Promise<typeof compassCache> {
   return compassCache;
 }
 
+// ── DefiLlama pool yields (30d APY/TVL per Compass preset; 1h cache) ────────
+// Pool UUIDs resolved from https://yields.llama.fi/pools filtered on
+// chain=Base + project + symbol (highest TVL match), verified 2026-07-03.
+// Re-derive with the same filter if a market is migrated or delisted.
+// moonwell-cbeth-max has NO listed pool (market delisted from DefiLlama) -
+// intentionally absent; the UI falls back to its static preset APY.
+const LLAMA_POOLS: Record<string, string> = {
+  "aave-usdc-supply": "7e0661bf-8cf3-45e6-9424-31916d4c7b84", // aave-v3 / USDC
+  "moonwell-usdc-supply": "69cf831d-624a-4f23-b5e3-c0f63ad1fa01", // moonwell-lending / USDC
+  "aave-wsteth-vault": "361f0a3c-6adb-4b1c-bf35-f9cd79f2341c", // aave-v3 / WSTETH
+  "aave-weth-borrow": "23405eee-97e7-4b8e-8625-19c3a36047e8", // aave-v3 / WETH
+  "moonwell-weth-debt": "914284ae-dbef-421f-bbb7-7c42f527fd5f", // moonwell-lending / ETH
+  "morpho-weth-loop": "660e240a-ab18-43af-9d24-0245828f903f", // morpho-blue / WETH
+  "compound-weth-borrow": "d83facac-3757-4b19-a84c-f3c0850dfe2a", // compound-v3 / WETH
+};
+
+interface PoolYield {
+  apy: number;
+  tvlUsd: number;
+  apySeries: number[]; // last 30 daily points, oldest first
+  tvlSeries: number[];
+}
+
+let poolYieldCache: { at: number; pools: Record<string, PoolYield> } = { at: 0, pools: {} };
+
+async function getPoolYields(): Promise<typeof poolYieldCache> {
+  if (Date.now() - poolYieldCache.at < 3_600_000) return poolYieldCache;
+  const entries = await Promise.all(
+    Object.entries(LLAMA_POOLS).map(async ([id, pool]) => {
+      try {
+        const res = await fetch(`https://yields.llama.fi/chart/${pool}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = (await res.json()) as {
+          data: { tvlUsd: number | null; apy: number | null }[];
+        };
+        const tail = body.data.slice(-30);
+        if (tail.length === 0) return null;
+        const apySeries = tail.map((p) => p.apy ?? 0);
+        const tvlSeries = tail.map((p) => p.tvlUsd ?? 0);
+        const yieldRow: PoolYield = {
+          apy: apySeries[apySeries.length - 1]!,
+          tvlUsd: tvlSeries[tvlSeries.length - 1]!,
+          apySeries,
+          tvlSeries,
+        };
+        return [id, yieldRow] as const;
+      } catch (err) {
+        console.error(`pool yield failed for ${id}: ${(err as Error).message.slice(0, 80)}`);
+        return null;
+      }
+    }),
+  );
+  const pools = Object.fromEntries(entries.filter((e): e is [string, PoolYield] => e !== null));
+  // Every fetch failed (Llama outage): keep serving the stale cache.
+  if (Object.keys(pools).length === 0 && Object.keys(poolYieldCache.pools).length > 0) {
+    return poolYieldCache;
+  }
+  poolYieldCache = { at: Date.now(), pools };
+  return poolYieldCache;
+}
+
 // Wallet persona profiles are handled by the shared start/poll session
 // (Supabase-cached), identical to the Vercel functions — see the routes below.
 
@@ -321,6 +383,15 @@ app.get("/api/compass", async (_req, res) => {
     res.json({ updatedAt: at, scores });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.get("/api/poolhistory", async (_req, res) => {
+  try {
+    const { at, pools } = await getPoolYields();
+    res.json({ updatedAt: at, pools });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
   }
 });
 

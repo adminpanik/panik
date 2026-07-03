@@ -115,3 +115,12 @@ export function formatCurrency(value: number): string {
     maximumFractionDigits: 0
   }).format(value);
 }
+
+/** $36.27m / $609.9k style compact USD (TVL figures). */
+export function formatCompactUsd(value: number): string {
+  if (!Number.isFinite(value)) return "-";
+  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}b`;
+  if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}m`;
+  if (value >= 1e3) return `$${(value / 1e3).toFixed(1)}k`;
+  return `$${Math.round(value)}`;
+}

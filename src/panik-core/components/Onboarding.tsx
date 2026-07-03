@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, ArrowRight, Check, Loader2, ShieldAlert, Sparkles, Wallet } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, ShieldAlert, Sparkles, Wallet, X } from "lucide-react";
 import {
   QUESTIONS,
   computeProfile,
@@ -34,9 +34,20 @@ const REVEAL_STEP = TOTAL_QUESTIONS + 1;   // step 6 → AI analysis
 interface OnboardingProps {
   /** Called with the computed (quiz) profile + the wallet address. */
   onComplete: (result: ProfileResult, wallet: string) => void;
+  /**
+   * Profiles from previous onboardings, keyed by lowercase wallet. A wallet
+   * found here completes IMMEDIATELY with its saved answers - the quiz is
+   * never asked twice for the same address.
+   */
+  savedProfiles?: Record<string, ProfileResult>;
+  /**
+   * When set, a close button is shown (wallet-switch flow). First-run
+   * onboarding omits it - completing the flow is mandatory there.
+   */
+  onCancel?: () => void;
 }
 
-export function Onboarding({ onComplete }: OnboardingProps) {
+export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingProps) {
   const [step, setStep] = useState(WALLET_STEP);      // 0 wallet, 1..5 questions, 6 reveal
   const [answers, setAnswers] = useState<Answers>({});
   const [wallet, setWallet] = useState("");
@@ -67,7 +78,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       setWalletError("That doesn't look like a valid Base (0x...) address.");
       return;
     }
-    void profile.start(wallet.trim()); // fire the background scan now
+    const trimmed = wallet.trim();
+    // Returning wallet: restore its saved profile and skip the quiz entirely.
+    const saved = savedProfiles?.[trimmed.toLowerCase()];
+    if (saved) {
+      setExiting(true);
+      window.setTimeout(() => onComplete(saved, trimmed), 320);
+      return;
+    }
+    void profile.start(trimmed); // fire the background scan now
     setStep(1);
   };
 
@@ -124,9 +143,22 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   <img src="/panik-logo.png" alt="PANIK" width={28} height={28} style={{ objectFit: "contain" }} />
                   <span className="font-display font-extrabold text-base tracking-widest text-white leading-none">PANIK</span>
                 </div>
-                <span className="text-[10px] font-mono uppercase tracking-widest text-panik-text-secondary">
-                  {stepLabel}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-panik-text-secondary">
+                    {stepLabel}
+                  </span>
+                  {onCancel && (
+                    <button
+                      type="button"
+                      onClick={onCancel}
+                      aria-label="Cancel wallet change"
+                      title="Keep current wallet"
+                      className="p-1 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Progress bar */}
