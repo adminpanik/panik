@@ -10,6 +10,7 @@
  *   GET /api/compass      the 6 Compass preset scenarios, scored live
  *   GET /api/prospective  ?protocol&symbol&collateralUsd&borrowUsd (Watch sliders)
  *   GET /api/poolhistory  30d APY/TVL per Compass preset (DefiLlama, 1h cache)
+ *   GET /api/history      ?wallet  alert feed + 30d score series (Portfolio)
  *   GET /api/profile      ?wallet  DeFi-persona prediction (Dune history → AI)
  *   GET /api/chain        real Base block number + gas price
  */
@@ -383,6 +384,50 @@ app.get("/api/compass", async (_req, res) => {
     res.json({ updatedAt: at, scores });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ── per-wallet history: alert feed + 30d score series (Portfolio tab) ──────
+// watch_transitions IS the alert log (notify_channel records the outcome) and
+// score_snapshots the score/position time series - no new tables needed.
+const walletHistoryCache = new Map<string, { at: number; body: unknown }>();
+
+app.get("/api/history", async (req, res) => {
+  try {
+    const wallet = String(req.query.wallet ?? "").toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(wallet)) {
+      res.status(400).json({ error: "invalid wallet" });
+      return;
+    }
+    const hit = walletHistoryCache.get(wallet);
+    if (hit && Date.now() - hit.at < 60_000) {
+      res.json(hit.body);
+      return;
+    }
+    const [alerts, snapshots] = await Promise.all([
+      db.query(
+        `select protocol, risk_profile, score, band, from_status, to_status,
+                notify_channel, notified_at, created_at
+           from public.watch_transitions
+          where wallet = $1
+          order by created_at desc
+          limit 50`,
+        [wallet],
+      ),
+      db.query(
+        `select protocol, total, health_factor, collateral_usd, borrow_usd, created_at
+           from public.score_snapshots
+          where wallet = $1 and created_at > now() - interval '30 days'
+          order by created_at asc
+          limit 2000`,
+        [wallet],
+      ),
+    ]);
+    const body = { updatedAt: Date.now(), alerts: alerts.rows, snapshots: snapshots.rows };
+    walletHistoryCache.set(wallet, { at: Date.now(), body });
+    res.json(body);
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
   }
 });
 

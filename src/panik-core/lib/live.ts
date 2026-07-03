@@ -146,6 +146,56 @@ export function useCompassScores() {
   return { scores: byId, offline };
 }
 
+export interface HistoryAlert {
+  protocol: LiveProtocol;
+  risk_profile: string;
+  score: number;
+  band: Band;
+  from_status: string | null;
+  to_status: "within" | "approaching" | "outside";
+  notify_channel: string | null;
+  notified_at: string | null;
+  created_at: string;
+}
+
+export interface HistorySnapshot {
+  protocol: LiveProtocol;
+  total: number;
+  health_factor: string | null;
+  collateral_usd: string | null;
+  borrow_usd: string | null;
+  created_at: string;
+}
+
+/** Alert feed + 30d score series for ONE wallet (Portfolio history). */
+export function useWalletHistory(wallet: string | null) {
+  const [data, setData] = useState<{ alerts: HistoryAlert[]; snapshots: HistorySnapshot[] } | null>(null);
+
+  useEffect(() => {
+    setData(null); // never show the previous wallet's history mid-switch
+    if (!wallet) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const body = await getJson<{ alerts: HistoryAlert[]; snapshots: HistorySnapshot[] }>(
+          `/api/history?wallet=${wallet.toLowerCase()}`,
+        );
+        if (!cancelled) setData(body);
+      } catch {
+        /* offline: the Portfolio blocks render their empty states */
+      }
+    };
+    void load();
+    const t = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [wallet]);
+
+  return data;
+}
+
 export interface PoolYield {
   apy: number;
   tvlUsd: number;

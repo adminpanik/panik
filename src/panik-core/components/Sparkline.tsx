@@ -10,6 +10,14 @@ import React, { useId } from "react";
  * stretched to its container width. Used for the 30d APY trend on Compass
  * cards and in the risk-breakdown panel.
  */
+export interface SparklineAxes {
+  /** Formats the y-axis min/max labels (e.g. v => `${v.toFixed(1)}%`). */
+  yFormat: (v: number) => string;
+  /** X-axis range labels, oldest first (e.g. "30d ago" / "today"). */
+  xStart: string;
+  xEnd: string;
+}
+
 export function Sparkline(props: {
   data: number[];
   /** CSS color for the line + gradient fill. */
@@ -17,8 +25,10 @@ export function Sparkline(props: {
   /** Rendered height in px (width fills the container). */
   height?: number;
   className?: string;
+  /** Optional min/max + time-range labels around the chart. */
+  axes?: SparklineAxes;
 }) {
-  const { data, stroke = "#34d399", height = 36, className } = props;
+  const { data, stroke = "#34d399", height = 36, className, axes } = props;
   const gradientId = useId();
   if (data.length < 2) return null;
 
@@ -36,13 +46,13 @@ export function Sparkline(props: {
   const line = points.join(" ");
   const area = `${line} ${W},${H} 0,${H}`;
 
-  return (
+  const svg = (
     <svg
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
       width="100%"
       style={{ height }}
-      className={className}
+      className={axes ? undefined : className}
       aria-hidden="true"
     >
       <defs>
@@ -61,5 +71,28 @@ export function Sparkline(props: {
         vectorEffect="non-scaling-stroke"
       />
     </svg>
+  );
+
+  if (!axes) return svg;
+
+  // Axes layout: y min/max on the left gutter, time range under the chart.
+  return (
+    <div className={className}>
+      <div className="flex items-stretch gap-1.5">
+        <div
+          className="flex flex-col justify-between items-end shrink-0 min-w-8"
+          style={{ height }}
+          aria-hidden="true"
+        >
+          <span className="text-[8px] font-mono text-white/30 leading-none">{axes.yFormat(max)}</span>
+          <span className="text-[8px] font-mono text-white/30 leading-none">{axes.yFormat(min)}</span>
+        </div>
+        <div className="flex-1 min-w-0">{svg}</div>
+      </div>
+      <div className="flex justify-between pl-9 mt-0.5" aria-hidden="true">
+        <span className="text-[8px] font-mono text-white/25 uppercase">{axes.xStart}</span>
+        <span className="text-[8px] font-mono text-white/25 uppercase">{axes.xEnd}</span>
+      </div>
+    </div>
   );
 }
