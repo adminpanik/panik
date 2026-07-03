@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  submitSignup, deriveAppetite, isValidEvmAddress, connectWallet,
+  submitSignup, checkEmailExists, deriveAppetite, isValidEvmAddress, connectWallet,
   waitlistConfigured, type SignupAnswers, type Appetite, type WalletRdns,
 } from "../lib/waitlist";
 
@@ -131,6 +131,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
   const [showManualInput, setShowManualInput] = useState(false);
 
   // submit
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [position, setPosition] = useState<number | null>(null);
@@ -189,13 +190,20 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
       ? deriveAppetite(answers.q1 as SignupAnswers["q1DefiActivity"], answers.q2 as SignupAnswers["q2Liquidation"], answers.q5 as SignupAnswers["q5PortfolioSize"])
       : null;
 
-  const handleEmailNext = (e: React.FormEvent) => {
+  const handleEmailNext = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setEmailError("Please enter a valid email address");
       return;
     }
+    setCheckingEmail(true);
     setEmailError("");
+    const exists = await checkEmailExists(email);
+    setCheckingEmail(false);
+    if (exists) {
+      setEmailError("You've already signed up with this email. We'll be in touch when early access opens.");
+      return;
+    }
     setStep(2); setQIndex(0);
   };
 
@@ -363,8 +371,8 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                     </p>
                   )}
                 </div>
-                <button type="submit" disabled={!email} className="w-full h-12 bg-panik-orange hover:bg-panik-orange/90 disabled:opacity-50 disabled:hover:bg-panik-orange text-white font-mono text-xs uppercase tracking-wider font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all duration-300 shadow-lg shadow-orange-500/5 active:scale-[0.99]">
-                  <span>Continue</span><ArrowRight className="w-4 h-4" />
+                <button type="submit" disabled={!email || checkingEmail} className="w-full h-12 bg-panik-orange hover:bg-panik-orange/90 disabled:opacity-50 disabled:hover:bg-panik-orange text-white font-mono text-xs uppercase tracking-wider font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all duration-300 shadow-lg shadow-orange-500/5 active:scale-[0.99]">
+                  {checkingEmail ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Checking…</span></> : <><span>Continue</span><ArrowRight className="w-4 h-4" /></>}
                 </button>
               </form>
             </motion.div>
@@ -580,9 +588,9 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
           {/* STEP 5 — SUCCESS */}
           {step === 5 && (
             <motion.div key="s5" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3 }} className="py-4 text-center space-y-6">
-              <div className="relative w-24 h-24 mx-auto flex items-center justify-center select-none">
-                <div className="absolute inset-0 bg-panik-orange/10 rounded-full blur-2xl scale-150 pointer-events-none" />
-                <img src="/panik-shield.png" alt="" aria-hidden="true" className="w-24 h-24 object-contain relative z-10 drop-shadow-[0_0_18px_rgba(249,115,22,0.35)]" />
+              <div className="relative w-40 h-40 mx-auto flex items-center justify-center select-none">
+                <div className="absolute inset-0 bg-panik-orange/15 rounded-full blur-3xl scale-150 pointer-events-none" />
+                <img src="/panik-shield.png" alt="" aria-hidden="true" className="w-40 h-40 object-contain relative z-10 drop-shadow-[0_0_32px_rgba(249,115,22,0.5)]" />
               </div>
               <div className="space-y-2">
                 <h2 className="font-display font-medium text-2xl sm:text-3xl text-white tracking-tight">You're on the list.</h2>
