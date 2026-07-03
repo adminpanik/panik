@@ -16,17 +16,15 @@ import {
 import { useWalletProfile, type WalletProfileData } from "../lib/profileApi";
 
 /**
- * Address format check (no backend yet — purely client-side).
- * EVM: 0x + 40 hex chars (42 total). Solana: base58, 32–44 chars.
- * Note: the on-chain analyzer is EVM-only; a Solana address still onboards but
- * the reveal degrades to the quiz result.
+ * Address format check (purely client-side).
+ * Base (EVM): 0x + 40 hex chars (42 total). EVM-only by design: the on-chain
+ * analyzer, alert worker, and every backend table are EVM-only, so accepting
+ * anything else would onboard a wallet that can never be monitored.
  */
 export function isPlausibleWalletAddress(raw: string): boolean {
   const a = raw.trim();
   if (!a) return false;
-  const isEvm = /^0x[0-9a-fA-F]{40}$/.test(a);
-  const isSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a);
-  return isEvm || isSolana;
+  return /^0x[0-9a-fA-F]{40}$/.test(a);
 }
 
 const TOTAL_QUESTIONS = QUESTIONS.length; // 5
@@ -66,7 +64,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   const submitWallet = () => {
     if (!walletValid) {
-      setWalletError("That doesn't look like a valid EVM (0x…) or Solana address.");
+      setWalletError("That doesn't look like a valid Base (0x...) address.");
       return;
     }
     void profile.start(wallet.trim()); // fire the background scan now
@@ -215,7 +213,7 @@ function WalletStep(props: {
           onKeyDown={(e) => {
             if (e.key === "Enter" && props.walletValid) props.onSubmit();
           }}
-          placeholder="0x... or your Solana address"
+          placeholder="0x... your Base wallet address"
           aria-invalid={Boolean(props.walletError)}
           aria-describedby={props.walletError ? "wallet-error" : undefined}
           className={`w-full h-12 pl-10 pr-4 rounded-xl bg-[#090C12] border text-sm font-mono text-white placeholder:text-white/25 outline-none transition-all ${
