@@ -580,11 +580,9 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
           {/* STEP 5 — SUCCESS */}
           {step === 5 && (
             <motion.div key="s5" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3 }} className="py-4 text-center space-y-6">
-              <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-                <div className="absolute inset-0 bg-emerald-500/10 rounded-full blur-xl scale-125 select-none" />
-                <div className="w-16 h-16 rounded-full border-2 border-emerald-500/30 bg-[#0E1016] flex items-center justify-center relative z-10 select-none">
-                  <CheckCircle2 className="w-8 h-8 text-emerald-400 stroke-[2px]" />
-                </div>
+              <div className="relative w-24 h-24 mx-auto flex items-center justify-center select-none">
+                <div className="absolute inset-0 bg-panik-orange/10 rounded-full blur-2xl scale-150 pointer-events-none" />
+                <img src="/panik-shield.png" alt="" aria-hidden="true" className="w-24 h-24 object-contain relative z-10 drop-shadow-[0_0_18px_rgba(249,115,22,0.35)]" />
               </div>
               <div className="space-y-2">
                 <h2 className="font-display font-medium text-2xl sm:text-3xl text-white tracking-tight">You're on the list.</h2>
