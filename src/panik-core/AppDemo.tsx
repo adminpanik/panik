@@ -2619,19 +2619,28 @@ export function AppDemo() {
       </div>
 
       {/* Demo-only open-position flow (no signing, no funds - see component) */}
-      {openPositionPreset && (
-        <OpenPositionModal
-          target={{
-            protocol: openPositionPreset.protocol,
-            assetPair: openPositionPreset.assetPair,
-            collateralAsset: openPositionPreset.collateralAsset,
-            debtAsset: openPositionPreset.debtAsset,
-            baseRisk: openPositionPreset.baseRisk,
-            apy: poolYields?.[openPositionPreset.id]?.apy ?? openPositionPreset.apy,
-          }}
-          onClose={() => setOpenPositionPreset(null)}
-        />
-      )}
+      {openPositionPreset && (() => {
+        const isFromWatch = activeTab === "watch" && openPositionPreset.id === activePreset.id;
+        const customCollateralUsd = isFromWatch ? collateralAmount * assetPrice : undefined;
+        const customBorrowPct = isFromWatch && (collateralAmount * assetPrice > 0)
+          ? (borrowUsd / (collateralAmount * assetPrice)) * 100
+          : undefined;
+        return (
+          <OpenPositionModal
+            target={{
+              protocol: openPositionPreset.protocol,
+              assetPair: openPositionPreset.assetPair,
+              collateralAsset: openPositionPreset.collateralAsset,
+              debtAsset: openPositionPreset.debtAsset,
+              baseRisk: openPositionPreset.baseRisk,
+              apy: poolYields?.[openPositionPreset.id]?.apy ?? openPositionPreset.apy,
+              customCollateralUsd,
+              customBorrowPct,
+            }}
+            onClose={() => setOpenPositionPreset(null)}
+          />
+        );
+      })()}
 
       {/* First-run onboarding tooltip tour */}
       {currentTourStep && (

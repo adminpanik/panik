@@ -25,6 +25,8 @@ export interface OpenPositionTarget {
   baseRisk: number;
   /** Supply APY shown in the projection (live pool APY where available). */
   apy: number;
+  customCollateralUsd?: number;
+  customBorrowPct?: number;
 }
 
 const DEPOSIT_PRESETS = [1_000, 5_000, 10_000, 25_000];
@@ -36,8 +38,8 @@ function fakeTxHash(): string {
 
 export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: () => void }) {
   const { target, onClose } = props;
-  const [depositUsd, setDepositUsd] = useState(5_000);
-  const [borrowPct, setBorrowPct] = useState(40); // borrow as % of deposit
+  const [depositUsd, setDepositUsd] = useState(() => Math.round(target.customCollateralUsd ?? 5_000));
+  const [borrowPct, setBorrowPct] = useState(() => Math.round(target.customBorrowPct ?? 40)); // borrow as % of deposit
   const [phase, setPhase] = useState<"config" | "submitting" | "done">("config");
   const [txHash, setTxHash] = useState("");
 
