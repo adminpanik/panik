@@ -107,7 +107,7 @@ export function DashboardScrollPreview() {
     <section 
       ref={containerRef} 
       className="relative w-full h-[190vh] sm:h-[210vh] bg-transparent flex flex-col items-center justify-start overflow-visible z-20 mt-12 mb-16"
-      id="dashboard-preview-section"
+      id="how-it-works"
     >
       {/* Sticky viewport content container holding the mockup to provide the central lock interaction */}
       <div className="sticky top-[14vh] sm:top-[16vh] h-[68vh] sm:h-[72vh] w-full flex items-center justify-center overflow-visible px-6 z-20">

@@ -46,6 +46,19 @@ export function HowItWorks() {
     return () => unsubscribe();
   }, [scrollYProgress]);
 
+  useEffect(() => {
+    const handleActivate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && typeof customEvent.detail.index === "number") {
+        setTimeout(() => {
+          handleScrollToPhase(customEvent.detail.index);
+        }, 100);
+      }
+    };
+    window.addEventListener("panik-activate-product", handleActivate);
+    return () => window.removeEventListener("panik-activate-product", handleActivate);
+  }, []);
+
   const steps = [
     {
       step: "01",
@@ -73,7 +86,7 @@ export function HowItWorks() {
   return (
     <div 
       ref={sectionRef} 
-      id="how-it-works" 
+      id="products" 
       className="relative h-[250vh] bg-[#09090B] w-full"
     >
       {/* Scope-contained Styles for Advanced Outer Outline Tracing and Fluid Liquid Numeric Fill */}
