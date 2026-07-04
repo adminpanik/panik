@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { Activity, WifiOff } from "lucide-react";
+import { Activity, WifiOff, SlidersHorizontal } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 
@@ -37,9 +37,11 @@ interface LivePositionsProps {
   positions: LiveWalletPosition[] | null;
   updatedAt: number;
   offline: boolean;
+  /** Optional: open this real position in the Watch simulator (stress-test bridge). */
+  onStressTest?: (position: LiveWalletPosition) => void;
 }
 
-export function LivePositions({ positions, updatedAt, offline }: LivePositionsProps) {
+export function LivePositions({ positions, offline, onStressTest }: LivePositionsProps) {
   if (offline) {
     return (
       <div className="flex items-center gap-2 text-[10px] font-mono text-panik-text-secondary bg-white/[0.02] border border-white/[0.05] rounded-xl px-4 py-3">
@@ -54,9 +56,7 @@ export function LivePositions({ positions, updatedAt, offline }: LivePositionsPr
       <h3 className="text-sm font-mono tracking-widest text-[#748BAA] font-bold uppercase mb-4 flex items-center justify-end">
         <span className="text-[10px] text-panik-orange font-normal flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          {positions === null
-            ? "CONNECTING…"
-            : `REAL DATA · scored ${updatedAt ? `${Math.max(0, Math.round((Date.now() - updatedAt) / 1000))}s ago` : "now"}`}
+          {positions === null ? "CONNECTING…" : "LIVE"}
         </span>
       </h3>
 
@@ -128,6 +128,16 @@ export function LivePositions({ positions, updatedAt, offline }: LivePositionsPr
                   {Math.round(p.subScores.positionHealth)} · {Math.round(p.subScores.assetRisk)} ·{" "}
                   {Math.round(p.subScores.protocolSafety)} · {Math.round(p.subScores.systemicRisk)}
                 </span>
+                {onStressTest && (
+                  <button
+                    onClick={() => onStressTest(p)}
+                    title="Stress-test this position in Watch"
+                    className="flex items-center gap-1 text-[9px] font-mono font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/25 px-2 py-1 rounded-lg hover:bg-panik-orange/20 cursor-pointer transition-all"
+                  >
+                    <SlidersHorizontal className="w-3 h-3" />
+                    <span>Stress-test</span>
+                  </button>
+                )}
               </div>
             </div>
           );

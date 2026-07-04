@@ -176,18 +176,43 @@ the bug template at the bottom.
 2. **Expected:** Two groups: "Recommended for your profile" and "Outside your profile".
    Each card shows a protocol, a risk badge (e.g. "8 LOW"), and an **Audit & Simulate →**
    button.
-3. Click **Audit & Simulate →** on a card. **Expected:** it jumps to the **Watch** tab with
-   that position loaded.
+3. Click **Audit & Simulate →** on a card. **Expected:** it jumps to the **Watch** tab, the
+   source toggle switches to **Recommendations**, and that market loads in the simulator.
 
 ## B8. Watch tab (simulator)
-1. **Expected:** A big **PANIK RISK INDEX** number (0-100, coloured), a status word
+The Watch tab has two sources, chosen by the toggle at the top:
+
+- **Current Positions** (default): the positions this wallet actually holds on-chain, each
+  seeded into the simulator with its real collateral, debt, and live PANIK score.
+- **Recommendations**: the Compass preset catalog, for what-if auditing before you open a
+  position.
+
+**B8a. Current Positions.**
+1. Open **Watch**. The toggle defaults to **Current Positions**.
+2. **If the wallet has open positions:** the header reads **"YOUR LIVE POSITION · SCORED
+   ON-CHAIN"** and the market title shows the real protocol/asset (e.g. "Moonwell · WETH /
+   USDC · YOUR POSITION"). The sliders are seeded so **Collateral Deposited × price**
+   reproduces the position's on-chain USD value, and the **PANIK RISK INDEX** matches the
+   score you see for that position in Portfolio. Open the market dropdown to switch between
+   your positions (each row shows protocol, USD supplied, live band, and score).
+3. **If the wallet has no positions:** you instead see an empty state - "No open positions to
+   watch yet" - with **Browse Recommendations →** and **Open a Position in Compass** buttons.
+   The simulator is intentionally hidden (there is nothing real to watch).
+
+**B8b. Recommendations.**
+1. Click the **Recommendations** toggle. The header reads **"POSITION SIMULATOR · MARKET"**
+   and the dropdown lists the Compass preset markets.
+2. **Expected:** A big **PANIK RISK INDEX** number (0-100, coloured), a status word
    (LOW RISK / ELEVATED / HIGH RISK / CRITICAL THREAT), **Top Risk Drivers** bars, and
    **HEALTH FACTOR** and **POSITION LTV** cards.
-2. On the right, drag the **Collateral Asset Mock Price** slider down.
-   **Expected:** as the price drops, the risk score rises (turns amber/red) and the
-   recommendation text changes (e.g. a repay warning). Drag it back up - score recovers.
-3. Drag the **Borrowed Outstanding Liability** slider up. **Expected:** higher debt = higher
-   risk score.
+3. Drag the **Collateral Asset Price** slider down. **Expected:** as the price drops, the risk
+   score rises (turns amber/red) and the recommendation text changes (e.g. a repay warning).
+   Drag it back up - score recovers.
+4. Drag the **Borrowed Amount** slider up. **Expected:** higher debt = higher risk score.
+
+**B8c. Portfolio → Watch bridge.** In the **Portfolio** tab, each live position row has a
+**Stress-test** button. **Expected:** it jumps to **Watch**, forces the **Current Positions**
+source, and loads that exact position into the simulator.
 
 ## B9. Risk breakdown panel
 1. On a Compass or Watch card, click the risk badge (e.g. "41 ELEVATED").

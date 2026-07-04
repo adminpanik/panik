@@ -60,6 +60,14 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
+
+/**
+ * Watch tab data source. "positions" = the user's REAL on-chain positions
+ * (the business requirement: Watch mirrors what you actually hold), seeded
+ * into the stress-test simulator. "recommendations" = the Compass preset
+ * catalog for what-if auditing before opening a position.
+ */
+type WatchSource = "positions" | "recommendations";
 type RiskProfile = "conservative" | "moderate" | "aggressive";
 
 // Colour for the user-segment badge in the dashboard header.
@@ -88,7 +96,7 @@ const truncateAddress = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.
  */
 const SHOW_AUTO_REPAY_CARD = false;
 
-const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, string> = {
+const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho" | "Compound V3"> = {
   aave_v3: "Aave V3",
   moonwell: "Moonwell",
   morpho: "Morpho",
@@ -589,8 +597,53 @@ export function AppDemo() {
     return src.map((a, i) => ({ ...a, pct: (a.usd / total) * 100, color: colors[i % 4] as string }));
   }, [portfolioPositions]);
 
-  // Load selected preset for Watch/Simulator tab
+  // Load selected preset for Watch/Simulator tab (Recommendations source)
   const activePreset = presetsWithLive.find(p => p.id === selectedPresetId) || presetsWithLive[4];
+
+  // Watch source: defaults to the user's REAL positions (Watch mirrors what
+  // you actually hold); Recommendations keeps the Compass-derived sandbox.
+  const [watchSource, setWatchSource] = useState<WatchSource>("positions");
+  const [selectedLivePositionKey, setSelectedLivePositionKey] = useState<string | null>(null);
+
+  // Real positions mapped into simulator-market shape. The engine scores in
+  // USD, so the mock price is only a display anchor: the token amount is
+  // derived from it such that amount x price reproduces the position's exact
+  // on-chain USD value. baseRisk carries the watch-worker's actual live score,
+  // making the simulator's "Current" scenario mirror the real position.
+  const watchPositionMarkets = useMemo(
+    () =>
+      (portfolioPositions ?? []).map((pos) => {
+        const base =
+          presetsWithLive.find(
+            (p) => p.engineProtocol === pos.protocol && p.collateralSymbol === pos.scoredCollateralSymbol,
+          ) ?? presetsWithLive.find((p) => p.engineProtocol === pos.protocol);
+        const price = base?.defaultPrice ?? (/USD/i.test(pos.scoredCollateralSymbol) ? 1 : 2000);
+        const key = `${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`;
+        const preset: VaultPreset = {
+          id: `live:${key}`,
+          protocol: LIVE_PROTOCOL_LABEL[pos.protocol],
+          engineProtocol: pos.protocol,
+          collateralSymbol: pos.scoredCollateralSymbol,
+          assetPair: `${pos.scoredCollateralSymbol} / USDC · YOUR POSITION`,
+          collateralAsset: pos.scoredCollateralSymbol,
+          debtAsset: "USDC",
+          defaultCollateral: price > 0 ? Number((pos.collateralValueUsd / price).toFixed(price < 10 ? 0 : 4)) : 0,
+          defaultBorrow: Math.round(pos.borrowValueUsd),
+          defaultPrice: price,
+          apy: base?.apy ?? 0,
+          baseRisk: pos.total,
+          riskStatus: pos.band,
+        };
+        return { key, position: pos, preset };
+      }),
+    [portfolioPositions, presetsWithLive],
+  );
+
+  const selectedPositionMarket =
+    watchPositionMarkets.find((m) => m.key === selectedLivePositionKey) ?? watchPositionMarkets[0] ?? null;
+  const watchingOwnPosition = watchSource === "positions" && selectedPositionMarket !== null;
+  // The single market object the whole simulator reads (real position or preset).
+  const activeMarket = watchingOwnPosition ? selectedPositionMarket.preset : activePreset;
 
   // Simulator parameters (sliders + direct numeric inputs)
   const [collateralAmount, setCollateralAmount] = useState<number>(activePreset.defaultCollateral);
@@ -609,15 +662,23 @@ export function AppDemo() {
     () => localStorage.getItem("panik_advisor_notify") === "true"
   );
 
-  // Synchronize state values when active position changes
+  // Synchronize slider state when the active market changes. Keyed on
+  // activeMarket.id so switching source (positions vs recommendations),
+  // selecting a different real position, or picking another preset all reseed
+  // the sliders. Real positions seed the sliders with their on-chain values.
   useEffect(() => {
-    setCollateralAmount(activePreset.defaultCollateral);
-    setBorrowAmount(activePreset.defaultBorrow);
-    setAssetPrice(activePreset.defaultPrice);
+    setCollateralAmount(activeMarket.defaultCollateral);
+    setBorrowAmount(activeMarket.defaultBorrow);
+    setAssetPrice(activeMarket.defaultPrice);
     setDebtPrice(1);
     setActiveScenario("current");
-    addLog(`Position simulation loaded: ${activePreset.protocol} (${activePreset.collateralAsset}/${activePreset.debtAsset})`);
-  }, [selectedPresetId]);
+    addLog(
+      watchingOwnPosition
+        ? `Loaded YOUR live position: ${activeMarket.protocol} (${activeMarket.collateralAsset}/${activeMarket.debtAsset})`
+        : `Position simulation loaded: ${activeMarket.protocol} (${activeMarket.collateralAsset}/${activeMarket.debtAsset})`,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMarket.id]);
 
   // Close Watch market dropdown when clicking outside
   useEffect(() => {
@@ -634,7 +695,7 @@ export function AppDemo() {
   // We check if it is USD backing vs ETH backing to pass safe arguments to the calculator
   const calculateResult = () => {
     // If protocol is Aave V3 or Moonwell, we support official maths
-    const protocolName: "Aave V3" | "Moonwell" = (activePreset.protocol === "Aave V3") ? "Aave V3" : "Moonwell";
+    const protocolName: "Aave V3" | "Moonwell" = (activeMarket.protocol === "Aave V3") ? "Aave V3" : "Moonwell";
     return calculateDynamicPosition(
       protocolName,
       collateralAmount,
@@ -645,13 +706,13 @@ export function AppDemo() {
 
   // Scenario helpers (#3): one-tap price presets before free-form sliders.
   const scenarioPrice = (pct: number) => {
-    const target = activePreset.defaultPrice * (1 + pct);
-    return activePreset.defaultPrice < 10 ? Math.round(target * 100) / 100 : Math.round(target);
+    const target = activeMarket.defaultPrice * (1 + pct);
+    return activeMarket.defaultPrice < 10 ? Math.round(target * 100) / 100 : Math.round(target);
   };
   const applyScenario = (key: ScenarioKey, pct: number) => {
     setAssetPrice(scenarioPrice(pct));
     setActiveScenario(key);
-    addLog(`Scenario applied: ${key} (${Math.round(pct * 100)}% ${activePreset.collateralAsset} move)`);
+    addLog(`Scenario applied: ${key} (${Math.round(pct * 100)}% ${activeMarket.collateralAsset} move)`);
   };
 
   // LIVE Watch scoring: sliders → the real engine (debounced /api/prospective,
@@ -659,29 +720,29 @@ export function AppDemo() {
   // mock formula when the API is offline.
   const prospectiveArgs = useMemo(
     () => ({
-      protocol: activePreset.engineProtocol,
-      symbol: activePreset.collateralSymbol,
+      protocol: activeMarket.engineProtocol,
+      symbol: activeMarket.collateralSymbol,
       collateralUsd: Math.max(0, Math.round(collateralAmount * assetPrice * 100) / 100),
       borrowUsd: Math.max(0, Math.round(borrowUsd * 100) / 100),
     }),
-    [activePreset.engineProtocol, activePreset.collateralSymbol, collateralAmount, assetPrice, borrowUsd],
+    [activeMarket.engineProtocol, activeMarket.collateralSymbol, collateralAmount, assetPrice, borrowUsd],
   );
   const liveWatch = useProspective(prospectiveArgs);
 
   const recommendationFor = (status: PositionState["status"]): string => {
     if (status === "CRITICAL")
-      return `CRITICAL ALERT: Repay ${activePreset.debtAsset} debt immediately to prevent liquidator bids!`;
+      return `CRITICAL ALERT: Repay ${activeMarket.debtAsset} debt immediately to prevent liquidator bids!`;
     if (status === "HIGH")
-      return `ACTION REQUIRED: Repay part of the ${activePreset.debtAsset} debt to restore a secure buffer.`;
+      return `ACTION REQUIRED: Repay part of the ${activeMarket.debtAsset} debt to restore a secure buffer.`;
     if (status === "ELEVATED")
-      return `RECOMMENDED: Supply more ${activePreset.collateralAsset} to suppress minor market swings.`;
+      return `RECOMMENDED: Supply more ${activeMarket.collateralAsset} to suppress minor market swings.`;
     return "Position optimal. Collateral buffer protects against severe asset volatility.";
   };
 
   const positionState: PositionState = liveWatch
     ? {
-        protocol: activePreset.protocol,
-        assetPair: activePreset.assetPair,
+        protocol: activeMarket.protocol,
+        assetPair: activeMarket.assetPair,
         riskScore: liveWatch.total,
         status: liveWatch.band,
         collateralValue: collateralAmount * assetPrice,
@@ -703,7 +764,7 @@ export function AppDemo() {
     : calculateResult();
 
   // Dynamic parameters for redesigned Panik Risk Index
-  const diff = positionState.riskScore - activePreset.baseRisk;
+  const diff = positionState.riskScore - activeMarket.baseRisk;
   const trendNum = diff !== 0 ? diff : (positionState.riskScore >= 75 ? 14 : positionState.riskScore >= 50 ? 9 : positionState.riskScore >= 25 ? 6 : -2);
   const healthFactorScore = Math.max(5, Math.min(98, Math.round(100 - (positionState.healthFactor / 2.5) * 80)));
 
@@ -742,14 +803,14 @@ export function AppDemo() {
   const handleSimulateCollateralInflow = () => {
     const boost = +(collateralAmount * 1.5).toFixed(2);
     setCollateralAmount(boost);
-    addLog(`Automation Trigger: Deposited emergency defensive buffer of +${(boost - collateralAmount).toFixed(2)} ${activePreset.collateralAsset}`);
+    addLog(`Automation Trigger: Deposited emergency defensive buffer of +${(boost - collateralAmount).toFixed(2)} ${activeMarket.collateralAsset}`);
   };
 
   const handleSimulateFlashRepay = () => {
     const currentDebt = borrowAmount;
     const reducedDebt = +(borrowAmount * 0.5).toFixed(2);
     setBorrowAmount(reducedDebt);
-    addLog(`Automation Trigger: Executed flash loan repayment of -${(currentDebt - reducedDebt).toFixed(2)} ${activePreset.debtAsset} to lower systemic margins.`);
+    addLog(`Automation Trigger: Executed flash loan repayment of -${(currentDebt - reducedDebt).toFixed(2)} ${activeMarket.debtAsset} to lower systemic margins.`);
   };
 
   // Profile-based filtering for Compass — runs on LIVE engine scores when
@@ -1116,6 +1177,7 @@ export function AppDemo() {
                           <button
                             onClick={() => {
                               setSelectedPresetId(preset.id);
+                              setWatchSource("recommendations");
                               setActiveTab("watch");
                             }}
                             className="text-xs font-mono font-bold text-panik-orange hover:text-amber-400 transition-colors bg-panik-orange/10 border border-panik-orange/25 px-3 py-1 rounded-lg cursor-pointer flex items-center gap-1"
@@ -1213,6 +1275,7 @@ export function AppDemo() {
                           <button
                             onClick={() => {
                               setSelectedPresetId(preset.id);
+                              setWatchSource("recommendations");
                               setActiveTab("watch");
                             }}
                             className="text-xs font-mono font-semibold text-white/50 hover:text-white transition-colors bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] px-3 py-1 rounded-lg cursor-pointer"
@@ -1236,9 +1299,73 @@ export function AppDemo() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.18 }}
-                className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-6xl"
+                className="max-w-6xl space-y-6"
               >
-                
+                {/* Source toggle. Business requirement: Watch mirrors the
+                    positions this wallet actually holds on-chain (Current
+                    Positions). Recommendations keeps the Compass-derived
+                    what-if sandbox for markets you could open. */}
+                <div className="flex items-center gap-1 p-1 bg-black/30 border border-white/[0.06] rounded-xl w-max">
+                  {([
+                    { key: "positions", label: "Current Positions", count: watchPositionMarkets.length as number | null },
+                    { key: "recommendations", label: "Recommendations", count: null as number | null },
+                  ] as const).map((opt) => {
+                    const active = watchSource === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        onClick={() => setWatchSource(opt.key)}
+                        aria-pressed={active}
+                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                          active ? "bg-panik-orange/15 text-panik-orange" : "text-white/50 hover:text-white/80"
+                        }`}
+                      >
+                        {opt.key === "positions" ? <Eye className="w-3.5 h-3.5" /> : <CompassIcon className="w-3.5 h-3.5" />}
+                        <span>{opt.label}</span>
+                        {opt.count !== null && opt.count > 0 && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${active ? "bg-panik-orange/25" : "bg-white/10 text-white/50"}`}>
+                            {opt.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {watchSource === "positions" && watchPositionMarkets.length === 0 ? (
+                  /* Positions mode with nothing on-chain: honest empty state */
+                  <div className="bg-[#111318]/50 border border-white/[0.06] rounded-2xl p-8 flex flex-col items-start gap-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-panik-orange/10 border border-panik-orange/25 flex items-center justify-center shrink-0">
+                        <Eye className="w-4.5 h-4.5 text-panik-orange" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-display font-extrabold text-white">No open positions to watch yet</h2>
+                        <p className="text-[11px] font-mono text-panik-text-secondary">Watch mirrors the positions this wallet holds on-chain.</p>
+                      </div>
+                    </div>
+                    <p className="text-xs font-sans text-panik-text-secondary max-w-lg leading-relaxed">
+                      Once you open a position it appears here automatically - live-scored by the
+                      PANIK engine, with the stress-test simulator preloaded to your real collateral
+                      and debt. In the meantime, browse risk-scored markets under Recommendations.
+                    </p>
+                    <div className="flex flex-wrap gap-2.5">
+                      <button
+                        onClick={() => setWatchSource("recommendations")}
+                        className="px-4 py-2 rounded-xl font-mono text-xs font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/30 hover:bg-panik-orange/20 cursor-pointer transition-all"
+                      >
+                        Browse Recommendations →
+                      </button>
+                      <button
+                        onClick={() => setActiveTab("compass")}
+                        className="px-4 py-2 rounded-xl font-mono text-xs font-bold text-white bg-gradient-to-tr from-panik-orange to-red-500 hover:opacity-90 cursor-pointer transition-all"
+                      >
+                        Open a Position in Compass
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 {/* Simulator Area (lg:col-span-8) */}
                 <div className="col-span-1 lg:col-span-8 space-y-6">
                   
@@ -1246,9 +1373,13 @@ export function AppDemo() {
                   <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-2xl relative overflow-hidden backdrop-blur-xl">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-panik-orange/5 rounded-full blur-2xl pointer-events-none"></div>
                     <div className="flex justify-between items-center mb-4.5 border-b border-white/[0.05] pb-3">
-                      {/* Market selector — lets users switch the simulated market without leaving Watch */}
+                      {/* Market selector - mode-aware. Positions mode lists the
+                          wallet's real on-chain positions; Recommendations lists
+                          the Compass preset catalog. */}
                       <div className="relative" ref={watchDropRef}>
-                        <span className="block text-[9px] font-mono tracking-widest text-panik-orange uppercase mb-1">POSITION SIMULATOR · MARKET</span>
+                        <span className="block text-[9px] font-mono tracking-widest text-panik-orange uppercase mb-1">
+                          {watchingOwnPosition ? "YOUR LIVE POSITION · SCORED ON-CHAIN" : "POSITION SIMULATOR · MARKET"}
+                        </span>
                         <button
                           id="watch-market-selector"
                           onClick={() => setWatchDropOpen(v => !v)}
@@ -1257,7 +1388,7 @@ export function AppDemo() {
                           aria-expanded={watchDropOpen}
                         >
                           <h2 className="text-xl font-display font-extrabold text-white tracking-wide group-hover:text-panik-orange/90 transition-colors">
-                            {activePreset.protocol} · {activePreset.assetPair}
+                            {activeMarket.protocol} · {activeMarket.assetPair}
                           </h2>
                           <ChevronDown
                             className={`w-4 h-4 text-white/40 group-hover:text-panik-orange/70 transition-all duration-200 ${watchDropOpen ? "rotate-180" : ""}`}
@@ -1276,43 +1407,81 @@ export function AppDemo() {
                               transition={{ duration: 0.14 }}
                               className="absolute left-0 top-full mt-2 z-50 w-80 bg-[#0D1017] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden"
                             >
-                              {presetsWithLive.map((p) => {
-                                const isActive = p.id === selectedPresetId;
-                                const riskCls =
-                                  p.riskStatus === "CRITICAL" ? "text-red-400 bg-red-500/10 border-red-500/25" :
-                                  p.riskStatus === "HIGH"     ? "text-red-500 bg-red-500/10 border-red-500/20" :
-                                  p.riskStatus === "ELEVATED" ? "text-amber-400 bg-amber-500/10 border-amber-500/25" :
-                                                               "text-emerald-400 bg-emerald-500/10 border-emerald-500/25";
-                                return (
-                                  <li
-                                    key={p.id}
-                                    role="option"
-                                    aria-selected={isActive}
-                                    onClick={() => {
-                                      setSelectedPresetId(p.id);
-                                      setWatchDropOpen(false);
-                                    }}
-                                    className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
-                                      isActive
-                                        ? "bg-panik-orange/10 border-l-2 border-l-panik-orange"
-                                        : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
-                                    }`}
-                                  >
-                                    <div className="min-w-0">
-                                      <span className="block text-[9px] font-mono text-white/35 uppercase tracking-wider">{p.protocol}</span>
-                                      <span className={`block text-sm font-mono font-semibold truncate ${
-                                        isActive ? "text-white" : "text-white/70"
-                                      }`}>{p.assetPair}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${riskCls}`}>
-                                        {p.riskStatus}
-                                      </span>
-                                      <span className="text-[10px] font-mono text-white/30">{p.baseRisk}</span>
-                                    </div>
-                                  </li>
-                                );
-                              })}
+                              {watchingOwnPosition
+                                ? watchPositionMarkets.map(({ key, position, preset }) => {
+                                    const isActive = key === selectedPositionMarket?.key;
+                                    const riskCls =
+                                      preset.riskStatus === "CRITICAL" ? "text-red-400 bg-red-500/10 border-red-500/25" :
+                                      preset.riskStatus === "HIGH"     ? "text-red-500 bg-red-500/10 border-red-500/20" :
+                                      preset.riskStatus === "ELEVATED" ? "text-amber-400 bg-amber-500/10 border-amber-500/25" :
+                                                                         "text-emerald-400 bg-emerald-500/10 border-emerald-500/25";
+                                    return (
+                                      <li
+                                        key={key}
+                                        role="option"
+                                        aria-selected={isActive}
+                                        onClick={() => {
+                                          setSelectedLivePositionKey(key);
+                                          setWatchDropOpen(false);
+                                        }}
+                                        className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                                          isActive
+                                            ? "bg-panik-orange/10 border-l-2 border-l-panik-orange"
+                                            : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
+                                        }`}
+                                      >
+                                        <div className="min-w-0">
+                                          <span className="block text-[9px] font-mono text-white/35 uppercase tracking-wider">{preset.protocol}</span>
+                                          <span className={`block text-sm font-mono font-semibold truncate ${
+                                            isActive ? "text-white" : "text-white/70"
+                                          }`}>{preset.collateralSymbol} · {formatCurrency(position.collateralValueUsd)} supplied</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${riskCls}`}>
+                                            {preset.riskStatus}
+                                          </span>
+                                          <span className="text-[10px] font-mono text-white/30">{preset.baseRisk}</span>
+                                        </div>
+                                      </li>
+                                    );
+                                  })
+                                : presetsWithLive.map((p) => {
+                                    const isActive = p.id === selectedPresetId;
+                                    const riskCls =
+                                      p.riskStatus === "CRITICAL" ? "text-red-400 bg-red-500/10 border-red-500/25" :
+                                      p.riskStatus === "HIGH"     ? "text-red-500 bg-red-500/10 border-red-500/20" :
+                                      p.riskStatus === "ELEVATED" ? "text-amber-400 bg-amber-500/10 border-amber-500/25" :
+                                                                   "text-emerald-400 bg-emerald-500/10 border-emerald-500/25";
+                                    return (
+                                      <li
+                                        key={p.id}
+                                        role="option"
+                                        aria-selected={isActive}
+                                        onClick={() => {
+                                          setSelectedPresetId(p.id);
+                                          setWatchDropOpen(false);
+                                        }}
+                                        className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                                          isActive
+                                            ? "bg-panik-orange/10 border-l-2 border-l-panik-orange"
+                                            : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
+                                        }`}
+                                      >
+                                        <div className="min-w-0">
+                                          <span className="block text-[9px] font-mono text-white/35 uppercase tracking-wider">{p.protocol}</span>
+                                          <span className={`block text-sm font-mono font-semibold truncate ${
+                                            isActive ? "text-white" : "text-white/70"
+                                          }`}>{p.assetPair}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${riskCls}`}>
+                                            {p.riskStatus}
+                                          </span>
+                                          <span className="text-[10px] font-mono text-white/30">{p.baseRisk}</span>
+                                        </div>
+                                      </li>
+                                    );
+                                  })}
                             </motion.ul>
                           )}
                         </AnimatePresence>
@@ -1321,7 +1490,7 @@ export function AppDemo() {
                         {/* Simulate-to-open path: the simulator is where conviction
                             forms, so the open action must be one click away here. */}
                         <button
-                          onClick={() => setOpenPositionPreset(activePreset)}
+                          onClick={() => setOpenPositionPreset(activeMarket)}
                           className="px-3 py-1.5 rounded-lg font-mono text-[10px] font-bold text-white bg-gradient-to-tr from-panik-orange to-red-500 hover:opacity-90 cursor-pointer transition-all"
                         >
                           Open This Position
@@ -1410,7 +1579,7 @@ export function AppDemo() {
                               return (
                                 <p className="text-[11px] font-sans leading-relaxed text-[#A0AEC0]">
                                   A further <span className="text-panik-orange font-semibold">-{dropPct}%</span>{" "}
-                                  {activePreset.collateralAsset} move (to{" "}
+                                  {activeMarket.collateralAsset} move (to{" "}
                                   <span className="text-panik-orange font-semibold">{formatCurrency(lp)}</span>) puts
                                   your <span className="text-white font-semibold">{formatCurrency(cv)}</span> collateral
                                   up for liquidation.
@@ -1554,7 +1723,7 @@ export function AppDemo() {
                             {Math.round((borrowUsd / (collateralAmount * assetPrice)) * 100)}%
                           </span>
                         </div>
-                        <span className="text-[9px] font-mono text-[#F0F4FF]/45 block mt-2">Maximum risk cap parameter: {activePreset.protocol === "Aave V3" ? "82%" : "78%"}</span>
+                        <span className="text-[9px] font-mono text-[#F0F4FF]/45 block mt-2">Maximum risk cap parameter: {activeMarket.protocol === "Aave V3" ? "82%" : "78%"}</span>
                       </div>
 
                     </div>
@@ -1613,7 +1782,7 @@ export function AppDemo() {
                     <div className="grid grid-cols-2 gap-2">
                       {PRICE_SCENARIOS.map((s) => {
                         const price = scenarioPrice(s.pct);
-                        const maxLTV = activePreset.protocol === "Aave V3" ? 0.82 : 0.78;
+                        const maxLTV = activeMarket.protocol === "Aave V3" ? 0.82 : 0.78;
                         const estHf = borrowUsd > 0 ? (collateralAmount * price * maxLTV) / borrowUsd : Infinity;
                         const active = activeScenario === s.key;
                         const liquidated = Number.isFinite(estHf) && estHf < 1;
@@ -1663,11 +1832,11 @@ export function AppDemo() {
                     {/* Collateral amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
                       <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
-                        <span>Collateral Deposited ({activePreset.collateralAsset}):</span>
+                        <span>Collateral Deposited ({activeMarket.collateralAsset}):</span>
                         <input
                           type="number"
                           min={0}
-                          step={activePreset.defaultCollateral < 10 ? 0.1 : 100}
+                          step={activeMarket.defaultCollateral < 10 ? 0.1 : 100}
                           value={collateralAmount}
                           onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
                           className="w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-white text-xs font-mono outline-none focus:border-panik-orange/60"
@@ -1677,9 +1846,9 @@ export function AppDemo() {
                       <input
                         type="range"
                         min={0}
-                        max={activePreset.defaultCollateral * 2.5}
-                        step={activePreset.defaultCollateral < 10 ? 0.05 : 50}
-                        value={Math.min(collateralAmount, activePreset.defaultCollateral * 2.5)}
+                        max={activeMarket.defaultCollateral * 2.5}
+                        step={activeMarket.defaultCollateral < 10 ? 0.05 : 50}
+                        value={Math.min(collateralAmount, activeMarket.defaultCollateral * 2.5)}
                         onChange={(e) => setCollateralAmount(Number(e.target.value))}
                         className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
                         id="watch-collateral-slider"
@@ -1693,27 +1862,27 @@ export function AppDemo() {
                     {/* Collateral price */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
                       <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
-                        <span>Collateral Asset Price ({activePreset.collateralAsset}):</span>
+                        <span>Collateral Asset Price ({activeMarket.collateralAsset}):</span>
                         <input
                           type="number"
                           min={0}
-                          step={activePreset.defaultPrice < 10 ? 0.01 : 10}
+                          step={activeMarket.defaultPrice < 10 ? 0.01 : 10}
                           value={assetPrice}
                           onChange={(e) => {
                             setAssetPrice(Math.max(0, Number(e.target.value)));
                             setActiveScenario("custom");
                           }}
                           className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-none focus:border-panik-orange/60 ${
-                            assetPrice < activePreset.defaultPrice * 0.8 ? "text-red-400 font-bold" : "text-white"
+                            assetPrice < activeMarket.defaultPrice * 0.8 ? "text-red-400 font-bold" : "text-white"
                           }`}
                           aria-label="Collateral asset price in USD"
                         />
                       </div>
                       <input
                         type="range"
-                        min={Math.round(activePreset.defaultPrice * 0.4)}
-                        max={Math.round(activePreset.defaultPrice * 1.3)}
-                        step={activePreset.defaultPrice < 10 ? "0.05" : "20"}
+                        min={Math.round(activeMarket.defaultPrice * 0.4)}
+                        max={Math.round(activeMarket.defaultPrice * 1.3)}
+                        step={activeMarket.defaultPrice < 10 ? "0.05" : "20"}
                         value={assetPrice}
                         onChange={(e) => {
                           setAssetPrice(Number(e.target.value));
@@ -1723,23 +1892,23 @@ export function AppDemo() {
                         id="watch-price-slider"
                       />
                       <div className="flex justify-between text-[8px] font-mono text-white/20">
-                        <span>Minus -60% Downside ({formatCurrency(activePreset.defaultPrice * 0.4)})</span>
-                        <span>Plus +30% Upside ({formatCurrency(activePreset.defaultPrice * 1.3)})</span>
+                        <span>Minus -60% Downside ({formatCurrency(activeMarket.defaultPrice * 0.4)})</span>
+                        <span>Plus +30% Upside ({formatCurrency(activeMarket.defaultPrice * 1.3)})</span>
                       </div>
                     </div>
 
                     {/* Borrowed amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
                       <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
-                        <span>Borrowed Amount ({activePreset.debtAsset}):</span>
+                        <span>Borrowed Amount ({activeMarket.debtAsset}):</span>
                         <input
                           type="number"
                           min={0}
-                          step={activePreset.defaultBorrow < 10 ? 0.1 : 50}
+                          step={activeMarket.defaultBorrow < 10 ? 0.1 : 50}
                           value={borrowAmount}
                           onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
                           className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-none focus:border-panik-orange/60 ${
-                            borrowAmount > activePreset.defaultBorrow * 1.2 ? "text-red-400 font-bold" : "text-white"
+                            borrowAmount > activeMarket.defaultBorrow * 1.2 ? "text-red-400 font-bold" : "text-white"
                           }`}
                           aria-label="Borrowed amount"
                         />
@@ -1747,9 +1916,9 @@ export function AppDemo() {
                       <input
                         type="range"
                         min={0}
-                        max={Math.round(activePreset.defaultBorrow * 1.6)}
-                        step={activePreset.defaultBorrow < 10 ? "0.1" : "50"}
-                        value={Math.min(borrowAmount, activePreset.defaultBorrow * 1.6)}
+                        max={Math.round(activeMarket.defaultBorrow * 1.6)}
+                        step={activeMarket.defaultBorrow < 10 ? "0.1" : "50"}
+                        value={Math.min(borrowAmount, activeMarket.defaultBorrow * 1.6)}
                         onChange={(e) => setBorrowAmount(Number(e.target.value))}
                         className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
                         id="watch-borrow-slider"
@@ -1763,7 +1932,7 @@ export function AppDemo() {
                     {/* Borrowed asset price (depeg scenarios) */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
                       <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
-                        <span>Borrowed Asset Price ({activePreset.debtAsset}):</span>
+                        <span>Borrowed Asset Price ({activeMarket.debtAsset}):</span>
                         <input
                           type="number"
                           min={0}
@@ -1794,6 +1963,9 @@ export function AppDemo() {
                   </div>
 
                 </div>
+
+                </div>
+                )}
 
               </motion.div>
             )}
@@ -1992,6 +2164,12 @@ export function AppDemo() {
                       positions={portfolioPositions}
                       updatedAt={boundMode ? ownLive.updatedAt : liveUpdatedAt}
                       offline={boundMode ? ownLive.offline : liveOffline}
+                      onStressTest={(pos) => {
+                        // Bridge: open THIS real position in the Watch simulator.
+                        setSelectedLivePositionKey(`${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`);
+                        setWatchSource("positions");
+                        setActiveTab("watch");
+                      }}
                     />
                   </div>
 
@@ -2597,6 +2775,7 @@ export function AppDemo() {
                   <button
                     onClick={() => {
                       setSelectedPresetId(selectedRiskBreakdownPreset.id);
+                      setWatchSource("recommendations");
                       setActiveTab("watch");
                       setSelectedRiskBreakdownPreset(null);
                     }}
@@ -2620,7 +2799,7 @@ export function AppDemo() {
 
       {/* Demo-only open-position flow (no signing, no funds - see component) */}
       {openPositionPreset && (() => {
-        const isFromWatch = activeTab === "watch" && openPositionPreset.id === activePreset.id;
+        const isFromWatch = activeTab === "watch" && openPositionPreset.id === activeMarket.id;
         const customCollateralUsd = isFromWatch ? collateralAmount * assetPrice : undefined;
         const customBorrowPct = isFromWatch && (collateralAmount * assetPrice > 0)
           ? (borrowUsd / (collateralAmount * assetPrice)) * 100

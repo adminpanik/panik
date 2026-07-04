@@ -17,6 +17,10 @@ export default defineConfig(() => {
               req.url = '/founding.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
             } else if (url === '/app') {
               req.url = '/app.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
+            } else if (url === '/try') {
+              req.url = '/try.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
+            } else if (url === '/admin-neithan') {
+              req.url = '/admin.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
             }
             next();
           });
@@ -50,6 +54,10 @@ export default defineConfig(() => {
           app: path.resolve(__dirname, 'app.html'),
           // "founding user" — hidden escrow page (direct URL only, not linked from nav)
           founding: path.resolve(__dirname, 'founding.html'),
+          // "try" - 2-in-1 business card + trial-code redemption (direct URL / QR)
+          try: path.resolve(__dirname, 'try.html'),
+          // "admin" - hidden, secret-gated campaign console (direct URL only)
+          admin: path.resolve(__dirname, 'admin.html'),
         },
         // No manualChunks: the previous hand-rolled split matched any path
         // containing "react" (e.g. @tanstack/react-query) into vendor-react,

@@ -78,14 +78,13 @@ export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWai
               </button>
 
               {!hasSubscribed && (
-                <button
-                  type="button"
-                  onClick={() => onOpenWaitlistModal()}
-                  className="w-full sm:w-auto h-13 px-9 bg-panik-orange hover:bg-panik-orange/95 text-white font-mono text-xs uppercase tracking-widest font-extrabold rounded-lg flex items-center justify-center gap-2.5 cursor-pointer transition-all duration-300 transform hover:scale-[1.03] active:scale-[0.98] pointer-events-auto shadow-lg shadow-orange-500/20 panik-glow-orange shrink-0"
-                  id="hero-btn-join-waitlist"
+                <a
+                  href="/try"
+                  className="w-full sm:w-auto h-13 px-9 bg-panik-orange hover:bg-panik-orange/95 text-white font-mono text-xs uppercase tracking-widest font-extrabold rounded-lg flex items-center justify-center gap-2.5 cursor-pointer transition-all duration-300 transform hover:scale-[1.03] active:scale-[0.98] pointer-events-auto shadow-lg shadow-orange-500/20 panik-glow-orange shrink-0 no-underline"
+                  id="hero-btn-try-now"
                 >
-                  <span>JOIN WAITLIST →</span>
-                </button>
+                  <span>TRY IT NOW →</span>
+                </a>
               )}
 
             </div>

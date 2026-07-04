@@ -231,7 +231,7 @@ export function useChainTelemetry() {
 }
 
 export interface ProspectiveArgs {
-  protocol: "aave_v3" | "moonwell";
+  protocol: LiveProtocol;
   symbol: string;
   collateralUsd: number;
   borrowUsd: number;

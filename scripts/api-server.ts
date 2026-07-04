@@ -42,6 +42,9 @@ import {
 import { getProfileDeps, isEvmAddress, transactionPoolerUrl } from "../server/profileDeps";
 import { TelegramStore } from "../server/telegramStore";
 import { sendMessage, setWebhook } from "../server/telegram";
+import { CampaignStore } from "../server/campaignStore";
+import { clientIp, userAgent } from "../server/clientIp";
+import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../server/adminCampaigns";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -304,7 +307,7 @@ app.use((req, res, next) => {
   else if (origin && corsOrigins.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Bot-Api-Secret-Token");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Bot-Api-Secret-Token, X-Admin-Key");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
   next();
 });
@@ -591,6 +594,71 @@ app.post("/api/telegram/webhook", async (req, res) => {
   res.status(200).json({ ok: true });
 });
 
+// ── Product trial codes - business-card "Try Now" + admin ──────────────────
+// Mirrors api/try/redeem.ts, api/try/access.ts, api/admin/campaigns.ts. The
+// SECURITY DEFINER RPCs enforce usage/time limits atomically; these routes only
+// capture IP/UA (for the attempt log) and gate the admin surface behind
+// ADMIN_ACCESS_KEY. See supabase/migrations/20260704000001_product_codes.sql.
+const campaignsConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY);
+
+app.post("/api/try/redeem", async (req, res) => {
+  const body = (req.body ?? {}) as { code?: string; honeypot?: string };
+  const code = String(body.code ?? "").trim();
+  if (String(body.honeypot ?? "").trim() !== "") { res.status(200).json({ ok: false, outcome: "not_found" }); return; }
+  if (!code) { res.status(400).json({ ok: false, error: "missing code" }); return; }
+  if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
+  try {
+    const result = await CampaignStore.fromEnv().redeem(code, clientIp(req.headers), userAgent(req.headers));
+    if (result.outcome === "success" && result.token) {
+      res.json({ ok: true, outcome: "success", trialUrl: `/app?trial=${result.token}` });
+    } else {
+      res.json({ ok: false, outcome: result.outcome });
+    }
+  } catch (err) {
+    res.status(502).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+app.post("/api/try/access", async (req, res) => {
+  const token = String((req.body as { token?: string } | undefined)?.token ?? "").trim();
+  if (!token) { res.status(400).json({ ok: false, error: "missing token" }); return; }
+  if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
+  try {
+    const result = await CampaignStore.fromEnv().openTrial(token, clientIp(req.headers), userAgent(req.headers));
+    res.json({ ok: result.outcome === "active", outcome: result.outcome, expiresAt: result.expiresAt ?? null });
+  } catch (err) {
+    res.status(502).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+async function adminCampaigns(req: express.Request, res: express.Response): Promise<void> {
+  const auth = checkAdminKey(req.header("x-admin-key") ?? undefined);
+  if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return; }
+  if (auth === "forbidden") { res.status(401).json({ error: "unauthorized" }); return; }
+  if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
+  try {
+    const store = CampaignStore.fromEnv();
+    if (req.method === "GET") { res.json({ campaigns: await store.listCampaigns() }); return; }
+    const action = String(req.query.action ?? "");
+    const body = (req.body ?? {}) as RawCreateBody & { id?: string };
+    if (action === "expire") {
+      const id = String(body.id ?? "").trim();
+      if (!id) { res.status(400).json({ error: "missing id" }); return; }
+      const updated = await store.expireCampaign(id);
+      if (!updated) { res.status(404).json({ error: "campaign not found" }); return; }
+      res.json({ campaign: updated });
+      return;
+    }
+    const { input, error } = buildCreateInput(body);
+    if (error) { res.status(400).json({ error }); return; }
+    res.status(201).json({ campaign: await store.createCampaign(input!) });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
+  }
+}
+app.get("/api/admin/campaigns", adminCampaigns);
+app.post("/api/admin/campaigns", adminCampaigns);
+
 app.get("/api/chain", async (_req, res) => {
   try {
     res.json(await getChain());
@@ -609,6 +677,8 @@ if (process.env.SERVE_STATIC === "true") {
   const pageFor = (p: string): string => {
     if (p === "/app") return "app.html";
     if (p === "/founding" || p === "/early-access") return "founding.html";
+    if (p === "/try") return "try.html";
+    if (p === "/admin-neithan") return "admin.html";
     return "index.html";
   };
   app.use(express.static(dist, { extensions: ["html"] }));

@@ -1,0 +1,65 @@
+/**
+ * /api/admin/campaigns   (x-admin-key: ADMIN_ACCESS_KEY)
+ *   GET                       list all campaigns (newest first)
+ *   POST                      create { label?, trialDays, maxRedemptions, claimWindowDays? }
+ *   POST ?action=expire       disable early { id }
+ *
+ * Secret-gated admin surface for "Neithan". Fetch-only (Supabase REST), no pg.
+ * Mirrored by the Express route in scripts/api-server.ts.
+ */
+
+import { CampaignStore } from "../../server/campaignStore";
+import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../../server/adminCampaigns";
+
+interface Req {
+  method?: string;
+  headers: Record<string, string | string[] | undefined>;
+  query: Record<string, string | string[] | undefined>;
+  body?: unknown;
+}
+interface Res { status(code: number): Res; json(body: unknown): void }
+
+function pick(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+export default async function handler(req: Req, res: Res): Promise<void> {
+  const auth = checkAdminKey(pick(req.headers["x-admin-key"]));
+  if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return; }
+  if (auth === "forbidden") { res.status(401).json({ error: "unauthorized" }); return; }
+
+  let store: CampaignStore;
+  try {
+    store = CampaignStore.fromEnv();
+  } catch (err) {
+    res.status(503).json({ error: `unconfigured: ${(err as Error).message}` });
+    return;
+  }
+
+  try {
+    if ((req.method ?? "GET").toUpperCase() === "GET") {
+      res.status(200).json({ campaigns: await store.listCampaigns() });
+      return;
+    }
+
+    // POST
+    const action = pick(req.query.action);
+    const body = (req.body ?? {}) as RawCreateBody & { id?: string };
+
+    if (action === "expire") {
+      const id = (body.id ?? "").trim();
+      if (!id) { res.status(400).json({ error: "missing id" }); return; }
+      const updated = await store.expireCampaign(id);
+      if (!updated) { res.status(404).json({ error: "campaign not found" }); return; }
+      res.status(200).json({ campaign: updated });
+      return;
+    }
+
+    const { input, error } = buildCreateInput(body);
+    if (error) { res.status(400).json({ error }); return; }
+    const campaign = await store.createCampaign(input!);
+    res.status(201).json({ campaign });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
+  }
+}
