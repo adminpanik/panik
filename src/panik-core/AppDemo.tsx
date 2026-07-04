@@ -328,9 +328,11 @@ const VAULT_PRESETS: VaultPreset[] = [
 export function AppDemo() {
   // Navigation tabs exactly reflecting the Figma screenshot
   const [activeTab, setActiveTab] = useState<SidebarTab>("portfolio");
-  const [tooltipStep, setTooltipStep] = useState<number | null>(
-    () => localStorage.getItem("panik_tour_seen") === "true" ? null : 1
-  );
+  const [tooltipStep, setTooltipStep] = useState<number | null>(() => {
+    const onboarded = localStorage.getItem("panik_onboarded") === "true";
+    const tourSeen = localStorage.getItem("panik_tour_seen") === "true";
+    return (onboarded && !tourSeen) ? 1 : null;
+  });
   const [selectedPresetId, setSelectedPresetId] = useState<string>("moonwell-weth-debt");
   const [selectedRiskProfile, setSelectedRiskProfile] = useState<RiskProfile>(
     () => (localStorage.getItem("panik_risk_profile") as RiskProfile | null) ?? "moderate"
@@ -369,6 +371,12 @@ export function AppDemo() {
     setRiskTier(result.riskTier);
     setOnboardedWallet(wallet);
     setShowOnboarding(false);
+    
+    // Start the tutorial tour if they haven't seen it yet
+    if (localStorage.getItem("panik_tour_seen") !== "true") {
+      setTooltipStep(1);
+    }
+
     // Register this wallet for monitoring (fire-and-forget; never blocks entry).
     // No-op for non-EVM wallets. Enables Watch-worker scoring + Telegram alerts.
     void registerWatchedWallet(wallet.trim(), result.riskProfile3);
