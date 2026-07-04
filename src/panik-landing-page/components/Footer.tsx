@@ -31,25 +31,31 @@ export function Footer({ onScrollTo }: FooterProps) {
             </span>
           </div>
           <p className="text-xs text-panik-text-secondary font-mono max-w-sm leading-relaxed">
-            DeFi risk intelligence layer. Your positions, fully automated and protected against systemic liquidation vectors.
+            DeFi risk intelligence layer. Your positions, protected against systemic liquidation vectors.
           </p>
         </div>
 
-        {/* Center footer: navigation */}
         <div className="flex flex-wrap items-center justify-center gap-8 text-[11px] font-mono tracking-wider text-panik-text-secondary">
-          <button 
-            type="button"
-            onClick={() => onScrollTo("how-it-works")} 
-            className="hover:text-white uppercase transition-colors py-1 cursor-pointer"
-          >
-            Mechanism
-          </button>
           <button 
             type="button"
             onClick={() => onScrollTo("scoring")} 
             className="hover:text-white uppercase transition-colors py-1 cursor-pointer"
           >
-            Risk Scoring
+            How It Works
+          </button>
+          <button 
+            type="button"
+            onClick={() => onScrollTo("products")} 
+            className="hover:text-white uppercase transition-colors py-1 cursor-pointer"
+          >
+            Products
+          </button>
+          <button 
+            type="button"
+            onClick={() => onScrollTo("backtest")} 
+            className="hover:text-white uppercase transition-colors py-1 cursor-pointer"
+          >
+            Performance
           </button>
           <button
             type="button"
@@ -82,10 +88,10 @@ export function Footer({ onScrollTo }: FooterProps) {
       {/* Disclaimers & Copyright bar */}
       <div className="max-w-7xl mx-auto mt-12 pt-6 border-t border-white/[0.03] flex flex-col sm:flex-row justify-between items-center gap-4 text-[10px] font-mono text-panik-text-secondary">
         <div>
-          © {currentYear} PANIK Intelligence. All rights reserved. Registered Sandbox Cohort.
+          © {currentYear} PANIK Intelligence. All rights reserved.
         </div>
         <div className="text-center sm:text-right max-w-lg leading-normal">
-          DISCLAIMER: PANIK is a non-custodial telemetry software provider. All actions, calculations, recommendation outputs, and simulations are educational, not financial advice. Capital locked in decentralized consensus layers remains susceptible to smart-contract failure.
+          DISCLAIMER: PANIK is a non-custodial risk intelligence telemetry provider. All analytics, simulations, and recommendation outputs are for informational and educational purposes only, and do not constitute financial, legal, or investment advice. Smart contract interactions and capital locked in decentralized protocols carry inherent risks, including code vulnerabilities and liquidation.
         </div>
       </div>
     </footer>

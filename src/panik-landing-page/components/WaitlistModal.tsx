@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  submitSignup, deriveAppetite, isValidEvmAddress, connectWallet,
+  submitSignup, checkEmailExists, deriveAppetite, isValidEvmAddress, connectWallet,
   waitlistConfigured, type SignupAnswers, type Appetite, type WalletRdns,
 } from "../lib/waitlist";
 
@@ -131,6 +131,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
   const [showManualInput, setShowManualInput] = useState(false);
 
   // submit
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [position, setPosition] = useState<number | null>(null);
@@ -189,13 +190,20 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
       ? deriveAppetite(answers.q1 as SignupAnswers["q1DefiActivity"], answers.q2 as SignupAnswers["q2Liquidation"], answers.q5 as SignupAnswers["q5PortfolioSize"])
       : null;
 
-  const handleEmailNext = (e: React.FormEvent) => {
+  const handleEmailNext = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setEmailError("Please enter a valid email address");
       return;
     }
+    setCheckingEmail(true);
     setEmailError("");
+    const exists = await checkEmailExists(email);
+    setCheckingEmail(false);
+    if (exists) {
+      setEmailError("You've already signed up with this email. We'll be in touch when early access opens.");
+      return;
+    }
     setStep(2); setQIndex(0);
   };
 
@@ -268,6 +276,13 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
     });
     setSubmitting(false);
     if (!result.ok) {
+      const isDuplicate = result.error?.includes("23505") || result.error?.includes("http_409") || result.error?.includes("duplicate");
+      if (isDuplicate) {
+        sessionStorage.removeItem(DRAFT_KEY);
+        setStep(1); setQIndex(0);
+        setEmailError("This email is already on the waitlist.");
+        return;
+      }
       setSubmitError(mapSubmitError(result.error));
       return;
     }
@@ -356,8 +371,8 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                     </p>
                   )}
                 </div>
-                <button type="submit" disabled={!email} className="w-full h-12 bg-panik-orange hover:bg-panik-orange/90 disabled:opacity-50 disabled:hover:bg-panik-orange text-white font-mono text-xs uppercase tracking-wider font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all duration-300 shadow-lg shadow-orange-500/5 active:scale-[0.99]">
-                  <span>Continue</span><ArrowRight className="w-4 h-4" />
+                <button type="submit" disabled={!email || checkingEmail} className="w-full h-12 bg-panik-orange hover:bg-panik-orange/90 disabled:opacity-50 disabled:hover:bg-panik-orange text-white font-mono text-xs uppercase tracking-wider font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all duration-300 shadow-lg shadow-orange-500/5 active:scale-[0.99]">
+                  {checkingEmail ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Checking…</span></> : <><span>Continue</span><ArrowRight className="w-4 h-4" /></>}
                 </button>
               </form>
             </motion.div>
@@ -510,7 +525,13 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                   <label htmlFor="manual-wallet-input" className="block text-[11px] font-mono tracking-wider text-white/50 uppercase">Enter a public EVM address</label>
                   <div className="relative flex items-center">
                     <Wallet className="absolute left-4 w-4.5 h-4.5 text-white/30" />
-                    <input type="text" id="manual-wallet-input" value={wallet} onChange={(e) => { setWallet(e.target.value.trim()); if (walletError) setWalletError(""); }} placeholder="0x…"
+                    <input type="text" id="manual-wallet-input" value={wallet}
+                      onChange={(e) => { setWallet(e.target.value.trim()); if (walletError) setWalletError(""); }}
+                      onBlur={() => {
+                        if (wallet && !isValidEvmAddress(wallet))
+                          setWalletError("That doesn't look like a valid EVM address (0x + 40 hex characters).");
+                      }}
+                      placeholder="0x…"
                       className="w-full h-12 pl-12 pr-4 bg-[#111318] border border-white/[0.08] hover:border-white/18 focus:border-panik-orange/50 focus:ring-1 focus:ring-panik-orange/20 text-[#F0F4FF] placeholder-white/25 text-sm font-mono rounded-lg outline-none transition-all" />
                   </div>
                 </div>
@@ -567,11 +588,9 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
           {/* STEP 5 — SUCCESS */}
           {step === 5 && (
             <motion.div key="s5" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3 }} className="py-4 text-center space-y-6">
-              <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-                <div className="absolute inset-0 bg-emerald-500/10 rounded-full blur-xl scale-125 select-none" />
-                <div className="w-16 h-16 rounded-full border-2 border-emerald-500/30 bg-[#0E1016] flex items-center justify-center relative z-10 select-none">
-                  <CheckCircle2 className="w-8 h-8 text-emerald-400 stroke-[2px]" />
-                </div>
+              <div className="relative w-40 h-40 mx-auto flex items-center justify-center select-none">
+                <div className="absolute inset-0 bg-panik-orange/15 rounded-full blur-3xl scale-150 pointer-events-none" />
+                <img src="/panik-shield.png" alt="" aria-hidden="true" className="w-40 h-40 object-contain relative z-10 drop-shadow-[0_0_32px_rgba(249,115,22,0.5)]" />
               </div>
               <div className="space-y-2">
                 <h2 className="font-display font-medium text-2xl sm:text-3xl text-white tracking-tight">You're on the list.</h2>

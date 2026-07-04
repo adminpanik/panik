@@ -67,9 +67,11 @@ export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWai
               <button
                 type="button"
                 onClick={() => {
-                  const target = document.querySelector('#how-it-works, [data-section=how], .how-it-works-section');
+                  const target = document.querySelector('#scoring');
                   if (target) {
-                    target.scrollIntoView({ behavior: 'smooth' });
+                    const navHeight = 80;
+                    const elementPosition = target.getBoundingClientRect().top + window.scrollY;
+                    window.scrollTo({ top: elementPosition - navHeight, behavior: 'smooth' });
                   }
                 }}
                 className="w-full sm:w-auto h-13 px-7 bg-transparent border border-white/10 hover:border-white/25 hover:bg-white/[0.04] text-[#F8FAFC]/90 font-mono text-xs uppercase tracking-wider rounded-lg transition-all duration-300 cursor-pointer pointer-events-auto active:scale-[0.98]"

@@ -12,6 +12,7 @@ import { RiskVisualization } from "./components/RiskVisualization";
 import { WhyPanik } from "./components/WhyPanik";
 import { ProtocolCoverage } from "./components/ProtocolCoverage";
 import { FAQ } from "./components/FAQ";
+import { BacktestResults } from "./components/BacktestResults";
 import { WaitlistCTA } from "./components/WaitlistCTA";
 import { Footer } from "./components/Footer";
 import { AppMockup } from "./components/AppMockup";
@@ -64,11 +65,16 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [viewMode]);
 
-  // Smooth scroll handler
+  // Smooth scroll handler with sticky header offset
   const handleScrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
     if (element) {
-      element.scrollIntoView({ behavior: "smooth", block: "start" });
+      const navHeight = 80; // h-20 sticky nav
+      const elementPosition = element.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({
+        top: elementPosition - navHeight,
+        behavior: "smooth",
+      });
     }
   };
 
@@ -136,6 +142,9 @@ export default function App() {
 
       {/* Protocol coverage benchmarks (Temporarily hidden from frontend as requested, file kept intact) */}
       {/* <ProtocolCoverage /> */}
+
+      {/* Backtest Results */}
+      <BacktestResults />
 
       {/* Bottom CTA & Live allowed addresses queue */}
       <WaitlistCTA

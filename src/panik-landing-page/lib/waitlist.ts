@@ -96,6 +96,22 @@ export async function submitSignup(answers: SignupAnswers): Promise<SignupResult
   }
 }
 
+/**
+ * Returns true if the email is already on the waitlist (same normalisation
+ * as the DB). Returns false on network failure (fail-open so the user can
+ * still attempt to sign up — the server will handle it).
+ */
+export async function checkEmailExists(email: string): Promise<boolean> {
+  if (!waitlistConfigured) return false;
+  try {
+    const res = await rpc("waitlist_check_email", { p_email: email.trim() });
+    if (!res.ok) return false;
+    return (await res.json()) === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Public waitlist count via the SECURITY DEFINER RPC. null on failure. */
 export async function getWaitlistCount(): Promise<number | null> {
   if (!waitlistConfigured) return null;
