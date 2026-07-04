@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Compass, Eye, Zap, ShieldCheck, ChevronRight } from "lucide-react";
-import { motion, AnimatePresence, useScroll } from "motion/react";
+import { motion, useScroll } from "motion/react";
 
 export function HowItWorks() {
   const sectionRef = useRef<HTMLDivElement>(null);
@@ -132,18 +132,21 @@ export function HowItWorks() {
                 onClick={() => {
                   if (!isActive) handleScrollToPhase(idx);
                 }}
-                className={`relative rounded-2xl border flex flex-col justify-between p-6 md:p-8 transition-all duration-500 overflow-hidden ${
-                  isActive 
-                    ? "flex-[3] sm:flex-[3.5] bg-[#0C0E14] border-white/[0.12] hover:border-panik-orange/55 shadow-2xl hover:shadow-[0_0_25px_rgba(249,115,22,0.12)] brightness-100 cursor-default" 
-                    : "panik-glass flex-[0.5] sm:flex-[0.38] bg-[#0A0C11]/50 hover:bg-[#0E1119]/80 border-white/[0.04] hover:border-panik-orange/25 opacity-40 hover:opacity-75 cursor-pointer select-none"
+                className={`group relative rounded-2xl border flex flex-col justify-between p-6 md:p-8 overflow-hidden min-w-0 basis-0 [transition:background-color_0.5s_ease,border-color_0.5s_ease,box-shadow_0.5s_ease,opacity_0.5s_ease,filter_0.5s_ease] ${
+                  isActive
+                    ? "bg-[#0C0E14] border-white/[0.12] hover:border-panik-orange/55 shadow-2xl hover:shadow-[0_0_25px_rgba(249,115,22,0.12)] brightness-100 cursor-default"
+                    : "panik-glass bg-[#0A0C11]/50 hover:bg-[#0E1119]/80 border-white/[0.04] hover:border-panik-orange/25 opacity-40 hover:opacity-75 cursor-pointer select-none"
                 }`}
+                style={{ willChange: "flex-grow" }}
+                initial={false}
                 animate={{
                   flexGrow: isActive ? 3.5 : 0.4
                 }}
                 transition={{
                   type: "spring",
-                  stiffness: 170,
-                  damping: 26
+                  stiffness: 260,
+                  damping: 32,
+                  mass: 0.9
                 }}
               >
                 {/* Custom Card Outline Glow Effect Originating from Top and Encompassing borders */}
@@ -172,22 +175,21 @@ export function HowItWorks() {
 
                 {/* --- CASE A: CARD IS ACTIVE (Normal expanded contents displayed beautifully) --- */}
                 {isActive && (
-                  <motion.div 
-                    initial={{ opacity: 0, x: 12 }}
+                  <motion.div
+                    initial={{ opacity: 0, x: 10 }}
                     animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.22, delay: 0.05, ease: "easeOut" }}
-                    className="flex flex-col justify-between h-full w-full"
+                    transition={{ duration: 0.35, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                    className="flex flex-col justify-between h-full w-full md:min-w-[28rem] lg:min-w-[40rem] xl:min-w-[48rem]"
                   >
                     <div>
                       {/* Brand Label Header inside Active view */}
-                      <div className="flex justify-between items-center mb-8">
+                      <div className="flex justify-between items-start mb-8">
                         <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-white/[0.03] border border-white/[0.08] shadow-inner">
                           {item.icon}
                         </div>
-                        
+
                         {/* Dynamic Step Fill Effect */}
-                        <div className="relative select-none pr-1">
+                        <div className="relative select-none pr-2 sm:pr-3 pt-0.5">
                           {/* Base low-opacity background number */}
                           <span className="font-mono text-4xl sm:text-5xl font-extrabold text-white/[0.05] select-none tracking-tighter block transition-colors duration-500 group-hover:text-white/[0.09]">
                             {item.step}
@@ -236,10 +238,9 @@ export function HowItWorks() {
 
                 {/* --- CASE B: CARD IS INACTIVE & SHRUNK (Sleek vertical index tabs) --- */}
                 {!isActive && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
                     transition={{ duration: 0.25 }}
                     className="flex flex-col items-center justify-between h-full py-2 w-full text-center"
                   >
