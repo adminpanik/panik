@@ -31,6 +31,8 @@ create extension if not exists pgcrypto;
 create or replace function public.gen_panik_suffix(p_len int)
 returns text
 language plpgsql
+security definer
+set search_path = public, extensions
 as $$
 declare
   alphabet constant text := '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -123,7 +125,7 @@ create or replace function public.redeem_campaign_code(
 ) returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_code     text := upper(btrim(coalesce(p_code, '')));
@@ -203,7 +205,7 @@ create or replace function public.open_trial(
 ) returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_token   text := upper(btrim(coalesce(p_token, '')));
