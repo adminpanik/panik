@@ -86,10 +86,17 @@ export class CampaignStore {
   }
 
   private async rpc(fn: string, args: Record<string, unknown>): Promise<unknown> {
+    // Strip null/undefined params: PostgREST can't resolve JSON null to typed
+    // PostgreSQL text params (42883 "no function matches"). Omitting them lets
+    // the function's DEFAULT NULL kick in instead.
+    const clean: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(args)) {
+      if (v !== null && v !== undefined) clean[k] = v;
+    }
     const res = await fetch(`${this.base}/rest/v1/rpc/${fn}`, {
       method: "POST",
       headers: this.headers(),
-      body: JSON.stringify(args),
+      body: JSON.stringify(clean),
     });
     if (!res.ok) throw new Error(`${fn}: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
     return res.json();
@@ -99,21 +106,19 @@ export class CampaignStore {
 
   /** Attempt a redemption; atomic + logged in SQL. Never over-decrements. */
   async redeem(code: string, ip?: string | null, ua?: string | null): Promise<RedeemResult> {
-    const out = (await this.rpc("redeem_campaign_code", {
-      p_code: code,
-      p_ip: ip ?? null,
-      p_ua: ua ?? null,
-    })) as RedeemResult;
+    const args: Record<string, unknown> = { p_code: code };
+    if (ip) args.p_ip = ip;
+    if (ua) args.p_ua = ua;
+    const out = (await this.rpc("redeem_campaign_code", args)) as RedeemResult;
     return out;
   }
 
   /** Resolve a per-user token on app open; starts the clock on first open. */
   async openTrial(token: string, ip?: string | null, ua?: string | null): Promise<OpenResult> {
-    const out = (await this.rpc("open_trial", {
-      p_token: token,
-      p_ip: ip ?? null,
-      p_ua: ua ?? null,
-    })) as OpenResult;
+    const args: Record<string, unknown> = { p_token: token };
+    if (ip) args.p_ip = ip;
+    if (ua) args.p_ua = ua;
+    const out = (await this.rpc("open_trial", args)) as OpenResult;
     return out;
   }
 
