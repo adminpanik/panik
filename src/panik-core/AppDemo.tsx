@@ -999,14 +999,6 @@ export function AppDemo() {
                 {RISK_TIER_LABELS[riskTier]}
               </span>
             )}
-
-            {/* Onboarded wallet (mandatory — always set after onboarding) */}
-            {onboardedWallet && (
-              <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.02] border border-white/[0.05] text-[11px] font-mono text-white/70">
-                <Wallet className="w-3 h-3 text-panik-orange" />
-                <span>{truncateAddress(onboardedWallet)}</span>
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-6 text-[10px] font-mono text-[#748BAA]">
