@@ -28,6 +28,20 @@ export interface CreateInput {
   claimWindowDays?: number;
 }
 
+/**
+ * One redeemed grant = one user. This is the "how many + who" roster: the row
+ * count is the user count, and `email` is the captured contact. Mirrors the
+ * server TrialGrant in server/campaignStore.ts.
+ */
+export interface TrialGrant {
+  email: string | null;
+  campaign_code: string | null;
+  campaign_label: string | null;
+  first_opened_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
 const KEY_STORAGE = "panik_admin_key";
 
 export const getStoredKey = (): string => sessionStorage.getItem(KEY_STORAGE) ?? "";
@@ -57,6 +71,10 @@ async function call<T>(path: string, key: string, init?: RequestInit): Promise<A
 
 export const listCampaigns = (key: string) =>
   call<{ campaigns: Campaign[] }>("/api/admin/campaigns", key);
+
+/** The redeemed-user roster (newest first) - count + emails across all campaigns. */
+export const listGrants = (key: string) =>
+  call<{ grants: TrialGrant[] }>("/api/admin/campaigns?view=emails", key);
 
 export const createCampaign = (key: string, input: CreateInput) =>
   call<{ campaign: Campaign }>("/api/admin/campaigns", key, {

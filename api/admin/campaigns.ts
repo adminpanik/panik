@@ -1,6 +1,7 @@
 /**
  * /api/admin/campaigns   (x-admin-key: ADMIN_ACCESS_KEY)
  *   GET                       list all campaigns (newest first)
+ *   GET  ?view=emails         redeemed-user roster (count + emails)
  *   POST                      create { label?, trialDays, maxRedemptions, claimWindowDays? }
  *   POST ?action=expire       disable early { id }
  *
@@ -38,6 +39,11 @@ export default async function handler(req: Req, res: Res): Promise<void> {
 
   try {
     if ((req.method ?? "GET").toUpperCase() === "GET") {
+      // ?view=emails → the redeemed-user roster (count + emails); default → campaigns.
+      if (pick(req.query.view) === "emails") {
+        res.status(200).json({ grants: await store.listGrants() });
+        return;
+      }
       res.status(200).json({ campaigns: await store.listCampaigns() });
       return;
     }

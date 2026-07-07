@@ -10,16 +10,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { Loader2, Plus, RefreshCw, Ban, Download, Copy, Check, QrCode, Lock } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Ban, Download, Copy, Check, QrCode, Lock, Users, Mail } from "lucide-react";
 import {
   clearStoredKey,
   createCampaign,
   expireCampaign,
   getStoredKey,
   listCampaigns,
+  listGrants,
   setStoredKey,
   type Campaign,
   type CreateInput,
+  type TrialGrant,
 } from "./lib/adminApi";
 import { evaluateCampaign, formatRemaining, type CampaignStatus } from "../panik-try/lib/trialLogic";
 
@@ -257,6 +259,109 @@ function CampaignRow({ c, apiKey, onChange }: { c: Campaign; apiKey: string; onC
   );
 }
 
+// ── Redeemed users (the "how many + who" roster) ────────────────────────────
+// One grant row = one real user. The header count IS the user count; the list
+// is the captured email contact list, copyable for import into a mailer.
+function RedeemedUsers({ apiKey }: { apiKey: string }) {
+  const [grants, setGrants] = useState<TrialGrant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const res = await listGrants(apiKey);
+    setLoading(false);
+    if (res.ok && res.data) {
+      setGrants(res.data.grants);
+      setError("");
+    } else {
+      setError(res.error ?? "Could not load users.");
+    }
+  }, [apiKey]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const emails = grants.map((g) => g.email).filter((e): e is string => Boolean(e));
+
+  async function copyEmails() {
+    if (emails.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(emails.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="panik-glass rounded-2xl p-6 mb-8">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <h2 className="font-display text-base font-semibold text-white/90 flex items-center gap-2">
+          <Users className="w-4 h-4 text-orange-400" /> Redeemed users
+        </h2>
+        <span className="font-mono text-sm text-orange-300/90 rounded-full border border-orange-500/25 bg-orange-500/[0.06] px-2.5 py-0.5">
+          {grants.length}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={copyEmails}
+            disabled={emails.length === 0}
+            className="flex items-center gap-1.5 rounded-lg border border-white/12 px-2.5 py-1.5 text-xs text-white/80 hover:bg-white/[0.06] transition-colors disabled:opacity-40"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-orange-400" /> : <Copy className="w-3.5 h-3.5" />}
+            Copy {emails.length} email{emails.length === 1 ? "" : "s"}
+          </button>
+          <button
+            onClick={refresh}
+            className="flex items-center gap-1.5 rounded-lg border border-white/12 px-2.5 py-1.5 text-xs text-white/70 hover:bg-white/[0.06] transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-red-400/90 mb-3">{error}</p>}
+      {loading && grants.length === 0 ? (
+        <div className="flex items-center gap-2 text-white/40 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+      ) : grants.length === 0 ? (
+        <p className="text-sm text-white/40">No redemptions yet. Emails show up here the moment someone scans a card and starts a trial.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="text-[11px] font-mono uppercase tracking-widest text-white/30">
+                <th className="pb-2 pr-4 font-normal">Email</th>
+                <th className="pb-2 pr-4 font-normal">Code</th>
+                <th className="pb-2 pr-4 font-normal">Opened</th>
+                <th className="pb-2 font-normal">Redeemed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {grants.map((g, i) => (
+                <tr key={`${g.email ?? "?"}-${g.created_at}-${i}`} className="border-t border-white/5">
+                  <td className="py-2 pr-4">
+                    <span className="flex items-center gap-1.5 text-white/85">
+                      <Mail className="w-3.5 h-3.5 text-white/25 shrink-0" />
+                      {g.email ?? <span className="text-white/30 italic">no email</span>}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4 font-mono text-xs text-white/55">{g.campaign_code ?? "-"}</td>
+                  <td className="py-2 pr-4 text-xs text-white/45">
+                    {g.first_opened_at ? new Date(g.first_opened_at).toLocaleDateString() : <span className="text-white/25">not yet</span>}
+                  </td>
+                  <td className="py-2 text-xs text-white/45">{new Date(g.created_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Dashboard ───────────────────────────────────────────────────────────────
 function Dashboard({ apiKey, onLock }: { apiKey: string; onLock: () => void }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -309,6 +414,8 @@ function Dashboard({ apiKey, onLock }: { apiKey: string; onLock: () => void }) {
       </div>
 
       <CreateForm apiKey={apiKey} onCreated={upsert} />
+
+      <RedeemedUsers apiKey={apiKey} />
 
       <h2 className="font-display text-base font-semibold text-white/90 mb-4">Campaigns</h2>
       {error && <p className="text-sm text-red-400/90 mb-4">{error}</p>}

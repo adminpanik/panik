@@ -58,6 +58,16 @@ export interface CreateCampaignInput {
   claimWindowExpiresAt?: string | null;
 }
 
+/** One redeemed grant (one user), flattened with its campaign code for the admin roster. */
+export interface TrialGrant {
+  email: string | null;
+  campaign_code: string | null;
+  campaign_label: string | null;
+  first_opened_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
 export class CampaignStore {
   private readonly base: string;
 
@@ -104,9 +114,19 @@ export class CampaignStore {
 
   // ── redemption (public /try flow) ─────────────────────────────────────────
 
-  /** Attempt a redemption; atomic + logged in SQL. Never over-decrements. */
-  async redeem(code: string, ip?: string | null, ua?: string | null): Promise<RedeemResult> {
+  /**
+   * Attempt a redemption; atomic + logged in SQL. Never over-decrements.
+   * `email` is captured on the minted grant (the /try flow requires it) so the
+   * roster reflects who redeemed each card.
+   */
+  async redeem(
+    code: string,
+    email?: string | null,
+    ip?: string | null,
+    ua?: string | null,
+  ): Promise<RedeemResult> {
     const args: Record<string, unknown> = { p_code: code };
+    if (email) args.p_email = email;
     if (ip) args.p_ip = ip;
     if (ua) args.p_ua = ua;
     const out = (await this.rpc("redeem_campaign_code", args)) as RedeemResult;
@@ -148,6 +168,37 @@ export class CampaignStore {
       return rows[0]!;
     }
     throw new Error("createCampaign: could not allocate a unique code");
+  }
+
+  /**
+   * Every redeemed grant (one row per user), newest first, with its campaign
+   * code/label embedded. This is the "how many users + their email" roster for
+   * the admin console. Uses PostgREST FK embedding on campaign_id.
+   */
+  async listGrants(): Promise<TrialGrant[]> {
+    const select =
+      "email,first_opened_at,expires_at,created_at,product_campaigns(campaign_code,label)";
+    const res = await fetch(
+      `${this.base}/rest/v1/trial_grants?select=${encodeURIComponent(select)}&order=created_at.desc`,
+      { headers: this.headers() },
+    );
+    if (!res.ok) throw new Error(`listGrants: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+    type Row = {
+      email: string | null;
+      first_opened_at: string | null;
+      expires_at: string | null;
+      created_at: string;
+      product_campaigns: { campaign_code: string | null; label: string | null } | null;
+    };
+    const rows = (await res.json()) as Row[];
+    return rows.map((r) => ({
+      email: r.email,
+      campaign_code: r.product_campaigns?.campaign_code ?? null,
+      campaign_label: r.product_campaigns?.label ?? null,
+      first_opened_at: r.first_opened_at,
+      expires_at: r.expires_at,
+      created_at: r.created_at,
+    }));
   }
 
   /** All campaigns, newest first (admin table). */

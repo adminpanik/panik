@@ -18,6 +18,8 @@ import {
   computeTrialExpiry,
   evaluateTrialAccess,
   normalizeCode,
+  normalizeEmail,
+  isValidEmail,
   parseCode,
   formatRemaining,
   type CampaignLike,
@@ -127,6 +129,32 @@ describe("normalizeCode", () => {
   it("handles null/undefined", () => {
     expect(normalizeCode(null)).toBe("");
     expect(normalizeCode(undefined)).toBe("");
+  });
+});
+
+describe("isValidEmail", () => {
+  it("accepts ordinary addresses", () => {
+    expect(isValidEmail("neithan@panik.fi")).toBe(true);
+    expect(isValidEmail("a.b+tag@sub.example.co")).toBe(true);
+    expect(isValidEmail("  trimmed@panik.fi  ")).toBe(true);
+  });
+  it("rejects malformed / empty input", () => {
+    expect(isValidEmail("")).toBe(false);
+    expect(isValidEmail(null)).toBe(false);
+    expect(isValidEmail("nope")).toBe(false);
+    expect(isValidEmail("no@domain")).toBe(false);
+    expect(isValidEmail("two@@at.com")).toBe(false);
+    expect(isValidEmail("has space@panik.fi")).toBe(false);
+  });
+});
+
+describe("normalizeEmail", () => {
+  it("lowercases and trims", () => {
+    expect(normalizeEmail("  Neithan@PANIK.Fi ")).toBe("neithan@panik.fi");
+  });
+  it("handles null/undefined", () => {
+    expect(normalizeEmail(null)).toBe("");
+    expect(normalizeEmail(undefined)).toBe("");
   });
 });
 

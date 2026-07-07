@@ -14,9 +14,9 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Globe, ArrowRight, Copy, Check, Loader2, Ticket, AlertCircle } from "lucide-react";
+import { Globe, ArrowRight, Copy, Check, Loader2, Ticket, AlertCircle, Mail } from "lucide-react";
 import { BUSINESS_CARD } from "./businessCard";
-import { parseCode, normalizeCode, type RedeemOutcome } from "./lib/trialLogic";
+import { parseCode, normalizeCode, isValidEmail, normalizeEmail, type RedeemOutcome } from "./lib/trialLogic";
 import { redeemCode } from "./lib/api";
 
 type Phase = "idle" | "manual" | "submitting" | "success" | "invalid" | "error";
@@ -33,14 +33,19 @@ export default function App() {
   const [detectedCode] = useState<string | null>(() =>
     typeof window !== "undefined" ? parseCode(window.location.search) : null,
   );
-  const [phase, setPhase] = useState<Phase>("idle");
+  // No detected code → the manual code field is the resting state, shown next to
+  // the (always-required) email field.
+  const [phase, setPhase] = useState<Phase>(detectedCode ? "idle" : "manual");
   const [manualCode, setManualCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState(false);
   const [trialUrl, setTrialUrl] = useState<string | null>(null);
   const [invalidOutcome, setInvalidOutcome] = useState<Exclude<RedeemOutcome, "success">>("not_found");
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const honeypotRef = useRef<HTMLInputElement>(null);
   const manualInputRef = useRef<HTMLInputElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -49,13 +54,21 @@ export default function App() {
     : "";
 
   async function submit(code: string): Promise<void> {
+    // Email is required (it's the whole point of this gate): screen it before we
+    // ever burn a redemption, and focus the offending field.
+    const cleanEmail = normalizeEmail(email);
+    if (!isValidEmail(cleanEmail)) {
+      setEmailError(true);
+      emailInputRef.current?.focus();
+      return;
+    }
     const clean = normalizeCode(code);
     if (!clean) {
       manualInputRef.current?.focus();
       return;
     }
     setPhase("submitting");
-    const res = await redeemCode(clean, honeypotRef.current?.value ?? "");
+    const res = await redeemCode(clean, cleanEmail, honeypotRef.current?.value ?? "");
     if (res.ok && res.trialUrl) {
       setTrialUrl(res.trialUrl);
       setPhase("success");
@@ -71,13 +84,7 @@ export default function App() {
   }
 
   function onTryNow(): void {
-    if (detectedCode) return void submit(detectedCode);
-    if (phase !== "manual") {
-      setPhase("manual");
-      setTimeout(() => manualInputRef.current?.focus(), 50);
-      return;
-    }
-    void submit(manualCode);
+    void submit(detectedCode ?? manualCode);
   }
 
   async function copyLink(): Promise<void> {
@@ -97,6 +104,12 @@ export default function App() {
 
   const fade = (delay: string) =>
     `transition-all duration-700 ${delay} ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`;
+
+  // Gate the button: both required fields must be filled before it's clickable.
+  // On the scan path the code is auto-detected, so only the email is typed; on
+  // the manual path both the code and the email are required.
+  const hasCode = Boolean(detectedCode) || manualCode.trim().length > 0;
+  const canSubmit = hasCode && email.trim().length > 0 && phase !== "submitting";
 
   return (
     <div className="relative min-h-screen bg-[#0A0A0B] text-[#F0F4FF] selection:bg-panik-orange/30 selection:text-white overflow-x-clip">
@@ -176,8 +189,8 @@ export default function App() {
               </div>
               <p className="text-sm text-white/45 leading-relaxed mb-5">
                 {detectedCode
-                  ? "Your card's code is ready. One tap starts your trial."
-                  : "Tap below and enter the code printed on your card to start your trial."}
+                  ? "Your card's code is ready. Add your email and one tap starts your trial."
+                  : "Enter the code printed on your card and your email to start your trial."}
               </p>
 
               {detectedCode && (
@@ -192,12 +205,39 @@ export default function App() {
                   ref={manualInputRef}
                   value={manualCode}
                   onChange={(e) => setManualCode(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => e.key === "Enter" && submit(manualCode)}
+                  onKeyDown={(e) => e.key === "Enter" && emailInputRef.current?.focus()}
                   placeholder="PANIK-TRY-XXXX"
                   spellCheck={false}
                   autoCapitalize="characters"
-                  className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 mb-4 font-mono text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition-colors"
+                  className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition-colors"
                 />
+              )}
+
+              {/* Email gate - required in every path (scan or manual). This is how
+                  we count real users and build the contact list. */}
+              <div className="relative mb-1.5">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                <input
+                  ref={emailInputRef}
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); if (emailError) setEmailError(false); }}
+                  onKeyDown={(e) => e.key === "Enter" && onTryNow()}
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  spellCheck={false}
+                  placeholder="you@email.com"
+                  aria-invalid={emailError}
+                  aria-label="Email address"
+                  className={`w-full rounded-lg border bg-black/30 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-white/25 outline-none transition-colors ${
+                    emailError ? "border-red-500/50 focus:border-red-500/60" : "border-white/12 focus:border-orange-500/40"
+                  }`}
+                />
+              </div>
+              {emailError ? (
+                <p className="text-xs text-red-400/90 mb-4">Enter a valid email to start your trial.</p>
+              ) : (
+                <p className="text-xs text-white/30 mb-4">We'll only use this to send you PANIK updates.</p>
               )}
 
               {phase === "error" && (
@@ -206,8 +246,8 @@ export default function App() {
 
               <button
                 onClick={onTryNow}
-                disabled={phase === "submitting"}
-                className="group flex items-center justify-center gap-2 w-full rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-3 font-semibold text-white shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                disabled={!canSubmit}
+                className="group flex items-center justify-center gap-2 w-full rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-3 font-semibold text-white shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:shadow-none"
               >
                 {phase === "submitting" ? (
                   <>

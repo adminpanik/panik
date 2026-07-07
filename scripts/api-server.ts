@@ -601,14 +601,19 @@ app.post("/api/telegram/webhook", async (req, res) => {
 // ADMIN_ACCESS_KEY. See supabase/migrations/20260704000001_product_codes.sql.
 const campaignsConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY);
 
+// Mirrors isValidEmail in src/panik-try/lib/trialLogic.ts + trial_grants_email_format.
+const TRY_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 app.post("/api/try/redeem", async (req, res) => {
-  const body = (req.body ?? {}) as { code?: string; honeypot?: string };
+  const body = (req.body ?? {}) as { code?: string; email?: string; honeypot?: string };
   const code = String(body.code ?? "").trim();
+  const email = String(body.email ?? "").trim().toLowerCase();
   if (String(body.honeypot ?? "").trim() !== "") { res.status(200).json({ ok: false, outcome: "not_found" }); return; }
   if (!code) { res.status(400).json({ ok: false, error: "missing code" }); return; }
+  if (!TRY_EMAIL_RE.test(email)) { res.status(400).json({ ok: false, error: "invalid email" }); return; }
   if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
   try {
-    const result = await CampaignStore.fromEnv().redeem(code, clientIp(req.headers), userAgent(req.headers));
+    const result = await CampaignStore.fromEnv().redeem(code, email, clientIp(req.headers), userAgent(req.headers));
     if (result.outcome === "success" && result.token) {
       res.json({ ok: true, outcome: "success", trialUrl: `/app?trial=${result.token}` });
     } else {
@@ -638,7 +643,11 @@ async function adminCampaigns(req: express.Request, res: express.Response): Prom
   if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
   try {
     const store = CampaignStore.fromEnv();
-    if (req.method === "GET") { res.json({ campaigns: await store.listCampaigns() }); return; }
+    if (req.method === "GET") {
+      if (String(req.query.view ?? "") === "emails") { res.json({ grants: await store.listGrants() }); return; }
+      res.json({ campaigns: await store.listCampaigns() });
+      return;
+    }
     const action = String(req.query.action ?? "");
     const body = (req.body ?? {}) as RawCreateBody & { id?: string };
     if (action === "expire") {

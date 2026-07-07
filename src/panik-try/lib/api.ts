@@ -20,12 +20,12 @@ export interface RedeemResponse {
 }
 
 /** Redeem a campaign code (scan or manual). Never throws - returns a result. */
-export async function redeemCode(code: string, honeypot = ""): Promise<RedeemResponse> {
+export async function redeemCode(code: string, email: string, honeypot = ""): Promise<RedeemResponse> {
   try {
     const res = await fetch("/api/try/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, honeypot }),
+      body: JSON.stringify({ code, email, honeypot }),
     });
     const body = (await res.json().catch(() => ({}))) as RedeemResponse;
     if (!res.ok && !body.outcome) {

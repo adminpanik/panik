@@ -20,9 +20,14 @@ interface Req {
 }
 interface Res { status(code: number): Res; json(body: unknown): void }
 
+// Mirrors isValidEmail in src/panik-try/lib/trialLogic.ts and the
+// trial_grants_email_format CHECK - a permissive typo screen, not deliverability.
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 export default async function handler(req: Req, res: Res): Promise<void> {
-  const body = (req.body ?? {}) as { code?: string; honeypot?: string };
+  const body = (req.body ?? {}) as { code?: string; email?: string; honeypot?: string };
   const code = (body.code ?? "").trim();
+  const email = (body.email ?? "").trim().toLowerCase();
 
   // Honeypot: real users never fill it; bots do. Silently no-op (no DB write,
   // no code burned), same philosophy as public.waitlist_signup.
@@ -32,6 +37,10 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   }
   if (!code) {
     res.status(400).json({ ok: false, error: "missing code" });
+    return;
+  }
+  if (!EMAIL_RE.test(email)) {
+    res.status(400).json({ ok: false, error: "invalid email" });
     return;
   }
 
@@ -44,7 +53,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   }
 
   try {
-    const result = await store.redeem(code, clientIp(req.headers), userAgent(req.headers));
+    const result = await store.redeem(code, email, clientIp(req.headers), userAgent(req.headers));
     if (result.outcome === "success" && result.token) {
       res.status(200).json({ ok: true, outcome: "success", trialUrl: `/app?trial=${result.token}` });
       return;

@@ -71,6 +71,21 @@ export function normalizeCode(raw: string | null | undefined): string {
 }
 
 /**
+ * Lightweight email check for the /try gate. Deliberately permissive (one @, a
+ * dot in the domain, no spaces) - it screens obvious typos, not deliverability.
+ * Mirrors the trial_grants_email_format CHECK in
+ * supabase/migrations/20260707000001_trial_email.sql; keep the two in sync.
+ */
+export function isValidEmail(raw: string | null | undefined): boolean {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test((raw ?? "").trim());
+}
+
+/** Normalize an email the same way the DB does (lowercased, trimmed). */
+export function normalizeEmail(raw: string | null | undefined): string {
+  return (raw ?? "").trim().toLowerCase();
+}
+
+/**
  * Read the campaign code from a URL query string (the scan path). Returns null
  * when no `code` param is present (the no-scan / manual-input fallback path).
  * Accepts either a full search string ("?code=ABC") or a bare one ("code=ABC").
