@@ -230,6 +230,127 @@ export function useChainTelemetry() {
   return { blockNumber: data?.blockNumber ?? null, gasGwei: data?.gasGwei ?? null };
 }
 
+// -- AI Advisor (Phase 2) ---------------------------------------------------
+// Local mirrors of packages/scoring/src/advisor/types.ts (panik-core does not
+// import the scoring package, same as LiveWalletPosition above).
+
+export type AdvisorAction = "HOLD" | "MONITOR" | "REDUCE" | "EXIT" | "REBALANCE" | "OPEN";
+export type AdvisorUrgency = "info" | "warning" | "critical";
+
+export interface AdvisorSections {
+  position: string;
+  market: string;
+  recommendation: string;
+  execution: string;
+}
+
+export interface AdvisorRepayPlan {
+  repayUsd: number;
+  repayAssetSymbol: string;
+  targetHf: number;
+  projectedHf: number;
+  mode: "wallet_funded";
+}
+
+export interface AdvisorOpenPlan {
+  protocol: LiveProtocol;
+  collateralSymbol: string;
+  collateralUsd: number;
+  borrowUsd: number;
+  projectedScore: number;
+  projectedHf: number | null;
+  apy: number | null;
+}
+
+export interface AdvisorRecommendation {
+  protocol: LiveProtocol;
+  wallet: string;
+  action: AdvisorAction;
+  urgency: AdvisorUrgency;
+  triggers: string[];
+  repayPlan?: AdvisorRepayPlan;
+  openPlan?: AdvisorOpenPlan;
+  rebalance?: { toProtocol: LiveProtocol; reason: string };
+  sections: AdvisorSections;
+  numbers: {
+    total: number;
+    band: Band;
+    healthFactor: number | null;
+    collateralValueUsd: number;
+    borrowValueUsd: number;
+    subScores: SubScores;
+    scoredCollateralSymbol: string;
+  };
+  exitPrefill?: { protocol: LiveProtocol; kind: "full" | "partial"; repayUsd?: number };
+  openPrefill?: AdvisorOpenPlan;
+}
+
+export interface AdvisorWalletInsights {
+  profile: string;
+  archetype: string;
+  protocols: string[];
+  topProtocol: string | null;
+  topCollateralSymbol: string | null;
+  liquidations: number;
+  lendingAgeDays: number;
+  borrowToDepositRatio: number;
+  stableBorrowPct: number;
+  daysSinceLastActivity: number;
+  confidence: number;
+}
+
+export interface AdvisorReport {
+  wallet: string;
+  profile: string;
+  overall: { action: AdvisorAction; urgency: AdvisorUrgency; headline: string };
+  recommendations: AdvisorRecommendation[];
+  opportunities: AdvisorRecommendation[];
+  walletInsights?: AdvisorWalletInsights;
+  narrated: boolean;
+  updatedAt: number;
+  changeToken: string;
+}
+
+/**
+ * Advisor report for ONE wallet - 60s poll of /api/advisor (the server caches
+ * the expensive narration for 5 min). Null wallet or offline degrades to null,
+ * so the Advisor tab can keep its Coming-Soon fallback.
+ */
+export function useAdvisor(wallet: string | null, profile: string) {
+  const [data, setData] = useState<AdvisorReport | null>(null);
+  const [offline, setOffline] = useState(false);
+
+  useEffect(() => {
+    // Reset on wallet change - never show the previous wallet's advice.
+    setData(null);
+    if (!wallet) {
+      setOffline(false);
+      return;
+    }
+    let cancelled = false;
+    const url = `/api/advisor?wallet=${wallet.toLowerCase()}&profile=${encodeURIComponent(profile)}`;
+    const load = async () => {
+      try {
+        const body = await getJson<AdvisorReport>(url);
+        if (!cancelled) {
+          setData(body);
+          setOffline(false);
+        }
+      } catch {
+        if (!cancelled) setOffline(true);
+      }
+    };
+    void load();
+    const t = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [wallet, profile]);
+
+  return { report: data, offline };
+}
+
 export interface ProspectiveArgs {
   protocol: LiveProtocol;
   symbol: string;

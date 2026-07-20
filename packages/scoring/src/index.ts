@@ -31,6 +31,21 @@ export * from "./providers/chainlink";
 export { TtlCache } from "./providers/cache";
 export { DuneHistoryProvider, PANIK_FEATURES_QUERY_ID, EMPTY_FEATURES } from "./providers/duneHistory";
 export { OpenRouterNarrator, fallbackNarration, fallbackCombined, type ProfileNarration } from "./providers/narrator";
+// Advisor recommendation engine (deterministic; LLM narrates only) - Phase 2
+export * from "./advisor/types";
+export * from "./advisor/repayMath";
+export { adviseLeg, adviseWallet, safestAlternativeProtocol, REBALANCE_SAFETY_GATE } from "./advisor/rules";
+export {
+  findOpportunities,
+  DEFAULT_BUDGET_USD,
+  FAMILIARITY_BOOST,
+  type FindOpportunitiesInput,
+  type ScenarioScorer,
+  type YieldTable,
+} from "./advisor/opportunities";
+export { fallbackSections, overallHeadline, PROTOCOL_LABEL } from "./advisor/fallback";
+export { insightsFromClassification } from "./advisor/insights";
+export { AdvisorNarrator, type AdvisorNarratorOptions } from "./providers/advisorNarrator";
 // DeFi-persona classifier (deterministic) — see docs/technical-docs/WALLET_PROFILER.md
 export * from "./classify/types";
 export * from "./classify/params";

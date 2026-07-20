@@ -22,22 +22,31 @@ import { base } from "viem/chains";
 import {
   AaveActiveReader,
   ActiveAdapter,
+  AdvisorNarrator,
+  adviseWallet,
   CoinGeckoProvider,
   CompoundActiveReader,
   DefiLlamaProvider,
+  findOpportunities,
+  insightsFromClassification,
   MARKETS,
   MoonwellActiveReader,
   MorphoActiveReader,
+  PROTOCOL_DEFILLAMA_SLUG,
   resolveProfileScan,
   scoreProspective,
   startProfileScan,
   statusFor,
   formatWelcome,
   type ActiveScore,
+  type AdvisorReport,
+  type LegMarketContext,
   type Protocol,
   type PublicClientLike,
   type RiskProfile,
   type StatedProfile,
+  type WalletInsights,
+  type YieldTable,
 } from "../packages/scoring/src/index";
 import { getProfileDeps, isEvmAddress, transactionPoolerUrl } from "../server/profileDeps";
 import { TelegramStore } from "../server/telegramStore";
@@ -468,6 +477,271 @@ app.get("/api/prospective", async (req, res) => {
     res.json(r);
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// -- Morpho market params (Phase 2 OpenFlow) --------------------------------
+// The in-app Morpho open needs on-chain MarketParams; markets are discovered
+// via the same official API the Morpho reader uses (1h cache). Returns the
+// deepest Base market for the collateral symbol with a USDC loan side.
+const MORPHO_MARKET_QUERY = `query ($chainId: [Int!]) {
+  markets(where: { chainId_in: $chainId, listed: true }, first: 200) {
+    items {
+      marketId
+      lltv
+      collateralAsset { address symbol }
+      loanAsset { address symbol }
+      oracle { address }
+      irmAddress
+      state { supplyAssetsUsd }
+    }
+  }
+}`;
+
+interface MorphoMarketRow {
+  marketId: string;
+  lltv: string;
+  collateralAsset: { address: string; symbol: string } | null;
+  loanAsset: { address: string; symbol: string } | null;
+  oracle: { address: string } | null;
+  irmAddress: string;
+  state: { supplyAssetsUsd: number | null } | null;
+}
+
+let morphoMarketCache: { at: number; items: MorphoMarketRow[] } = { at: 0, items: [] };
+
+async function getMorphoMarkets(): Promise<MorphoMarketRow[]> {
+  if (Date.now() - morphoMarketCache.at < 3_600_000) return morphoMarketCache.items;
+  const res = await fetch("https://blue-api.morpho.org/graphql", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query: MORPHO_MARKET_QUERY, variables: { chainId: [8453] } }),
+  });
+  if (!res.ok) throw new Error(`Morpho API: HTTP ${res.status}`);
+  const body = (await res.json()) as {
+    data?: { markets?: { items?: MorphoMarketRow[] } };
+    errors?: { message: string }[];
+  };
+  if (body.errors?.length) throw new Error(`Morpho API: ${body.errors[0]?.message}`);
+  morphoMarketCache = { at: Date.now(), items: body.data?.markets?.items ?? [] };
+  return morphoMarketCache.items;
+}
+
+app.get("/api/morpho/market", async (req, res) => {
+  const symbol = String(req.query.symbol ?? "").trim();
+  if (!symbol) {
+    res.status(400).json({ error: "missing symbol" });
+    return;
+  }
+  try {
+    const items = await getMorphoMarkets();
+    const candidates = items
+      .filter(
+        (m) =>
+          m.collateralAsset?.symbol === symbol &&
+          (m.loanAsset?.symbol === "USDC" || m.loanAsset?.symbol === "USDbC"),
+      )
+      .sort((a, b) => (b.state?.supplyAssetsUsd ?? 0) - (a.state?.supplyAssetsUsd ?? 0));
+    const best = candidates[0];
+    if (!best || !best.collateralAsset || !best.loanAsset || !best.oracle) {
+      res.status(404).json({ error: `no Base USDC market for collateral ${symbol}` });
+      return;
+    }
+    res.json({
+      uniqueKey: best.marketId,
+      marketParams: {
+        loanToken: best.loanAsset.address,
+        collateralToken: best.collateralAsset.address,
+        oracle: best.oracle.address,
+        irm: best.irmAddress,
+        lltv: best.lltv,
+      },
+    });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
+  }
+});
+
+// -- AI Advisor (Phase 2) - deterministic engine + LLM narration -----------
+// Rules decide (packages/scoring/src/advisor); OpenRouter only rephrases the
+// sections. 5-min cache per wallet:profile - narration is the expensive part;
+// the scores underneath refresh at 60s and CRITICAL transitions still reach
+// users via the Watch/Telegram loop.
+const ADVISOR_TTL_MS = 5 * 60_000;
+const ADVISOR_NARRATE_TIMEOUT_MS = 4_000;
+const advisorNarrator = process.env.OPENROUTER_API_KEY
+  ? new AdvisorNarrator(process.env.OPENROUTER_API_KEY)
+  : null;
+
+type AdvisorResponse = AdvisorReport & { changeToken: string };
+const advisorCache = new Map<string, { at: number; report: AdvisorResponse }>();
+
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+/**
+ * Cached profiler classification -> advisor personalization. Read-only: never
+ * triggers a Dune scan (that stays with the onboarding /api/profile flow).
+ */
+async function advisorInsights(wallet: string): Promise<WalletInsights | undefined> {
+  if (!profilerConfigured) return undefined;
+  try {
+    const entry = await getProfileDeps().cache.get(wallet);
+    return entry ? insightsFromClassification(entry.classification) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Compass pool yields (DefiLlama percent) -> advisor YieldTable (fractions). */
+function advisorYields(pools: Record<string, PoolYield>): YieldTable {
+  const table: YieldTable = {};
+  for (const s of COMPASS_SCENARIOS) {
+    const pool = pools[s.id];
+    if (!pool) continue;
+    (table[s.protocol] ??= {})[s.collateralSymbol] = pool.apy / 100;
+  }
+  return table;
+}
+
+app.get("/api/advisor", async (req, res) => {
+  const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
+  const profileRaw = String(req.query.profile ?? "moderate") as RiskProfile;
+  const profile: RiskProfile = ["conservative", "moderate", "aggressive"].includes(profileRaw)
+    ? profileRaw
+    : "moderate";
+  if (!isEvmAddress(wallet)) {
+    res.status(400).json({ error: "invalid EVM wallet address" });
+    return;
+  }
+  const key = `${wallet}:${profile}`;
+  const hit = advisorCache.get(key);
+  if (hit && Date.now() - hit.at < ADVISOR_TTL_MS) {
+    res.json(hit.report);
+    return;
+  }
+  try {
+    // 1 - positions: reuse the /api/positions 60s cache when fresh.
+    const cachedPos = ownPosCache.get(wallet);
+    let scores: ActiveScore[];
+    if (cachedPos && Date.now() - cachedPos.at < 60_000) {
+      scores = cachedPos.positions;
+    } else {
+      scores = await adapter.scoreWallet(wallet);
+      ownPosCache.set(wallet, {
+        at: Date.now(),
+        positions: scores.map((s) => ({
+          ...s,
+          label: null,
+          riskProfile: profile,
+          profileStatus: statusFor(profile, s.total),
+        })),
+      });
+    }
+
+    // 2 - per-protocol TVL context for the rebalance rule (provider-cached).
+    const ctx: Partial<Record<Protocol, LegMarketContext>> = {};
+    await Promise.all(
+      [...new Set(scores.map((s) => s.protocol))].map(async (p) => {
+        try {
+          const sys = await providers.systemic.getSystemicRiskInput(PROTOCOL_DEFILLAMA_SLUG[p]);
+          ctx[p] = {
+            protocolTvl7dPct:
+              sys.protocolTvl7dAgo > 0 ? sys.protocolTvlNow / sys.protocolTvl7dAgo - 1 : null,
+            sectorTvl7dPct:
+              sys.sectorTvl7dAgo > 0 ? sys.sectorTvlNow / sys.sectorTvl7dAgo - 1 : null,
+          };
+        } catch {
+          // Context is optional; the rules degrade to sub-score-only signals.
+        }
+      }),
+    );
+
+    // 3 - decide (deterministic), then personalize + scan openings.
+    const { overall, recommendations } = adviseWallet(scores, profile, ctx);
+    const insights = await advisorInsights(wallet);
+    let yields: YieldTable | undefined;
+    try {
+      yields = advisorYields((await getPoolYields()).pools);
+    } catch {
+      yields = undefined;
+    }
+    const opportunities = await findOpportunities({
+      wallet,
+      profile,
+      scoreScenario: (s) => scoreProspective(s, providers),
+      currentRecommendations: recommendations,
+      yields,
+      insights,
+    });
+
+    // 4 - narrate non-HOLD legs + the top opportunity, time-boxed; any failure
+    // keeps the deterministic sections already attached.
+    let narrated = false;
+    if (advisorNarrator) {
+      const targets = [
+        ...recommendations.filter((r) => r.action !== "HOLD"),
+        ...opportunities.slice(0, 1),
+      ];
+      await Promise.all(
+        targets.map(async (rec) => {
+          const out = await withTimeout(
+            advisorNarrator.narrate(rec, profile, insights),
+            ADVISOR_NARRATE_TIMEOUT_MS,
+            rec.sections,
+          );
+          if (out !== rec.sections) {
+            rec.sections = out;
+            narrated = true;
+          }
+        }),
+      );
+    }
+
+    const changeToken =
+      [
+        ...recommendations.map((r) => `${r.protocol}:${r.action}`),
+        ...opportunities.map((r) => `open:${r.protocol}:${r.numbers.scoredCollateralSymbol}`),
+      ].join("|") || "none";
+    const report: AdvisorResponse = {
+      wallet,
+      profile,
+      overall,
+      recommendations,
+      opportunities,
+      walletInsights: insights,
+      narrated,
+      updatedAt: Date.now(),
+      changeToken,
+    };
+
+    // 5 - append leg-action CHANGES to the advice log (fire-and-forget; the
+    // route never blocks or fails on the insert).
+    const prevActions = new Map(
+      (hit?.report.recommendations ?? []).map((r) => [r.protocol, r.action]),
+    );
+    for (const rec of recommendations) {
+      const before = prevActions.get(rec.protocol);
+      const changed = before !== undefined ? before !== rec.action : rec.action !== "HOLD";
+      if (!changed) continue;
+      void db
+        .query(
+          "insert into public.advisor_events (wallet, protocol, action, urgency, payload) values ($1,$2,$3,$4,$5)",
+          [wallet, rec.protocol, rec.action, rec.urgency, JSON.stringify(rec)],
+        )
+        .catch((e: unknown) =>
+          console.error(`advisor_events insert failed: ${(e as Error).message.slice(0, 80)}`),
+        );
+    }
+
+    advisorCache.set(key, { at: Date.now(), report });
+    res.json(report);
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
   }
 });
 

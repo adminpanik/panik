@@ -23,7 +23,8 @@
     "start:api": "node --import tsx scripts/api-server.ts",
     "worker": "node --import tsx scripts/watch-worker.ts",
     "worker:dev": "node --env-file=.env --import tsx scripts/watch-worker.ts",
-    "telegram:setup": "node --env-file=.env --import tsx scripts/set-telegram-webhook.ts"
+    "telegram:setup": "node --env-file=.env --import tsx scripts/set-telegram-webhook.ts",
+    "sync:exit-config": "node scripts/sync-exit-config.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

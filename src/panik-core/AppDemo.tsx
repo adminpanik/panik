@@ -37,6 +37,7 @@ import { Sparkline } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
 import {
+  useAdvisor,
   useChainTelemetry,
   useCompassScores,
   useCompassYields,
@@ -47,6 +48,11 @@ import {
   useWalletRegistry,
   type LiveProtocol,
 } from "./lib/live";
+import { AdvisorPanel } from "./components/AdvisorPanel";
+import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
+import { OpenFlow } from "./components/OpenFlow";
+import { AdvisorPopup } from "./components/AdvisorPopup";
+import type { AdvisorOpenPlan } from "./lib/live";
 import { ProtocolLogo } from "./components/ProtocolLogo";
 import { Onboarding } from "./components/Onboarding";
 import { registerWatchedWallet, useTelegramLink, isEvmAddress } from "./lib/telegram";
@@ -433,6 +439,14 @@ export function AppDemo() {
   // boundMode hides the registry selector entirely. (SIWE later proves ownership.)
   const boundMode = Boolean(onboardedWallet);
   const ownLive = useWalletPositions(onboardedWallet, selectedRiskProfile);
+
+  // AI Advisor (Phase 2): live report for the onboarded wallet. Null while
+  // offline or pre-onboarding - the tab keeps its Coming-Soon fallback then.
+  const advisorLive = useAdvisor(onboardedWallet, selectedRiskProfile);
+  // Atomic Exit modal (Phase 2): opened from Advisor CTAs with a prefill.
+  const [exitPrefill, setExitPrefill] = useState<ExitPrefill | null>(null);
+  // In-app open flow (Phase 2): opened from Advisor opportunity CTAs.
+  const [openFlowPlan, setOpenFlowPlan] = useState<AdvisorOpenPlan | null>(null);
 
   // Telegram alert linking (Connect Telegram lives in the Settings tab).
   const telegramLink = useTelegramLink();
@@ -1985,6 +1999,13 @@ export function AppDemo() {
                   <p className="text-panik-text-secondary font-mono text-xs">Intelligent decentralized risk modeling and real-time execution guidance</p>
                 </div>
 
+                {advisorLive.report ? (
+                  <AdvisorPanel
+                    report={advisorLive.report}
+                    onExit={(prefill) => setExitPrefill(prefill)}
+                    onOpen={(plan) => setOpenFlowPlan(plan)}
+                  />
+                ) : (
                 <div className="bg-[#111318]/50 border border-white/[0.06] p-12 rounded-2xl flex flex-col items-center text-center max-w-2xl mx-auto my-8">
                   <div className="w-12 h-12 rounded-full bg-panik-orange/10 border border-panik-orange/30 flex items-center justify-center mb-6">
                     <Sparkles className="w-5 h-5 text-panik-orange animate-pulse" />
@@ -2017,6 +2038,7 @@ export function AppDemo() {
                     </span>
                   </label>
                 </div>
+                )}
               </motion.div>
             )}
 
@@ -2820,6 +2842,28 @@ export function AppDemo() {
           />
         );
       })()}
+
+      {/* Atomic Exit / Reduce flow (Phase 2) - real transactions, user-signed */}
+      {exitPrefill && (
+        <ExitFlow prefill={exitPrefill} onClose={() => setExitPrefill(null)} />
+      )}
+
+      {/* In-app open flow (Phase 2) - Base mainnet, user-signed */}
+      {openFlowPlan && (
+        <OpenFlow
+          plan={openFlowPlan}
+          riskProfile={selectedRiskProfile}
+          onClose={() => setOpenFlowPlan(null)}
+        />
+      )}
+
+      {/* Advisor popup (Phase 2) - fires on action changes / market shifts */}
+      <AdvisorPopup
+        report={advisorLive.report}
+        onExit={(prefill) => setExitPrefill(prefill)}
+        onOpen={(plan) => setOpenFlowPlan(plan)}
+        onView={() => setActiveTab("advisor")}
+      />
 
       {/* First-run onboarding tooltip tour */}
       {currentTourStep && (
