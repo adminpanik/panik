@@ -8,15 +8,24 @@
  * (x-telegram-bot-api-secret-token).
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
+
 import type { CreateCampaignInput } from "./campaignStore";
 
 export type AdminAuth = "ok" | "unconfigured" | "forbidden";
 
-/** Timing-safe-ish shared-secret check. */
+/**
+ * Timing-safe shared-secret check. Compares SHA-256 digests, not the raw
+ * strings: the digests are always 32 bytes, so timingSafeEqual never throws on
+ * a length mismatch and the comparison leaks neither length nor prefix.
+ */
 export function checkAdminKey(provided: string | undefined): AdminAuth {
   const expected = process.env.ADMIN_ACCESS_KEY;
   if (!expected) return "unconfigured";
-  return provided && provided === expected ? "ok" : "forbidden";
+  if (!provided) return "forbidden";
+  const a = createHash("sha256").update(provided).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b) ? "ok" : "forbidden";
 }
 
 export interface RawCreateBody {

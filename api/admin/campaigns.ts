@@ -37,8 +37,14 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     return;
   }
 
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "POST") {
+    res.status(405).json({ error: "method not allowed" });
+    return;
+  }
+
   try {
-    if ((req.method ?? "GET").toUpperCase() === "GET") {
+    if (method === "GET") {
       // ?view=emails → the redeemed-user roster (count + emails); default → campaigns.
       if (pick(req.query.view) === "emails") {
         res.status(200).json({ grants: await store.listGrants() });
