@@ -346,13 +346,6 @@ const profileResultLimit = rateLimit({ limit: 40 });      // 3s poll during the 
 const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
 const adminLimit = rateLimit({ limit: 10, maxFailures: 5, lockoutMs: 15 * 60_000 });
 
-/**
- * 5xx responder for the public (unauthenticated) routes. The real cause goes to
- * the server log; the caller only learns that it failed. Raw pg/PostgREST
- * messages must not reach the wire — a Supabase auth failure quotes the project
- * ref, and provider errors quote our request URLs. 4xx validation messages stay
- * verbatim: those describe the caller's own input.
- */
 /** ?profile → a known RiskProfile, defaulting to moderate. Never trust the raw
  * string: it selects the scoring thresholds and rides into the advisor prompt. */
 function riskProfileParam(raw: unknown): RiskProfile {
@@ -362,6 +355,13 @@ function riskProfileParam(raw: unknown): RiskProfile {
     : "moderate";
 }
 
+/**
+ * 5xx responder for the public (unauthenticated) routes. The real cause goes to
+ * the server log; the caller only learns that it failed. Raw pg/PostgREST
+ * messages must not reach the wire — a Supabase auth failure quotes the project
+ * ref, and provider errors quote our request URLs. 4xx validation messages stay
+ * verbatim: those describe the caller's own input.
+ */
 function serverError(req: express.Request, res: express.Response, status: number, err: unknown): void {
   console.error(`${req.method} ${req.path} -> ${status}: ${(err as Error).message}`);
   res.status(status).json({ error: status >= 502 ? "upstream request failed" : "internal server error" });
@@ -439,7 +439,7 @@ app.get("/api/positions", publicLimit, async (req, res) => {
   }
 });
 
-app.get("/api/compass", async (req, res) => {
+app.get("/api/compass", publicLimit, async (req, res) => {
   try {
     const { at, scores } = await getCompass();
     res.json({ updatedAt: at, scores });
@@ -492,7 +492,7 @@ app.get("/api/history", publicLimit, async (req, res) => {
   }
 });
 
-app.get("/api/poolhistory", async (req, res) => {
+app.get("/api/poolhistory", publicLimit, async (req, res) => {
   try {
     const { at, pools } = await getPoolYields();
     res.json({ updatedAt: at, pools });
@@ -501,7 +501,7 @@ app.get("/api/poolhistory", async (req, res) => {
   }
 });
 
-app.get("/api/prospective", async (req, res) => {
+app.get("/api/prospective", publicLimit, async (req, res) => {
   try {
     const protocol = String(req.query.protocol) as Protocol;
     const collateralSymbol = String(req.query.symbol);
@@ -576,7 +576,7 @@ async function getMorphoMarkets(): Promise<MorphoMarketRow[]> {
   return morphoMarketCache.items;
 }
 
-app.get("/api/morpho/market", async (req, res) => {
+app.get("/api/morpho/market", publicLimit, async (req, res) => {
   const symbol = String(req.query.symbol ?? "").trim();
   if (!symbol) {
     res.status(400).json({ error: "missing symbol" });
@@ -954,7 +954,7 @@ app.post("/api/try/redeem", strictLimit, async (req, res) => {
   }
 });
 
-app.post("/api/try/access", async (req, res) => {
+app.post("/api/try/access", strictLimit, async (req, res) => {
   const token = String((req.body as { token?: string } | undefined)?.token ?? "").trim();
   if (!token) { res.status(400).json({ ok: false, error: "missing token" }); return; }
   if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
@@ -1003,7 +1003,7 @@ async function adminCampaigns(req: express.Request, res: express.Response): Prom
 app.get("/api/admin/campaigns", adminLimit, adminCampaigns);
 app.post("/api/admin/campaigns", adminLimit, adminCampaigns);
 
-app.get("/api/chain", async (req, res) => {
+app.get("/api/chain", publicLimit, async (req, res) => {
   try {
     res.json(await getChain());
   } catch (err) {
