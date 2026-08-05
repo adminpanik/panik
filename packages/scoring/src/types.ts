@@ -25,26 +25,47 @@ export interface PositionHealthInput {
   maxLtv: number;
 }
 
-export interface AssetRiskInput {
+interface AssetRiskReturns {
   /** Last 30 daily returns of the collateral asset (fractional, e.g. 0.021). */
   dailyReturns30d: number[];
   /** Last 30 daily returns of BTC over the same window. */
   btcReturns30d: number[];
-  /**
-   * Ordered 90-day daily closes of the collateral asset (oldest → newest).
-   * Preferred input: only an ordered series yields a true peak-to-trough max
-   * drawdown. Providers fetch the full series already — always pass it.
-   */
-  prices90d?: number[];
-  /**
-   * @deprecated 90-day price extremes — order-blind fallback used only when
-   * `prices90d` is absent. (max − min) / max is an UPPER BOUND on the real
-   * drawdown: it cannot tell a 2x rally from a 50% crash. Pass `prices90d`.
-   */
-  maxPrice90d?: number;
-  /** @deprecated See `maxPrice90d`. */
-  minPrice90d?: number;
 }
+
+/**
+ * The drawdown term is 35% of `S_asset_risk` and gates `CRASH_REGIME` at 60,
+ * so it must never default to "no drawdown" just because a caller forgot to
+ * supply it. Making both shapes optional let
+ * `scoreAssetRisk({dailyReturns30d: [], btcReturns30d: []})` compile under
+ * strict and silently return 0 risk on 35% of the sub-score — hence the union:
+ * one of the two drawdown sources is REQUIRED at the type level.
+ */
+export type AssetRiskInput = AssetRiskReturns &
+  (
+    | {
+        /**
+         * Ordered 90-day daily closes of the collateral asset (oldest →
+         * newest). Preferred input: only an ordered series yields a true
+         * peak-to-trough max drawdown. Providers fetch the full series
+         * already — always pass it. The extremes may accompany it (they are
+         * ignored) so a caller can migrate one field at a time.
+         */
+        prices90d: number[];
+        maxPrice90d?: number;
+        minPrice90d?: number;
+      }
+    | {
+        prices90d?: undefined;
+        /**
+         * @deprecated 90-day price extremes — order-blind fallback used only
+         * when `prices90d` is absent. (max − min) / max is an UPPER BOUND on
+         * the real drawdown: it cannot tell a 2x rally from a 50% crash.
+         */
+        maxPrice90d: number;
+        /** @deprecated See `maxPrice90d`. */
+        minPrice90d: number;
+      }
+  );
 
 export interface SystemicRiskInput {
   /** DeFi lending sector TVL now and 7 days ago (USD). */

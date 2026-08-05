@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ASSET_RISK_WEIGHTS } from "../src/params";
 import { scoreAssetRisk } from "../src/subscores/assetRisk";
+import type { AssetRiskInput } from "../src/types";
 import { scorePositionHealth } from "../src/subscores/positionHealth";
 import { scoreProtocolSafety } from "../src/subscores/protocolSafety";
 import { scoreSystemicRisk } from "../src/subscores/systemicRisk";
@@ -105,16 +105,21 @@ describe("S_asset_risk", () => {
     const at = (prices90d: number[]) =>
       scoreAssetRisk({ dailyReturns30d: flat, btcReturns30d: flat, prices90d });
 
+    // Hand-computed against the arch spec (drawdown weight 0.35), NOT against
+    // ASSET_RISK_WEIGHTS: importing the weight the implementation uses makes
+    // the assertion tautological and lets a re-weighting pass unnoticed.
+    // score = 0.35 x drawdown x 100.
     const cases: [string, number[], number][] = [
       ["monotonic 2x rally → no drawdown", [100, 140, 180, 200], 0],
-      ["50% crash → full 50 points of drawdown", [200, 150, 100], 0.5],
-      ["crash then recovery → peak-to-trough, not endpoints", [200, 100, 195], 0.5],
-      ["rally then 25% fade → measured from the later peak", [100, 400, 300], 0.25],
+      ["50% crash → 0.35 x 50 = 17.5", [200, 150, 100], 17.5],
+      ["crash then recovery → peak-to-trough, not endpoints", [200, 100, 195], 17.5],
+      ["rally then 25% fade → measured from the later peak", [100, 400, 300], 8.75],
+      ["10% dip inside a rally → 0.35 x 10 = 3.5", [100, 90, 140, 130, 200], 3.5],
     ];
 
-    it.each(cases)("%s", (_label, prices90d, drawdown) => {
+    it.each(cases)("%s", (_label, prices90d, expected) => {
       // Flat returns → vol 0 and corr 0, so the score is the drawdown term alone.
-      expect(at(prices90d)).toBeCloseTo(ASSET_RISK_WEIGHTS.drawdown * drawdown * 100, 6);
+      expect(at(prices90d)).toBeCloseTo(expected, 6);
     });
 
     it("scores a rally far below a crash of the same amplitude", () => {
@@ -131,7 +136,7 @@ describe("S_asset_risk", () => {
         maxPrice90d: 200,
         minPrice90d: 100,
       });
-      expect(legacy).toBeCloseTo(ASSET_RISK_WEIGHTS.drawdown * 50, 6);
+      expect(legacy).toBeCloseTo(17.5, 6); // 0.35 x 50
       // Series wins when both are supplied — the rally is not a 50% drawdown.
       expect(
         scoreAssetRisk({
@@ -142,6 +147,34 @@ describe("S_asset_risk", () => {
           minPrice90d: 100,
         }),
       ).toBe(0);
+    });
+
+    // 0 from an unmeasurable series means "unknown", not "no drawdown" — and
+    // 35% of the sub-score must not silently vanish because a provider
+    // returned one point or a page of nulls.
+    it("falls back to the extremes when the series cannot yield a drawdown", () => {
+      const withExtremes = (prices90d: number[]) =>
+        scoreAssetRisk({
+          dailyReturns30d: flat,
+          btcReturns30d: flat,
+          prices90d,
+          maxPrice90d: 200,
+          minPrice90d: 100,
+        });
+      expect(withExtremes([150])).toBeCloseTo(17.5, 6); // single point
+      expect(withExtremes([])).toBeCloseTo(17.5, 6); // empty
+      expect(withExtremes([NaN, Infinity, -5, 0])).toBeCloseTo(17.5, 6); // all junk
+      // Two usable points ARE measurable — the series wins, junk and all.
+      expect(withExtremes([NaN, 200, 100])).toBeCloseTo(17.5, 6);
+      expect(withExtremes([NaN, 100, 200])).toBe(0);
+    });
+
+    it("rejects an input carrying neither a series nor the extremes", () => {
+      // @ts-expect-error - the discriminated union requires one drawdown source
+      const bad: AssetRiskInput = { dailyReturns30d: flat, btcReturns30d: flat };
+      // Runtime behaviour is still graceful (0), but this must not COMPILE:
+      // it silently zeroed 35% of S_asset_risk under strict mode.
+      expect(scoreAssetRisk(bad)).toBe(0);
     });
   });
 });

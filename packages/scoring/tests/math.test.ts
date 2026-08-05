@@ -57,6 +57,11 @@ describe("maxDrawdown", () => {
     ["single point", [1234], 0],
     ["empty series", [], 0],
     ["non-positive points ignored", [0, -5, 100, 25], 0.75],
+    // A provider gap must never poison the running peak into NaN/Infinity.
+    ["NaN points skipped, real crash still measured", [200, NaN, 100], 0.5],
+    ["Infinity never becomes the peak", [100, Infinity, 50], 0.5],
+    ["-Infinity is non-positive and skipped", [200, -Infinity, 150], 0.25],
+    ["all-NaN series → 0 (unmeasurable, callers fall back)", [NaN, NaN], 0],
   ];
 
   it.each(cases)("%s → %f", (_label, prices, expected) => {
