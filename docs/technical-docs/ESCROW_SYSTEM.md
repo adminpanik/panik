@@ -8,7 +8,9 @@ To build trust with early adopters, we implement a non-custodial $5 USDC escrow 
 
 ## 1. Smart Contract Architecture (`PanikEscrow.sol`)
 
-The smart contract is written in Solidity `^0.8.24` and compiled using standard EVM optimization. It interacts with USDC through a minimal ERC-20 interface vendored at `contracts/src/interfaces/IERC20.sol` (production sources do not depend on `forge-std`).
+The smart contract is written in Solidity `^0.8.24`. It interacts with USDC through a minimal ERC-20 interface vendored at `contracts/src/interfaces/IERC20.sol` (production sources do not depend on `forge-std`).
+
+**One compiler configuration:** `contracts/foundry.toml` — solc `0.8.24`, `evm_version = "cancun"`, optimizer on at 200 runs, no `via_ir`. `evm_version` is pinned explicitly because it is hashed into the contract metadata, so a solc default change would silently alter the deployed bytecode and break Basescan verification. Every deploy path builds through Foundry; nothing else compiles this contract.
 
 ### State & Parameters
 - **Accepted Token:** `usdc` (USDC on Base/Base Sepolia). The constructor requires `decimals() == 6`, since the deposit size hardcodes that assumption.
@@ -185,9 +187,12 @@ When ready to publish the founding page to Base Mainnet:
 
    *Testnet only:* `scripts/deploy-escrow.mjs` deploys to Base Sepolia using
    `DEPLOYER_PRIVATE_KEY` / `ESCROW_OWNER_ADDRESS` / `ESCROW_TREASURY_ADDRESS`,
-   and throws if pointed at any chain other than 84532:
+   and throws if pointed at any chain other than 84532. It shells out to
+   `forge build` and deploys `contracts/out/PanikEscrow.sol/PanikEscrow.json`,
+   so both paths share one compiler configuration and emit byte-identical
+   creation code, metadata included:
    ```bash
-   node --env-file=.env scripts/deploy-escrow.mjs
+   node --env-file=.env scripts/deploy-escrow.mjs   # requires Foundry on PATH
    ```
 
 2. **Update Environment Variables:**

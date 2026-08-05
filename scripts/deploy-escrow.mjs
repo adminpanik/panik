@@ -1,7 +1,6 @@
 /**
- * Compile and deploy PanikEscrow to Base Sepolia. **Testnet only** — this
- * script refuses to run against any other chain. For Base Mainnet use the
- * Foundry script, which picks USDC from the chain id:
+ * Deploy PanikEscrow to Base Sepolia. **Testnet only** — this script refuses to
+ * run against any other chain. For Base Mainnet use the Foundry script:
  *
  *   cd contracts
  *   forge script script/Deploy.s.sol:DeployPanikEscrow --rpc-url base --broadcast --verify -vvvv
@@ -10,12 +9,14 @@
  *   node --env-file=.env scripts/deploy-escrow.mjs
  *
  * Required env vars:
- *   DEPLOYER_PRIVATE_KEY   — private key of the deployer wallet (with Base Sepolia ETH for gas)
- *   ESCROW_OWNER_ADDRESS   — owner of the contract (can call ship())
+ *   DEPLOYER_PRIVATE_KEY    — private key of the deployer wallet (with Base Sepolia ETH for gas)
+ *   ESCROW_OWNER_ADDRESS    — owner of the contract (can call ship())
  *   ESCROW_TREASURY_ADDRESS — where released funds go
+ *
+ * Requires Foundry on PATH: https://getfoundry.sh
  */
 
-import solc from 'solc';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -25,9 +26,9 @@ import { baseSepolia } from 'viem/chains';
 
 // ── Chain guard ──────────────────────────────────────────────────────
 // The USDC address below and every explorer link in this file are Base
-// Sepolia, and `usdc` is immutable on the escrow — running this against
-// mainnet would permanently hardwire a mainnet escrow to a testnet token.
-// Assert the chain instead of trusting whoever edits the import above.
+// Sepolia. `usdc` is immutable on the escrow, so deploying this to mainnet
+// would permanently hardwire a mainnet escrow to a testnet token. Assert the
+// chain rather than trusting whoever edits the import above.
 const CHAIN = baseSepolia;
 const BASE_SEPOLIA_CHAIN_ID = 84532;
 
@@ -50,81 +51,47 @@ if (!PRIVATE_KEY) { console.error('❌ Set DEPLOYER_PRIVATE_KEY in .env'); proce
 if (!OWNER) { console.error('❌ Set ESCROW_OWNER_ADDRESS in .env'); process.exit(1); }
 if (!TREASURY) { console.error('❌ Set ESCROW_TREASURY_ADDRESS in .env'); process.exit(1); }
 
-// ── Compile the contract ─────────────────────────────────────────────
-console.log('🔨 Compiling PanikEscrow.sol...');
+// ── Build with Foundry ───────────────────────────────────────────────
+// One source of truth for the compiler: contracts/foundry.toml. Hand-rolling a
+// solc standard-json here produced byte-identical *executable* code but a
+// different metadata hash (different evmVersion, source unit names and
+// remappings), so a contract deployed from here could not be verified against
+// the Foundry build — and any construct the two configs optimise differently
+// would silently ship untested bytecode. Shell out instead.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CONTRACTS_DIR = path.join(REPO_ROOT, 'contracts');
+const ARTIFACT = path.join(CONTRACTS_DIR, 'out', 'PanikEscrow.sol', 'PanikEscrow.json');
 
-// Compile the real contracts/src/PanikEscrow.sol — never a copy. A second
-// inlined copy of the source would drift from the file Foundry tests, and the
-// deployed bytecode must come from the audited/tested source.
-const CONTRACTS_SRC = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'contracts',
-  'src',
-);
+console.log('🔨 Building PanikEscrow.sol with Foundry...');
 
-const ENTRY = 'PanikEscrow.sol';
-
-/**
- * Resolve a solc source-unit name to a file under contracts/src.
- * Relative imports (e.g. `./interfaces/IERC20.sol` from `PanikEscrow.sol`)
- * are normalised by solc before they reach us, so the unit name is already
- * a path relative to contracts/src.
- */
-function readSource(unitName) {
-  const filePath = path.resolve(CONTRACTS_SRC, unitName);
-  if (!filePath.startsWith(CONTRACTS_SRC + path.sep)) {
-    throw new Error(`Refusing to read source outside contracts/src: ${unitName}`);
+try {
+  execFileSync('forge', ['build', '--root', CONTRACTS_DIR], { stdio: 'inherit' });
+} catch (err) {
+  if (err.code === 'ENOENT') {
+    console.error('❌ `forge` not found on PATH. Install Foundry: https://getfoundry.sh');
+  } else {
+    console.error('❌ `forge build` failed — fix the compile error before deploying.');
   }
-  return fs.readFileSync(filePath, 'utf8');
+  process.exit(1);
 }
 
-const input = {
-  language: 'Solidity',
-  sources: { [ENTRY]: { content: readSource(ENTRY) } },
-  settings: {
-    optimizer: { enabled: true, runs: 200 },
-    outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
-  },
-};
-
-// solc calls back for every import it can't find in `sources` above.
-const findImport = (unitName) => {
-  try {
-    return { contents: readSource(unitName) };
-  } catch (err) {
-    return { error: err.message };
-  }
-};
-
-const output = JSON.parse(solc.compile(JSON.stringify(input), { import: findImport }));
-
-if (output.errors) {
-  const fatal = output.errors.filter(e => e.severity === 'error');
-  if (fatal.length > 0) {
-    console.error('❌ Compilation errors:');
-    fatal.forEach(e => console.error(e.formattedMessage));
-    process.exit(1);
-  }
-  // Warnings are OK
-  output.errors.filter(e => e.severity === 'warning').forEach(e => {
-    console.warn('⚠️', e.message);
-  });
+if (!fs.existsSync(ARTIFACT)) {
+  console.error(`❌ Build artifact missing: ${ARTIFACT}`);
+  process.exit(1);
 }
 
-const contract = output.contracts['PanikEscrow.sol']['PanikEscrow'];
-const abi = contract.abi;
-const bytecode = '0x' + contract.evm.bytecode.object;
+const artifact = JSON.parse(fs.readFileSync(ARTIFACT, 'utf8'));
+const abi = artifact.abi;
+const bytecode = artifact.bytecode.object;
 
-console.log('✅ Compiled successfully');
+if (!abi || !bytecode || bytecode === '0x') {
+  console.error('❌ Build artifact has no ABI/bytecode — is the contract abstract?');
+  process.exit(1);
+}
+
+console.log('✅ Built from contracts/out/PanikEscrow.sol/PanikEscrow.json');
 console.log(`   ABI entries: ${abi.length}`);
 console.log(`   Bytecode: ${bytecode.length} chars`);
-
-// Save ABI to a file for the frontend to use
-const abiDir = path.resolve('contracts', 'out');
-fs.mkdirSync(abiDir, { recursive: true });
-fs.writeFileSync(path.join(abiDir, 'PanikEscrow.abi.json'), JSON.stringify(abi, null, 2));
-console.log('   ABI saved to contracts/out/PanikEscrow.abi.json');
 
 // ── Deploy ───────────────────────────────────────────────────────────
 console.log('\n🚀 Deploying to Base Sepolia...');
