@@ -162,10 +162,12 @@ User          Return → Connect wallet → app reads contract:
 ## 7. Journey D — We shipped (release)
 
 ```
-Before T+90d   Team calls release() from the multisig.
-               ⚠️ Decision 3: 48h timelock on release() so the community can see it
-               coming and challenge before funds move. Recommended: yes.
-               → escrow funds go to the team treasury.
+Before        Team calls ship() from the multisig. One call, no arguments; it
+deadline      sweeps the WHOLE balance to treasury. There is no release(address)
+              and no timelock in the deployed contract — Decision 3 below was
+              recommended but never built, and setTreasury() can repoint the
+              destination first. This window is a trust assumption, not code.
+              → escrow funds go to the team treasury.
 
 Notify         Email all paid users: "We shipped. Here's your access."
 Access         Beta app: user connects wallet → Sign-In-With-Ethereum →
@@ -187,7 +189,7 @@ On-chain state is per-wallet (`hasPaid`, `refunded`) plus global (`shipped`, `de
 visitor ──(email+onboarding)──► waitlist_free ──(deposit $5, verified)──► early_access_paid
                                      │                                      │
                                      │                          ┌───────────┴───────────┐
-                                     │                    release() called          deadline passed
+                                     │                      ship() called           deadline passed
                                      │                          │                  & not shipped
                                      │                          ▼                       ▼
                                      │                   shipped_active          refund_available
@@ -220,7 +222,7 @@ visitor ──(email+onboarding)──► waitlist_free ──(deposit $5, verif
 | Email typo on a paid user | Refund still claimable via wallet — money path never depends on email; flag bounced receipts for follow-up |
 | User pays from wallet A, signs up with email X | Link captured at `/confirm-payment` time (both present in session); store both |
 | User forgets to claim refund | T+85 reminder email + persistent app banner; funds claimable forever |
-| Team marks "shipped" but community disputes | 48h timelock + public shipped-definition + multisig; no on-chain veto in v1 (documented limitation) |
+| Team marks "shipped" but community disputes | Public shipped-definition + multisig; **no timelock and no on-chain veto in v1** — `ship()` is immediate (documented limitation) |
 | Browser claims "I paid" without paying | `/confirm-payment` verifies on-chain; client claim alone never flips status |
 | Indexing gap (we miss a payment event) | Periodic reconciliation job re-reads contract events → backfills Supabase |
 
@@ -263,7 +265,7 @@ visitor ──(email+onboarding)──► waitlist_free ──(deposit $5, verif
 
 **Still open (escrow journey, before that build):**
 2. ⚠️ **Unclaimed refunds: claimable forever vs eventual sweep?** — recommend forever. (§6)
-3. ⚠️ **48h timelock on `release()`?** — recommend yes. (§7)
+3. ⚠️ **48h timelock on the release call?** — recommended yes; **not implemented.** The deployed contract's `ship()` executes immediately and takes no arguments. (§7)
 4. ⚠️ **Beta auth: SIWE vs magic link vs both?** — recommend SIWE for founding users, magic link for free. (§7)
 5. ⚠️ **Definition of "shipped" + who triggers/holds release** — the doc names "Elfritz" as the release trigger; the multisig/signer setup still needs sign-off. (§7, §13)
 
