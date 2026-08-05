@@ -25,6 +25,7 @@ scripts/backtest/data/cohort-query-id.json
 scripts/backtest/.tmp-*.sql
 
 # Foundry (smart contract build artifacts)
+# contracts/lib/ is NOT ignored — forge deps are git submodules, and ignoring
+# them is what broke `forge build` on a fresh clone.
 contracts/out/
 contracts/cache/
-contracts/lib/
