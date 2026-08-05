@@ -19,9 +19,9 @@ server.js
 .vercel/
 Thumbs.db
 
-# Backtest runtime artifacts (mutable log / local query-id cache / scratch SQL)
-scripts/backtest/data/forward-test-log.jsonl
-scripts/backtest/data/cohort-query-id.json
+# Backtest runtime artifacts (fetch cache is regenerable via the pull scripts;
+# curated datasets/ stay tracked — they back docs/technical-docs/BACKTEST_RESULTS.md)
+scripts/backtest/data/
 scripts/backtest/.tmp-*.sql
 
 # Foundry (smart contract build artifacts)
