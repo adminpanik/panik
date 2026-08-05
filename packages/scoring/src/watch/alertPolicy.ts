@@ -32,6 +32,12 @@ export interface SendDecisionInput {
   healthFactor: number | null;
   /** Latest known borrow value in USD; null/0 = no debt. */
   borrowUsd: number | null;
+  /**
+   * True when the reader could not value the position in USD (degraded price
+   * feed). `borrowUsd` is then null for want of a PRICE, not for want of DEBT
+   * — the materiality gate must be waived, not silently failed.
+   */
+  usdValuesUnavailable?: boolean;
   /** Last sent alert for this position, or null if none. */
   prior: PriorAlert | null;
 }
@@ -43,7 +49,13 @@ export function decideSend(input: SendDecisionInput): SendReason {
   if (input.healthFactor == null || !Number.isFinite(input.healthFactor)) {
     return "suppressed_immaterial";
   }
-  if (input.borrowUsd == null || input.borrowUsd < ALERT_POLICY.minBorrowUsd) {
+  // A non-null HF already proves debt exists; minBorrowUsd only filters dust.
+  // With the USD magnitude unknown the gate is unevaluable, so it is EXEMPTED
+  // (a degraded six-figure debt must not be silently classed as dust).
+  if (
+    !input.usdValuesUnavailable &&
+    (input.borrowUsd == null || input.borrowUsd < ALERT_POLICY.minBorrowUsd)
+  ) {
     return "suppressed_immaterial";
   }
 

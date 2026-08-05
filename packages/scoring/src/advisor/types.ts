@@ -99,6 +99,7 @@ export interface AdvisorRecommendation {
     | "healthFactor"
     | "collateralValueUsd"
     | "borrowValueUsd"
+    | "usdValuesUnavailable"
     | "subScores"
     | "scoredCollateralSymbol"
   >;

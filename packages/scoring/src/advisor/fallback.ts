@@ -19,7 +19,9 @@ export const PROTOCOL_LABEL: Record<string, string> = {
   compound_v3: "Compound V3",
 };
 
-export function fmtUsd(n: number): string {
+/** Dollar amounts we could not establish render as a dash, never as "$0". */
+export function fmtUsd(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return "$—";
   const abs = Math.abs(n);
   const rounded =
     abs >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(abs >= 1 ? 0 : 2);
@@ -63,9 +65,14 @@ function positionSection(rec: AdvisorRecommendation): string {
     dd === null
       ? "No debt, so no liquidation risk."
       : `A ${fmtPct(dd)} ${numbers.scoredCollateralSymbol} price drop would trigger liquidation.`;
+  // Degraded: the health factor and LTV are ratios and remain exact, only the
+  // dollar magnitudes are unknown. Say that, rather than printing "$0".
+  const size = numbers.usdValuesUnavailable
+    ? `Your ${label} position's USD values are unavailable (degraded price feed) - the health factor below is still exact`
+    : `Your ${label} position holds ${fmtUsd(numbers.collateralValueUsd)} collateral against ` +
+      `${fmtUsd(numbers.borrowValueUsd)} debt`;
   return (
-    `Your ${label} position holds ${fmtUsd(numbers.collateralValueUsd)} collateral against ` +
-    `${fmtUsd(numbers.borrowValueUsd)} debt (health factor ${fmtHf(numbers.healthFactor)}, ` +
+    `${size} (health factor ${fmtHf(numbers.healthFactor)}, ` +
     `PANIK score ${numbers.total} - ${numbers.band}). ${liq}`
   );
 }
@@ -142,12 +149,32 @@ export function fallbackSections(
   };
 }
 
-/** One-line overall headline for the report banner / popup widget. */
+/**
+ * One-line overall headline for the report banner / popup widget.
+ *
+ * `degraded` = at least one leg was scored without usable USD prices. The
+ * engine has NOT verified those positions' dollar magnitudes, so the calm
+ * "all positions within your risk profile" claim would be an affirmative
+ * all-clear it cannot support — it is replaced, never merely appended to.
+ */
 export function overallHeadline(
   action: AdvisorAction,
   recs: AdvisorRecommendation[],
+  degraded = false,
 ): string {
   const of = (a: AdvisorAction) => recs.filter((r) => r.action === a);
+  if (degraded) {
+    const legs = recs
+      .filter((r) => r.numbers.usdValuesUnavailable)
+      .map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol)
+      .join(", ");
+    // The calm actions carry an implicit all-clear, so they are REPLACED.
+    if (action === "HOLD" || action === "MONITOR") {
+      return `Price feed degraded on ${legs} - health factors still scored, position sizes unverified.`;
+    }
+    // The alarming ones keep their severity and gain the caveat.
+    return `${overallHeadline(action, recs)} Prices degraded on ${legs} - position sizes unverified.`;
+  }
   switch (action) {
     case "EXIT": {
       const legs = of("EXIT").map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol);
