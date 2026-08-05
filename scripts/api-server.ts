@@ -315,7 +315,29 @@ async function getChain(): Promise<typeof chainCache> {
 const app = express();
 
 app.disable("x-powered-by"); // don't advertise the stack
-app.use(express.json()); // every POST route below reads req.body
+
+// Body parsing runs BEFORE the per-route limiters (every POST route reads
+// req.body), so a 429'd client still costs us a parse — bound it explicitly.
+// express.json()'s default is 100kb; nothing this API accepts is close (the
+// largest real body is a Telegram update), so the cap is both a memory bound
+// and a cheap first filter.
+const JSON_BODY_LIMIT = "32kb";
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+
+// Without this, a malformed or oversized body surfaces as express's default
+// HTML error page with a stack trace, and 413/400 look like 500s to the client.
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const e = err as { type?: string; status?: number } | null;
+  if (e?.type === "entity.too.large") {
+    res.status(413).json({ error: `request body exceeds ${JSON_BODY_LIMIT}` });
+    return;
+  }
+  if (err instanceof SyntaxError && e?.status === 400) {
+    res.status(400).json({ error: "invalid JSON body" });
+    return;
+  }
+  next(err);
+});
 
 // CORS - lets a separately-hosted SPA (e.g. the Vercel static frontend) call
 // this backend cross-origin. CORS_ORIGINS is a comma-separated allowlist and is
@@ -388,6 +410,10 @@ const telegramStatusLimit = rateLimit({ limit: 60 });     // 3s poll during link
 const profileResultLimit = rateLimit({ limit: 40 });      // 3s poll during the reveal
 const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
 const adminLimit = rateLimit({ limit: 10 });              // failed-auth brake lives in server/adminAuth.ts
+// Telegram's own delivery rate for one bot is far below this; the limiter is
+// here so the webhook is not the one unmetered POST in the app (its secret is
+// only checked AFTER the body is parsed).
+const webhookLimit = rateLimit({ limit: 60 });
 
 /** ?profile → a known RiskProfile, defaulting to moderate. Never trust the raw
  * string: it selects the scoring thresholds and rides into the advisor prompt. */
@@ -926,7 +952,7 @@ app.get("/api/telegram/status", telegramStatusLimit, async (req, res) => {
 
 // Telegram webhook - the production handler (Railway), mirroring api/telegram/webhook.ts.
 // Telegram echoes the secret_token we registered; that header is the auth boundary.
-app.post("/api/telegram/webhook", async (req, res) => {
+app.post("/api/telegram/webhook", webhookLimit, async (req, res) => {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!secret || !botToken) { res.status(503).json({ error: "telegram unconfigured" }); return; }
