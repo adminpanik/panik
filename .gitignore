@@ -29,3 +29,8 @@ scripts/backtest/.tmp-*.sql
 # them is what broke `forge build` on a fresh clone.
 contracts/out/
 contracts/cache/
+# foundry.lock is not tracked: forge writes the dependency key with the host
+# OS's path separator ("lib\\forge-std" on Windows, "lib/forge-std" on Linux),
+# so a committed copy is dirty on whichever platform did not generate it. The
+# submodule gitlink in .gitmodules/.git is the real pin.
+contracts/foundry.lock
