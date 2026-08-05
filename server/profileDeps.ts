@@ -65,3 +65,13 @@ export function transactionPoolerUrl(): string {
 export function isEvmAddress(wallet: unknown): wallet is string {
   return typeof wallet === "string" && /^0x[0-9a-fA-F]{40}$/.test(wallet.trim());
 }
+
+/**
+ * Validate a Dune execution id before it reaches the results URL. Client-
+ * supplied ids are interpolated into `/execution/{id}/results`, so anything
+ * outside this alphabet ("../", slashes) would traverse to other Dune
+ * endpoints with our API key.
+ */
+export function isDuneExecutionId(id: unknown): id is string {
+  return typeof id === "string" && /^[0-9A-Za-z_-]{1,64}$/.test(id);
+}

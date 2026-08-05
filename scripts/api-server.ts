@@ -48,7 +48,7 @@ import {
   type WalletInsights,
   type YieldTable,
 } from "../packages/scoring/src/index";
-import { getProfileDeps, isEvmAddress, transactionPoolerUrl } from "../server/profileDeps";
+import { getProfileDeps, isDuneExecutionId, isEvmAddress, transactionPoolerUrl } from "../server/profileDeps";
 import { TelegramStore } from "../server/telegramStore";
 import { sendMessage, setWebhook } from "../server/telegram";
 import { CampaignStore } from "../server/campaignStore";
@@ -783,6 +783,10 @@ app.post("/api/profile/result", profileResultLimit, async (req, res) => {
   const stated: StatedProfile | undefined = req.body?.stated;
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
+    return;
+  }
+  if (executionId !== undefined && !isDuneExecutionId(executionId)) {
+    res.status(400).json({ error: "invalid executionId" });
     return;
   }
   if (!profilerConfigured) {

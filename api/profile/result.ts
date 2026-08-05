@@ -11,7 +11,7 @@
 // Specific modules, not the barrel — see server/profileDeps.ts (avoids viem/ws).
 import { resolveProfileScan } from "../../packages/scoring/src/classify/profileSession";
 import type { StatedProfile } from "../../packages/scoring/src/classify/types";
-import { getProfileDeps, isEvmAddress } from "../../server/profileDeps";
+import { getProfileDeps, isDuneExecutionId, isEvmAddress } from "../../server/profileDeps";
 
 interface Req { method?: string; query: Record<string, string | string[] | undefined>; body?: unknown }
 interface Res { status(code: number): Res; json(body: unknown): void }
@@ -28,6 +28,10 @@ export default async function handler(req: Req, res: Res): Promise<void> {
 
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
+    return;
+  }
+  if (executionId !== undefined && !isDuneExecutionId(executionId)) {
+    res.status(400).json({ error: "invalid executionId" });
     return;
   }
 
