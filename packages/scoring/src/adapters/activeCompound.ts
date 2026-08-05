@@ -5,6 +5,11 @@
  * cWETHv3 nuance: its price feeds are ETH-denominated, so USD display
  * values are converted via the Chainlink ETH/USD feed (HF is unaffected —
  * numerator and denominator share the denomination).
+ *
+ * That conversion is load-bearing for money math: without a usable ETH/USD
+ * round an ETH-quoted market must be SKIPPED, never scored with a 1.0
+ * placeholder — a $120k debt would otherwise surface as ~$40 and fall under
+ * the advisor's minimum-borrow gate while the position sits near liquidation.
  */
 
 import type { PositionHealthInput } from "../types";
@@ -26,11 +31,50 @@ interface AssetInfo {
   liquidateCollateralFactor: bigint;
 }
 
+/** latestRoundData: [roundId, answer, startedAt, updatedAt, answeredInRound]. */
+type ChainlinkRound = readonly [bigint, bigint, bigint, bigint, bigint];
+
+/** Rounds older than this are unusable — ETH/USD heartbeats in ~20 minutes. */
+const MAX_ROUND_AGE_SECONDS = 24 * 60 * 60;
+
+export interface CompoundReaderOptions {
+  /** Unix-seconds clock; injectable for tests. */
+  now?: () => number;
+  /** Max accepted age of a Chainlink round, in seconds. Default 24h. */
+  maxRoundAgeSeconds?: number;
+  /** Notified when a market is skipped for want of a usable ETH/USD round. */
+  onWarn?: (message: string) => void;
+}
+
 export class CompoundActiveReader {
+  private readonly now: () => number;
+  private readonly maxRoundAgeSeconds: number;
+  private readonly onWarn: (message: string) => void;
+
   constructor(
     private readonly client: PublicClientLike,
     private readonly comets = COMETS_BASE,
-  ) {}
+    opts: CompoundReaderOptions = {},
+  ) {
+    this.now = opts.now ?? (() => Math.floor(Date.now() / 1000));
+    this.maxRoundAgeSeconds = opts.maxRoundAgeSeconds ?? MAX_ROUND_AGE_SECONDS;
+    this.onWarn = opts.onWarn ?? ((m) => console.warn(m));
+  }
+
+  /**
+   * USD price from a Chainlink round, or null when the read failed, the
+   * answer is non-positive, or the round is stale. Null means "skip", never
+   * "assume 1" — a wrong denomination silently deflates USD by ~3000x.
+   */
+  private usdFromRound(round: ChainlinkRound | null): number | null {
+    if (!round) return null;
+    const answer = round[1];
+    const updatedAt = Number(round[3]);
+    if (answer <= 0n) return null;
+    if (!Number.isFinite(updatedAt) || updatedAt <= 0) return null;
+    if (this.now() - updatedAt > this.maxRoundAgeSeconds) return null;
+    return Number(answer) / 1e8;
+  }
 
   /** Aggregates across both Comet markets; null when the wallet uses neither. */
   async read(wallet: string): Promise<ActiveReading | null> {
@@ -59,11 +103,23 @@ export class CompoundActiveReader {
       const borrowBase = ok<bigint>(head[1]);
       const baseFeed = ok<string>(head[2]);
       const baseScale = ok<bigint>(head[3]);
-      const ethRound = ok<readonly [bigint, bigint, bigint, bigint, bigint]>(head[4]);
+      const ethRound = ok<ChainlinkRound>(head[4]);
       if (numAssets === null || borrowBase === null || baseFeed === null || baseScale === null) continue;
 
       // ETH/USD for cWETHv3 conversion (1 when the market is USD-quoted).
-      const ethUsd = comet.priceInEth && ethRound ? Number(ethRound[1]) / 1e8 : 1;
+      // allowFailure means head[4] can be absent, so an ETH-quoted market with
+      // no usable round is dropped rather than reported ~3000x too small.
+      let ethUsd = 1;
+      if (comet.priceInEth) {
+        const price = this.usdFromRound(ethRound);
+        if (price === null) {
+          this.onWarn(
+            `Compound ${comet.baseSymbol} market ${comet.address}: ETH/USD round missing, non-positive or older than ${this.maxRoundAgeSeconds}s — market skipped (USD values would be ~ETH-denominated)`,
+          );
+          continue;
+        }
+        ethUsd = price;
+      }
 
       const infoCalls = Array.from({ length: numAssets }, (_, i) => ({
         address: comet.address,
