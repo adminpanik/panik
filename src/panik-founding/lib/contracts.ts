@@ -7,11 +7,17 @@
 
 import { http, createConfig } from "wagmi";
 import { base, baseSepolia } from "wagmi/chains";
+import { isAddress } from "viem";
 
 // ── Contract addresses (set via env var after deployment) ──────────────
-const ESCROW_ADDRESS = import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS as
-  | `0x${string}`
+// Must be the deployed contract ADDRESS (0x + 40 hex), not a deploy tx hash.
+const RAW_ESCROW_ADDRESS = import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS as
+  | string
   | undefined;
+const ESCROW_ADDRESS =
+  RAW_ESCROW_ADDRESS && isAddress(RAW_ESCROW_ADDRESS)
+    ? (RAW_ESCROW_ADDRESS as `0x${string}`)
+    : undefined;
 
 // Default chain: Base Sepolia for development, Base mainnet for production
 const ESCROW_CHAIN_ID = Number(
@@ -30,7 +36,7 @@ export const DEPOSIT_DISPLAY = "5"; // Human-readable
 export function getEscrowAddress(): `0x${string}` {
   if (!ESCROW_ADDRESS) {
     throw new Error(
-      "VITE_ESCROW_CONTRACT_ADDRESS is not set. Deploy the contract first."
+      "VITE_ESCROW_CONTRACT_ADDRESS is not set to a valid contract address. Deploy the contract first."
     );
   }
   return ESCROW_ADDRESS;
