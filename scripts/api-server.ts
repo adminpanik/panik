@@ -425,6 +425,33 @@ app.get("/api/scores", adminLimit, async (req, res) => {
   }
 });
 
+/**
+ * Register the caller's OWN wallet for monitoring (onboarding). Replaces the
+ * browser's direct rpc/register_watched_wallet call, which the publishable key
+ * let anyone aim at a victim's row: rewriting risk_profile to "aggressive"
+ * raises their alert threshold from 25 to 75 and mutes their liquidation
+ * warnings, and unbounded inserts add wallets the worker polls every 60s.
+ *
+ * Ownership signature + strict per-IP limit; the RPC runs over the service
+ * connection, which the migration's revoke does not (and must not) touch.
+ */
+app.post("/api/wallets/register", strictLimit, async (req, res) => {
+  const proof = await verifyWalletOwnership(req.body);
+  if (!proof.ok) {
+    res.status(proof.status).json({ error: proof.error });
+    return;
+  }
+  // Normalized before it reaches SQL — the profile selects alert thresholds.
+  // (The function clamps unknown values too; this keeps the two ends honest.)
+  const profile = riskProfileParam(req.body?.profile);
+  try {
+    await db.query("select public.register_watched_wallet($1, $2)", [proof.wallet, profile]);
+    res.json({ ok: true });
+  } catch (err) {
+    serverError(req, res, 500, err);
+  }
+});
+
 // Live positions for ONE arbitrary wallet — the onboarded user's own wallet —
 // scored on demand via the same ActiveAdapter (current Base positions). Lets the
 // dashboard follow the pasted wallet instead of the seeded validation registry.
