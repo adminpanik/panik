@@ -30,9 +30,20 @@ export interface AssetRiskInput {
   dailyReturns30d: number[];
   /** Last 30 daily returns of BTC over the same window. */
   btcReturns30d: number[];
-  /** 90-day price extremes of the collateral asset (same currency). */
-  maxPrice90d: number;
-  minPrice90d: number;
+  /**
+   * Ordered 90-day daily closes of the collateral asset (oldest → newest).
+   * Preferred input: only an ordered series yields a true peak-to-trough max
+   * drawdown. Providers fetch the full series already — always pass it.
+   */
+  prices90d?: number[];
+  /**
+   * @deprecated 90-day price extremes — order-blind fallback used only when
+   * `prices90d` is absent. (max − min) / max is an UPPER BOUND on the real
+   * drawdown: it cannot tell a 2x rally from a 50% crash. Pass `prices90d`.
+   */
+  maxPrice90d?: number;
+  /** @deprecated See `maxPrice90d`. */
+  minPrice90d?: number;
 }
 
 export interface SystemicRiskInput {
