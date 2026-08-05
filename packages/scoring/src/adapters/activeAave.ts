@@ -93,10 +93,16 @@ export class AaveActiveReader {
         if (b.status !== "success") return;
         const entry = aTokens[i];
         if (!entry) return;
-        // Normalise by decimals; ranking only needs relative scale, so a
-        // rough USD weight (1.0 for stables/sats handled by price later) is
-        // refined in the adapter. Here: prefer the largest normalised balance
-        // weighted by a crude price class (BTC≫ETH≫stable).
+        // KNOWN LIMITATION: these are hardcoded, never-updated price classes,
+        // not real prices. getUserAccountData only returns AGGREGATE collateral
+        // USD and aToken balances are raw token amounts, so this adapter has no
+        // per-asset USD value to rank with; a real fix needs price plumbing
+        // (AaveOracle.getAssetsPrices or the Chainlink feeds) that does not
+        // exist here yet. Consequence: near-equal legs can be mis-ranked when
+        // the true BTC/ETH ratio drifts far from 60000/1800 (~33), which picks
+        // the wrong dominant symbol and therefore the wrong scored asset,
+        // `safestAlternativeProtocol`, and ExitFlow prefill. Ordering within a
+        // class (and any clearly dominant leg) is still correct.
         const scale =
           entry.reserve.symbol === "cbBTC" ? 60_000
           : entry.reserve.symbol === "USDC" ? 1
