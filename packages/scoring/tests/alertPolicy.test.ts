@@ -17,6 +17,41 @@ describe("decideSend", () => {
     ).toBe("suppressed_immaterial");
   });
 
+  // A degraded price feed leaves borrowUsd null for want of a PRICE, not for
+  // want of DEBT. Failing the dust gate there is how a $120k position became
+  // "immaterial" and never alerted.
+  it("waives the dust gate when the USD value is unavailable", () => {
+    expect(
+      decideSend({
+        toStatus: "outside",
+        createdAt: t0,
+        healthFactor: 1.2,
+        borrowUsd: null,
+        usdValuesUnavailable: true,
+        prior: null,
+      }),
+    ).toBe("send");
+  });
+
+  it("still suppresses a null borrow when prices are healthy", () => {
+    expect(
+      decideSend({ toStatus: "outside", createdAt: t0, healthFactor: 1.2, borrowUsd: null, prior: null }),
+    ).toBe("suppressed_immaterial");
+  });
+
+  it("never alerts a degraded leg with no debt at all (HF null)", () => {
+    expect(
+      decideSend({
+        toStatus: "outside",
+        createdAt: t0,
+        healthFactor: null,
+        borrowUsd: null,
+        usdValuesUnavailable: true,
+        prior: null,
+      }),
+    ).toBe("suppressed_immaterial");
+  });
+
   it("sends the first material alert", () => {
     expect(
       decideSend({ toStatus: "approaching", createdAt: t0, healthFactor: 1.2, borrowUsd: 800, prior: null }),
