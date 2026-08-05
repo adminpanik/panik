@@ -171,9 +171,19 @@ describe("MorphoActiveReader (official API)", async () => {
 describe("CompoundActiveReader (Comet)", async () => {
   const { CompoundActiveReader } = await import("../src/adapters/activeCompound");
 
+  const NOW_S = 1_770_000_000;
+  const now = () => NOW_S;
+  /** ETH/USD round tuple: [roundId, answer, startedAt, updatedAt, answeredInRound]. */
+  const ethRound = (usd: number, ageS = 60) =>
+    [0n, BigInt(Math.round(usd * 1e8)), 0n, BigInt(NOW_S - ageS), 0n] as const;
+  /** ETH-quoted comet (like cWETHv3) — the market that needs the conversion. */
+  const ethComets = [
+    { address: "0xcomet", baseSymbol: "WETH", priceInEth: true },
+  ] as never;
+
   it("derives HF from liquidateCollateralFactor and converts ETH-quoted markets to USD", async () => {
     // One synthetic ETH-quoted comet (like cWETHv3): 1 asset, ETH/USD = $2000.
-    const comets = [{ address: "0xcomet", baseSymbol: "WETH", priceInEth: true }] as never;
+    const comets = ethComets;
     const multicall = vi
       .fn()
       // head: numAssets, borrowBalanceOf, baseTokenPriceFeed, baseScale, ETH/USD round
@@ -182,7 +192,7 @@ describe("CompoundActiveReader (Comet)", async () => {
         ok(1n * 10n ** 18n), // borrow: 1 WETH
         ok("0xbasefeed"),
         ok(10n ** 18n),
-        ok([0n, 2000_00000000n, 0n, 0n, 0n]), // ETH/USD $2000
+        ok(ethRound(2000)), // ETH/USD $2000, fresh
       ])
       // getAssetInfo(0): cbETH collateral, scale 1e18, borrowCF 0.75, liqCF 0.80
       .mockResolvedValueOnce([
@@ -201,7 +211,7 @@ describe("CompoundActiveReader (Comet)", async () => {
       .mockResolvedValueOnce([ok("cbETH")]);
 
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
-    const r = await new CompoundActiveReader(client, comets).read("0xw");
+    const r = await new CompoundActiveReader(client, comets, { now }).read("0xw");
 
     // collateral: 2 × 1.05 ETH × $2000 = $4200; borrow: 1 × 1.0 × $2000 = $2000
     expect(r?.collateralValueUsd).toBeCloseTo(4200, 6);
@@ -209,6 +219,91 @@ describe("CompoundActiveReader (Comet)", async () => {
     expect(r?.positionHealth.healthFactor).toBeCloseTo((4200 * 0.8) / 2000, 6); // 1.68
     expect(r?.positionHealth.maxLtv).toBeCloseTo(0.75, 6);
     expect(r?.dominantCollateralSymbol).toBe("cbETH");
+  });
+
+  // A cWETHv3 borrower: 40 WETH of debt. With a live ETH/USD round that is
+  // $120,000; treating the ETH-denominated price as USD would report $40 —
+  // below ALERT_POLICY.minBorrowUsd, so the advisor would never emit EXIT.
+  const fail = { status: "failure" as const };
+  const whaleHead = (round: unknown) => [
+    ok(1),
+    ok(40n * 10n ** 18n), // borrow: 40 WETH
+    ok("0xbasefeed"),
+    ok(10n ** 18n),
+    round,
+  ];
+  const whaleTail = (multicall: ReturnType<typeof vi.fn>) =>
+    multicall
+      .mockResolvedValueOnce([
+        ok({
+          offset: 0,
+          asset: "0xcbeth",
+          priceFeed: "0xcbethfeed",
+          scale: 10n ** 18n,
+          borrowCollateralFactor: 750000000000000000n,
+          liquidateCollateralFactor: 800000000000000000n,
+        }),
+      ])
+      .mockResolvedValueOnce([ok(1_00000000n), ok([60n * 10n ** 18n, 0n]), ok(1_00000000n)])
+      .mockResolvedValueOnce([ok("cbETH")]);
+
+  it("reports true USD for an ETH-quoted market when the round is healthy", async () => {
+    const multicall = vi.fn().mockResolvedValueOnce(whaleHead(ok(ethRound(3000))));
+    whaleTail(multicall);
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new CompoundActiveReader(client, ethComets, { now }).read("0xw");
+    expect(r?.borrowValueUsd).toBeCloseTo(120_000, 6); // 40 WETH × $3000
+  });
+
+  const unusableRounds: [string, unknown][] = [
+    ["missing (multicall leg failed)", fail],
+    ["non-positive answer", ok(ethRound(0))],
+    ["negative answer", ok([0n, -1n, 0n, BigInt(NOW_S - 60), 0n])],
+    ["zero updatedAt", ok([0n, 3000_00000000n, 0n, 0n, 0n])],
+    ["stale (older than 24h)", ok(ethRound(3000, 25 * 3600))],
+  ];
+
+  it.each(unusableRounds)(
+    "skips an ETH-quoted market when the ETH/USD round is %s",
+    async (_label, round) => {
+      const onWarn = vi.fn();
+      const multicall = vi.fn().mockResolvedValueOnce(whaleHead(round));
+      whaleTail(multicall);
+      const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+      const r = await new CompoundActiveReader(client, ethComets, { now, onWarn }).read("0xw");
+
+      // Skipped, not silently deflated ~3000x to $40 of "debt".
+      expect(r).toBeNull();
+      expect(onWarn).toHaveBeenCalledOnce();
+      // The market is dropped at the head stage: no follow-up reads.
+      expect(multicall).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps USD-quoted markets alive when the ETH/USD round is unusable", async () => {
+    // cUSDCv3 does not need the conversion, so a dead ETH feed must not drop it.
+    const usdComets = [
+      { address: "0xcomet", baseSymbol: "USDC", priceInEth: false },
+    ] as never;
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([ok(1), ok(1_000n * 10n ** 6n), ok("0xbf"), ok(10n ** 6n), fail])
+      .mockResolvedValueOnce([
+        ok({
+          offset: 0,
+          asset: "0xcbeth",
+          priceFeed: "0xf",
+          scale: 10n ** 18n,
+          borrowCollateralFactor: 750000000000000000n,
+          liquidateCollateralFactor: 800000000000000000n,
+        }),
+      ])
+      .mockResolvedValueOnce([ok(1_00000000n), ok([1n * 10n ** 18n, 0n]), ok(2000_00000000n)])
+      .mockResolvedValueOnce([ok("cbETH")]);
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new CompoundActiveReader(client, usdComets, { now }).read("0xw");
+    expect(r?.borrowValueUsd).toBeCloseTo(1000, 6);
+    expect(r?.collateralValueUsd).toBeCloseTo(2000, 6);
   });
 
   it("returns null for wallets with no Comet usage", async () => {

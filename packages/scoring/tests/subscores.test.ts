@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ASSET_RISK_WEIGHTS } from "../src/params";
 import { scoreAssetRisk } from "../src/subscores/assetRisk";
 import { scorePositionHealth } from "../src/subscores/positionHealth";
 import { scoreProtocolSafety } from "../src/subscores/protocolSafety";
@@ -95,6 +96,53 @@ describe("S_asset_risk", () => {
       dailyReturns30d: a, btcReturns30d: b, maxPrice90d: 1, minPrice90d: 1,
     });
     expect(withPenalty - withoutPenalty).toBeCloseTo(15, 5);
+  });
+
+  // The drawdown term is 35% of S_asset_risk and gates CRASH_REGIME at 60,
+  // so a rally must never be priced as a crash.
+  describe("drawdown term uses the ordered series", () => {
+    const flat = Array(30).fill(0);
+    const at = (prices90d: number[]) =>
+      scoreAssetRisk({ dailyReturns30d: flat, btcReturns30d: flat, prices90d });
+
+    const cases: [string, number[], number][] = [
+      ["monotonic 2x rally → no drawdown", [100, 140, 180, 200], 0],
+      ["50% crash → full 50 points of drawdown", [200, 150, 100], 0.5],
+      ["crash then recovery → peak-to-trough, not endpoints", [200, 100, 195], 0.5],
+      ["rally then 25% fade → measured from the later peak", [100, 400, 300], 0.25],
+    ];
+
+    it.each(cases)("%s", (_label, prices90d, drawdown) => {
+      // Flat returns → vol 0 and corr 0, so the score is the drawdown term alone.
+      expect(at(prices90d)).toBeCloseTo(ASSET_RISK_WEIGHTS.drawdown * drawdown * 100, 6);
+    });
+
+    it("scores a rally far below a crash of the same amplitude", () => {
+      const rally = [100, 120, 150, 180, 200];
+      const crash = [...rally].reverse();
+      expect(at(rally)).toBe(0);
+      expect(at(crash)).toBeGreaterThan(at(rally));
+    });
+
+    it("falls back to the order-blind extremes only when the series is absent", () => {
+      const legacy = scoreAssetRisk({
+        dailyReturns30d: flat,
+        btcReturns30d: flat,
+        maxPrice90d: 200,
+        minPrice90d: 100,
+      });
+      expect(legacy).toBeCloseTo(ASSET_RISK_WEIGHTS.drawdown * 50, 6);
+      // Series wins when both are supplied — the rally is not a 50% drawdown.
+      expect(
+        scoreAssetRisk({
+          dailyReturns30d: flat,
+          btcReturns30d: flat,
+          prices90d: [100, 150, 200],
+          maxPrice90d: 200,
+          minPrice90d: 100,
+        }),
+      ).toBe(0);
+    });
   });
 });
 

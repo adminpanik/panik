@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { annualizedVol, clamp, mean, pearsonCorr, stdDev } from "../src/math";
+import {
+  annualizedVol,
+  clamp,
+  maxDrawdown,
+  mean,
+  pearsonCorr,
+  stdDev,
+} from "../src/math";
 
 describe("clamp", () => {
   it("passes through in-range values", () => expect(clamp(42, 0, 100)).toBe(42));
@@ -34,4 +41,31 @@ describe("annualizedVol", () => {
     expect(annualizedVol(returns)).toBeCloseTo(stdDev(returns) * Math.sqrt(365), 9);
   });
   it("zero for flat returns", () => expect(annualizedVol([0, 0, 0, 0])).toBe(0));
+});
+
+describe("maxDrawdown", () => {
+  // Time ordering is the whole point: the old (max − min) / max range scored
+  // a rally exactly like a crash of the same amplitude.
+  const cases: [string, number[], number][] = [
+    ["flat series", [100, 100, 100], 0],
+    ["monotonic 2x rally (range says 50%)", [100, 120, 150, 180, 200], 0],
+    ["rally with shallow dips — only the dips count", [100, 90, 140, 130, 200], 0.1],
+    ["monotonic 50% crash", [200, 150, 120, 100], 0.5],
+    ["crash then full recovery (peak-to-trough survives)", [200, 100, 200], 0.5],
+    ["rally then crash — measured from the LATER peak", [100, 400, 200], 0.5],
+    ["two dips — the deeper one wins", [100, 80, 100, 55, 100], 0.45],
+    ["single point", [1234], 0],
+    ["empty series", [], 0],
+    ["non-positive points ignored", [0, -5, 100, 25], 0.75],
+  ];
+
+  it.each(cases)("%s → %f", (_label, prices, expected) => {
+    expect(maxDrawdown(prices)).toBeCloseTo(expected, 9);
+  });
+
+  it("is order-sensitive: reversing a crash into a rally zeroes it", () => {
+    const crash = [200, 160, 120, 100];
+    expect(maxDrawdown(crash)).toBeCloseTo(0.5, 9);
+    expect(maxDrawdown([...crash].reverse())).toBe(0);
+  });
 });

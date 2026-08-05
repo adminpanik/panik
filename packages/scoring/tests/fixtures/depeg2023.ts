@@ -72,7 +72,6 @@ export function assetRiskAt(
   return {
     dailyReturns30d: dailyReturns(assetWin),
     btcReturns30d: dailyReturns(btcWin),
-    maxPrice90d: Math.max(...win90),
-    minPrice90d: Math.min(...win90),
+    prices90d: [...win90], // ordered → true peak-to-trough max drawdown
   };
 }
