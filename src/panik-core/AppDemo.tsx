@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { 
   ShieldAlert, 
   Activity, 
@@ -55,7 +55,15 @@ import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
 import { ProtocolLogo } from "./components/ProtocolLogo";
 import { Onboarding } from "./components/Onboarding";
-import { registerWatchedWallet, useTelegramLink, useWalletOwnership, isEvmAddress } from "./lib/telegram";
+import {
+  forgetRegistration,
+  registerWatchedWallet,
+  useTelegramLink,
+  useWalletOwnership,
+  isEvmAddress,
+  type RegisterResult,
+  type RiskProfile as WatchRiskProfile,
+} from "./lib/telegram";
 import {
   SEGMENT_LABELS,
   RISK_TIER_LABELS,
@@ -383,11 +391,12 @@ export function AppDemo() {
       setTooltipStep(1);
     }
 
-    // Register this wallet for monitoring (fire-and-forget; never blocks entry).
-    // No-op for non-EVM wallets. Enables Watch-worker scoring + Telegram alerts.
-    // Asks for an ownership signature — declining just leaves the wallet
-    // unregistered until Connect Telegram (which signs and reports errors).
-    void registerWatchedWallet(wallet.trim(), result.riskProfile3, getProof);
+    // Register this wallet for monitoring (never blocks entry). Asks for an
+    // ownership signature, which a pasted hardware / cold / Safe / other-browser
+    // address simply cannot produce. That used to fail SILENTLY: dashboard
+    // works, user believes they are covered, no alert ever arrives. Now the
+    // failure raises a persistent banner with a retry.
+    void enableMonitoring(wallet.trim(), result.riskProfile3);
   };
 
   // Backfill: users onboarded before per-wallet profiles existed only have
@@ -451,10 +460,37 @@ export function AppDemo() {
   const [openFlowPlan, setOpenFlowPlan] = useState<AdvisorOpenPlan | null>(null);
 
   // Telegram alert linking (Connect Telegram lives in the Settings tab).
-  // Both wallet-scoped writes (watch registration + Telegram link) go through
-  // ONE cached ownership signature, so the user signs once per session.
+  // Each wallet-scoped write signs its OWN action-bound, single-use proof: a
+  // "register my wallet" signature must not double as authorization to
+  // redirect this wallet's liquidation alerts to a stranger's Telegram.
   const { getProof } = useWalletOwnership();
   const telegramLink = useTelegramLink(getProof);
+
+  // ── Monitoring status (the alerts this product exists to send) ───────────
+  // Registration needs a signature the wallet must actually be able to produce.
+  // When it fails the user is UNMONITORED, so the failure is surfaced instead
+  // of swallowed. Null = fine (or not attempted yet).
+  const [monitoringError, setMonitoringError] = useState<string | null>(null);
+  const [monitoringBusy, setMonitoringBusy] = useState(false);
+  const [monitoringTarget, setMonitoringTarget] = useState<{ wallet: string; profile: WatchRiskProfile } | null>(null);
+
+  const enableMonitoring = useCallback(
+    async (wallet: string, profile: WatchRiskProfile) => {
+      setMonitoringTarget({ wallet, profile });
+      setMonitoringBusy(true);
+      const result = await registerWatchedWallet(wallet, profile, getProof);
+      setMonitoringError(result.ok ? null : result.error);
+      setMonitoringBusy(false);
+    },
+    [getProof],
+  );
+
+  const retryMonitoring = useCallback(() => {
+    if (!monitoringTarget) return;
+    // Clear the session dedupe first, or the retry would short-circuit.
+    forgetRegistration(monitoringTarget.wallet, monitoringTarget.profile);
+    void enableMonitoring(monitoringTarget.wallet, monitoringTarget.profile);
+  }, [monitoringTarget, enableMonitoring]);
   const telegramEligible = boundMode && !!onboardedWallet && isEvmAddress(onboardedWallet);
   // Fallback = the real production bot (getMe-verified), so the UI never
   // shows a dead handle even when VITE_TELEGRAM_BOT_USERNAME is unset.
@@ -2854,6 +2890,36 @@ export function AppDemo() {
         );
       })()}
 
+      {/* Alerts-inactive banner. The one failure this product cannot afford is
+          the silent one: onboarding completes, the dashboard looks alive, and
+          the wallet was never added to watched_wallets, so no liquidation alert
+          will ever be sent. Persistent (no dismiss) until monitoring is on. */}
+      {monitoringError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[210] w-full max-w-xl px-4">
+          <div
+            role="alert"
+            className="flex items-center gap-3 bg-[#1a1113] border border-red-500/40 rounded-xl px-4 py-3 shadow-2xl shadow-black/60"
+          >
+            <ShieldAlert className="w-4 h-4 shrink-0 text-red-400" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-mono font-bold text-red-300 uppercase tracking-wider">
+                Alerts inactive
+              </p>
+              <p className="text-[11px] text-panik-text-secondary mt-0.5">
+                {monitoringError} Verify wallet ownership to enable liquidation alerts.
+              </p>
+            </div>
+            <button
+              onClick={retryMonitoring}
+              disabled={monitoringBusy}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-panik-orange/90 hover:bg-panik-orange disabled:opacity-50 text-[11px] font-mono font-bold uppercase tracking-wider text-black transition-colors cursor-pointer"
+            >
+              {monitoringBusy ? "Verifying..." : "Retry"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Atomic Exit / Reduce flow (Phase 2) - real transactions, user-signed */}
       {exitPrefill && (
         <ExitFlow prefill={exitPrefill} onClose={() => setExitPrefill(null)} />
@@ -2865,6 +2931,12 @@ export function AppDemo() {
           plan={openFlowPlan}
           riskProfile={selectedRiskProfile}
           onClose={() => setOpenFlowPlan(null)}
+          // A position opened but not monitored is the same silent failure as
+          // an unregistered onboarding — route it to the same banner.
+          onMonitoring={(wallet, profile, result: RegisterResult) => {
+            setMonitoringTarget({ wallet, profile });
+            setMonitoringError(result.ok ? null : result.error);
+          }}
         />
       )}
 

@@ -26,7 +26,12 @@ import {
   verifyOpenTargets,
   type MorphoMarketParams,
 } from "../lib/openProtocols";
-import { registerWatchedWallet, useWalletOwnership } from "../lib/telegram";
+import {
+  registerWatchedWallet,
+  useWalletOwnership,
+  type RegisterResult,
+  type RiskProfile as WatchRiskProfile,
+} from "../lib/telegram";
 
 const PROTOCOL_LABEL: Record<string, string> = {
   aave_v3: "Aave V3",
@@ -41,10 +46,13 @@ export function OpenFlow({
   plan,
   riskProfile,
   onClose,
+  onMonitoring,
 }: {
   plan: AdvisorOpenPlan;
   riskProfile: string;
   onClose: () => void;
+  /** Result of watch-registering the freshly opened position (see below). */
+  onMonitoring?: (wallet: string, profile: WatchRiskProfile, result: RegisterResult) => void;
 }) {
   const { address, isConnected, chainId } = useAccount();
   const { connect } = useConnect();
@@ -158,13 +166,19 @@ export function OpenFlow({
         setTxHashes([...hashes]);
       }
 
-      // Watch the new position immediately (fire-and-forget). Needs an
-      // ownership signature; usually silent here, since the same wallet just
-      // signed the open transactions and the proof is cached for the session.
-      const profile3 = ["conservative", "moderate", "aggressive"].includes(riskProfile)
-        ? (riskProfile as "conservative" | "moderate" | "aggressive")
+      // Watch the new position immediately (fire-and-forget). Proofs are
+      // single-use now, so there is no signature to reuse; instead
+      // registerWatchedWallet skips outright when this wallet was already
+      // registered in this session (the usual case, since onboarding did it),
+      // which is what stops a second popup landing on the user the instant
+      // they finish confirming an on-chain open. A failure is reported up so
+      // it raises the "Alerts inactive" banner rather than vanishing.
+      const profile3: WatchRiskProfile = ["conservative", "moderate", "aggressive"].includes(riskProfile)
+        ? (riskProfile as WatchRiskProfile)
         : "moderate";
-      void registerWatchedWallet(address, profile3, getProof);
+      void registerWatchedWallet(address, profile3, getProof).then((result) =>
+        onMonitoring?.(address.toLowerCase(), profile3, result),
+      );
       setDoneHash(hashes[hashes.length - 1] ?? null);
     } catch (err) {
       const message = (err as Error).message ?? String(err);
@@ -172,7 +186,7 @@ export function OpenFlow({
     } finally {
       setExecuting(false);
     }
-  }, [publicClient, address, plan, collateralUsd, borrowUsd, borrowCap, riskProfile, writeContractAsync, getProof]);
+  }, [publicClient, address, plan, collateralUsd, borrowUsd, borrowCap, riskProfile, writeContractAsync, getProof, onMonitoring]);
 
   const inputCls =
     "w-full bg-[#111318] border border-white/10 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-panik-orange/50 focus:outline-none";

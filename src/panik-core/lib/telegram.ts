@@ -3,23 +3,32 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Telegram alert wiring for panik-core.
- *  - useWalletOwnership: signs the ONE proof message the write endpoints below
- *    require, and caches it for the session so the user signs once.
- *  - registerWatchedWallet: after onboarding, registers the user's own wallet
- *    for monitoring via POST /api/wallets/register. Fire-and-forget; never
- *    blocks the UI.
+ *  - useWalletOwnership: fetches a server nonce and signs the SIWE (EIP-4361)
+ *    message for ONE named action, which is what the write endpoints below
+ *    require.
+ *  - registerWatchedWallet: after onboarding (and after an in-app open),
+ *    registers the user's own wallet for monitoring via
+ *    POST /api/wallets/register. Deduped per session so the user is never
+ *    prompted twice for a wallet already registered.
  *  - useTelegramLink: mints a deep-link code from /api/telegram/link and opens
  *    t.me/<bot>?start=<code> so the user connects their Telegram.
  *
  * Both writes used to take a bare wallet address, so anyone could aim them at
  * someone else's wallet (steal their alerts, mute their liquidation warnings).
- * See server/walletAuth.ts and
+ * See server/walletAuth.ts, server/siweProof.ts, and
  * supabase/migrations/20260805000001_revoke_anon_wallet_register.sql.
+ *
+ * NO PROOF CACHE. A proof now embeds a server-issued nonce that verification
+ * consumes on first use, so a cached one is guaranteed to 401. The old
+ * per-instance useRef cache was also mounted twice (AppDemo + OpenFlow), which
+ * meant its "one popup per onboarding" promise was already false. Deduping the
+ * REGISTRATION (below) is what actually removes the redundant popup.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount, useConnect, useSignMessage } from "wagmi";
 import { injected } from "wagmi/connectors";
+import { buildOwnershipMessage, type OwnershipAction } from "../../../server/siweProof";
 
 export type RiskProfile = "conservative" | "moderate" | "aggressive";
 
@@ -27,47 +36,37 @@ export const isEvmAddress = (a: string): boolean => /^0x[0-9a-fA-F]{40}$/.test(a
 
 /** A signed wallet-ownership proof, as the API expects it in the body. */
 export interface OwnershipProof {
-  wallet: string;
+  /** The full EIP-4361 message. It names the wallet, domain, nonce and action. */
+  message: string;
   signature: string;
-  timestamp: number;
 }
 
-/** Must match ownershipMessage() in server/walletAuth.ts, byte for byte. */
-const proofMessage = (wallet: string, timestamp: number): string =>
-  `PANIK wallet ownership\nWallet: ${wallet}\nIssued: ${timestamp}`;
+/** Signs a proof for one wallet and one action. Throws with user-facing text. */
+export type GetProof = (wallet: string, action: OwnershipAction) => Promise<OwnershipProof>;
 
-// Server accepts proofs for 10 minutes; re-sign a minute early so one that is
-// about to expire mid-flight doesn't come back as a confusing 401.
-const PROOF_REUSE_MS = 9 * 60 * 1000;
+/** Single-use value from the server; without it the message cannot be built. */
+async function fetchNonce(): Promise<string> {
+  const res = await fetch("/api/auth/nonce");
+  if (!res.ok) throw new Error("Could not reach Panik to start the signature. Try again.");
+  const { nonce } = (await res.json()) as { nonce?: string };
+  if (!nonce) throw new Error("Could not reach Panik to start the signature. Try again.");
+  return nonce;
+}
 
 /**
- * Sign-once ownership proof for the session. The proof is generic (not
- * per-endpoint) precisely so the onboarding flow — register wallet, then
- * connect Telegram — costs the user a single wallet popup rather than one per
- * call. Kept in a ref: it is a short-lived credential and has no business in
- * localStorage or in React state that renders.
+ * Ownership proof for ONE action. Every call costs a wallet popup by design:
+ * the signature is single-use and names the action it authorizes, so it can no
+ * longer be silently reused for a different, more dangerous endpoint.
  */
-export function useWalletOwnership() {
+export function useWalletOwnership(): { getProof: GetProof } {
   const { address, isConnected } = useAccount();
   const { connectAsync } = useConnect();
   const { signMessageAsync } = useSignMessage();
-  const cache = useRef<OwnershipProof | null>(null);
 
-  /**
-   * Returns a usable proof for `wallet`, prompting a signature only when the
-   * cached one is missing, stale, or for a different wallet. Throws with a
-   * user-facing message when the wallet can't sign (wrong account connected,
-   * user rejected the prompt).
-   */
-  const getProof = useCallback(
-    async (wallet: string): Promise<OwnershipProof> => {
+  const getProof = useCallback<GetProof>(
+    async (wallet, action) => {
       const target = wallet.trim().toLowerCase();
       if (!isEvmAddress(target)) throw new Error("Needs an EVM wallet (0x...).");
-
-      const cached = cache.current;
-      if (cached && cached.wallet === target && Date.now() - cached.timestamp < PROOF_REUSE_MS) {
-        return cached;
-      }
 
       let signer = isConnected ? address : undefined;
       if (!signer) {
@@ -78,14 +77,18 @@ export function useWalletOwnership() {
         throw new Error(`Connect ${target.slice(0, 6)}...${target.slice(-4)} to prove you own it.`);
       }
 
-      const timestamp = Date.now();
-      const signature = await signMessageAsync({
-        account: signer,
-        message: proofMessage(target, timestamp),
+      const nonce = await fetchNonce();
+      // Built by the SAME function the server re-derives with, so the two can
+      // never drift apart byte-wise.
+      const message = buildOwnershipMessage({
+        address: target,
+        domain: window.location.host,
+        uri: window.location.origin,
+        nonce,
+        action,
       });
-      const proof: OwnershipProof = { wallet: target, signature, timestamp };
-      cache.current = proof;
-      return proof;
+      const signature = await signMessageAsync({ account: signer, message });
+      return { message, signature };
     },
     [address, isConnected, connectAsync, signMessageAsync],
   );
@@ -93,28 +96,59 @@ export function useWalletOwnership() {
   return { getProof };
 }
 
+/** Outcome of a registration attempt. `error` is safe to show the user. */
+export interface RegisterResult {
+  ok: boolean;
+  error: string | null;
+}
+
 /**
- * Register the onboarded wallet for monitoring. Resolves true on success.
- * Swallows errors (returns false) so onboarding never blocks on it — including
- * the user declining to sign, which simply leaves the wallet unmonitored until
- * they connect Telegram (that flow signs too, and surfaces failures).
+ * Wallets already registered in THIS page session, keyed lowercase:profile.
+ * Module scope on purpose — AppDemo (onboarding) and OpenFlow (after an open)
+ * both register, and a per-component ref meant the second one always missed and
+ * fired a redundant signature prompt seconds after the user confirmed a
+ * transaction. Registration is idempotent server-side, so skipping a repeat is
+ * free; it only ever costs a popup.
+ */
+const registeredThisSession = new Set<string>();
+
+/** Forget a wallet's registration so a retry actually re-runs it. */
+export function forgetRegistration(wallet: string, profile: RiskProfile): void {
+  registeredThisSession.delete(`${wallet.trim().toLowerCase()}:${profile}`);
+}
+
+/**
+ * Register the onboarded wallet for monitoring. NEVER throws — callers treat it
+ * as fire-and-forget — but it reports WHY it failed so the UI can say so.
+ * Silent failure here is the worst outcome this product has: the dashboard
+ * works, the user believes they are covered, and no alert will ever arrive.
  */
 export async function registerWatchedWallet(
   wallet: string,
   profile: RiskProfile,
-  getProof: (wallet: string) => Promise<OwnershipProof>,
-): Promise<boolean> {
-  if (!isEvmAddress(wallet)) return false;
+  getProof: GetProof,
+): Promise<RegisterResult> {
+  const target = wallet.trim().toLowerCase();
+  if (!isEvmAddress(target)) return { ok: false, error: "Monitoring needs an EVM wallet (0x...)." };
+  const key = `${target}:${profile}`;
+  if (registeredThisSession.has(key)) return { ok: true, error: null };
   try {
-    const proof = await getProof(wallet);
+    const proof = await getProof(target, "wallet-register");
     const res = await fetch("/api/wallets/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...proof, profile }),
     });
-    return res.ok;
-  } catch {
-    return false;
+    if (!res.ok) return { ok: false, error: "Panik could not enable monitoring for this wallet." };
+    registeredThisSession.add(key);
+    return { ok: true, error: null };
+  } catch (err) {
+    return {
+      ok: false,
+      error: rejectedSignature(err)
+        ? "Signature declined — alerts stay off until you verify this wallet."
+        : ((err as Error).message ?? "Could not verify wallet ownership."),
+    };
   }
 }
 
@@ -153,10 +187,11 @@ async function fetchLinkStatus(wallet: string): Promise<StatusResponse | null> {
 
 /**
  * Hook driving the "Connect Telegram" button (with auto-confirm after Start).
- * `getProof` comes from useWalletOwnership so the signature is shared with the
- * registration call — one popup for the whole onboarding, not two.
+ * The signature it collects is bound to the "telegram-link" action and cannot
+ * be reused for anything else — nor can a registration signature be reused
+ * here, which is precisely the point.
  */
-export function useTelegramLink(getProof: (wallet: string) => Promise<OwnershipProof>) {
+export function useTelegramLink(getProof: GetProof) {
   const [status, setStatus] = useState<LinkStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null);
@@ -191,9 +226,9 @@ export function useTelegramLink(getProof: (wallet: string) => Promise<OwnershipP
       let proof: OwnershipProof;
       try {
         // Proves the wallet is the caller's before we mint a code that
-        // redirects its alerts. Cached, so usually no popup at all.
+        // redirects its alerts. The popup states exactly that.
         setStatus("signing");
-        proof = await getProof(wallet);
+        proof = await getProof(wallet, "telegram-link");
       } catch (err) {
         // Rejecting the prompt is a normal choice, not a crash.
         setStatus("error");
