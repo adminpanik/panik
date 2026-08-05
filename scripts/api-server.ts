@@ -61,7 +61,8 @@ import { CampaignStore } from "../server/campaignStore";
 import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
-import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../server/adminCampaigns";
+import { buildCreateInput, type RawCreateBody } from "../server/adminCampaigns";
+import { adminAuthGate } from "../server/adminAuth";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -344,7 +345,7 @@ const publicLimit = rateLimit({ limit: 120 });            // generous: 60s-cache
 const telegramStatusLimit = rateLimit({ limit: 60 });     // 3s poll during linking
 const profileResultLimit = rateLimit({ limit: 40 });      // 3s poll during the reveal
 const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
-const adminLimit = rateLimit({ limit: 10, maxFailures: 5, lockoutMs: 15 * 60_000 });
+const adminLimit = rateLimit({ limit: 10 });             // failed-auth brake lives in server/adminAuth.ts
 
 /** ?profile → a known RiskProfile, defaulting to moderate. Never trust the raw
  * string: it selects the scoring thresholds and rides into the advisor prompt. */
@@ -968,10 +969,17 @@ app.post("/api/try/access", strictLimit, async (req, res) => {
 });
 
 async function adminCampaigns(req: express.Request, res: express.Response): Promise<void> {
-  const auth = checkAdminKey(req.header("x-admin-key") ?? undefined);
+  // The guessing brake is keyed on the PRESENTED credential, never the caller's
+  // IP — an IP-keyed lockout lets any stranger lock the real admin out. See
+  // server/adminAuth.ts.
+  const { auth, retryAfterSec } = adminAuthGate.authorize(req.header("x-admin-key") ?? undefined);
   if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return; }
+  if (auth === "locked") {
+    res.setHeader("Retry-After", String(retryAfterSec ?? 60));
+    res.status(429).json({ error: "too many failed admin auth attempts", retryAfterSec });
+    return;
+  }
   if (auth === "forbidden") {
-    adminLimit.fail(req); // repeated bad keys lock the IP out (key-guessing brake)
     res.status(401).json({ error: "unauthorized" });
     return;
   }
