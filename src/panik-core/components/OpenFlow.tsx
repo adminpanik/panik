@@ -26,7 +26,7 @@ import {
   verifyOpenTargets,
   type MorphoMarketParams,
 } from "../lib/openProtocols";
-import { registerWatchedWallet } from "../lib/telegram";
+import { registerWatchedWallet, useWalletOwnership } from "../lib/telegram";
 
 const PROTOCOL_LABEL: Record<string, string> = {
   aave_v3: "Aave V3",
@@ -51,6 +51,7 @@ export function OpenFlow({
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient({ chainId: OPEN_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
+  const { getProof } = useWalletOwnership();
 
   const supported = isOpenSupported(plan.protocol, plan.collateralSymbol);
   const [collateralUsd, setCollateralUsd] = useState<number>(Math.round(plan.collateralUsd));
@@ -157,11 +158,13 @@ export function OpenFlow({
         setTxHashes([...hashes]);
       }
 
-      // Watch the new position immediately (fire-and-forget).
+      // Watch the new position immediately (fire-and-forget). Needs an
+      // ownership signature; usually silent here, since the same wallet just
+      // signed the open transactions and the proof is cached for the session.
       const profile3 = ["conservative", "moderate", "aggressive"].includes(riskProfile)
         ? (riskProfile as "conservative" | "moderate" | "aggressive")
         : "moderate";
-      void registerWatchedWallet(address, profile3);
+      void registerWatchedWallet(address, profile3, getProof);
       setDoneHash(hashes[hashes.length - 1] ?? null);
     } catch (err) {
       const message = (err as Error).message ?? String(err);
@@ -169,7 +172,7 @@ export function OpenFlow({
     } finally {
       setExecuting(false);
     }
-  }, [publicClient, address, plan, collateralUsd, borrowUsd, borrowCap, riskProfile, writeContractAsync]);
+  }, [publicClient, address, plan, collateralUsd, borrowUsd, borrowCap, riskProfile, writeContractAsync, getProof]);
 
   const inputCls =
     "w-full bg-[#111318] border border-white/10 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-panik-orange/50 focus:outline-none";

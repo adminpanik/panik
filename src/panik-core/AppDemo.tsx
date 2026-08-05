@@ -55,7 +55,7 @@ import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
 import { ProtocolLogo } from "./components/ProtocolLogo";
 import { Onboarding } from "./components/Onboarding";
-import { registerWatchedWallet, useTelegramLink, isEvmAddress } from "./lib/telegram";
+import { registerWatchedWallet, useTelegramLink, useWalletOwnership, isEvmAddress } from "./lib/telegram";
 import {
   SEGMENT_LABELS,
   RISK_TIER_LABELS,
@@ -385,7 +385,9 @@ export function AppDemo() {
 
     // Register this wallet for monitoring (fire-and-forget; never blocks entry).
     // No-op for non-EVM wallets. Enables Watch-worker scoring + Telegram alerts.
-    void registerWatchedWallet(wallet.trim(), result.riskProfile3);
+    // Asks for an ownership signature — declining just leaves the wallet
+    // unregistered until Connect Telegram (which signs and reports errors).
+    void registerWatchedWallet(wallet.trim(), result.riskProfile3, getProof);
   };
 
   // Backfill: users onboarded before per-wallet profiles existed only have
@@ -449,7 +451,10 @@ export function AppDemo() {
   const [openFlowPlan, setOpenFlowPlan] = useState<AdvisorOpenPlan | null>(null);
 
   // Telegram alert linking (Connect Telegram lives in the Settings tab).
-  const telegramLink = useTelegramLink();
+  // Both wallet-scoped writes (watch registration + Telegram link) go through
+  // ONE cached ownership signature, so the user signs once per session.
+  const { getProof } = useWalletOwnership();
+  const telegramLink = useTelegramLink(getProof);
   const telegramEligible = boundMode && !!onboardedWallet && isEvmAddress(onboardedWallet);
   // Fallback = the real production bot (getMe-verified), so the UI never
   // shows a dead handle even when VITE_TELEGRAM_BOT_USERNAME is unset.
@@ -2385,15 +2390,21 @@ export function AppDemo() {
                         </div>
                         <button
                           type="button"
-                          disabled={!telegramEligible || telegramLink.status === "requesting"}
+                          disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
                           onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
                           className="h-10 px-4 rounded-lg text-[11px] font-mono font-extrabold uppercase tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-gradient-to-tr from-panik-orange to-red-500 text-white hover:opacity-90 cursor-pointer"
                         >
-                          {telegramLink.status === "requesting" ? "Opening..." :
+                          {telegramLink.status === "signing" ? "Sign in wallet..." :
+                           telegramLink.status === "requesting" ? "Opening..." :
                            telegramLink.status === "connected" ? "Reconnect" :
                            telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
                         </button>
                       </div>
+                      {telegramEligible && telegramLink.status !== "connected" && (
+                        <p className="text-[10px] font-mono text-white/40">
+                          Sign to prove wallet ownership - free, no transaction, no gas.
+                        </p>
+                      )}
                       {!telegramEligible && (
                         <p className="text-[10px] font-mono text-white/30">Onboard with an EVM wallet (0x...) to enable alerts.</p>
                       )}
