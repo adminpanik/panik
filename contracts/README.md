@@ -11,12 +11,21 @@ Founding-user escrow for PANIK. Accepts **exactly 5 USDC** per wallet on **Base*
 
 ## Prerequisites
 
-Install [Foundry](https://getfoundry.sh):
+1. Install [Foundry](https://getfoundry.sh):
 
-```bash
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-```
+   ```bash
+   curl -L https://foundry.paradigm.xyz | bash
+   foundryup
+   ```
+
+2. Install the test dependencies. `contracts/lib/` is gitignored, so a fresh
+   clone has no `forge-std` — the **tests** need it (the contract in `src/`
+   does not, it compiles against the vendored `src/interfaces/IERC20.sol`):
+
+   ```bash
+   cd contracts
+   forge install foundry-rs/forge-std
+   ```
 
 ## Build
 
@@ -25,11 +34,16 @@ cd contracts
 forge build
 ```
 
+`forge build` works on a fresh clone with no `lib/` present: nothing under
+`src/` imports `forge-std`.
+
 ## Test
 
 ```bash
 forge test -vvv
 ```
+
+Requires the `forge install` step above (`test/` and `script/` import `forge-std`).
 
 ## Deploy
 

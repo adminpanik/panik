@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import { IERC20 } from "../lib/forge-std/src/interfaces/IERC20.sol";
+import { IERC20 } from "./interfaces/IERC20.sol";
 
 /**
  * @title  PanikEscrow
