@@ -80,6 +80,7 @@ contract PanikEscrow {
     error AlreadyRefunded();
     error RefundWindowNotPassed();
     error RefundWindowPassed();
+    error NothingToShip();
     error ZeroAddress();
     error TransferFailed();
     error UnexpectedDecimals();
@@ -141,10 +142,15 @@ contract PanikEscrow {
     /**
      * @notice Sweep the entire escrow balance to `treasury`. Owner only, once.
      * @dev    The only on-chain conditions are: caller is `owner`, not already
-     *         shipped, and `block.timestamp < refundDeadline`. There is NO
+     *         shipped, `block.timestamp < refundDeadline`, and a non-zero
+     *         balance to sweep. There is NO
      *         proof-of-shipping check — this is a discretionary owner action,
      *         and `treasury` can have been changed by `setTreasury()` first.
      *         Reverts once the global deadline has passed.
+     *
+     *         `shipped` is one-way and closes `deposit()` and `claimRefund()`
+     *         forever, so an empty-balance call would brick the contract for
+     *         no gain — there is nothing to sweep. Reject it instead.
      */
     function ship() external onlyOwner {
         if (shipped) revert AlreadyShipped();
@@ -154,13 +160,13 @@ contract PanikEscrow {
             revert RefundWindowPassed();
         }
 
+        uint256 balance = usdc.balanceOf(address(this));
+        if (balance == 0) revert NothingToShip();
+
         shipped = true;
 
-        uint256 balance = usdc.balanceOf(address(this));
-        if (balance > 0) {
-            bool success = usdc.transfer(treasury, balance);
-            if (!success) revert TransferFailed();
-        }
+        bool success = usdc.transfer(treasury, balance);
+        if (!success) revert TransferFailed();
 
         emit Shipped();
     }

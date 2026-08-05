@@ -51,9 +51,10 @@ function ship() external onlyOwner;
 3. Enforces the strict global deadline:
    `block.timestamp < refundDeadline`.
    - If the global 90-day deadline has passed, the call reverts with `RefundWindowPassed` and the team forfeits all funds.
-4. Marks `shipped = true`.
-5. Transfers the entire contract balance of USDC to the `treasury` address.
-6. Emits `Shipped()`.
+4. Reverts with `NothingToShip` if the escrow balance is zero. `shipped` is one-way and closes `deposit()` and `claimRefund()` permanently, so an accidental empty-escrow call would brick the contract for nothing.
+5. Marks `shipped = true`.
+6. Transfers the entire contract balance of USDC to the `treasury` address.
+7. Emits `Shipped()`.
 
 > **No proof-of-shipping check.** Those are the only conditions. The contract
 > cannot observe whether the app actually launched, so before the deadline
