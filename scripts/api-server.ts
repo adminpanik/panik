@@ -307,9 +307,14 @@ async function getChain(): Promise<typeof chainCache> {
 const app = express();
 
 // CORS - lets a separately-hosted SPA (e.g. the Vercel static frontend) call
-// this backend cross-origin. Set CORS_ORIGINS to a comma-separated allowlist in
-// production; defaults to "*" for local dev. (If the SPA is served same-origin
-// via a Vercel rewrite, CORS is moot but harmless.)
+// this backend cross-origin. CORS_ORIGINS is a comma-separated allowlist and is
+// REQUIRED in production (a missing value must never silently widen to "*");
+// local dev falls back to "*". (If the SPA is served same-origin via a Vercel
+// rewrite, CORS is moot but harmless.)
+if (process.env.NODE_ENV === "production" && !process.env.CORS_ORIGINS) {
+  console.error("Missing env (CORS_ORIGINS) - refusing to boot with a wildcard CORS policy");
+  process.exit(1);
+}
 const corsOrigins = (process.env.CORS_ORIGINS ?? "*").split(",").map((s) => s.trim());
 app.use((req, res, next) => {
   const origin = req.headers.origin;
