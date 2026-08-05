@@ -8,7 +8,7 @@
  * are sanity-checked on-chain before any funds move.
  */
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { useAccount, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
@@ -60,6 +60,14 @@ export function OpenFlow({
   const [txHashes, setTxHashes] = useState<string[]>([]);
   const [executing, setExecuting] = useState(false);
   const [doneHash, setDoneHash] = useState<string | null>(null);
+  /** How many of buildOpenSteps() already landed - a retry resumes from here. */
+  const [completedSteps, setCompletedSteps] = useState(0);
+
+  // Editing the sizing invalidates the built steps, so start over.
+  useEffect(() => {
+    setCompletedSteps(0);
+    setTxHashes([]);
+  }, [plan, collateralUsd, borrowUsd]);
 
   // The advisor sized borrowUsd to the profile's target HF - that is the cap.
   const borrowCap = Math.round(plan.borrowUsd);
@@ -101,7 +109,12 @@ export function OpenFlow({
       if (price8 === 0n) throw new Error("oracle price unavailable");
       const usd8 = BigInt(Math.round(collateralUsd * 1e8));
       const collateralAmount = (usd8 * 10n ** BigInt(token.decimals)) / price8;
-      const borrowAmount = BigInt(Math.round(Math.min(borrowUsd, borrowCap) * 1e6));
+      // Scale by USDC's declared decimals, never a hardcoded 1e6.
+      const usdc = OPEN_TOKENS.USDC!;
+      const borrowAmount =
+        (BigInt(Math.round(Math.min(borrowUsd, borrowCap) * 1e8)) *
+          10n ** BigInt(usdc.decimals)) /
+        10n ** 8n;
 
       const balance = (await client.readContract({
         address: token.address,
@@ -139,8 +152,11 @@ export function OpenFlow({
       await verifyOpenTargets(client, input);
 
       const steps = buildOpenSteps(input);
-      const hashes: string[] = [];
-      for (const s of steps) {
+      // Resume where a previous attempt stopped - replaying a completed supply
+      // step would deposit the collateral a second time.
+      const hashes: string[] = [...txHashes];
+      for (let i = completedSteps; i < steps.length; i += 1) {
+        const s = steps[i]!;
         setStatus(`${s.label} - simulating...`);
         const { request } = await client.simulateContract({
           account: address,
@@ -152,9 +168,13 @@ export function OpenFlow({
         setStatus(`${s.label} - confirm in wallet...`);
         const hash = await writeContractAsync(request as never);
         setStatus(`${s.label} - waiting for confirmation...`);
-        await client.waitForTransactionReceipt({ hash });
+        const receipt = await client.waitForTransactionReceipt({ hash });
+        if (receipt.status !== "success") {
+          throw new Error(`${s.label} reverted on-chain`);
+        }
         hashes.push(hash);
         setTxHashes([...hashes]);
+        setCompletedSteps(i + 1);
       }
 
       // Watch the new position immediately (fire-and-forget).
@@ -169,7 +189,18 @@ export function OpenFlow({
     } finally {
       setExecuting(false);
     }
-  }, [publicClient, address, plan, collateralUsd, borrowUsd, borrowCap, riskProfile, writeContractAsync]);
+  }, [
+    publicClient,
+    address,
+    plan,
+    collateralUsd,
+    borrowUsd,
+    borrowCap,
+    riskProfile,
+    writeContractAsync,
+    completedSteps,
+    txHashes,
+  ]);
 
   const inputCls =
     "w-full bg-[#111318] border border-white/10 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-panik-orange/50 focus:outline-none";
@@ -304,13 +335,15 @@ export function OpenFlow({
                 </>
               ) : (
                 <>
-                  Open position <ArrowRight className="w-4 h-4" />
+                  {completedSteps > 0 ? "Resume open" : "Open position"}{" "}
+                  <ArrowRight className="w-4 h-4" />
                 </>
               )}
             </button>
             {txHashes.length > 0 && !doneHash ? (
               <p className="text-[10px] font-mono text-white/40 text-center">
-                {txHashes.length} transaction{txHashes.length > 1 ? "s" : ""} confirmed...
+                {txHashes.length} transaction{txHashes.length > 1 ? "s" : ""} confirmed
+                {executing ? "..." : " - retrying continues from the next step"}
               </p>
             ) : null}
           </div>

@@ -270,7 +270,7 @@ export interface OpenPlanInput {
   collateralSymbol: string;
   /** Collateral amount in token units. */
   collateralAmount: bigint;
-  /** USDC borrow amount (6 decimals); 0n = collateral-only open. */
+  /** USDC borrow amount in OPEN_TOKENS.USDC units; 0n = collateral-only open. */
   borrowAmount: bigint;
   user: `0x${string}`;
   /** Required for morpho only (from /api/morpho/market). */
@@ -340,6 +340,11 @@ export async function verifyOpenTargets(
       OPEN_TOKENS[input.collateralSymbol]!.address.toLowerCase()
     ) {
       throw new Error("Morpho market collateral mismatch - aborting");
+    }
+    // The UI borrows "USDC" and scales by USDC's decimals - a market whose
+    // loan token is anything else would borrow the wrong asset and amount.
+    if (mp.loanToken.toLowerCase() !== OPEN_TOKENS.USDC!.address.toLowerCase()) {
+      throw new Error("Morpho market loan token mismatch - aborting");
     }
   }
 }
