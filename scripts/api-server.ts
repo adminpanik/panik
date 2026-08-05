@@ -322,15 +322,45 @@ app.use(express.json()); // every POST route below reads req.body
 // REQUIRED in production (a missing value must never silently widen to "*");
 // local dev falls back to "*". (If the SPA is served same-origin via a Vercel
 // rewrite, CORS is moot but harmless.)
-if (process.env.NODE_ENV === "production" && !process.env.CORS_ORIGINS) {
-  console.error("Missing env (CORS_ORIGINS) - refusing to boot with a wildcard CORS policy");
-  process.exit(1);
+//
+// The guard checks the VALUE, not just presence: "*" would restore wildcard CORS
+// in production and " " would boot but match nothing, failing every cross-origin
+// call silently. Both are refused, loudly - Dockerfile hard-sets
+// NODE_ENV=production and railway.toml retries 10 times, so a boot failure here
+// takes the API down and must therefore be unmistakable in the logs.
+const isProduction = process.env.NODE_ENV === "production";
+const corsOrigins = (process.env.CORS_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+if (isProduction) {
+  const CORS_HELP =
+    'set CORS_ORIGINS to a comma-separated list of exact frontend origins, e.g. CORS_ORIGINS="https://panik.xyz,https://www.panik.xyz" (see .env.example)';
+  if (corsOrigins.length === 0) {
+    console.error(`CORS_ORIGINS is missing or blank - refusing to boot with a wildcard CORS policy. Fix: ${CORS_HELP}`);
+    process.exit(1);
+  }
+  if (corsOrigins.includes("*")) {
+    console.error(`CORS_ORIGINS contains "*" - a wildcard is not an allowlist and is refused in production. Fix: ${CORS_HELP}`);
+    process.exit(1);
+  }
 }
-const corsOrigins = (process.env.CORS_ORIGINS ?? "*").split(",").map((s) => s.trim());
+const allowAnyOrigin = !isProduction && (corsOrigins.length === 0 || corsOrigins.includes("*"));
+console.log(
+  allowAnyOrigin ? "CORS: allowing any origin (non-production)" : `CORS: allowlist ${corsOrigins.join(", ")}`,
+);
+
+// Log each DENIED origin once, so a mis-set allowlist shows up as a log line
+// instead of a browser-side mystery. Bounded: only the first 20 distinct ones.
+const deniedOrigins = new Set<string>();
+function logDeniedOrigin(origin: string): void {
+  if (deniedOrigins.has(origin) || deniedOrigins.size >= 20) return;
+  deniedOrigins.add(origin);
+  console.error(`CORS: denied origin ${origin} (not in CORS_ORIGINS)`);
+}
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (corsOrigins.includes("*")) res.setHeader("Access-Control-Allow-Origin", "*");
+  if (allowAnyOrigin) res.setHeader("Access-Control-Allow-Origin", "*");
   else if (origin && corsOrigins.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
+  else if (origin) logDeniedOrigin(origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Bot-Api-Secret-Token, X-Admin-Key");
