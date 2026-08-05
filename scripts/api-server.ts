@@ -942,7 +942,7 @@ app.post("/api/try/redeem", strictLimit, async (req, res) => {
   if (!TRY_EMAIL_RE.test(email)) { res.status(400).json({ ok: false, error: "invalid email" }); return; }
   if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
   try {
-    const result = await CampaignStore.fromEnv().redeem(code, email, clientIp(req.headers), userAgent(req.headers));
+    const result = await CampaignStore.fromEnv().redeem(code, email, clientIp(req), userAgent(req.headers));
     if (result.outcome === "success" && result.token) {
       res.json({ ok: true, outcome: "success", trialUrl: `/app?trial=${result.token}` });
     } else {
@@ -959,7 +959,7 @@ app.post("/api/try/access", strictLimit, async (req, res) => {
   if (!token) { res.status(400).json({ ok: false, error: "missing token" }); return; }
   if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
   try {
-    const result = await CampaignStore.fromEnv().openTrial(token, clientIp(req.headers), userAgent(req.headers));
+    const result = await CampaignStore.fromEnv().openTrial(token, clientIp(req), userAgent(req.headers));
     res.json({ ok: result.outcome === "active", outcome: result.outcome, expiresAt: result.expiresAt ?? null });
   } catch (err) {
     console.error(`POST /api/try/access -> 502: ${(err as Error).message}`);

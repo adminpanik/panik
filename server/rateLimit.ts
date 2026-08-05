@@ -56,7 +56,7 @@ export function rateLimit(opts: RateLimitOptions): RateLimiter {
   const lockoutMs = opts.lockoutMs ?? 15 * 60_000;
   const entries = new Map<string, Entry>();
 
-  const keyOf = (req: Request): string => clientIp(req.headers) ?? "unknown";
+  const keyOf = (req: Request): string => clientIp(req) ?? "unknown";
 
   /** Drop entries with no live hits and no active lockout; then oldest-first. */
   const evict = (now: number): void => {
