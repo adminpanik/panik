@@ -3,9 +3,10 @@
 > Status: **Design doc** — free waitlist (Journey B) in build 2026-06-14; Founding-User Escrow (Journey A) still design.
 > Last updated: 2026-06-14
 > Companion to [`BACKEND_PLAN.md`](./BACKEND_PLAN.md). Where the two disagree, this doc wins for journey/flow; the backend plan wins for infra/security mechanics.
+> **This doc never wins over the deployed contract.** For escrow mechanics, `contracts/src/PanikEscrow.sol` and [`technical-docs/ESCROW_SYSTEM.md`](./technical-docs/ESCROW_SYSTEM.md) are authoritative — this doc describes the journey around them.
 >
 > **Reconciled with the business-dev doc (2026-06-14) — read before trusting any number below:**
-> - Escrow amount is **$5 USDC** (every "$3" below is historical — treat as $5). Refund window is **90 days from each depositor's own deposit timestamp**, not a single global deadline.
+> - Escrow amount is **$5 USDC** (every "$3" below is historical — treat as $5). The refund window is **one global 90-day deadline fixed at contract deployment**, shared by every depositor — *not* 90 days from each depositor's own timestamp. (Earlier revisions of this doc specified a per-depositor clock; the shipped contract does not implement one. `depositTime[wallet]` is recorded as an audit value only and feeds no time math.)
 > - The two journeys are **NOT one modal**. The free waitlist is the public landing CTA. The Founding-User Escrow lives on a **hidden page, direct-URL only, not linked from nav** — full spec in §13.
 > - The **free waitlist now requires a wallet** (connect or paste, EVM-format validated) and asks **5 qualification questions** (BACKEND_PLAN §4), not a 3-card appetite picker.
 > - **No payment anywhere in the free waitlist.** Only Journey A (Founding User) moves USDC. Bot defense is custom (no Turnstile).
@@ -44,7 +45,7 @@ A founding user has **both**. The journey only works if we link them at deposit 
 The free waitlist is the public hero — it's the broad top of funnel and the analytics source. The Founding-User escrow is deliberately **unlisted**: shared by direct link with a curated audience, so the "$5 on-chain shipping promise" stays a high-signal, low-noise offer.
 
 The Founding-User pitch:
-> **Become a founding user for $5. If we don't ship Panik within 90 days, you claim your money back from the contract.**
+> **Become a founding user for $5. If we don't ship Panik by the deadline — one date, 90 days after the contract was deployed, the same for everyone — you claim your money back from the contract.**
 
 ---
 
@@ -61,8 +62,8 @@ The Founding-User pitch:
                                        (later, time passes)
                                                 │
                                        ┌────────┴────────┐
-                                   We shipped       90d since deposit
-                                       │            & not released
+                                   We shipped       global deadline hit
+                                       │            & ship() never called
                                        ▼                 ▼
                                    Journey D         Journey C
                                    (release)         (refund claim)
@@ -134,19 +135,21 @@ No payment, no Turnstile. The wallet is collected as an unverified hint (it only
 
 ## 6. Journey C — Refund claim (we missed the deadline)
 
-The novel, highest-trust, and easiest-to-get-wrong path. **$5 is small, so people will forget to claim** — the system must actively bring them back. The 90-day clock is **per depositor, from their own deposit timestamp** (not a single global deadline).
+The novel, highest-trust, and easiest-to-get-wrong path. **$5 is small, so people will forget to claim** — the system must actively bring them back. The 90-day clock is **a single global deadline**, fixed when the contract was deployed and identical for every depositor. A wallet that deposits on day 85 has 5 days left, not 90 — reminder timing must key off the contract's `refundDeadline()`, never off `depositTime[wallet]`.
 
 ```
-deposit+85d   Reminder email to that depositor (status = early_access_paid):
+deadline-5d   Reminder email to EVERY depositor (status = early_access_paid):
               "We didn't ship in time. Your $5 is claimable. [Claim refund]"
               (This is the #1 reason we collect email for founding users.)
+              Same send date for everyone — it is one deadline, not N clocks.
 
-deposit+90d   90 days since THAT wallet's deposit, release not triggered for it
-              → refund becomes claimable for that wallet.
+deadline      refundDeadline() reached (deploy time + 90 days) and ship() was
+              never called → refunds become claimable for ALL depositors at once.
               Hidden page / app show a "Claim your refund" banner for the connected wallet.
 
 User          Return → Connect wallet → app reads contract:
-              90d since deposit && !released[wallet] && hasDeposited[wallet] && !refunded[wallet]
+              isRefundable(wallet) — i.e. block.timestamp >= refundDeadline()
+              && !shipped && depositTime[wallet] != 0 && !refunded[wallet]
               → show "Claim $5" → claimRefund() tx → $5 returned → status = refunded
 ```
 
@@ -256,7 +259,7 @@ visitor ──(email+onboarding)──► waitlist_free ──(deposit $5, verif
 6. ✅ **Chain + token + amount?** — **Base + USDC, $5** per founding user. (§13)
 7. ✅ **Free vs founding benefits** — founding users get the §13 benefits; free users get notified + earlier-than-public. (§2, §13)
 - ✅ **Bot defense** — custom (honeypot + IP rate-limit + RLS), **no Turnstile**. (BACKEND_PLAN §5)
-- ✅ **Refund window** — **90 days per depositor from deposit timestamp**; refund is depositor-initiated `claimRefund`. (§6, §13)
+- ✅ **Refund window** — **one global 90-day deadline from contract deployment**, shared by all depositors; refund is depositor-initiated `claimRefund`. (§6, §13)
 
 **Still open (escrow journey, before that build):**
 2. ⚠️ **Unclaimed refunds: claimable forever vs eventual sweep?** — recommend forever. (§6)
@@ -281,5 +284,5 @@ visitor ──(email+onboarding)──► waitlist_free ──(deposit $5, verif
 
 **Smart-contract requirements (Base):**
 - *Deposit:* accepts **exactly 5 USDC** per wallet; records depositor wallet + block timestamp; **one deposit per wallet** (rejects duplicates).
-- *Escrow:* funds held in contract; release can be triggered **per wallet** once Panik is live; release transfers that 5 USDC to Panik's treasury wallet.
-- *Refund:* a **90-day window per depositor** starts at their deposit timestamp; if 90 days pass without release being triggered for that depositor, the depositor can call **`claimRefund`** directly to get their 5 USDC back.
+- *Escrow:* funds held in contract; once Panik is live the owner calls `ship()` **once**, sweeping the whole balance to Panik's treasury wallet. (The business-dev doc asked for per-wallet release; the shipped contract deliberately does not have one — there is no `release(address)`.)
+- *Refund:* a **single global 90-day window** starts when the contract is deployed and ends at `refundDeadline()` for everyone at the same instant; if that deadline passes without `ship()`, every depositor can call **`claimRefund`** directly to get their 5 USDC back, with no expiry on that right.
