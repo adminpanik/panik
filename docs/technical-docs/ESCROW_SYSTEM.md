@@ -148,7 +148,7 @@ The frontend React application lives in `src/panik-founding/` and is bundled sep
 
 ### Key Client Components
 1. **`App.tsx`:** The root layout which sets up `WagmiProvider` and `QueryClientProvider`, presenting the founding perks.
-2. **`EscrowStats.tsx`:** Dynamically queries the contract for the total number of unique depositors (`getDepositorCount`) and tracks user-specific details.
+2. **`EscrowStats.tsx`:** Dynamically queries the contract for the total number of unique depositors (`depositorCount()` — there is no `getDepositorCount`) and the global `refundDeadline()`, and tracks user-specific details.
 3. **`DepositFlow.tsx`:**
    - Renders a multi-step user experience: Connect Wallet ➔ Switch Chain (Base/Base Sepolia) ➔ Verify USDC Balance ➔ Approve/Permit USDC ➔ Deposit 5 USDC ➔ Transacting ➔ Confirmed Success.
 4. **`RefundBanner.tsx`:**

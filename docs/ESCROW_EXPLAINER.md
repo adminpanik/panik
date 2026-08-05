@@ -41,7 +41,7 @@ The smart contract's **code is immutable**: once deployed, the rules below canno
 The 90-day countdown starts on a single global date: the moment the contract was deployed. All users share the exact same refund deadline.
 * *Example:* If the contract was deployed on June 19th, the launch target is September 17th. We must ship the app and claim the funds before this date.
 
-### Rule 2: Non-Custodial (We don't hold the money)
+### Rule 2: The contract holds the money (but we can still release it early)
 The deposited funds sit inside the contract address, not in a team wallet. There are exactly two ways money ever leaves it:
 
 1. **Before the deadline**, the owner wallet calls `ship()`, which sends the whole balance to the Treasury. This is a team decision, taken on-chain and publicly visible. The contract has no way to check that the app really launched, and the owner can point the Treasury at a different address (see 3C) before calling. So during this window, users are trusting *us*—the code only makes the decision transparent and irreversible.
@@ -66,6 +66,8 @@ When the app launches, the contract owner triggers the release of all funds:
 1. The team uses the owner wallet to log into a simple admin interface (or directly on the Base block explorer).
 2. You call the `ship()` function.
 3. The contract marks the project as shipped, closes future deposits, and sends the entire USDC balance to our **Treasury**.
+
+`ship()` is one-way and can only be called once, so it refuses to run on an empty escrow (`NothingToShip`). Do not call it "to test" — with a balance, it is final.
 
 ### B. How do users get a refund?
 If we miss the global 90-day deadline, users go back to the hidden link (`/founding` or `/early-access`).
