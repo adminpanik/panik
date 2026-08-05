@@ -10,6 +10,15 @@ coverage/
 # Personal daily logs — not for the shared repo
 Progress/
 
+# AI session transcripts and local editor/agent state
+claude_session_*.md
+.claude/settings.local.json
+
+# Build output at repo root (see `clean` script) + deploy caches + OS noise
+server.js
+.vercel/
+Thumbs.db
+
 # Backtest runtime artifacts (mutable log / local query-id cache / scratch SQL)
 scripts/backtest/data/forward-test-log.jsonl
 scripts/backtest/data/cohort-query-id.json
