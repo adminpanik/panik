@@ -30,7 +30,9 @@
  * is configuration, and it MUST be re-confirmed against the live deployment
  * whenever the topology changes (adding/removing the Vercel rewrite, moving to
  * a custom domain pointed straight at Railway, adding a CDN). Log a request's
- * raw x-forwarded-for once after any such change and count the entries.
+ * raw x-forwarded-for once after any such change and count the entries — and
+ * watch for the "x-forwarded-for has N entries but TRUSTED_PROXY_HOPS=M" error
+ * below, which says the setting is too high for the live topology.
  *
  * TRUSTED_CLIENT_IP_HEADER (optional) names a single-value header that carries
  * the true client address, e.g. `x-vercel-forwarded-for`. It is OFF by default
@@ -67,6 +69,23 @@ let cached: ProxyConfig | null = null;
 /** The process-wide proxy config, parsed once from env. */
 export function proxyConfig(): ProxyConfig {
   return (cached ??= parseProxyConfig(process.env));
+}
+
+let warnedShortChain = false;
+
+/**
+ * Shorter forwarded-for chain than TRUSTED_PROXY_HOPS claims. We clamp to the
+ * left-most entry (availability over strictness — a fail-closed read here would
+ * 503 the whole site on a misconfiguration), but that entry is then
+ * caller-supplied, so the setting is WRONG and must be corrected. Logged once.
+ */
+function warnShortChain(seen: number, expected: number): void {
+  if (warnedShortChain) return;
+  warnedShortChain = true;
+  console.error(
+    `x-forwarded-for has ${seen} entr${seen === 1 ? "y" : "ies"} but TRUSTED_PROXY_HOPS=${expected}: ` +
+      "the client address is being read from a caller-supplied position. Set TRUSTED_PROXY_HOPS to the real hop count.",
+  );
 }
 
 export interface IpRequest {
@@ -129,6 +148,7 @@ export function clientIp(req: IpRequest, config: ProxyConfig = proxyConfig()): s
       const parts = xff.split(",");
       // Trusted proxies append, so count from the RIGHT. Entries a client
       // prepends only push the real one further left, which this survives.
+      if (parts.length < config.hops) warnShortChain(parts.length, config.hops);
       const ip = normalizeIp(parts[Math.max(0, parts.length - config.hops)]);
       if (ip) return ip;
     }

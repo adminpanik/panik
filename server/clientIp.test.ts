@@ -38,6 +38,12 @@ describe("clientIp — proxy hops", () => {
     expect(clientIp(req(headers), HOPS(1))).toBe("76.76.21.21");
   });
 
+  it("clamps to the left-most entry when the chain is shorter than configured", () => {
+    // Availability over strictness: a fail-closed read here would 503 the whole
+    // site on a misconfiguration. The one-off console warning is the signal.
+    expect(clientIp(req({ "x-forwarded-for": "203.0.113.7" }), HOPS(2))).toBe("203.0.113.7");
+  });
+
   it("survives entries the client prepends", () => {
     const headers = { "x-forwarded-for": "1.1.1.1, 2.2.2.2, 203.0.113.7, 76.76.21.21" };
     expect(clientIp(req(headers), HOPS(2))).toBe("203.0.113.7");
