@@ -25,6 +25,16 @@ function randomSuffix(n: number): string {
   return out;
 }
 
+/**
+ * PostgREST error bodies quote the failing SQL and, on an auth failure, the
+ * project ref — they belong in the server log, never in a thrown message that
+ * an unauthenticated route might echo back (e.g. /api/try/redeem).
+ */
+async function logErrorBody(scope: string, res: { status: number; text(): Promise<string> }): Promise<void> {
+  const body = await res.text().catch(() => "");
+  console.error(`${scope}: HTTP ${res.status} ${body.slice(0, 300)}`);
+}
+
 export type RedeemOutcome = "success" | "not_found" | "disabled" | "expired" | "exhausted";
 export interface RedeemResult {
   outcome: RedeemOutcome;
@@ -108,7 +118,10 @@ export class CampaignStore {
       headers: this.headers(),
       body: JSON.stringify(clean),
     });
-    if (!res.ok) throw new Error(`${fn}: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+    if (!res.ok) {
+      await logErrorBody(fn, res);
+      throw new Error(`${fn}: HTTP ${res.status}`);
+    }
     return res.json();
   }
 
@@ -163,7 +176,10 @@ export class CampaignStore {
         }),
       });
       if (res.status === 409) continue; // code collision - regenerate
-      if (!res.ok) throw new Error(`createCampaign: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+      if (!res.ok) {
+        await logErrorBody("createCampaign", res);
+        throw new Error(`createCampaign: HTTP ${res.status}`);
+      }
       const rows = (await res.json()) as Campaign[];
       return rows[0]!;
     }
@@ -182,7 +198,10 @@ export class CampaignStore {
       `${this.base}/rest/v1/trial_grants?select=${encodeURIComponent(select)}&order=created_at.desc`,
       { headers: this.headers() },
     );
-    if (!res.ok) throw new Error(`listGrants: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+    if (!res.ok) {
+      await logErrorBody("listGrants", res);
+      throw new Error(`listGrants: HTTP ${res.status}`);
+    }
     type Row = {
       email: string | null;
       first_opened_at: string | null;

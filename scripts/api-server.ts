@@ -337,6 +337,18 @@ const profileResultLimit = rateLimit({ limit: 40 });      // 3s poll during the 
 const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
 const adminLimit = rateLimit({ limit: 10, maxFailures: 5, lockoutMs: 15 * 60_000 });
 
+/**
+ * 5xx responder for the public (unauthenticated) routes. The real cause goes to
+ * the server log; the caller only learns that it failed. Raw pg/PostgREST
+ * messages must not reach the wire — a Supabase auth failure quotes the project
+ * ref, and provider errors quote our request URLs. 4xx validation messages stay
+ * verbatim: those describe the caller's own input.
+ */
+function serverError(req: express.Request, res: express.Response, status: number, err: unknown): void {
+  console.error(`${req.method} ${req.path} -> ${status}: ${(err as Error).message}`);
+  res.status(status).json({ error: status >= 502 ? "upstream request failed" : "internal server error" });
+}
+
 const BOOT_AT = new Date().toISOString();
 
 app.get("/api/health", (_req, res) => {
@@ -354,23 +366,23 @@ app.get("/api/version", (_req, res) => {
 
 // Watch registry — the UI's wallet selector source (so wallets with no
 // readable positions still get a pill instead of vanishing).
-app.get("/api/wallets", publicLimit, async (_req, res) => {
+app.get("/api/wallets", publicLimit, async (req, res) => {
   try {
     const { rows } = await db.query(
       "select wallet, risk_profile, label from public.watched_wallets where is_active order by created_at",
     );
     res.json({ wallets: rows });
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    serverError(req, res, 500, err);
   }
 });
 
-app.get("/api/scores", publicLimit, async (_req, res) => {
+app.get("/api/scores", publicLimit, async (req, res) => {
   try {
     const { at, positions } = await getScores();
     res.json({ updatedAt: at, positions });
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    serverError(req, res, 500, err);
   }
 });
 
@@ -405,16 +417,16 @@ app.get("/api/positions", publicLimit, async (req, res) => {
     ownPosCache.set(wallet, { at: Date.now(), positions });
     res.json({ updatedAt: Date.now(), positions });
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
-app.get("/api/compass", async (_req, res) => {
+app.get("/api/compass", async (req, res) => {
   try {
     const { at, scores } = await getCompass();
     res.json({ updatedAt: at, scores });
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    serverError(req, res, 500, err);
   }
 });
 
@@ -458,16 +470,16 @@ app.get("/api/history", publicLimit, async (req, res) => {
     walletHistoryCache.set(wallet, { at: Date.now(), body });
     res.json(body);
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
-app.get("/api/poolhistory", async (_req, res) => {
+app.get("/api/poolhistory", async (req, res) => {
   try {
     const { at, pools } = await getPoolYields();
     res.json({ updatedAt: at, pools });
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
@@ -495,7 +507,7 @@ app.get("/api/prospective", async (req, res) => {
     );
     res.json(r);
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    serverError(req, res, 500, err);
   }
 });
 
@@ -577,7 +589,7 @@ app.get("/api/morpho/market", async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
@@ -760,7 +772,7 @@ app.get("/api/advisor", publicLimit, async (req, res) => {
     advisorCache.set(key, { at: Date.now(), report });
     res.json(report);
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
@@ -782,7 +794,7 @@ app.post("/api/profile/start", strictLimit, async (req, res) => {
   try {
     res.json(await startProfileScan(wallet.toLowerCase(), getProfileDeps()));
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
@@ -805,7 +817,7 @@ app.post("/api/profile/result", profileResultLimit, async (req, res) => {
   try {
     res.json(await resolveProfileScan(wallet.toLowerCase(), { executionId, stated }, getProfileDeps()));
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
@@ -830,7 +842,7 @@ app.post("/api/telegram/link", strictLimit, async (req, res) => {
     const botUsername = process.env.VITE_TELEGRAM_BOT_USERNAME as string;
     res.json({ code, botUsername, deepLink: `https://t.me/${botUsername}?start=${code}`, expiresInSec: 900 });
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
@@ -845,7 +857,7 @@ app.get("/api/telegram/status", telegramStatusLimit, async (req, res) => {
     const link = await TelegramStore.fromEnv().getLink(wallet);
     res.json({ linked: Boolean(link?.enabled), username: link?.username ?? null });
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 });
 
@@ -917,7 +929,8 @@ app.post("/api/try/redeem", strictLimit, async (req, res) => {
       res.json({ ok: false, outcome: result.outcome });
     }
   } catch (err) {
-    res.status(502).json({ ok: false, error: (err as Error).message });
+    console.error(`POST /api/try/redeem -> 502: ${(err as Error).message}`);
+    res.status(502).json({ ok: false, error: "redemption failed" });
   }
 });
 
@@ -929,7 +942,8 @@ app.post("/api/try/access", async (req, res) => {
     const result = await CampaignStore.fromEnv().openTrial(token, clientIp(req.headers), userAgent(req.headers));
     res.json({ ok: result.outcome === "active", outcome: result.outcome, expiresAt: result.expiresAt ?? null });
   } catch (err) {
-    res.status(502).json({ ok: false, error: (err as Error).message });
+    console.error(`POST /api/try/access -> 502: ${(err as Error).message}`);
+    res.status(502).json({ ok: false, error: "trial lookup failed" });
   }
 });
 
@@ -963,17 +977,17 @@ async function adminCampaigns(req: express.Request, res: express.Response): Prom
     if (error) { res.status(400).json({ error }); return; }
     res.status(201).json({ campaign: await store.createCampaign(input!) });
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    serverError(req, res, 502, err);
   }
 }
 app.get("/api/admin/campaigns", adminLimit, adminCampaigns);
 app.post("/api/admin/campaigns", adminLimit, adminCampaigns);
 
-app.get("/api/chain", async (_req, res) => {
+app.get("/api/chain", async (req, res) => {
   try {
     res.json(await getChain());
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    serverError(req, res, 500, err);
   }
 });
 
