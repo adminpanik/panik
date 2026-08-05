@@ -98,11 +98,19 @@ export class AaveActiveReader {
         // USD and aToken balances are raw token amounts, so this adapter has no
         // per-asset USD value to rank with; a real fix needs price plumbing
         // (AaveOracle.getAssetsPrices or the Chainlink feeds) that does not
-        // exist here yet. Consequence: near-equal legs can be mis-ranked when
-        // the true BTC/ETH ratio drifts far from 60000/1800 (~33), which picks
-        // the wrong dominant symbol and therefore the wrong scored asset,
-        // `safestAlternativeProtocol`, and ExitFlow prefill. Ordering within a
-        // class (and any clearly dominant leg) is still correct.
+        // exist here yet.
+        //
+        // Consequences, in order of likelihood:
+        //  - ACROSS classes: near-equal legs are mis-ranked once the true
+        //    BTC/ETH ratio drifts far from 60000/1800 (~33).
+        //  - WITHIN the 1_800 class: WETH and wstETH share it, but wstETH is a
+        //    yield-accruing wrapper trading at ~1.15–1.25× WETH, so ordering is
+        //    NOT safe here either — e.g. 100 WETH ranks above 90 wstETH though
+        //    90 wstETH is worth more. Only a leg dominant by a margin wider
+        //    than the class error (~25% within the class, ~1.5x across) is
+        //    reliably picked.
+        // A wrong pick means the wrong scored asset, the wrong
+        // `safestAlternativeProtocol`, and the wrong ExitFlow prefill.
         const scale =
           entry.reserve.symbol === "cbBTC" ? 60_000
           : entry.reserve.symbol === "USDC" ? 1
