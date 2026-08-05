@@ -6,16 +6,22 @@ import { IERC20 } from "./interfaces/IERC20.sol";
 /**
  * @title  PanikEscrow
  * @notice Founding-user escrow for PANIK. Each wallet deposits exactly 5 USDC.
- *         If PANIK ships (team calls `release`), funds go to the treasury.
- *         If 90 days pass from a depositor's own deposit without release,
- *         the depositor can call `claimRefund` to get their 5 USDC back.
+ *         There is ONE global deadline for the whole contract, fixed at
+ *         deployment (`refundDeadline` = deploy time + 90 days) and immutable.
+ *         Before that deadline the owner may call `ship()` once, which sweeps
+ *         the entire USDC balance to `treasury`. After the deadline, `ship()`
+ *         is permanently blocked and every depositor can call `claimRefund()`.
  *
- * @dev    Trust properties:
- *         - Refunds are claimable **forever** (no sweep, no expiry).
- *         - Once the 90-day window passes without release, the team can
- *           NEVER release that depositor's funds — they are forfeited to the user.
- *         - `release()` is per-wallet so early depositors can be released
- *           while later depositors' windows are still open.
+ * @dev    Trust properties — stated precisely, including the limits:
+ *         - The deadline is GLOBAL, not per depositor. A wallet that deposits
+ *           on day 89 gets the same deadline as one that deposited on day 1.
+ *         - `ship()` is an unconditional owner action before the deadline. The
+ *           contract does not and cannot verify that anything was shipped, and
+ *           the owner may call `setTreasury()` first to change the recipient.
+ *           Depositors are trusting the owner's judgement for that window.
+ *         - Once `block.timestamp >= refundDeadline` without `ship()`, the team
+ *           is locked out permanently and the funds belong to the depositors.
+ *         - Refunds are then claimable **forever** — no sweep, no expiry.
  *         - No selfdestruct, no admin withdrawal, no upgrade proxy.
  */
 contract PanikEscrow {
@@ -27,7 +33,7 @@ contract PanikEscrow {
     /// @notice Exactly 5 USDC (6 decimals).
     uint256 public constant DEPOSIT_AMOUNT = 5_000_000;
 
-    /// @notice 90-day refund window.
+    /// @notice Length of the single global refund window, measured from deployment.
     uint256 public constant REFUND_WINDOW = 90 days;
 
     // ───────────────────────── State ─────────────────────────────────────
@@ -38,13 +44,17 @@ contract PanikEscrow {
     /// @notice Where released funds are sent.
     address public treasury;
 
-    /// @notice Global deadline timestamp (deployment time + 90 days).
+    /// @notice The single global deadline timestamp (deployment time + 90 days).
+    /// @dev    No-argument immutable — it is the same value for every depositor.
     uint256 public immutable refundDeadline;
 
     /// @notice Global status flag set by the team when the product launches.
     bool public shipped;
 
     /// @notice Block timestamp of each depositor's deposit (0 = never deposited).
+    /// @dev    Used only as the "has this wallet deposited?" flag and as an
+    ///         audit/record value. It does NOT feed any time math: refund
+    ///         eligibility is decided solely by the global `refundDeadline`.
     mapping(address => uint256) public depositTime;
 
     /// @notice Whether a depositor has been refunded.
@@ -129,8 +139,12 @@ contract PanikEscrow {
     // ───────────────────────── Core: Ship ────────────────────────────────
 
     /**
-     * @notice Ship the product and release all locked escrow funds to treasury. Owner only.
-     * @dev    Reverts if the global 90-day deadline has already passed.
+     * @notice Sweep the entire escrow balance to `treasury`. Owner only, once.
+     * @dev    The only on-chain conditions are: caller is `owner`, not already
+     *         shipped, and `block.timestamp < refundDeadline`. There is NO
+     *         proof-of-shipping check — this is a discretionary owner action,
+     *         and `treasury` can have been changed by `setTreasury()` first.
+     *         Reverts once the global deadline has passed.
      */
     function ship() external onlyOwner {
         if (shipped) revert AlreadyShipped();
@@ -154,9 +168,11 @@ contract PanikEscrow {
     // ───────────────────────── Core: Refund ──────────────────────────────
 
     /**
-     * @notice Claim your 5 USDC refund. Only callable by the depositor after
-     *         the global 90-day deadline has passed, if the project didn't ship.
+     * @notice Claim your 5 USDC refund. Callable by the depositor once the
+     *         single global deadline has passed and `ship()` was never called.
      * @dev    Claimable forever — no sweep, no expiry on the refund right.
+     *         The depositor's own deposit time is irrelevant here; only
+     *         `refundDeadline` gates the claim.
      */
     function claimRefund() external {
         if (shipped) revert AlreadyShipped();
@@ -196,7 +212,8 @@ contract PanikEscrow {
 
     /**
      * @notice Get the deposit status for a wallet.
-     * @return _depositTime   Unix timestamp of deposit (0 = never)
+     * @return _depositTime   Unix timestamp of deposit (0 = never); a record
+     *                        only — the refund clock is global, not per wallet
      * @return _shipped       Whether the product has been shipped globally
      * @return _refunded      Whether the depositor claimed a refund
      */
@@ -221,6 +238,8 @@ contract PanikEscrow {
 
     /**
      * @notice Update the treasury address.
+     * @dev    Takes effect immediately, including for a later `ship()` call.
+     *         The owner can therefore choose the sweep destination at will.
      */
     function setTreasury(address newTreasury) external onlyOwner {
         if (newTreasury == address(0)) revert ZeroAddress();
