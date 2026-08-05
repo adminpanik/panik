@@ -40,7 +40,7 @@ type FlowStep =
   | "deadline-passed";
 
 export function DepositFlow() {
-  const { address, isConnected, chain } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const { connect, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
@@ -106,6 +106,15 @@ export function DepositFlow() {
     ? BigInt(Math.floor(Date.now() / 1000)) >= refundDeadline
     : false;
 
+  // The contract has ONE global refund deadline, not a per-depositor window.
+  const refundDeadlineDate = refundDeadline
+    ? new Date(Number(refundDeadline) * 1000).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
+
   // Read: USDC balance
   const { data: usdcBalance } = useReadContract(
     usdcAddress && address
@@ -138,6 +147,7 @@ export function DepositFlow() {
     data: approveTxHash,
     isPending: isApproving,
     error: approveError,
+    reset: resetApprove,
   } = useWriteContract();
 
   // Write: deposit
@@ -146,17 +156,23 @@ export function DepositFlow() {
     data: depositTxHash,
     isPending: isDepositing,
     error: depositError,
+    reset: resetDeposit,
   } = useWriteContract();
 
-  // Wait for approve tx
-  const { isSuccess: approveConfirmed } = useWaitForTransactionReceipt({
+  // Wait for approve tx. `isSuccess` only means the receipt was fetched — a
+  // reverted tx still resolves, so the on-chain status has to be checked.
+  const { data: approveReceipt } = useWaitForTransactionReceipt({
     hash: approveTxHash,
   });
+  const approveConfirmed = approveReceipt?.status === "success";
+  const approveReverted = approveReceipt?.status === "reverted";
 
   // Wait for deposit tx
-  const { isSuccess: depositConfirmed } = useWaitForTransactionReceipt({
+  const { data: depositReceipt } = useWaitForTransactionReceipt({
     hash: depositTxHash,
   });
+  const depositConfirmed = depositReceipt?.status === "success";
+  const depositReverted = depositReceipt?.status === "reverted";
 
   // Determine flow step based on state
   useEffect(() => {
@@ -180,7 +196,9 @@ export function DepositFlow() {
       setStep("already-paid");
       return;
     }
-    if (chain && chain.id !== targetChainId) {
+    // `chain` is undefined when the wallet sits on a chain missing from the
+    // wagmi config, so guard on `chainId` (which is always reported) instead.
+    if (chainId !== undefined && chainId !== targetChainId) {
       setStep("wrong-chain");
       return;
     }
@@ -188,8 +206,18 @@ export function DepositFlow() {
       setStep("success");
       return;
     }
+    if (depositReverted) {
+      setErrorMsg("Deposit transaction reverted on-chain. Please try again.");
+      setStep("error");
+      return;
+    }
     if (depositTxHash || isDepositing) {
       setStep("pending");
+      return;
+    }
+    if (approveReverted) {
+      setErrorMsg("Approval transaction reverted on-chain. Please try again.");
+      setStep("error");
       return;
     }
     if (approveConfirmed || (usdcAllowance !== undefined && usdcAllowance >= DEPOSIT_AMOUNT)) {
@@ -209,15 +237,17 @@ export function DepositFlow() {
     escrowAddress,
     isConnected,
     hasPaid,
-    chain,
+    chainId,
     targetChainId,
     usdcBalance,
     usdcAllowance,
     approveTxHash,
     approveConfirmed,
+    approveReverted,
     isApproving,
     depositTxHash,
     depositConfirmed,
+    depositReverted,
     isDepositing,
     shipped,
     hasDeadlinePassed,
@@ -274,6 +304,9 @@ export function DepositFlow() {
 
   const handleRetry = () => {
     setErrorMsg("");
+    // Clear the failed tx hashes so the step effect doesn't re-enter "error".
+    resetApprove();
+    resetDeposit();
     setStep("approve");
   };
 
@@ -505,7 +538,9 @@ export function DepositFlow() {
             You're a founding user!
           </h4>
           <p className="text-sm text-white/40 mb-4">
-            Your {DEPOSIT_DISPLAY} USDC is held in escrow. If we don't ship within 90 days, come back to claim your refund.
+            Your {DEPOSIT_DISPLAY} USDC is held in escrow. The escrow has a single
+            global deadline{refundDeadlineDate ? ` of ${refundDeadlineDate}` : ""} —
+            if we haven't shipped by then, come back to claim your refund.
           </p>
           {depositTxHash && (
             <a
