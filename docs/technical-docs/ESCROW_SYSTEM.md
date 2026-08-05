@@ -184,7 +184,13 @@ When ready to publish the founding page to Base Mainnet:
    `USDC_ADDRESS` is ignored on both, so a stale export cannot hardwire the
    immutable `usdc` field to the wrong token.
 
-   The script asserts `owner`, `treasury`, and `usdc` after deployment.
+   After the deployment tx the script asserts, aborting the run on failure:
+   the chain id is 8453 or 84532; `refundDeadline() == block.timestamp + 90 days`;
+   `DEPOSIT_AMOUNT() == 5_000_000`; `!shipped()`; the owner is not the deployer
+   key; and on mainnet, that the owner address has code (i.e. a Safe/multisig,
+   not an EOA). It does **not** re-read `usdc`/`owner`/`treasury` back out —
+   the constructor assigns those unconditionally, so such a check can only
+   fail if the compiler is broken.
 
    *Testnet only:* `scripts/deploy-escrow.mjs` deploys to Base Sepolia using
    `DEPLOYER_PRIVATE_KEY` / `ESCROW_OWNER_ADDRESS` / `ESCROW_TREASURY_ADDRESS`,

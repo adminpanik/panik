@@ -72,11 +72,34 @@ contract DeployPanikEscrow is Script {
 
         vm.stopBroadcast();
 
-        // Post-deploy sanity checks — fail loudly rather than leaving a
-        // misconfigured immutable escrow live on chain.
-        require(address(escrow.usdc()) == usdcAddr, "usdc mismatch");
-        require(escrow.owner() == ownerAddr, "owner mismatch");
-        require(escrow.treasury() == treasuryAddr, "treasury mismatch");
+        // Post-deploy checks. Deliberately NOT re-reading `usdc`/`owner`/
+        // `treasury` back out: the constructor assigns those three locals
+        // unconditionally, so asserting them can only fail if solc is broken.
+        // These are the ones that can actually catch a misconfiguration.
+
+        // We are on a chain whose USDC address this script knows.
+        require(
+            block.chainid == 8453 || block.chainid == 84532,
+            "unsupported chain: only Base (8453) and Base Sepolia (84532)"
+        );
+
+        // The escrow's economics are what the frontend and docs assume.
+        require(
+            escrow.refundDeadline() == block.timestamp + 90 days,
+            "refundDeadline is not deploy time + 90 days"
+        );
+        require(escrow.DEPOSIT_AMOUNT() == 5_000_000, "DEPOSIT_AMOUNT is not 5 USDC");
+        require(!escrow.shipped(), "escrow deployed already shipped");
+
+        // The deployer key is hot; it must never also be the key that can
+        // call ship() and setTreasury().
+        require(ownerAddr != vm.addr(deployerKey), "owner must not be the deployer key");
+
+        // On mainnet the owner controls real money — require a contract
+        // (Safe/multisig), not an EOA.
+        if (block.chainid == 8453) {
+            require(ownerAddr.code.length > 0, "owner must be a multisig");
+        }
 
         console2.log("  Escrow deployed at:", address(escrow));
     }
