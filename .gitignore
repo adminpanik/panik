@@ -12,7 +12,7 @@ Progress/
 
 # AI session transcripts and local editor/agent state
 claude_session_*.md
-.claude/settings.local.json
+.claude/
 
 # Build output at repo root (see `clean` script) + deploy caches + OS noise
 server.js
