@@ -54,6 +54,7 @@ import { sendMessage, setWebhook } from "../server/telegram";
 import { CampaignStore } from "../server/campaignStore";
 import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
+import { LruCache } from "../server/lruCache";
 import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../server/adminCampaigns";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -377,7 +378,10 @@ app.get("/api/scores", publicLimit, async (_req, res) => {
 // scored on demand via the same ActiveAdapter (current Base positions). Lets the
 // dashboard follow the pasted wallet instead of the seeded validation registry.
 // 60s cache per wallet (mirrors the live-loop cadence).
-const ownPosCache = new Map<string, { at: number; positions: LivePosition[] }>();
+// Wallet-keyed caches are LRU-capped: the keys come from the caller, so an
+// unbounded Map would let anyone grow the heap one address at a time.
+const CACHE_MAX_WALLETS = 2_000;
+const ownPosCache = new LruCache<{ at: number; positions: LivePosition[] }>(CACHE_MAX_WALLETS);
 app.get("/api/positions", publicLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   const profile = String(req.query.profile ?? "moderate") as RiskProfile;
@@ -417,7 +421,7 @@ app.get("/api/compass", async (_req, res) => {
 // ── per-wallet history: alert feed + 30d score series (Portfolio tab) ──────
 // watch_transitions IS the alert log (notify_channel records the outcome) and
 // score_snapshots the score/position time series - no new tables needed.
-const walletHistoryCache = new Map<string, { at: number; body: unknown }>();
+const walletHistoryCache = new LruCache<{ at: number; body: unknown }>(CACHE_MAX_WALLETS);
 
 app.get("/api/history", publicLimit, async (req, res) => {
   try {
@@ -589,7 +593,7 @@ const advisorNarrator = process.env.OPENROUTER_API_KEY
   : null;
 
 type AdvisorResponse = AdvisorReport & { changeToken: string };
-const advisorCache = new Map<string, { at: number; report: AdvisorResponse }>();
+const advisorCache = new LruCache<{ at: number; report: AdvisorResponse }>(CACHE_MAX_WALLETS);
 
 function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([
