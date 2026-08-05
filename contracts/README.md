@@ -5,7 +5,7 @@ Founding-user escrow for PANIK. Accepts **exactly 5 USDC** per wallet on **Base*
 ## Trust Properties
 
 - **One global refund deadline** — `refundDeadline` is a no-argument immutable set to `deploy time + 90 days`. It is identical for every depositor; a wallet that deposits on day 89 gets the same deadline as one that deposited on day 1. `depositTime[wallet]` is recorded for auditing but is not used in any time math.
-- **`ship()` is discretionary before the deadline** — it is a one-shot owner-only sweep of the whole USDC balance to `treasury`. The contract cannot verify that anything was actually shipped, and the owner can call `setTreasury()` beforehand to change the destination. For that window, depositors are trusting the team, not the code.
+- **`ship()` is discretionary before the deadline** — it is a one-shot owner-only sweep of the whole USDC balance to `treasury`. The contract cannot verify that anything was actually shipped, and the owner can call `setTreasury()` beforehand to change the destination. For that window, depositors are trusting the team, not the code. It does reject a zero-balance call (`NothingToShip`), so a stray owner transaction cannot brick the escrow by flipping the one-way `shipped` flag with nothing to sweep.
 - **Hard lockout after the deadline** — once `block.timestamp >= refundDeadline`, `ship()` reverts permanently and the funds belong to the depositors.
 - **Refunds claimable forever** — no sweep, no expiry on the refund right.
 - **Deposits close at the deadline too** — `deposit()` reverts once it passes, and after `ship()`.
@@ -20,14 +20,21 @@ Founding-user escrow for PANIK. Accepts **exactly 5 USDC** per wallet on **Base*
    foundryup
    ```
 
-2. Install the test dependencies. `contracts/lib/` is gitignored, so a fresh
-   clone has no `forge-std` — the **tests** need it (the contract in `src/`
-   does not, it compiles against the vendored `src/interfaces/IERC20.sol`):
+2. Check out the dependencies. `forge-std` is a **git submodule** pinned to
+   `v1.16.2` (`contracts/lib/forge-std`), so clone recursively:
 
    ```bash
-   cd contracts
-   forge install foundry-rs/forge-std
+   git clone --recursive <repo-url>
    ```
+
+   Already cloned without `--recursive`? Fetch it:
+
+   ```bash
+   git submodule update --init --recursive
+   ```
+
+   Do **not** run `forge install foundry-rs/forge-std` — untagged, it tracks
+   `master` and silently moves you off the pinned commit.
 
 ## Build
 
@@ -36,8 +43,10 @@ cd contracts
 forge build
 ```
 
-`forge build` works on a fresh clone with no `lib/` present: nothing under
-`src/` imports `forge-std`.
+`forge build` compiles `test/` and `script/` as well as `src/`, and both
+import `forge-std`, so the submodule must be present. (It appears to work
+without one only because `forge` will auto-install the dependency over the
+network — offline or air-gapped CI fails.)
 
 ## Test
 
@@ -45,7 +54,7 @@ forge build
 forge test -vvv
 ```
 
-Requires the `forge install` step above (`test/` and `script/` import `forge-std`).
+Same requirement: the `forge-std` submodule must be checked out.
 
 ## Deploy
 
@@ -79,7 +88,7 @@ Generated from the compiled ABI — every entry below exists on the contract.
 | Function | Access | Description |
 |----------|--------|-------------|
 | `deposit()` | Anyone | Deposit exactly 5 USDC (must approve first). One per wallet |
-| `ship()` | Owner | One-shot sweep of the whole balance to `treasury`. Takes no arguments. Reverts on or after `refundDeadline` |
+| `ship()` | Owner | One-shot sweep of the whole balance to `treasury`. Takes no arguments. Reverts on or after `refundDeadline`, and on a zero balance (`NothingToShip`) |
 | `claimRefund()` | Depositor | Claim your 5 USDC once `refundDeadline` has passed and `ship()` was never called |
 | `transferOwnership(address)` | Owner | Transfer contract ownership |
 | `setTreasury(address)` | Owner | Update the `ship()` destination |
