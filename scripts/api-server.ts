@@ -53,6 +53,7 @@ import { TelegramStore } from "../server/telegramStore";
 import { sendMessage, setWebhook } from "../server/telegram";
 import { CampaignStore } from "../server/campaignStore";
 import { clientIp, userAgent } from "../server/clientIp";
+import { rateLimit } from "../server/rateLimit";
 import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../server/adminCampaigns";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -321,6 +322,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// Per-IP rate limits (in-memory; single Railway container — see server/rateLimit.ts).
+// Budgets are sized against the real client cadences: the profile reveal polls
+// /result every 3s for ~70s and the Telegram card polls /status every 3s.
+const publicLimit = rateLimit({ limit: 120 });            // generous: 60s-cached GETs
+const telegramStatusLimit = rateLimit({ limit: 60 });     // 3s poll during linking
+const profileResultLimit = rateLimit({ limit: 40 });      // 3s poll during the reveal
+const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
+const adminLimit = rateLimit({ limit: 10, maxFailures: 5, lockoutMs: 15 * 60_000 });
+
 const BOOT_AT = new Date().toISOString();
 
 app.get("/api/health", (_req, res) => {
@@ -338,7 +348,7 @@ app.get("/api/version", (_req, res) => {
 
 // Watch registry — the UI's wallet selector source (so wallets with no
 // readable positions still get a pill instead of vanishing).
-app.get("/api/wallets", async (_req, res) => {
+app.get("/api/wallets", publicLimit, async (_req, res) => {
   try {
     const { rows } = await db.query(
       "select wallet, risk_profile, label from public.watched_wallets where is_active order by created_at",
@@ -349,7 +359,7 @@ app.get("/api/wallets", async (_req, res) => {
   }
 });
 
-app.get("/api/scores", async (_req, res) => {
+app.get("/api/scores", publicLimit, async (_req, res) => {
   try {
     const { at, positions } = await getScores();
     res.json({ updatedAt: at, positions });
@@ -363,7 +373,7 @@ app.get("/api/scores", async (_req, res) => {
 // dashboard follow the pasted wallet instead of the seeded validation registry.
 // 60s cache per wallet (mirrors the live-loop cadence).
 const ownPosCache = new Map<string, { at: number; positions: LivePosition[] }>();
-app.get("/api/positions", async (req, res) => {
+app.get("/api/positions", publicLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   const profile = String(req.query.profile ?? "moderate") as RiskProfile;
   if (!isEvmAddress(wallet)) {
@@ -404,7 +414,7 @@ app.get("/api/compass", async (_req, res) => {
 // score_snapshots the score/position time series - no new tables needed.
 const walletHistoryCache = new Map<string, { at: number; body: unknown }>();
 
-app.get("/api/history", async (req, res) => {
+app.get("/api/history", publicLimit, async (req, res) => {
   try {
     const wallet = String(req.query.wallet ?? "").toLowerCase();
     if (!/^0x[0-9a-f]{40}$/.test(wallet)) {
@@ -608,7 +618,7 @@ function advisorYields(pools: Record<string, PoolYield>): YieldTable {
   return table;
 }
 
-app.get("/api/advisor", async (req, res) => {
+app.get("/api/advisor", publicLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   const profileRaw = String(req.query.profile ?? "moderate") as RiskProfile;
   const profile: RiskProfile = ["conservative", "moderate", "aggressive"].includes(profileRaw)
@@ -750,7 +760,7 @@ app.get("/api/advisor", async (req, res) => {
 // entry, then polls /result (with the quiz's stated profile) at the reveal.
 app.use(express.json());
 
-app.post("/api/profile/start", async (req, res) => {
+app.post("/api/profile/start", strictLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? req.body?.wallet ?? "").trim();
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
@@ -767,7 +777,7 @@ app.post("/api/profile/start", async (req, res) => {
   }
 });
 
-app.post("/api/profile/result", async (req, res) => {
+app.post("/api/profile/result", profileResultLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? req.body?.wallet ?? "").trim();
   const executionId: string | undefined = req.body?.executionId ?? (req.query.executionId as string | undefined);
   const stated: StatedProfile | undefined = req.body?.stated;
@@ -791,7 +801,7 @@ app.post("/api/profile/result", async (req, res) => {
 const telegramConfigured = Boolean(
   process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY && process.env.VITE_TELEGRAM_BOT_USERNAME,
 );
-app.post("/api/telegram/link", async (req, res) => {
+app.post("/api/telegram/link", strictLimit, async (req, res) => {
   const wallet = String(req.body?.wallet ?? req.query.wallet ?? "").trim().toLowerCase();
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
@@ -814,7 +824,7 @@ app.post("/api/telegram/link", async (req, res) => {
 // Telegram link status - the browser polls this after Connect to auto-confirm
 // (and on load to show an existing link). Reads via the service key (table is
 // deny-all to the browser); returns only linked + username.
-app.get("/api/telegram/status", async (req, res) => {
+app.get("/api/telegram/status", telegramStatusLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   if (!isEvmAddress(wallet)) { res.status(400).json({ error: "invalid EVM wallet address" }); return; }
   if (!telegramConfigured) { res.status(503).json({ error: "telegram unconfigured" }); return; }
@@ -878,7 +888,7 @@ const campaignsConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPA
 // Mirrors isValidEmail in src/panik-try/lib/trialLogic.ts + trial_grants_email_format.
 const TRY_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-app.post("/api/try/redeem", async (req, res) => {
+app.post("/api/try/redeem", strictLimit, async (req, res) => {
   const body = (req.body ?? {}) as { code?: string; email?: string; honeypot?: string };
   const code = String(body.code ?? "").trim();
   const email = String(body.email ?? "").trim().toLowerCase();
@@ -913,7 +923,11 @@ app.post("/api/try/access", async (req, res) => {
 async function adminCampaigns(req: express.Request, res: express.Response): Promise<void> {
   const auth = checkAdminKey(req.header("x-admin-key") ?? undefined);
   if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return; }
-  if (auth === "forbidden") { res.status(401).json({ error: "unauthorized" }); return; }
+  if (auth === "forbidden") {
+    adminLimit.fail(req); // repeated bad keys lock the IP out (key-guessing brake)
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
   if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
   try {
     const store = CampaignStore.fromEnv();
@@ -939,8 +953,8 @@ async function adminCampaigns(req: express.Request, res: express.Response): Prom
     res.status(502).json({ error: (err as Error).message });
   }
 }
-app.get("/api/admin/campaigns", adminCampaigns);
-app.post("/api/admin/campaigns", adminCampaigns);
+app.get("/api/admin/campaigns", adminLimit, adminCampaigns);
+app.post("/api/admin/campaigns", adminLimit, adminCampaigns);
 
 app.get("/api/chain", async (_req, res) => {
   try {
