@@ -40,7 +40,9 @@ function assetRiskAt(ts: number) {
   const date = new Date(ts).toISOString().slice(0, 10);
   let d = days.indexOf(date); if (d < 0) d = days.length - 1;
   const w90 = wethD.slice(Math.max(0, d - 90), d + 1);
-  return { dailyReturns30d: ret(wethD, Math.max(0, d - 30), d), btcReturns30d: ret(wbtcD, Math.max(0, d - 30), d), maxPrice90d: Math.max(...w90), minPrice90d: Math.min(...w90) };
+  // prices90d (ordered), not the extremes: the extremes route to the
+  // deprecated order-blind fallback and reproduce pre-fix numbers.
+  return { dailyReturns30d: ret(wethD, Math.max(0, d - 30), d), btcReturns30d: ret(wbtcD, Math.max(0, d - 30), d), prices90d: w90 };
 }
 const FLAT = { sectorTvlNow: 1e11, sectorTvl7dAgo: 1e11, protocolTvlNow: 5e9, protocolTvl7dAgo: 5e9 };
 const HOUR = 3_600_000, LT = 0.83;
