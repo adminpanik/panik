@@ -14,21 +14,41 @@ This doc covers setup, the moving parts, and the anti-spam design.
 | Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`) | worker | plain text + emoji pictograms, hyphens only |
 | Worker | `scripts/watch-worker.ts` (`npm run worker`) | standalone | scores, persists transitions, dispatches |
 | Send | `server/telegram.ts` (`sendMessage`) | worker + webhook | Bot API, fetch-only |
-| Link store | `server/telegramStore.ts` | Vercel functions | Supabase REST, no pg/viem |
-| Mint code | `/api/telegram/link` | Railway api-server (`scripts/api-server.ts`) | `api/telegram/link.ts` is the Vercel fallback |
+| Link store | `server/telegramStore.ts` | Railway api-server + Vercel fallbacks | Supabase REST, no pg/viem |
+| Mint code | `/api/telegram/link` | Railway api-server (`scripts/api-server.ts`) | `api/telegram/link.ts` is the Vercel fallback (see below) |
 | Webhook | `/api/telegram/webhook` | Railway api-server | `api/telegram/webhook.ts` is the Vercel fallback; receives `/start <code>` and `/stop` |
-| Register wallet | `register_watched_wallet` RPC | browser (publishable key) | called from onboarding |
-| Schema | `supabase/migrations/20260627000001_telegram_alerts.sql` | Supabase | `telegram_links`, `telegram_link_codes`, the RPC |
+| Ownership proof | `server/walletAuth.ts` + `server/siweProof.ts` | both | SIWE (EIP-4361): domain + action + single-use server nonce |
+| Nonce mint | `/api/auth/nonce` | Railway api-server | `api/auth/nonce.ts` is the Vercel fallback; rows in `auth_nonces` |
+| Register wallet | `POST /api/wallets/register` | Railway api-server | ownership-gated; the browser can no longer call the RPC directly |
+| Schema | `supabase/migrations/20260627000001_telegram_alerts.sql` (+ `20260805000001`, `20260806000001`) | Supabase | `telegram_links`, `telegram_link_codes`, `auth_nonces`, the RPC |
+
+### Which handler actually serves production
+
+The Railway Express server (`scripts/api-server.ts`) does — for **every**
+`/api/*` route. `vercel.json` rewrites `/api/:path*` to Railway, and although
+Vercel applies rewrites only after a filesystem check, `.vercelignore` excludes
+`api/` from the upload, so there is no function to shadow the rewrite. Verified
+against `panik.fi`: `/api/telegram/link`, `/api/telegram/status` and
+`/api/wallets/register` all answer with Railway's `x-railway-request-id` /
+`x-railway-edge` headers, including the two paths that DO have a file in `api/`.
+The `api/` handlers are a deliberate fallback and are kept at parity (method
+guard, rate limit, same ownership check) — a fallback weaker than the primary is
+just a slower way to get breached.
 
 ## Data flow
 
-1. The user onboards (wallet-connect is mandatory). On completion the browser
-   calls `register_watched_wallet(wallet, profile)`, upserting a row into
-   `public.watched_wallets`. The worker now scores that wallet.
-2. In the Settings tab the user clicks **Connect Telegram**. The browser POSTs
-   `/api/telegram/link`, which mints a single-use, 15-minute code in
-   `telegram_link_codes` and returns `t.me/<bot>?start=<code>`. The browser
-   opens it.
+1. The user onboards. Wallet-connect is **not** required to finish onboarding —
+   the wallet address is pasted (`Onboarding.tsx`). On completion the browser
+   calls `POST /api/wallets/register`, which requires a signed ownership proof,
+   so a pasted hardware / cold / Safe / other-browser address cannot be
+   registered. That failure is **surfaced** as a persistent "Alerts inactive"
+   banner with a retry, because an unregistered wallet receives no alerts at
+   all. Only registered wallets are scored by the worker.
+2. In the Settings tab the user clicks **Connect Telegram**. The browser signs a
+   SECOND proof — bound to the `telegram-link` action, so the onboarding
+   signature cannot be reused here — then POSTs `/api/telegram/link`, which
+   mints a single-use, 15-minute code in `telegram_link_codes` and returns
+   `t.me/<bot>?start=<code>`. The browser opens it.
 3. The user presses Start. Telegram POSTs the update to
    `/api/telegram/webhook` (with the secret header). The webhook resolves the
    code to the wallet, upserts `telegram_links(wallet, chat_id)`, deletes the
@@ -37,6 +57,35 @@ This doc covers setup, the moving parts, and the anti-spam design.
    transition it inserts a `watch_transitions` row (`notified_at` NULL). The
    dispatch loop (15s) joins unnotified rows to `telegram_links`, applies the
    send gate, sends, and stamps `notified_at` + `notify_channel`.
+
+## Wallet-ownership proof
+
+`/api/telegram/link` **returns** a deep-link code to whoever calls it, and that
+code redirects a wallet's liquidation alerts to whoever opens it. So the caller
+must prove the wallet is theirs. The proof is SIWE (EIP-4361), built by
+`server/siweProof.ts` (the browser and the verifier call the same function, so
+they cannot drift) and checked by `server/walletAuth.ts`:
+
+1. `GET /api/auth/nonce` mints a row in `public.auth_nonces` (5-minute TTL).
+2. The wallet signs a message carrying that nonce, `Domain:`/`URI:`,
+   `Chain ID: 8453`, and a `Resources:` URN naming ONE action
+   (`urn:panik:action:wallet-register` or `urn:panik:action:telegram-link`).
+3. The server re-derives the canonical message from the parsed fields and
+   requires a byte-exact match, verifies the signature (EOA recovery — no RPC
+   round-trip, so ERC-1271/Safe wallets cannot pass), then **consumes the nonce
+   atomically** (`DELETE ... RETURNING`). A proof is therefore usable exactly
+   once, by one endpoint, from one origin.
+
+Each of those three bindings closes a concrete hole in the previous stateless
+`PANIK wallet ownership / Wallet / Issued` format: the nonce stops a captured
+proof being replayed to mint a *fresh* code for the victim's wallet; the domain
+stops a hostile page soliciting the signature offline; the action stops an
+onboarding signature doubling as an alert-redirect token. Note there is no
+client timestamp in the protocol at all — lifetime is the nonce row's TTL, so a
+skewed OS clock cannot lock a user out (and cannot extend a proof either).
+
+Configure `SIWE_ALLOWED_DOMAINS` in production. Unset, every proof is refused
+(503); it must never silently widen to "any domain".
 
 ## Anti-spam / false-alarm controls
 
@@ -59,7 +108,11 @@ safe-position noise, not the calibrated precision/recall point.
 
 ## Setup
 
-1. Apply the migration in the Supabase SQL Editor (idempotent).
+1. Apply the migrations in the Supabase SQL Editor, **in order**:
+   `20260627000001_telegram_alerts.sql`, then
+   `20260805000001_revoke_anon_wallet_register.sql` (revokes the anon grant the
+   first one hands out), then `20260806000001_auth_nonces.sql` (`auth_nonces`).
+   Re-running the first one alone reopens the anon hole.
 2. Create a bot via **@BotFather**; copy the token. Choose a random
    `TELEGRAM_WEBHOOK_SECRET`. Set the bot username.
    ```
@@ -81,9 +134,11 @@ safe-position noise, not the calibrated precision/recall point.
    - Avoid Render's free tier (background workers sleep).
    Worker env: `TELEGRAM_BOT_TOKEN`, `SUPABASE_DB_URL`,
    `ALCHEMY_API_KEY_BASE_MAINNET`, `COINGECKO_API_KEY`.
-   Vercel env: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
-   `VITE_TELEGRAM_BOT_USERNAME`, plus the existing `SUPABASE_URL` /
-   `SUPABASE_SECRET_KEY`.
+   API env (Railway — this is what serves `/api/*`): `TELEGRAM_BOT_TOKEN`,
+   `TELEGRAM_WEBHOOK_SECRET`, `VITE_TELEGRAM_BOT_USERNAME`, `SUPABASE_URL` /
+   `SUPABASE_SECRET_KEY` (now also required for nonces, i.e. for wallet
+   registration), and **`SIWE_ALLOWED_DOMAINS`** — without it every ownership
+   proof is refused with a 503.
 
 ## Local end-to-end test
 

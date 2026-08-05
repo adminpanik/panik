@@ -1,4 +1,18 @@
 -- ============================================================================
+-- !! SUPERSEDED: see 20260805000001_revoke_anon_wallet_register.sql !!
+--
+-- DO NOT RE-RUN THIS FILE ON ITS OWN. Its final statement,
+--     grant execute on function public.register_watched_wallet(...) to anon
+-- hands the browser's publishable key the power to upsert ANY wallet's
+-- watched_wallets row — rewriting a victim's risk_profile to "aggressive"
+-- lifts their alert threshold from 25 to 75 and silently mutes the liquidation
+-- warnings they signed up for. 20260805000001 revokes exactly that grant, so
+-- replaying this migration afterwards REOPENS the hole. The "idempotent (safe
+-- to re-run)" note below predates that fix and is no longer true in isolation:
+-- if you replay this file, replay 20260805000001 immediately after.
+-- ============================================================================
+
+-- ============================================================================
 -- PANIK - Telegram alerts schema v1 (2026-06-27)
 -- Scope: deliver "near liquidation" alerts to Telegram for the onboarded user's
 --        own wallet. Two new tables + one RPC. Idempotent (safe to re-run).
