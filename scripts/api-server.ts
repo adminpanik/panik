@@ -424,6 +424,15 @@ function riskProfileParam(raw: unknown): RiskProfile {
     : "moderate";
 }
 
+/** ?protocol → a supported Protocol, or null. Same allowlist shape as
+ * riskProfileParam: indexing MARKETS with the raw string lets "__proto__" and
+ * "constructor" return a truthy inherited value that passes the market guard. */
+const SUPPORTED_PROTOCOLS = Object.keys(MARKETS) as Protocol[];
+function protocolParam(raw: unknown): Protocol | null {
+  const value = String(raw ?? "");
+  return SUPPORTED_PROTOCOLS.includes(value as Protocol) ? (value as Protocol) : null;
+}
+
 /**
  * 5xx responder for the public (unauthenticated) routes. The real cause goes to
  * the server log; the caller only learns that it failed. Raw pg/PostgREST
@@ -572,13 +581,13 @@ app.get("/api/poolhistory", publicLimit, async (req, res) => {
 
 app.get("/api/prospective", publicLimit, async (req, res) => {
   try {
-    const protocol = String(req.query.protocol) as Protocol;
-    const collateralSymbol = String(req.query.symbol);
+    const protocol = protocolParam(req.query.protocol);
+    const collateralSymbol = String(req.query.symbol ?? "");
     const collateralValueUsd = Number(req.query.collateralUsd);
     const borrowValueUsd = Number(req.query.borrowUsd);
 
-    if (!MARKETS[protocol]?.[collateralSymbol]) {
-      res.status(400).json({ error: `unknown market ${protocol}/${collateralSymbol}` });
+    if (!protocol || !Object.prototype.hasOwnProperty.call(MARKETS[protocol], collateralSymbol)) {
+      res.status(400).json({ error: `unknown market ${String(req.query.protocol)}/${collateralSymbol}` });
       return;
     }
     if (!Number.isFinite(collateralValueUsd) || !Number.isFinite(borrowValueUsd) ||
@@ -882,7 +891,9 @@ app.post("/api/profile/start", strictLimit, async (req, res) => {
 
 app.post("/api/profile/result", profileResultLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? req.body?.wallet ?? "").trim();
-  const executionId: string | undefined = req.body?.executionId ?? (req.query.executionId as string | undefined);
+  // Query-then-body, matching api/profile/result.ts exactly — two handlers for
+  // one route must not disagree about which value wins.
+  const executionId: string | undefined = (req.query.executionId as string | undefined) ?? req.body?.executionId;
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
