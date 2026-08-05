@@ -6,13 +6,14 @@
  *
  * Required env vars:
  *   DEPLOYER_PRIVATE_KEY   — private key of the deployer wallet (with Base Sepolia ETH for gas)
- *   ESCROW_OWNER_ADDRESS   — owner of the contract (can call release)
+ *   ESCROW_OWNER_ADDRESS   — owner of the contract (can call ship())
  *   ESCROW_TREASURY_ADDRESS — where released funds go
  */
 
 import solc from 'solc';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { createWalletClient, createPublicClient, http, defineChain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
@@ -32,153 +33,51 @@ if (!TREASURY) { console.error('❌ Set ESCROW_TREASURY_ADDRESS in .env'); proce
 // ── Compile the contract ─────────────────────────────────────────────
 console.log('🔨 Compiling PanikEscrow.sol...');
 
-// We use a flattened source that doesn't depend on forge-std imports
-const contractSource = `
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+// Compile the real contracts/src/PanikEscrow.sol — never a copy. A second
+// inlined copy of the source would drift from the file Foundry tests, and the
+// deployed bytecode must come from the audited/tested source.
+const CONTRACTS_SRC = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'contracts',
+  'src',
+);
 
-interface IERC20 {
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-    function transfer(address to, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+const ENTRY = 'PanikEscrow.sol';
+
+/**
+ * Resolve a solc source-unit name to a file under contracts/src.
+ * Relative imports (e.g. `./interfaces/IERC20.sol` from `PanikEscrow.sol`)
+ * are normalised by solc before they reach us, so the unit name is already
+ * a path relative to contracts/src.
+ */
+function readSource(unitName) {
+  const filePath = path.resolve(CONTRACTS_SRC, unitName);
+  if (!filePath.startsWith(CONTRACTS_SRC + path.sep)) {
+    throw new Error(`Refusing to read source outside contracts/src: ${unitName}`);
+  }
+  return fs.readFileSync(filePath, 'utf8');
 }
-
-contract PanikEscrow {
-    IERC20 public immutable usdc;
-    uint256 public constant DEPOSIT_AMOUNT = 5_000_000;
-    uint256 public constant REFUND_WINDOW = 90 days;
-
-    address public owner;
-    address public treasury;
-    uint256 public immutable refundDeadline;
-    bool public shipped;
-
-    mapping(address => uint256) public depositTime;
-    mapping(address => bool) public refunded;
-    uint256 public depositorCount;
-
-    event Deposited(address indexed depositor, uint256 timestamp);
-    event Shipped();
-    event Refunded(address indexed depositor);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
-
-    error NotOwner();
-    error AlreadyDeposited();
-    error NotDeposited();
-    error AlreadyShipped();
-    error AlreadyRefunded();
-    error RefundWindowNotPassed();
-    error RefundWindowPassed();
-    error ZeroAddress();
-    error TransferFailed();
-
-    constructor(address _usdc, address _owner, address _treasury) {
-        if (_usdc == address(0) || _owner == address(0) || _treasury == address(0)) {
-            revert ZeroAddress();
-        }
-        usdc = IERC20(_usdc);
-        owner = _owner;
-        treasury = _treasury;
-        refundDeadline = block.timestamp + REFUND_WINDOW;
-    }
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-
-    function deposit() external {
-        if (shipped) revert AlreadyShipped();
-        if (block.timestamp >= refundDeadline) revert RefundWindowPassed();
-        if (depositTime[msg.sender] != 0) revert AlreadyDeposited();
-
-        bool success = usdc.transferFrom(msg.sender, address(this), DEPOSIT_AMOUNT);
-        if (!success) revert TransferFailed();
-
-        depositTime[msg.sender] = block.timestamp;
-        depositorCount++;
-
-        emit Deposited(msg.sender, block.timestamp);
-    }
-
-    function ship() external onlyOwner {
-        if (shipped) revert AlreadyShipped();
-        if (block.timestamp >= refundDeadline) {
-            revert RefundWindowPassed();
-        }
-        shipped = true;
-
-        uint256 balance = usdc.balanceOf(address(this));
-        if (balance > 0) {
-            bool success = usdc.transfer(treasury, balance);
-            if (!success) revert TransferFailed();
-        }
-
-        emit Shipped();
-    }
-
-    function claimRefund() external {
-        if (shipped) revert AlreadyShipped();
-        if (depositTime[msg.sender] == 0) revert NotDeposited();
-        if (refunded[msg.sender]) revert AlreadyRefunded();
-
-        if (block.timestamp < refundDeadline) {
-            revert RefundWindowNotPassed();
-        }
-
-        refunded[msg.sender] = true;
-
-        bool success = usdc.transfer(msg.sender, DEPOSIT_AMOUNT);
-        if (!success) revert TransferFailed();
-
-        emit Refunded(msg.sender);
-    }
-
-    function hasPaid(address wallet) external view returns (bool) {
-        return depositTime[wallet] != 0;
-    }
-
-    function isRefundable(address wallet) external view returns (bool) {
-        return depositTime[wallet] != 0
-            && !shipped
-            && !refunded[wallet]
-            && block.timestamp >= refundDeadline;
-    }
-
-    function getDepositInfo(address wallet)
-        external view returns (uint256 _depositTime, bool _shipped, bool _refunded)
-    {
-        return (depositTime[wallet], shipped, refunded[wallet]);
-    }
-
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
-    }
-
-    function setTreasury(address newTreasury) external onlyOwner {
-        if (newTreasury == address(0)) revert ZeroAddress();
-        emit TreasuryUpdated(treasury, newTreasury);
-        treasury = newTreasury;
-    }
-}
-`;
 
 const input = {
   language: 'Solidity',
-  sources: { 'PanikEscrow.sol': { content: contractSource } },
+  sources: { [ENTRY]: { content: readSource(ENTRY) } },
   settings: {
     optimizer: { enabled: true, runs: 200 },
     outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
   },
 };
 
-const output = JSON.parse(solc.compile(JSON.stringify(input)));
+// solc calls back for every import it can't find in `sources` above.
+const findImport = (unitName) => {
+  try {
+    return { contents: readSource(unitName) };
+  } catch (err) {
+    return { error: err.message };
+  }
+};
+
+const output = JSON.parse(solc.compile(JSON.stringify(input), { import: findImport }));
 
 if (output.errors) {
   const fatal = output.errors.filter(e => e.severity === 'error');
