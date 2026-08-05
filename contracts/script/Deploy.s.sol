@@ -26,9 +26,11 @@ import { PanikEscrow } from "../src/PanikEscrow.sol";
  *
  *         Environment variables:
  *           PRIVATE_KEY           — deployer wallet private key
- *           USDC_ADDRESS          — USDC token address on the target chain
  *           OWNER_ADDRESS         — initial owner (team EOA or multisig)
  *           TREASURY_ADDRESS      — where released funds go
+ *           USDC_ADDRESS          — ONLY used on chains other than Base (8453)
+ *                                   and Base Sepolia (84532); ignored on those
+ *                                   two, where the chain id decides.
  */
 contract DeployPanikEscrow is Script {
     // Base Mainnet USDC
@@ -41,16 +43,19 @@ contract DeployPanikEscrow is Script {
         address ownerAddr = vm.envAddress("OWNER_ADDRESS");
         address treasuryAddr = vm.envAddress("TREASURY_ADDRESS");
 
-        // Auto-detect USDC address from chain ID, with env override
+        // The chain we are broadcasting to decides the USDC address. USDC_ADDRESS
+        // is only consulted on chains we don't know about — a stale value left in
+        // the shell must never be able to hardwire a mainnet escrow (the `usdc`
+        // field is immutable) to a testnet token address.
         address usdcAddr;
-        try vm.envAddress("USDC_ADDRESS") returns (address envUsdc) {
-            usdcAddr = envUsdc;
-        } catch {
-            if (block.chainid == 8453) {
-                usdcAddr = BASE_MAINNET_USDC;
-            } else if (block.chainid == 84532) {
-                usdcAddr = BASE_SEPOLIA_USDC;
-            } else {
+        if (block.chainid == 8453) {
+            usdcAddr = BASE_MAINNET_USDC;
+        } else if (block.chainid == 84532) {
+            usdcAddr = BASE_SEPOLIA_USDC;
+        } else {
+            try vm.envAddress("USDC_ADDRESS") returns (address envUsdc) {
+                usdcAddr = envUsdc;
+            } catch {
                 revert("Set USDC_ADDRESS env var for this chain");
             }
         }
@@ -66,6 +71,12 @@ contract DeployPanikEscrow is Script {
         PanikEscrow escrow = new PanikEscrow(usdcAddr, ownerAddr, treasuryAddr);
 
         vm.stopBroadcast();
+
+        // Post-deploy sanity checks — fail loudly rather than leaving a
+        // misconfigured immutable escrow live on chain.
+        require(address(escrow.usdc()) == usdcAddr, "usdc mismatch");
+        require(escrow.owner() == ownerAddr, "owner mismatch");
+        require(escrow.treasury() == treasuryAddr, "treasury mismatch");
 
         console2.log("  Escrow deployed at:", address(escrow));
     }
