@@ -1,5 +1,10 @@
 /**
- * Compile and deploy PanikEscrow to Base Sepolia.
+ * Compile and deploy PanikEscrow to Base Sepolia. **Testnet only** — this
+ * script refuses to run against any other chain. For Base Mainnet use the
+ * Foundry script, which picks USDC from the chain id:
+ *
+ *   cd contracts
+ *   forge script script/Deploy.s.sol:DeployPanikEscrow --rpc-url base --broadcast --verify -vvvv
  *
  * Usage:
  *   node --env-file=.env scripts/deploy-escrow.mjs
@@ -14,9 +19,24 @@ import solc from 'solc';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createWalletClient, createPublicClient, http, defineChain } from 'viem';
+import { createWalletClient, createPublicClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
+
+// ── Chain guard ──────────────────────────────────────────────────────
+// The USDC address below and every explorer link in this file are Base
+// Sepolia, and `usdc` is immutable on the escrow — running this against
+// mainnet would permanently hardwire a mainnet escrow to a testnet token.
+// Assert the chain instead of trusting whoever edits the import above.
+const CHAIN = baseSepolia;
+const BASE_SEPOLIA_CHAIN_ID = 84532;
+
+if (CHAIN.id !== BASE_SEPOLIA_CHAIN_ID) {
+  throw new Error(
+    `deploy-escrow.mjs is Base Sepolia only (chain id ${BASE_SEPOLIA_CHAIN_ID}), got ${CHAIN.id}. ` +
+      'For Base Mainnet use: cd contracts && forge script script/Deploy.s.sol:DeployPanikEscrow --rpc-url base --broadcast --verify'
+  );
+}
 
 // ── Base Sepolia USDC (Circle-issued test USDC) ──────────────────────
 const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
@@ -116,15 +136,25 @@ const account = privateKeyToAccount(PRIVATE_KEY.startsWith('0x') ? PRIVATE_KEY :
 console.log(`   Deployer: ${account.address}`);
 
 const publicClient = createPublicClient({
-  chain: baseSepolia,
+  chain: CHAIN,
   transport: http(),
 });
 
 const walletClient = createWalletClient({
   account,
-  chain: baseSepolia,
+  chain: CHAIN,
   transport: http(),
 });
+
+// The RPC gets the same treatment as the config: confirm what we are actually
+// talking to before a key signs anything.
+const liveChainId = await publicClient.getChainId();
+if (liveChainId !== BASE_SEPOLIA_CHAIN_ID) {
+  console.error(
+    `❌ RPC reports chain id ${liveChainId}, expected ${BASE_SEPOLIA_CHAIN_ID} (Base Sepolia). Refusing to deploy.`
+  );
+  process.exit(1);
+}
 
 // Check deployer balance
 const balance = await publicClient.getBalance({ address: account.address });

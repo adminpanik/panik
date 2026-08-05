@@ -158,31 +158,37 @@ The frontend React application lives in `src/panik-founding/` and is bundled sep
 
 When ready to publish the founding page to Base Mainnet:
 
-1. **Deploy the Mainnet Contract:**
-   Set the following variables in your `.env` or deployment terminal:
-   ```env
-   DEPLOYER_PRIVATE_KEY=<your-mainnet-deployer-private-key>
-   ESCROW_OWNER_ADDRESS=<your-multisig-or-safe-address>
-   ESCROW_TREASURY_ADDRESS=<your-treasury-or-multisig-address>
-   ```
-   Deploy using the migration script:
-   ```bash
-   node --env-file=.env scripts/deploy-escrow.mjs
-   ```
-   *Note:* `scripts/deploy-escrow.mjs` compiles `contracts/src/PanikEscrow.sol`
-   directly — there is no second copy of the source, so what Foundry tests is
-   what gets deployed. The script targets Base Sepolia; for Base Mainnet
-   (official USDC `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) use the Foundry
-   script, where the **chain id** selects the USDC address:
+> ⚠️ **Do not use `scripts/deploy-escrow.mjs` for mainnet.** It is Base Sepolia
+> only and now throws if pointed anywhere else. Mainnet deploys go through the
+> Foundry script below.
 
+1. **Deploy the Mainnet Contract (Foundry):**
+   Set the following variables in your `.env` or deployment terminal — note the
+   names differ from the testnet script's:
+   ```env
+   PRIVATE_KEY=<your-mainnet-deployer-private-key>
+   OWNER_ADDRESS=<your-multisig-or-safe-address>
+   TREASURY_ADDRESS=<your-treasury-or-multisig-address>
+   ```
+   Deploy:
    ```bash
    cd contracts
    forge script script/Deploy.s.sol:DeployPanikEscrow --rpc-url base --broadcast --verify -vvvv
    ```
 
-   `USDC_ADDRESS` is ignored on chain ids 8453 and 84532, so a stale export
-   cannot hardwire the immutable `usdc` field to the wrong token. The script
-   asserts `owner`, `treasury`, and `usdc` after deployment.
+   The **chain id** selects USDC: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+   on Base Mainnet (8453), the Circle test token on Base Sepolia (84532).
+   `USDC_ADDRESS` is ignored on both, so a stale export cannot hardwire the
+   immutable `usdc` field to the wrong token.
+
+   The script asserts `owner`, `treasury`, and `usdc` after deployment.
+
+   *Testnet only:* `scripts/deploy-escrow.mjs` deploys to Base Sepolia using
+   `DEPLOYER_PRIVATE_KEY` / `ESCROW_OWNER_ADDRESS` / `ESCROW_TREASURY_ADDRESS`,
+   and throws if pointed at any chain other than 84532:
+   ```bash
+   node --env-file=.env scripts/deploy-escrow.mjs
+   ```
 
 2. **Update Environment Variables:**
    Set the following on Vercel and in your production `.env`:
