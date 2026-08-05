@@ -341,6 +341,19 @@ export async function verifyOpenTargets(
     if (underlying.toLowerCase() !== OPEN_TOKENS[input.collateralSymbol]!.address.toLowerCase()) {
       throw new Error("Moonwell mToken underlying mismatch - aborting");
     }
+    // The borrow leg targets a DIFFERENT mToken than the collateral leg. The
+    // UI borrows "USDC" and scales by USDC's decimals, so an mToken whose
+    // underlying is anything else would borrow the wrong asset and amount.
+    const mUsdc = MOONWELL_MTOKENS.USDC;
+    if (!mUsdc) throw new Error("no verified Moonwell USDC market");
+    const borrowUnderlying = (await client.readContract({
+      address: mUsdc,
+      abi: OPEN_MTOKEN_ABI,
+      functionName: "underlying",
+    })) as string;
+    if (borrowUnderlying.toLowerCase() !== OPEN_TOKENS.USDC!.address.toLowerCase()) {
+      throw new Error("Moonwell USDC mToken underlying mismatch - aborting");
+    }
   }
   if (input.protocol === "morpho") {
     const mp = input.morphoMarket;
