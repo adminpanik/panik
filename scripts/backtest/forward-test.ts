@@ -7,8 +7,9 @@
  * log captures band transitions; when a watched wallet is later liquidated, the
  * log yields the *realized* lead time — forward validation, no replay needed.
  *
- * Run once (e.g. on a 60s cron):  npx tsx scripts/backtest/forward-test.ts
+ * Run once (e.g. on a 60s cron):  node --env-file=.env --import tsx scripts/backtest/forward-test.ts
  * The scoring API must be up:      npm run dev:api
+ * Needs ADMIN_ACCESS_KEY: /api/scores is admin-gated (whole-registry dump).
  */
 import { appendFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -33,9 +34,17 @@ function lastBands(): Map<string, string> {
 }
 
 (async () => {
-  const r = await fetch(`${API}/api/scores`, { signal: AbortSignal.timeout(60_000) }).catch((e) => {
+  // /api/scores is admin-gated (it dumps the whole watch registry — the
+  // enumeration list an attacker would need). Same header the ops console sends.
+  const adminKey = process.env.ADMIN_ACCESS_KEY;
+  if (!adminKey) throw new Error("ADMIN_ACCESS_KEY missing — /api/scores is admin-gated (run with --env-file=.env)");
+  const r = await fetch(`${API}/api/scores`, {
+    headers: { "X-Admin-Key": adminKey },
+    signal: AbortSignal.timeout(60_000),
+  }).catch((e) => {
     throw new Error(`scoring API unreachable at ${API} (is 'npm run dev:api' running?) — ${e.message}`);
   });
+  if (r.status === 401) throw new Error("/api/scores → HTTP 401 (ADMIN_ACCESS_KEY does not match the server's)");
   if (!r.ok) throw new Error(`/api/scores → HTTP ${r.status}`);
   const { positions } = (await r.json()) as { positions: any[] };
   const ts = new Date().toISOString();
