@@ -1,14 +1,19 @@
 /**
- * Tiny in-memory per-IP rate limiter for the Express API. No dependency: the
- * API runs as a SINGLE Railway container, so a process-local sliding window IS
- * the whole picture (a shared store only matters once we scale horizontally).
+ * Tiny in-memory per-key rate limiter. No dependency: the Express API runs as a
+ * SINGLE Railway container, so a process-local sliding window IS the whole
+ * picture (a shared store only matters once we scale horizontally).
  *
  * Keyed on clientIp() — the right-most X-Forwarded-For hop, i.e. the one the
  * proxy appended and a client cannot forge. The key map is hard-capped so a
  * spray of unique source IPs can't grow it without bound.
  *
- * Used by scripts/api-server.ts; the Vercel functions are rate-limited by the
- * platform instead (each invocation is its own isolate, so this wouldn't hold).
+ * Two faces on one core:
+ *   - rateLimit()      Express middleware (scripts/api-server.ts, production).
+ *   - keyedRateLimit() transport-agnostic, for the api/ serverless fallbacks.
+ *     There each invocation may be its own isolate, so the window only holds
+ *     for a warm container — a brake on the obvious burst, NOT a guarantee.
+ *     It is still worth having: without it those handlers had no ceiling at all
+ *     while their Express twins were capped at 10/min.
  */
 
 import type { NextFunction, Request, Response } from "express";
@@ -37,26 +42,31 @@ export interface RateLimitOptions {
   lockoutMs?: number;
 }
 
+/** Outcome of one `hit`. `retryAfterSec` is only meaningful when blocked. */
+export interface RateLimitDecision {
+  ok: boolean;
+  retryAfterSec: number;
+}
+
+export interface KeyedRateLimiter {
+  /** Record + judge one request for `key`. */
+  hit(key: string): RateLimitDecision;
+  /** Record a failed auth for `key` (drives the lockout). */
+  fail(key: string): void;
+}
+
 export interface RateLimiter {
   (req: Request, res: Response, next: NextFunction): void;
   /** Record a failed auth for this request's key (drives the lockout). */
   fail(req: Request): void;
 }
 
-function reject(res: Response, retryMs: number): void {
-  const retryAfterSec = Math.max(1, Math.ceil(retryMs / 1000));
-  res.setHeader("Retry-After", String(retryAfterSec));
-  res.status(429).json({ error: "rate limit exceeded", retryAfterSec });
-}
-
-/** Express middleware enforcing `limit` requests per `windowMs` per client IP. */
-export function rateLimit(opts: RateLimitOptions): RateLimiter {
+/** Transport-agnostic sliding window. Callers supply their own key. */
+export function keyedRateLimit(opts: RateLimitOptions): KeyedRateLimiter {
   const windowMs = opts.windowMs ?? 60_000;
   const maxFailures = opts.maxFailures ?? 0;
   const lockoutMs = opts.lockoutMs ?? 15 * 60_000;
   const entries = new Map<string, Entry>();
-
-  const keyOf = (req: Request): string => clientIp(req.headers) ?? "unknown";
 
   /** Drop entries with no live hits and no active lockout; then oldest-first. */
   const evict = (now: number): void => {
@@ -81,32 +91,49 @@ export function rateLimit(opts: RateLimitOptions): RateLimiter {
     return fresh;
   };
 
+  const retryAfter = (retryMs: number): number => Math.max(1, Math.ceil(retryMs / 1000));
+
+  return {
+    hit(key: string): RateLimitDecision {
+      const now = Date.now();
+      const entry = entryOf(key, now);
+      if (entry.lockedUntil > now) return { ok: false, retryAfterSec: retryAfter(entry.lockedUntil - now) };
+      while (entry.hits.length && now - entry.hits[0]! >= windowMs) entry.hits.shift();
+      if (entry.hits.length >= opts.limit) {
+        return { ok: false, retryAfterSec: retryAfter(windowMs - (now - entry.hits[0]!)) };
+      }
+      entry.hits.push(now);
+      return { ok: true, retryAfterSec: 0 };
+    },
+    fail(key: string): void {
+      if (maxFailures <= 0) return;
+      const now = Date.now();
+      const entry = entryOf(key, now);
+      entry.failures += 1;
+      if (entry.failures >= maxFailures) {
+        entry.failures = 0;
+        entry.lockedUntil = now + lockoutMs;
+      }
+    },
+  };
+}
+
+/** Express middleware enforcing `limit` requests per `windowMs` per client IP. */
+export function rateLimit(opts: RateLimitOptions): RateLimiter {
+  const core = keyedRateLimit(opts);
+  const keyOf = (req: Request): string => clientIp(req.headers) ?? "unknown";
+
   const middleware = (req: Request, res: Response, next: NextFunction): void => {
-    const now = Date.now();
-    const entry = entryOf(keyOf(req), now);
-    if (entry.lockedUntil > now) {
-      reject(res, entry.lockedUntil - now);
+    const decision = core.hit(keyOf(req));
+    if (!decision.ok) {
+      res.setHeader("Retry-After", String(decision.retryAfterSec));
+      res.status(429).json({ error: "rate limit exceeded", retryAfterSec: decision.retryAfterSec });
       return;
     }
-    while (entry.hits.length && now - entry.hits[0]! >= windowMs) entry.hits.shift();
-    if (entry.hits.length >= opts.limit) {
-      reject(res, windowMs - (now - entry.hits[0]!));
-      return;
-    }
-    entry.hits.push(now);
     next();
   };
 
-  middleware.fail = (req: Request): void => {
-    if (maxFailures <= 0) return;
-    const now = Date.now();
-    const entry = entryOf(keyOf(req), now);
-    entry.failures += 1;
-    if (entry.failures >= maxFailures) {
-      entry.failures = 0;
-      entry.lockedUntil = now + lockoutMs;
-    }
-  };
+  middleware.fail = (req: Request): void => core.fail(keyOf(req));
 
   return middleware;
 }
