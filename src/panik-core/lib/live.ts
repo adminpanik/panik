@@ -84,7 +84,14 @@ function usePolled<T>(url: string, intervalMs: number): { data: T | null; offlin
   return { data, offline };
 }
 
-/** Live wallet positions from the watch registry (60s — arch cadence). */
+/**
+ * Live wallet positions for the WHOLE watch registry (60s — arch cadence).
+ * ADMIN-GATED server-side: /api/scores now requires x-admin-key, because the
+ * whole-registry view is an enumeration list of other people's wallets. The
+ * browser sends no key, so this resolves `offline` and the ops view degrades to
+ * its empty state. An onboarded user's own positions come from
+ * useWalletPositions (/api/positions), which stays open.
+ */
 export function useLiveScores() {
   const { data, offline } = usePolled<{ updatedAt: number; positions: LiveWalletPosition[] }>(
     "/api/scores",
@@ -218,7 +225,10 @@ export interface RegistryWallet {
   label: string | null;
 }
 
-/** The watch registry — selector source, independent of scoreability. */
+/**
+ * The watch registry — ops selector source, independent of scoreability.
+ * ADMIN-GATED server-side (see useLiveScores): returns null for the browser.
+ */
 export function useWalletRegistry() {
   const { data } = usePolled<{ wallets: RegistryWallet[] }>("/api/wallets", 60_000);
   return data?.wallets ?? null;

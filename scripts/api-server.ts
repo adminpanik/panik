@@ -383,9 +383,28 @@ app.get("/api/version", (_req, res) => {
   });
 });
 
-// Watch registry — the UI's wallet selector source (so wallets with no
-// readable positions still get a pill instead of vanishing).
-app.get("/api/wallets", publicLimit, async (req, res) => {
+/**
+ * Admin gate for the whole-registry routes. Unauthenticated, these dumped every
+ * watched wallet (address + risk profile + operator label) — the enumeration
+ * list an attacker needs to target other users, and a de-facto customer roster.
+ * Only the ops/demo view consumes them; a user's OWN data comes from the
+ * per-wallet routes (/api/positions, /api/history), which stay open.
+ */
+function requireAdmin(req: express.Request, res: express.Response): boolean {
+  const auth = checkAdminKey(req.header("x-admin-key") ?? undefined);
+  if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return false; }
+  if (auth === "forbidden") {
+    adminLimit.fail(req); // repeated bad keys lock the IP out (key-guessing brake)
+    res.status(401).json({ error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+// Watch registry — the ops wallet selector source (so wallets with no readable
+// positions still get a pill instead of vanishing). `label` never leaves here.
+app.get("/api/wallets", adminLimit, async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const { rows } = await db.query(
       "select wallet, risk_profile, label from public.watched_wallets where is_active order by created_at",
@@ -396,7 +415,8 @@ app.get("/api/wallets", publicLimit, async (req, res) => {
   }
 });
 
-app.get("/api/scores", publicLimit, async (req, res) => {
+app.get("/api/scores", adminLimit, async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const { at, positions } = await getScores();
     res.json({ updatedAt: at, positions });
@@ -972,13 +992,7 @@ app.post("/api/try/access", strictLimit, async (req, res) => {
 });
 
 async function adminCampaigns(req: express.Request, res: express.Response): Promise<void> {
-  const auth = checkAdminKey(req.header("x-admin-key") ?? undefined);
-  if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return; }
-  if (auth === "forbidden") {
-    adminLimit.fail(req); // repeated bad keys lock the IP out (key-guessing brake)
-    res.status(401).json({ error: "unauthorized" });
-    return;
-  }
+  if (!requireAdmin(req, res)) return;
   if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
   try {
     const store = CampaignStore.fromEnv();
