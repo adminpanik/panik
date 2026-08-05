@@ -45,10 +45,51 @@ HIGH had fired ~57h out: the "exit now" escalation lagged ~35h behind danger the
 fires in calm markets or stablecoin depegs (where asset risk stays ~0 and the HF floor
 already handles things). Never lowers a score.
 
-**Both gates are measured, not fitted.** The asset-risk gate: S_asset_risk on WETH was ~44–45
-in the calm Apr/early-May market and ~66–83 once the June crash began — a clean regime gap, so
-60 sits in the middle (`scripts/backtest/diagnose-assetrisk.ts`). The HF gate (1.25) was chosen
-by the survivor matrix below, not picked.
+**Both gates are measured, not fitted.** The asset-risk gate: S_asset_risk on WETH sits well
+below 60 in the calm Apr/early-May market and at ~66–83 once the June crash began — a clean
+regime gap, so 60 sits in the middle (`scripts/backtest/diagnose-assetrisk.ts`). The HF gate
+(1.25) was chosen by the survivor matrix below, not picked.
+
+### Re-measured 2026-08-06 — true max drawdown
+
+The drawdown term (35% of `S_asset_risk`) changed from the order-blind `(max − min) / max` to a
+true peak-to-trough max drawdown over the ordered 90-day series. The new metric is ≤ the old one
+for **every** input, so every composite score is monotonically non-increasing — a systematic
+desensitisation that had to be re-measured rather than assumed harmless. All five backtest
+scripts were still passing `maxPrice90d`/`minPrice90d`, which routes to the deprecated fallback
+that is byte-identical to the old formula, so re-running them would have "confirmed" a
+calibration the engine no longer uses. They now pass `prices90d`, like the production provider.
+
+Measured on the repo's own `ethCrash2022` fixture (WETH daily, Mar 12 – Jun 19 2022):
+
+| Window | Old (extremes) | New (ordered series) |
+| --- | --- | --- |
+| Calm Apr 1 – May 5 2022 | 39.0–46.7 | **29.8–42.8** |
+| UST/LUNA window May 8–16 | 46.4–57.7 | 46.0–57.7 |
+| June crash Jun 4–19 | 66.4–82.7 | **66.4–82.7** (unchanged) |
+| Highest pre-crash reading | 58.08 (May 19) | 58.08 (unchanged) |
+| Lowest crash reading | 66.40 (Jun 9) | 66.40 (unchanged) |
+| Days crossing the 60 gate downward | — | **0 of 100** |
+
+**Effect on the 60 gate: none, and the margin improved.** The two formulas coincide *exactly*
+whenever the 90-day peak precedes the 90-day trough — i.e. whenever the market is in the
+sustained decline the gate exists to detect (verified day-by-day across the fixture; the only
+divergence from that rule is a single boundary tie). The shift is therefore confined to calm and
+mixed regimes: the calm-side margin to the gate widens from 13.3pt to 17.2pt while the crash side
+is bit-identical. **The gate was NOT retuned** — retuning it to preserve the old prose would be
+fitting the parameter to the doc rather than to the data.
+
+Aug-2024 price-walk recall and lead times are **bit-identical** before and after on all three
+local cohorts (Compound 117/117, median lead 18h; Moonwell 564/564, 33h; Morpho 192/192, 12h) —
+that window is a decline from an early peak, so the two drawdowns agree.
+
+**Not verifiable offline:** the FTX (Nov 2022) and UST (May 2022) rows of the multi-event table
+below are driven by the Dune daily WETH/WBTC series (query 7739633), which needs `DUNE_API_KEY`;
+`survivor-matrix-real.ts`, `survivor-matrix-base.ts` and `verify-assetrisk-multi.ts` were
+migrated to `prices90d` but **could not be re-run here**. The FTX window is a decline from a
+mid-August peak to a 9–10 November trough, so by the rule above its readings should be unchanged
+— but that is a mechanism argument, not a measurement. **Re-run those three scripts with a Dune
+key before treating the 54–65 FTX band and the pooled 89% recall as re-confirmed.**
 
 ## Before → after (same 19 positions)
 
@@ -131,6 +172,14 @@ CRITICAL before exit. Precision below is **exact** (full population, not extrapo
 | FTX (Nov 2022) | 54–65 (partial) | 41% | **53%** | 27% |
 | UST/LUNA (May 2022) | 46–57 (**gate never fires**) | 94% | **94%** (no change) | 20% |
 | **Pooled (full pop, exact)** | — | 65% | **89%** | 27% (precision 35%) |
+
+> ⚠️ **These figures predate the true-max-drawdown change and have NOT been re-measured.** The
+> script was still routing through the deprecated order-blind fallback; it now passes `prices90d`,
+> but re-running it needs `DUNE_API_KEY` (see "Re-measured 2026-08-06" above). The UST row is
+> reproducible from the local `ethCrash2022` fixture and moves ≤ 0.4pt (46.4–57.7 → 46.0–57.7,
+> gate still never fires). The **FTX 54–65 band and the pooled 89% recall are the ones at risk**:
+> a 5–9pt downward shift on the sub-60 half of that band could turn "partial" into "never fires".
+> Re-run before quoting.
 
 **Finding 1 — the crash-regime helps on ETH-led crashes and never hurts.** It fires when
 `S_asset_risk ≥ 60`, which held for June (fully) and FTX (partly), lifting recall 49→89% and
