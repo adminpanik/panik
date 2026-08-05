@@ -75,7 +75,9 @@ const adapter = new ActiveAdapter(
   [
     new AaveActiveReader(chain),
     new MoonwellActiveReader(chain),
-    new CompoundActiveReader(chain),
+    new CompoundActiveReader(chain, undefined, {
+      onWarn: (m) => console.warn(`compound reader degraded: ${m}`),
+    }),
     new MorphoActiveReader(),
   ],
   providers,
@@ -155,14 +157,19 @@ async function maybeSnapshot(s: ActiveScore): Promise<void> {
   const heartbeatDue = Date.now() - lastAt >= SNAPSHOT_HEARTBEAT_MS;
   if (!changed && !heartbeatDue) return;
 
+  // Degraded legs have null USD, so LTV comes from the engine's own ratio
+  // (denomination-free) rather than from dividing two unknowns.
   const ltv =
-    s.collateralValueUsd > 0 ? s.borrowValueUsd / s.collateralValueUsd : null;
+    s.collateralValueUsd !== null && s.borrowValueUsd !== null && s.collateralValueUsd > 0
+      ? s.borrowValueUsd / s.collateralValueUsd
+      : null;
   try {
     await db.query(
       `insert into public.score_snapshots
          (wallet, protocol, total, band, sub_scores, health_factor, current_ltv,
-          collateral_usd, borrow_usd, collateral_symbol, asset_risk_is_proxy)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          collateral_usd, borrow_usd, collateral_symbol, asset_risk_is_proxy,
+          usd_values_unavailable)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         s.wallet.toLowerCase(),
         s.protocol,
@@ -175,6 +182,7 @@ async function maybeSnapshot(s: ActiveScore): Promise<void> {
         s.borrowValueUsd,
         s.scoredCollateralSymbol,
         s.assetRiskIsProxy,
+        s.usdValuesUnavailable,
       ],
     );
     lastSnapshotAt.set(k, Date.now());
@@ -239,6 +247,7 @@ interface PendingRow {
   health_factor: string | null;
   collateral_usd: string | null;
   borrow_usd: string | null;
+  usd_values_unavailable: boolean | null;
 }
 
 async function stamp(id: string, channel: string): Promise<void> {
@@ -258,11 +267,11 @@ async function dispatchPending(): Promise<void> {
   const { rows } = await db.query<PendingRow>(
     `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band, t.to_status,
             t.created_at, l.chat_id,
-            s.health_factor, s.collateral_usd, s.borrow_usd
+            s.health_factor, s.collateral_usd, s.borrow_usd, s.usd_values_unavailable
        from public.watch_transitions t
        join public.telegram_links l on l.wallet = t.wallet and l.enabled
        left join lateral (
-         select health_factor, collateral_usd, borrow_usd
+         select health_factor, collateral_usd, borrow_usd, usd_values_unavailable
            from public.score_snapshots s
           where s.wallet = t.wallet and s.protocol = t.protocol
           order by created_at desc limit 1
@@ -286,6 +295,8 @@ async function dispatchPending(): Promise<void> {
       createdAt: new Date(r.created_at).getTime(),
       healthFactor: r.health_factor == null ? null : Number(r.health_factor),
       borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
+      // Degraded USD means the dust gate is UNEVALUABLE, not failed — waive it.
+      usdValuesUnavailable: r.usd_values_unavailable === true,
       prior: priorRow
         ? { toStatus: priorRow.to_status, createdAt: new Date(priorRow.created_at).getTime() }
         : null,

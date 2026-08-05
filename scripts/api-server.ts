@@ -88,7 +88,9 @@ const adapter = new ActiveAdapter(
   [
     new AaveActiveReader(chain),
     new MoonwellActiveReader(chain),
-    new CompoundActiveReader(chain),
+    new CompoundActiveReader(chain, undefined, {
+      onWarn: (m) => console.warn(`compound reader degraded: ${m}`),
+    }),
     new MorphoActiveReader(), // official Morpho API (market discovery needs an index)
   ],
   providers,

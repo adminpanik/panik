@@ -579,11 +579,17 @@ export function AppDemo() {
   // Portfolio macro metrics from the SELECTED wallet's live positions
   const liveMacro = useMemo(() => {
     if (!portfolioPositions || portfolioPositions.length === 0) return null;
-    const capital = portfolioPositions.reduce((a, p) => a + p.collateralValueUsd, 0);
-    const debt = portfolioPositions.reduce((a, p) => a + p.borrowValueUsd, 0);
+    // Legs whose USD values are unavailable (degraded price feed) carry no
+    // dollar weight here — their scores and health factors are still exact, so
+    // `pricesDegraded` marks the totals as an UNDERSTATEMENT rather than truth.
+    const usd = (v: number | null) => (v === null || !Number.isFinite(v) ? 0 : v);
+    const capital = portfolioPositions.reduce((a, p) => a + usd(p.collateralValueUsd), 0);
+    const debt = portfolioPositions.reduce((a, p) => a + usd(p.borrowValueUsd), 0);
     const aggregate =
       capital > 0
-        ? Math.round(portfolioPositions.reduce((a, p) => a + p.total * p.collateralValueUsd, 0) / capital)
+        ? Math.round(
+            portfolioPositions.reduce((a, p) => a + p.total * usd(p.collateralValueUsd), 0) / capital,
+          )
         : 0;
     return {
       capital,
@@ -592,6 +598,7 @@ export function AppDemo() {
       positions: portfolioPositions.length,
       protocols: new Set(portfolioPositions.map((p) => p.protocol)).size,
       aggregate,
+      pricesDegraded: portfolioPositions.some((p) => p.usdValuesUnavailable),
     };
   }, [portfolioPositions]);
 
@@ -600,7 +607,7 @@ export function AppDemo() {
     const bySymbol: Record<string, number> = {};
     for (const p of portfolioPositions ?? []) {
       bySymbol[p.scoredCollateralSymbol] =
-        (bySymbol[p.scoredCollateralSymbol] ?? 0) + p.collateralValueUsd;
+        (bySymbol[p.scoredCollateralSymbol] ?? 0) + (p.collateralValueUsd ?? 0);
     }
     const src: { symbol: string; usd: number }[] =
       portfolioPositions && portfolioPositions.length > 0
@@ -649,8 +656,13 @@ export function AppDemo() {
           assetPair: `${pos.scoredCollateralSymbol} / USDC · YOUR POSITION`,
           collateralAsset: pos.scoredCollateralSymbol,
           debtAsset: "USDC",
-          defaultCollateral: price > 0 ? Number((pos.collateralValueUsd / price).toFixed(price < 10 ? 0 : 4)) : 0,
-          defaultBorrow: Math.round(pos.borrowValueUsd),
+          // Degraded legs have no USD magnitude to anchor the simulator with;
+          // the sliders start at 0 rather than at a fabricated size.
+          defaultCollateral:
+            price > 0 && pos.collateralValueUsd !== null
+              ? Number((pos.collateralValueUsd / price).toFixed(price < 10 ? 0 : 4))
+              : 0,
+          defaultBorrow: Math.round(pos.borrowValueUsd ?? 0),
           defaultPrice: price,
           apy: base?.apy ?? 0,
           baseRisk: pos.total,
@@ -1448,7 +1460,7 @@ export function AppDemo() {
                                           <span className="block text-[9px] font-mono text-white/35 uppercase tracking-wider">{preset.protocol}</span>
                                           <span className={`block text-sm font-mono font-semibold truncate ${
                                             isActive ? "text-white" : "text-white/70"
-                                          }`}>{preset.collateralSymbol} · {formatCurrency(position.collateralValueUsd)} supplied</span>
+                                          }`}>{preset.collateralSymbol} · {position.collateralValueUsd === null ? "size unavailable (prices degraded)" : `${formatCurrency(position.collateralValueUsd)} supplied`}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
                                           <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${riskCls}`}>
