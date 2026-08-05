@@ -72,6 +72,7 @@ contract PanikEscrow {
     error RefundWindowPassed();
     error ZeroAddress();
     error TransferFailed();
+    error UnexpectedDecimals();
 
     // ───────────────────────── Constructor ───────────────────────────────
 
@@ -79,11 +80,16 @@ contract PanikEscrow {
      * @param _usdc     USDC token address on this chain.
      * @param _owner    Initial owner (team EOA or multisig).
      * @param _treasury Address that receives released funds.
+     *
+     * @dev `DEPOSIT_AMOUNT` hardcodes 6 decimals, so a token with any other
+     *      decimals (or an address with no token code at all) would silently
+     *      change the deposit size. Reject it at deploy time instead.
      */
     constructor(address _usdc, address _owner, address _treasury) {
         if (_usdc == address(0) || _owner == address(0) || _treasury == address(0)) {
             revert ZeroAddress();
         }
+        if (IERC20(_usdc).decimals() != 6) revert UnexpectedDecimals();
         usdc = IERC20(_usdc);
         owner = _owner;
         treasury = _treasury;
@@ -108,12 +114,14 @@ contract PanikEscrow {
         if (block.timestamp >= refundDeadline) revert RefundWindowPassed();
         if (depositTime[msg.sender] != 0) revert AlreadyDeposited();
 
+        // Effects before interactions: mark the depositor first so a
+        // reentrant call from a hostile token hits AlreadyDeposited.
+        depositTime[msg.sender] = block.timestamp;
+        depositorCount++;
+
         // Transfer 5 USDC from depositor to this contract
         bool success = usdc.transferFrom(msg.sender, address(this), DEPOSIT_AMOUNT);
         if (!success) revert TransferFailed();
-
-        depositTime[msg.sender] = block.timestamp;
-        depositorCount++;
 
         emit Deposited(msg.sender, block.timestamp);
     }

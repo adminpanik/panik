@@ -10,6 +10,9 @@ pragma solidity ^0.8.24;
  *         file is the single interface the contract compiles against.
  */
 interface IERC20 {
+    /// @notice Number of decimals the token uses. Checked at deploy time.
+    function decimals() external view returns (uint8);
+
     /// @notice Token balance of `account`.
     function balanceOf(address account) external view returns (uint256);
 
