@@ -79,13 +79,20 @@ export function RefundBanner() {
   const claimConfirmed = claimReceipt?.status === "success";
   const claimReverted = claimReceipt?.status === "reverted";
 
+  // TanStack Query keeps the last successful `data` while `status` flips to
+  // "error", so isError and a usable isRefundable routinely co-exist on a
+  // background refetch failure (refocus + rate-limited public RPC). Only treat
+  // it as an error when there is genuinely nothing to go on — otherwise the
+  // error card would replace a working claim button.
+  const readFailed = isRefundableError && isRefundable === undefined;
+
   // Contract not deployed / address invalid — nothing to claim against.
   if (!escrowAddress) return null;
   // Don't render if not connected, or the read says the wallet isn't refundable.
   // A FAILED read leaves `isRefundable` undefined; hiding the banner there
   // would silently block withdrawals, so surface an error card instead.
   if (!isConnected) return null;
-  if (!isRefundable && !isRefundableError) return null;
+  if (!isRefundable && !readFailed) return null;
 
   const handleClaim = () => {
     if (!escrowAddress) return;
@@ -140,9 +147,11 @@ export function RefundBanner() {
     );
   }
 
-  // Refund status could not be read — never hide the refund path on a failed
-  // read, or depositors past the deadline see nothing at all.
-  if (isRefundableError) {
+  // Refund status could not be read AND no cached answer exists — never hide
+  // the refund path on a failed read, or depositors past the deadline see
+  // nothing at all. `readFailed` implies isRefundable === undefined, so this
+  // can never pre-empt the claim button below.
+  if (readFailed) {
     return (
       <div className="rounded-xl p-6 bg-panik-red/[0.06] border border-panik-red/20">
         <div className="flex items-start gap-3">
