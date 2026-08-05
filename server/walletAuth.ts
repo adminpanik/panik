@@ -36,9 +36,20 @@ export function ownershipMessage(wallet: string, timestamp: number): string {
   return `PANIK wallet ownership\nWallet: ${wallet.toLowerCase()}\nIssued: ${timestamp}`;
 }
 
-export type OwnershipCheck =
-  | { ok: true; wallet: string }
-  | { ok: false; status: number; error: string };
+/**
+ * Flat (not a discriminated union) because the project compiles without
+ * `strict`, where narrowing on an `ok: true | false` discriminant does not fire.
+ */
+export interface OwnershipCheck {
+  ok: boolean;
+  /** Normalized (lowercase) wallet. Only meaningful when ok. */
+  wallet: string;
+  /** Status + message to return verbatim when !ok. */
+  status: number;
+  error: string;
+}
+
+const deny = (status: number, error: string): OwnershipCheck => ({ ok: false, wallet: "", status, error });
 
 /**
  * Validate `{wallet, signature, timestamp}` off a request body. Returns the
@@ -52,20 +63,18 @@ export async function verifyWalletOwnership(body: unknown): Promise<OwnershipChe
     timestamp?: unknown;
   };
 
-  if (!isEvmAddress(wallet)) return { ok: false, status: 400, error: "invalid EVM wallet address" };
+  if (!isEvmAddress(wallet)) return deny(400, "invalid EVM wallet address");
   const address = wallet.trim().toLowerCase();
 
   if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) {
-    return { ok: false, status: 401, error: "missing wallet ownership signature" };
+    return deny(401, "missing wallet ownership signature");
   }
   const issuedAt = Number(timestamp);
-  if (!Number.isFinite(issuedAt)) {
-    return { ok: false, status: 401, error: "missing signature timestamp" };
-  }
+  if (!Number.isFinite(issuedAt)) return deny(401, "missing signature timestamp");
   // Symmetric window: a future timestamp is as bogus as an expired one (it
   // would otherwise mint a proof that stays valid past the intended lifetime).
   if (Math.abs(Date.now() - issuedAt) > OWNERSHIP_MAX_AGE_MS) {
-    return { ok: false, status: 401, error: "signature expired — sign again" };
+    return deny(401, "signature expired — sign again");
   }
 
   let valid = false;
@@ -78,7 +87,7 @@ export async function verifyWalletOwnership(body: unknown): Promise<OwnershipChe
   } catch {
     valid = false; // malformed signature bytes
   }
-  if (!valid) return { ok: false, status: 401, error: "signature does not match wallet" };
+  if (!valid) return deny(401, "signature does not match wallet");
 
-  return { ok: true, wallet: address };
+  return { ok: true, wallet: address, status: 200, error: "" };
 }

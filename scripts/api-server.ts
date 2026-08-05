@@ -62,6 +62,7 @@ import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
 import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../server/adminCampaigns";
+import { verifyWalletOwnership } from "../server/walletAuth";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -843,15 +844,18 @@ app.post("/api/profile/result", profileResultLimit, async (req, res) => {
 
 // Telegram deep-link mint - dev parity with the Vercel function api/telegram/link.ts.
 // (The webhook itself needs a public URL; tunnel to this server or use Vercel.)
+// Ownership-gated: the code this mints redirects a wallet's liquidation alerts
+// to whoever opens the deep link, so the caller must PROVE the wallet is theirs.
 const telegramConfigured = Boolean(
   process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY && process.env.VITE_TELEGRAM_BOT_USERNAME,
 );
 app.post("/api/telegram/link", strictLimit, async (req, res) => {
-  const wallet = String(req.body?.wallet ?? req.query.wallet ?? "").trim().toLowerCase();
-  if (!isEvmAddress(wallet)) {
-    res.status(400).json({ error: "invalid EVM wallet address" });
+  const proof = await verifyWalletOwnership(req.body);
+  if (!proof.ok) {
+    res.status(proof.status).json({ error: proof.error });
     return;
   }
+  const wallet = proof.wallet;
   if (!telegramConfigured) {
     res.status(503).json({ error: "telegram unconfigured (SUPABASE_* / VITE_TELEGRAM_BOT_USERNAME)" });
     return;

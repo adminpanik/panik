@@ -80,8 +80,19 @@ export class TelegramStore {
    * Link a wallet to a chat. Because chat_id is unique, first drop any prior
    * row for that chat (the user re-linking the same Telegram to a new wallet),
    * then upsert on the wallet PK.
+   *
+   * A wallet whose chat_id CHANGES is the fingerprint of an alert takeover
+   * (the pre-ownership-check hijack: the victim silently stops receiving
+   * liquidation warnings). Legitimate re-links hit it too — it is a signal to
+   * grep, not an error — so log it and continue.
    */
   async upsertLink(args: { wallet: string; chatId: number; username?: string }): Promise<void> {
+    const prior = await this.getLink(args.wallet).catch(() => null);
+    if (prior && prior.chatId !== args.chatId) {
+      console.warn(
+        `telegram link rebound: wallet=${args.wallet.toLowerCase()} chat ${prior.chatId} -> ${args.chatId}`,
+      );
+    }
     await fetch(
       `${this.base}/rest/v1/telegram_links?chat_id=eq.${args.chatId}`,
       { method: "DELETE", headers: this.headers({ Prefer: "return=minimal" }) },
