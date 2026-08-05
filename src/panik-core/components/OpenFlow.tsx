@@ -8,7 +8,7 @@
  * are sanity-checked on-chain before any funds move.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { useAccount, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
@@ -18,11 +18,14 @@ import type { AdvisorOpenPlan } from "../lib/live";
 import { useProspective } from "../lib/live";
 import {
   buildOpenSteps,
+  collateralStepCount,
   isOpenSupported,
+  openProgressKey,
   OPEN_CHAIN_ID,
   OPEN_ERC20_ABI,
   OPEN_TOKENS,
   readCollateralPriceUsd8,
+  resumeIndex,
   verifyOpenTargets,
   type MorphoMarketParams,
 } from "../lib/openProtocols";
@@ -36,6 +39,49 @@ const PROTOCOL_LABEL: Record<string, string> = {
 };
 
 type Step = "connect" | "chain" | "review" | "executing" | "done" | "unsupported";
+
+/**
+ * Progress through the step list, persisted so that closing the modal or
+ * refreshing the tab cannot lose it. Losing it would replay `supply` and
+ * deposit the collateral a second time with real funds.
+ */
+interface OpenProgress {
+  completedSteps: number;
+  txHashes: string[];
+  /**
+   * Collateral amount (token units, decimal string) actually committed by the
+   * landed steps. Frozen on the first landed step: the oracle re-read on a
+   * retry must not desync the approve amount from the supplied amount.
+   */
+  collateralAmount: string | null;
+}
+
+const EMPTY_PROGRESS: OpenProgress = { completedSteps: 0, txHashes: [], collateralAmount: null };
+
+function loadProgress(key: string): OpenProgress {
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return EMPTY_PROGRESS;
+    const parsed = JSON.parse(raw) as Partial<OpenProgress>;
+    return {
+      completedSteps: Number(parsed.completedSteps) || 0,
+      txHashes: Array.isArray(parsed.txHashes) ? parsed.txHashes.map(String) : [],
+      collateralAmount:
+        typeof parsed.collateralAmount === "string" ? parsed.collateralAmount : null,
+    };
+  } catch {
+    return EMPTY_PROGRESS;
+  }
+}
+
+function saveProgress(key: string, progress: OpenProgress): void {
+  try {
+    if (progress.completedSteps === 0) window.sessionStorage.removeItem(key);
+    else window.sessionStorage.setItem(key, JSON.stringify(progress));
+  } catch {
+    // Private-browsing / quota. The in-memory index still guards this session.
+  }
+}
 
 export function OpenFlow({
   plan,
@@ -57,17 +103,58 @@ export function OpenFlow({
   const [borrowUsd, setBorrowUsd] = useState<number>(Math.round(plan.borrowUsd));
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [txHashes, setTxHashes] = useState<string[]>([]);
   const [executing, setExecuting] = useState(false);
   const [doneHash, setDoneHash] = useState<string | null>(null);
-  /** How many of buildOpenSteps() already landed - a retry resumes from here. */
-  const [completedSteps, setCompletedSteps] = useState(0);
 
-  // Editing the sizing invalidates the built steps, so start over.
+  /**
+   * Which steps already landed. Keyed by plan IDENTITY (protocol / collateral
+   * / wallet), deliberately NOT by the sizing inputs: lowering the borrow to
+   * retry after a borrow-cap revert must resume the same open, never restart
+   * it. Restarting would re-run `supply` on collateral already deposited.
+   */
+  const progressKey = useMemo(
+    () =>
+      address
+        ? openProgressKey({
+            protocol: plan.protocol,
+            collateralSymbol: plan.collateralSymbol,
+            user: address,
+            chainId: OPEN_CHAIN_ID,
+          })
+        : null,
+    [address, plan.protocol, plan.collateralSymbol],
+  );
+  const [progress, setProgress] = useState<OpenProgress>(EMPTY_PROGRESS);
+  const { completedSteps, txHashes } = progress;
+
+  // Rehydrate whenever the identity changes (mount, reconnect, plan switch).
+  // A brand-new identity hydrates to EMPTY_PROGRESS, which is the only reset
+  // path there is - no input edit can zero the cursor.
   useEffect(() => {
-    setCompletedSteps(0);
-    setTxHashes([]);
-  }, [plan, collateralUsd, borrowUsd]);
+    setProgress(progressKey ? loadProgress(progressKey) : EMPTY_PROGRESS);
+  }, [progressKey]);
+
+  // The executor loop is async and outlives an unmount; stop touching state.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const say = useCallback((message: string) => {
+    if (mountedRef.current) setStatus(message);
+  }, []);
+
+  /** Persist first, re-render second - the durable record is what matters. */
+  const commitProgress = useCallback(
+    (key: string, next: OpenProgress) => {
+      saveProgress(key, next);
+      if (mountedRef.current) setProgress(next);
+    },
+    [],
+  );
 
   // The advisor sized borrowUsd to the profile's target HF - that is the cap.
   const borrowCap = Math.round(plan.borrowUsd);
@@ -96,19 +183,29 @@ export function OpenFlow({
   const projectedHf = projected?.healthFactor ?? plan.projectedHf;
 
   const execute = useCallback(async () => {
-    if (!publicClient || !address) return;
+    if (!publicClient || !address || !progressKey) return;
     const client = asContractClient(publicClient);
     setExecuting(true);
     setError(null);
+    // Snapshot: the persisted record is the source of truth for this attempt.
+    const started = loadProgress(progressKey);
     try {
       const token = OPEN_TOKENS[plan.collateralSymbol];
       if (!token) throw new Error(`unknown token ${plan.collateralSymbol}`);
 
-      setStatus("Reading oracle price...");
-      const price8 = await readCollateralPriceUsd8(client, plan.collateralSymbol);
-      if (price8 === 0n) throw new Error("oracle price unavailable");
-      const usd8 = BigInt(Math.round(collateralUsd * 1e8));
-      const collateralAmount = (usd8 * 10n ** BigInt(token.decimals)) / price8;
+      // Once a step has landed, the collateral size is settled on-chain and
+      // must be reused verbatim. Re-deriving it from a moved oracle price
+      // would leave the exact-amount approval short of the supply.
+      let collateralAmount: bigint;
+      if (started.collateralAmount !== null) {
+        collateralAmount = BigInt(started.collateralAmount);
+      } else {
+        say("Reading oracle price...");
+        const price8 = await readCollateralPriceUsd8(client, plan.collateralSymbol);
+        if (price8 === 0n) throw new Error("oracle price unavailable");
+        const usd8 = BigInt(Math.round(collateralUsd * 1e8));
+        collateralAmount = (usd8 * 10n ** BigInt(token.decimals)) / price8;
+      }
       // Scale by USDC's declared decimals, never a hardcoded 1e6.
       const usdc = OPEN_TOKENS.USDC!;
       const borrowAmount =
@@ -116,22 +213,9 @@ export function OpenFlow({
           10n ** BigInt(usdc.decimals)) /
         10n ** 8n;
 
-      const balance = (await client.readContract({
-        address: token.address,
-        abi: OPEN_ERC20_ABI,
-        functionName: "balanceOf",
-        args: [address],
-      })) as bigint;
-      if (balance < collateralAmount) {
-        throw new Error(
-          `Insufficient ${plan.collateralSymbol}: need ~${(Number(collateralAmount) / 10 ** token.decimals).toFixed(5)}, ` +
-            `have ${(Number(balance) / 10 ** token.decimals).toFixed(5)}`,
-        );
-      }
-
       let morphoMarket: MorphoMarketParams | undefined;
       if (plan.protocol === "morpho") {
-        setStatus("Resolving Morpho market...");
+        say("Resolving Morpho market...");
         const res = await fetch(`/api/morpho/market?symbol=${plan.collateralSymbol}`);
         if (!res.ok) throw new Error("Morpho market lookup failed");
         const body = (await res.json()) as {
@@ -148,16 +232,54 @@ export function OpenFlow({
         user: address,
         morphoMarket,
       };
-      setStatus("Verifying protocol addresses...");
+      say("Verifying protocol addresses...");
       await verifyOpenTargets(client, input);
 
       const steps = buildOpenSteps(input);
-      // Resume where a previous attempt stopped - replaying a completed supply
-      // step would deposit the collateral a second time.
-      const hashes: string[] = [...txHashes];
-      for (let i = completedSteps; i < steps.length; i += 1) {
+
+      // Cross-check the recorded cursor against the chain before running
+      // anything: an exact-amount approval that no longer covers the supply
+      // has to be re-issued, and one the chain already grants is skipped.
+      const approveStep = steps.find((s) => s.kind === "approve");
+      let allowance = 0n;
+      if (approveStep?.spender) {
+        say("Checking allowance...");
+        allowance = (await client.readContract({
+          address: approveStep.address,
+          abi: OPEN_ERC20_ABI,
+          functionName: "allowance",
+          args: [address, approveStep.spender],
+        })) as bigint;
+      }
+      const start = resumeIndex({
+        steps,
+        completedSteps: started.completedSteps,
+        allowance,
+        collateralAmount,
+      });
+
+      // Only meaningful while the collateral is still in the user's wallet -
+      // after the supply landed the balance is legitimately gone.
+      if (start < collateralStepCount(steps)) {
+        const balance = (await client.readContract({
+          address: token.address,
+          abi: OPEN_ERC20_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        })) as bigint;
+        if (balance < collateralAmount) {
+          throw new Error(
+            `Insufficient ${plan.collateralSymbol}: need ~${(Number(collateralAmount) / 10 ** token.decimals).toFixed(5)}, ` +
+              `have ${(Number(balance) / 10 ** token.decimals).toFixed(5)}`,
+          );
+        }
+      }
+
+      const hashes: string[] = [...started.txHashes];
+      let committed = started.collateralAmount;
+      for (let i = start; i < steps.length; i += 1) {
         const s = steps[i]!;
-        setStatus(`${s.label} - simulating...`);
+        say(`${s.label} - simulating...`);
         const { request } = await client.simulateContract({
           account: address,
           address: s.address,
@@ -165,16 +287,22 @@ export function OpenFlow({
           functionName: s.functionName,
           args: s.args,
         });
-        setStatus(`${s.label} - confirm in wallet...`);
+        say(`${s.label} - confirm in wallet...`);
         const hash = await writeContractAsync(request as never);
-        setStatus(`${s.label} - waiting for confirmation...`);
+        say(`${s.label} - waiting for confirmation...`);
         const receipt = await client.waitForTransactionReceipt({ hash });
         if (receipt.status !== "success") {
           throw new Error(`${s.label} reverted on-chain`);
         }
         hashes.push(hash);
-        setTxHashes([...hashes]);
-        setCompletedSteps(i + 1);
+        // Freeze the collateral size on the first landed step, and persist
+        // BEFORE the next iteration so a crash here still resumes correctly.
+        committed = committed ?? collateralAmount.toString();
+        commitProgress(progressKey, {
+          completedSteps: i + 1,
+          txHashes: [...hashes],
+          collateralAmount: committed,
+        });
       }
 
       // Watch the new position immediately (fire-and-forget).
@@ -182,24 +310,29 @@ export function OpenFlow({
         ? (riskProfile as "conservative" | "moderate" | "aggressive")
         : "moderate";
       void registerWatchedWallet(address, profile3);
-      setDoneHash(hashes[hashes.length - 1] ?? null);
+      // The open is finished; the resume record has nothing left to protect.
+      saveProgress(progressKey, EMPTY_PROGRESS);
+      if (mountedRef.current) setDoneHash(hashes[hashes.length - 1] ?? null);
     } catch (err) {
       const message = (err as Error).message ?? String(err);
-      setError(message.split("\n")[0]?.slice(0, 300) ?? "transaction failed");
+      if (mountedRef.current) {
+        setError(message.split("\n")[0]?.slice(0, 300) ?? "transaction failed");
+      }
     } finally {
-      setExecuting(false);
+      if (mountedRef.current) setExecuting(false);
     }
   }, [
     publicClient,
     address,
+    progressKey,
+    commitProgress,
+    say,
     plan,
     collateralUsd,
     borrowUsd,
     borrowCap,
     riskProfile,
     writeContractAsync,
-    completedSteps,
-    txHashes,
   ]);
 
   const inputCls =
@@ -212,9 +345,16 @@ export function OpenFlow({
     [plan],
   );
 
+  // Dismissing mid-sequence would strand a wallet prompt and (before the
+  // persisted cursor existed) lose the resume point entirely. Block it.
+  const requestClose = useCallback(() => {
+    if (executing) return;
+    onClose();
+  }, [executing, onClose]);
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={requestClose} />
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -225,7 +365,12 @@ export function OpenFlow({
             <h2 className="text-lg font-display font-bold text-white">Open Position</h2>
             <p className="text-[11px] font-mono text-white/40 mt-0.5">{summary}</p>
           </div>
-          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
+          <button
+            onClick={requestClose}
+            disabled={executing}
+            title={executing ? "Finish or cancel the pending transaction first" : "Close"}
+            className="text-white/40 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-white/40"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -272,6 +417,16 @@ export function OpenFlow({
 
         {step === "review" || step === "executing" ? (
           <div className="space-y-4">
+            {completedSteps > 0 ? (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs text-amber-200/90 font-sans leading-relaxed">
+                <b className="text-amber-200">
+                  {completedSteps} step{completedSteps > 1 ? "s" : ""} already landed on-chain.
+                </b>{" "}
+                This open resumes from the next step - your collateral is already supplied and is
+                locked at its original size, so it can never be supplied twice. Adjust the borrow
+                and retry.
+              </div>
+            ) : null}
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1">
                 <span className="text-[10px] font-mono tracking-widest uppercase text-white/35">
@@ -282,8 +437,13 @@ export function OpenFlow({
                   min={1}
                   value={collateralUsd}
                   onChange={(e) => setCollateralUsd(Math.max(0, Number(e.target.value)))}
-                  className={inputCls}
-                  disabled={executing}
+                  className={`${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`}
+                  disabled={executing || completedSteps > 0}
+                  title={
+                    completedSteps > 0
+                      ? "Collateral is already supplied on-chain and cannot be resized here"
+                      : undefined
+                  }
                 />
               </label>
               <label className="space-y-1">
