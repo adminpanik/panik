@@ -368,14 +368,26 @@ app.use((req, res, next) => {
   next();
 });
 
-// Per-IP rate limits (in-memory; single Railway container — see server/rateLimit.ts).
-// Budgets are sized against the real client cadences: the profile reveal polls
-// /result every 3s for ~70s and the Telegram card polls /status every 3s.
-const publicLimit = rateLimit({ limit: 120 });            // generous: 60s-cached GETs
+// Per-client rate limits (in-memory; single Railway container — see
+// server/rateLimit.ts). Budgets are sized against BOTH the real client cadence
+// and what one request actually costs us, in that order:
+//
+//   cheap     a process-wide cache the caller cannot miss (60s/1h TTL) — the
+//             marginal request is a JSON serialize
+//   walleted  keyed on a caller-supplied wallet, so every new address is a
+//             guaranteed cache miss: an RPC scan or a 2000-row DB read, and it
+//             also evicts a real user's entry from the 2000-entry LRU
+//   advisor   the most expensive route in the app: RPC position scan + N
+//             DefiLlama lookups + findOpportunities + several OpenRouter
+//             completions + Postgres inserts. The UI polls it once a minute.
+//   strict    spends third-party quota or mints state (Dune, Telegram, trials)
+const publicLimit = rateLimit({ limit: 120 });            // 60s-cached GETs, no caller-supplied key
+const walletLimit = rateLimit({ limit: 30 });             // /positions, /history — wallet-keyed
+const advisorLimit = rateLimit({ limit: 10 });            // RPC + LLM + DB per miss; UI polls 1/min
 const telegramStatusLimit = rateLimit({ limit: 60 });     // 3s poll during linking
 const profileResultLimit = rateLimit({ limit: 40 });      // 3s poll during the reveal
 const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
-const adminLimit = rateLimit({ limit: 10 });             // failed-auth brake lives in server/adminAuth.ts
+const adminLimit = rateLimit({ limit: 10 });              // failed-auth brake lives in server/adminAuth.ts
 
 /** ?profile → a known RiskProfile, defaulting to moderate. Never trust the raw
  * string: it selects the scoring thresholds and rides into the advisor prompt. */
@@ -443,7 +455,7 @@ app.get("/api/scores", publicLimit, async (req, res) => {
 // unbounded Map would let anyone grow the heap one address at a time.
 const CACHE_MAX_WALLETS = 2_000;
 const ownPosCache = new LruCache<{ at: number; positions: LivePosition[] }>(CACHE_MAX_WALLETS);
-app.get("/api/positions", publicLimit, async (req, res) => {
+app.get("/api/positions", walletLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   const profile = riskProfileParam(req.query.profile);
   if (!isEvmAddress(wallet)) {
@@ -484,7 +496,7 @@ app.get("/api/compass", publicLimit, async (req, res) => {
 // score_snapshots the score/position time series - no new tables needed.
 const walletHistoryCache = new LruCache<{ at: number; body: unknown }>(CACHE_MAX_WALLETS);
 
-app.get("/api/history", publicLimit, async (req, res) => {
+app.get("/api/history", walletLimit, async (req, res) => {
   try {
     const wallet = String(req.query.wallet ?? "").toLowerCase();
     if (!/^0x[0-9a-f]{40}$/.test(wallet)) {
@@ -688,7 +700,7 @@ function advisorYields(pools: Record<string, PoolYield>): YieldTable {
   return table;
 }
 
-app.get("/api/advisor", publicLimit, async (req, res) => {
+app.get("/api/advisor", advisorLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   const profile = riskProfileParam(req.query.profile);
   if (!isEvmAddress(wallet)) {
