@@ -14,10 +14,19 @@ import { isAddress } from "viem";
 const RAW_ESCROW_ADDRESS = import.meta.env.VITE_ESCROW_CONTRACT_ADDRESS as
   | string
   | undefined;
+// A rejected value yields `undefined`, and the UI then says "not deployed
+// yet" — misleading when the operator DID set it, just wrongly (a deploy tx
+// hash is the classic mistake). Say so loudly instead of failing silently.
+if (RAW_ESCROW_ADDRESS && !isAddress(RAW_ESCROW_ADDRESS)) {
+  console.error(
+    `VITE_ESCROW_CONTRACT_ADDRESS is set but is not a valid address: "${RAW_ESCROW_ADDRESS}". ` +
+      "It must be the deployed contract address (0x + 40 hex), not a deploy transaction hash. " +
+      "Escrow features are disabled until it is corrected."
+  );
+}
+// isAddress is a type guard, so the narrowed value is already `0x${string}`.
 const ESCROW_ADDRESS =
-  RAW_ESCROW_ADDRESS && isAddress(RAW_ESCROW_ADDRESS)
-    ? (RAW_ESCROW_ADDRESS as `0x${string}`)
-    : undefined;
+  RAW_ESCROW_ADDRESS && isAddress(RAW_ESCROW_ADDRESS) ? RAW_ESCROW_ADDRESS : undefined;
 
 // Default chain: Base Sepolia for development, Base mainnet for production
 const ESCROW_CHAIN_ID = Number(
