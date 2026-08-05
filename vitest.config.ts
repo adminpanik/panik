@@ -5,6 +5,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    // server/ is in here because walletAuth is an auth boundary: it decides
+    // who may redirect a wallet's liquidation alerts.
+    include: ["src/**/*.test.ts", "server/**/*.test.ts"],
   },
 });
