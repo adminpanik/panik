@@ -892,14 +892,19 @@ app.post("/api/telegram/link", strictLimit, async (req, res) => {
 
 // Telegram link status - the browser polls this after Connect to auto-confirm
 // (and on load to show an existing link). Reads via the service key (table is
-// deny-all to the browser); returns only linked + username.
+// deny-all to the browser).
+//
+// Returns ONLY {linked}. It used to return the @username too, which made this
+// an unauthenticated wallet -> Telegram handle oracle: walk the wallet list and
+// you deanonymize the whole user base. The one bit that remains ("does this
+// address have alerts on") is what the card needs and is not identifying.
 app.get("/api/telegram/status", telegramStatusLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   if (!isEvmAddress(wallet)) { res.status(400).json({ error: "invalid EVM wallet address" }); return; }
   if (!telegramConfigured) { res.status(503).json({ error: "telegram unconfigured" }); return; }
   try {
     const link = await TelegramStore.fromEnv().getLink(wallet);
-    res.json({ linked: Boolean(link?.enabled), username: link?.username ?? null });
+    res.json({ linked: Boolean(link?.enabled) });
   } catch (err) {
     serverError(req, res, 502, err);
   }

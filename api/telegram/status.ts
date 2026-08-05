@@ -1,8 +1,11 @@
 /**
  * GET /api/telegram/status?wallet=0x...
- * Returns whether the wallet has an enabled Telegram link, plus the captured
- * @username. The browser polls this after Connect to auto-confirm, and on load
- * to show an existing link. Fetch-only (Supabase REST), no viem/pg.
+ * Returns ONLY whether the wallet has an enabled Telegram link. The browser
+ * polls this after Connect to auto-confirm, and on load to show an existing
+ * link. Fetch-only (Supabase REST), no viem/pg.
+ *
+ * The captured @username is deliberately NOT returned: unauthenticated, that
+ * made this a wallet -> Telegram handle oracle for the whole user base.
  * Mirrors the route in scripts/api-server.ts (the Railway production backend).
  */
 
@@ -31,7 +34,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   }
   try {
     const link = await store.getLink(wallet);
-    res.status(200).json({ linked: Boolean(link?.enabled), username: link?.username ?? null });
+    res.status(200).json({ linked: Boolean(link?.enabled) });
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
   }

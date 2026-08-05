@@ -2375,7 +2375,7 @@ export function AppDemo() {
                           {telegramLink.status === "connected" ? (
                             <span className="text-emerald-400 flex items-center gap-1.5">
                               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                              Connected{telegramLink.username ? ` as @${telegramLink.username}` : ""}
+                              Connected
                             </span>
                           ) : (
                             <span className="text-white/55">

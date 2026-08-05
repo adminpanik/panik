@@ -52,9 +52,11 @@ interface LinkResponse {
   deepLink: string;
 }
 
+// /api/telegram/status returns ONLY `linked` — the @username is no longer
+// exposed (unauthenticated, it mapped every wallet to a Telegram handle).
+// The card shows a generic "Connected" instead.
 interface StatusResponse {
   linked: boolean;
-  username: string | null;
 }
 
 async function fetchLinkStatus(wallet: string): Promise<StatusResponse | null> {
@@ -72,7 +74,6 @@ export function useTelegramLink() {
   const [status, setStatus] = useState<LinkStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<string | null>(null);
-  const [username, setUsername] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPoll = useCallback(() => {
@@ -89,10 +90,7 @@ export function useTelegramLink() {
   const check = useCallback(async (wallet: string) => {
     if (!isEvmAddress(wallet)) return;
     const s = await fetchLinkStatus(wallet);
-    if (s?.linked) {
-      setUsername(s.username);
-      setStatus("connected");
-    }
+    if (s?.linked) setStatus("connected");
   }, []);
 
   const connect = useCallback(
@@ -127,7 +125,6 @@ export function useTelegramLink() {
           tries += 1;
           const s = await fetchLinkStatus(wallet);
           if (s?.linked) {
-            setUsername(s.username);
             setStatus("connected");
             stopPoll();
           } else if (tries >= 40) {
@@ -142,5 +139,5 @@ export function useTelegramLink() {
     [stopPoll],
   );
 
-  return { status, error, code, username, connect, check };
+  return { status, error, code, connect, check };
 }
