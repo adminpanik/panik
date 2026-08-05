@@ -13,14 +13,23 @@
  * mirrored routes in scripts/api-server.ts.
  */
 
+import { randomInt } from "node:crypto";
+
 /** Unambiguous alphabet (no 0/1/I/O) - matches gen_panik_suffix in SQL. */
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
-/** Random N-char suffix from the unambiguous alphabet. */
+/**
+ * Suffix length. Codes are a bearer secret for a free trial, so the keyspace
+ * has to survive guessing: 8 chars over 32 symbols is 2^40, vs the ~1M of the
+ * original 4.
+ */
+const CODE_SUFFIX_LEN = 8;
+
+/** Random N-char suffix from the unambiguous alphabet (CSPRNG, unbiased). */
 function randomSuffix(n: number): string {
   let out = "";
   for (let i = 0; i < n; i++) {
-    out += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+    out += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
   }
   return out;
 }
@@ -158,12 +167,13 @@ export class CampaignStore {
   // ── admin CRUD ────────────────────────────────────────────────────────────
 
   /**
-   * Create a campaign with a freshly generated PANIK-TRY-XXXX code. Retries on
+   * Create a campaign with a freshly generated PANIK-TRY-XXXXXXXX code (the SQL
+   * CHECK accepts 4-8 suffix chars, so widening needs no migration). Retries on
    * the unique-code collision (409) a few times before giving up.
    */
   async createCampaign(input: CreateCampaignInput): Promise<Campaign> {
     for (let attempt = 1; attempt <= 5; attempt++) {
-      const campaign_code = `PANIK-TRY-${randomSuffix(4)}`;
+      const campaign_code = `PANIK-TRY-${randomSuffix(CODE_SUFFIX_LEN)}`;
       const res = await fetch(`${this.base}/rest/v1/product_campaigns`, {
         method: "POST",
         headers: this.headers({ Prefer: "return=representation" }),
