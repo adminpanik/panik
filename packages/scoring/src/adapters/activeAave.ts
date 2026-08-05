@@ -18,9 +18,25 @@ const UINT256_MAX = 2n ** 256n - 1n;
 
 export interface ActiveReading {
   protocol: Protocol;
+  /**
+   * HF / LTV / maxLtv. These are RATIOS of same-denominated quantities, so
+   * they survive a missing USD price entirely — a reader that cannot value
+   * the position in dollars must still report them (see
+   * `usdValuesUnavailable`), never drop the leg.
+   */
   positionHealth: PositionHealthInput;
-  collateralValueUsd: number;
-  borrowValueUsd: number;
+  /** null when the USD denomination could not be established this read. */
+  collateralValueUsd: number | null;
+  /** null when the USD denomination could not be established this read. */
+  borrowValueUsd: number | null;
+  /**
+   * True when a price input the USD conversion depends on was missing or
+   * stale. The position is STILL scored (HF/LTV are denomination-free); only
+   * the dollar magnitudes are withheld. Consumers must treat this as
+   * "degraded", not as "safe": the minimum-borrow materiality gate is waived
+   * and the UI/advisor must say the prices are degraded.
+   */
+  usdValuesUnavailable?: boolean;
   /** Dominant collateral symbol, or null when discovery failed. */
   dominantCollateralSymbol: string | null;
 }
