@@ -40,7 +40,9 @@ export function exitExplorerTxUrl(hash: string): string {
 export interface ContractClient {
   readContract(params: unknown): Promise<unknown>;
   simulateContract(params: unknown): Promise<{ request: unknown }>;
-  waitForTransactionReceipt(params: { hash: `0x${string}` }): Promise<{ logs: unknown[] }>;
+  waitForTransactionReceipt(params: {
+    hash: `0x${string}`;
+  }): Promise<{ logs: unknown[]; status: "success" | "reverted" }>;
 }
 
 export function asContractClient(client: unknown): ContractClient {
