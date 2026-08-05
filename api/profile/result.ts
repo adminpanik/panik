@@ -11,7 +11,7 @@
 // Specific modules, not the barrel — see server/profileDeps.ts (avoids viem/ws).
 import { resolveProfileScan } from "../../packages/scoring/src/classify/profileSession";
 import type { StatedProfile } from "../../packages/scoring/src/classify/types";
-import { getProfileDeps, isDuneExecutionId, isEvmAddress } from "../../server/profileDeps";
+import { getProfileDeps, isDuneExecutionId, isEvmAddress, isStatedProfile } from "../../server/profileDeps";
 
 interface Req { method?: string; query: Record<string, string | string[] | undefined>; body?: unknown }
 interface Res { status(code: number): Res; json(body: unknown): void }
@@ -21,10 +21,9 @@ function pick(v: string | string[] | undefined): string | undefined {
 }
 
 export default async function handler(req: Req, res: Res): Promise<void> {
-  const body = (req.body ?? {}) as { wallet?: string; executionId?: string; stated?: StatedProfile };
+  const body = (req.body ?? {}) as { wallet?: string; executionId?: string; stated?: unknown };
   const wallet = (pick(req.query.wallet) ?? body.wallet ?? "").trim();
   const executionId = pick(req.query.executionId) ?? body.executionId;
-  const stated = body.stated;
 
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
@@ -33,6 +32,14 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   if (executionId !== undefined && !isDuneExecutionId(executionId)) {
     res.status(400).json({ error: "invalid executionId" });
     return;
+  }
+  let stated: StatedProfile | undefined;
+  if (body.stated !== undefined) {
+    if (!isStatedProfile(body.stated)) {
+      res.status(400).json({ error: "invalid stated profile" });
+      return;
+    }
+    stated = body.stated;
   }
 
   let deps;

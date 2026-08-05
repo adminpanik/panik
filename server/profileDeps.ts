@@ -14,6 +14,7 @@
 import { DuneHistoryProvider } from "../packages/scoring/src/providers/duneHistory";
 import { OpenRouterNarrator } from "../packages/scoring/src/providers/narrator";
 import type { SessionDeps } from "../packages/scoring/src/classify/profileSession";
+import type { StatedProfile } from "../packages/scoring/src/classify/types";
 import { RestProfileCache } from "./profileCache";
 
 let deps: SessionDeps | null = null;
@@ -74,4 +75,22 @@ export function isEvmAddress(wallet: unknown): wallet is string {
  */
 export function isDuneExecutionId(id: unknown): id is string {
   return typeof id === "string" && /^[0-9A-Za-z_-]{1,64}$/.test(id);
+}
+
+/**
+ * Validate the onboarding quiz's stated profile before it reaches the reveal.
+ * Both the LLM prompt and fallbackCombined read `riskProfile3` unguarded, so a
+ * bogus shape (`{}`, a string, an array) becomes a TypeError → 502 instead of
+ * the 400 it is.
+ */
+export function isStatedProfile(value: unknown): value is StatedProfile {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  if (v.riskProfile3 !== "conservative" && v.riskProfile3 !== "moderate" && v.riskProfile3 !== "aggressive") {
+    return false;
+  }
+  for (const key of ["riskTier", "segment", "segmentLabel"]) {
+    if (v[key] !== undefined && typeof v[key] !== "string") return false;
+  }
+  return v.riskScore === undefined || Number.isFinite(v.riskScore);
 }

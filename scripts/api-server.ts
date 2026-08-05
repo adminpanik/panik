@@ -48,7 +48,13 @@ import {
   type WalletInsights,
   type YieldTable,
 } from "../packages/scoring/src/index";
-import { getProfileDeps, isDuneExecutionId, isEvmAddress, transactionPoolerUrl } from "../server/profileDeps";
+import {
+  getProfileDeps,
+  isDuneExecutionId,
+  isEvmAddress,
+  isStatedProfile,
+  transactionPoolerUrl,
+} from "../server/profileDeps";
 import { TelegramStore } from "../server/telegramStore";
 import { sendMessage, setWebhook } from "../server/telegram";
 import { CampaignStore } from "../server/campaignStore";
@@ -307,6 +313,9 @@ async function getChain(): Promise<typeof chainCache> {
 // ── HTTP ───────────────────────────────────────────────────────────────────
 const app = express();
 
+app.disable("x-powered-by"); // don't advertise the stack
+app.use(express.json()); // every POST route below reads req.body
+
 // CORS - lets a separately-hosted SPA (e.g. the Vercel static frontend) call
 // this backend cross-origin. CORS_ORIGINS is a comma-separated allowlist and is
 // REQUIRED in production (a missing value must never silently widen to "*");
@@ -344,6 +353,15 @@ const adminLimit = rateLimit({ limit: 10, maxFailures: 5, lockoutMs: 15 * 60_000
  * ref, and provider errors quote our request URLs. 4xx validation messages stay
  * verbatim: those describe the caller's own input.
  */
+/** ?profile → a known RiskProfile, defaulting to moderate. Never trust the raw
+ * string: it selects the scoring thresholds and rides into the advisor prompt. */
+function riskProfileParam(raw: unknown): RiskProfile {
+  const value = String(raw ?? "moderate");
+  return value === "conservative" || value === "moderate" || value === "aggressive"
+    ? value
+    : "moderate";
+}
+
 function serverError(req: express.Request, res: express.Response, status: number, err: unknown): void {
   console.error(`${req.method} ${req.path} -> ${status}: ${(err as Error).message}`);
   res.status(status).json({ error: status >= 502 ? "upstream request failed" : "internal server error" });
@@ -396,7 +414,7 @@ const CACHE_MAX_WALLETS = 2_000;
 const ownPosCache = new LruCache<{ at: number; positions: LivePosition[] }>(CACHE_MAX_WALLETS);
 app.get("/api/positions", publicLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
-  const profile = String(req.query.profile ?? "moderate") as RiskProfile;
+  const profile = riskProfileParam(req.query.profile);
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
@@ -641,10 +659,7 @@ function advisorYields(pools: Record<string, PoolYield>): YieldTable {
 
 app.get("/api/advisor", publicLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
-  const profileRaw = String(req.query.profile ?? "moderate") as RiskProfile;
-  const profile: RiskProfile = ["conservative", "moderate", "aggressive"].includes(profileRaw)
-    ? profileRaw
-    : "moderate";
+  const profile = riskProfileParam(req.query.profile);
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
@@ -779,8 +794,6 @@ app.get("/api/advisor", publicLimit, async (req, res) => {
 // Persona profiler — timeout-proof start/poll, mirroring the Vercel functions
 // (same shared session + Supabase cache). The onboarding fires /start on wallet
 // entry, then polls /result (with the quiz's stated profile) at the reveal.
-app.use(express.json());
-
 app.post("/api/profile/start", strictLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? req.body?.wallet ?? "").trim();
   if (!isEvmAddress(wallet)) {
@@ -801,7 +814,6 @@ app.post("/api/profile/start", strictLimit, async (req, res) => {
 app.post("/api/profile/result", profileResultLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? req.body?.wallet ?? "").trim();
   const executionId: string | undefined = req.body?.executionId ?? (req.query.executionId as string | undefined);
-  const stated: StatedProfile | undefined = req.body?.stated;
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
@@ -809,6 +821,14 @@ app.post("/api/profile/result", profileResultLimit, async (req, res) => {
   if (executionId !== undefined && !isDuneExecutionId(executionId)) {
     res.status(400).json({ error: "invalid executionId" });
     return;
+  }
+  let stated: StatedProfile | undefined;
+  if (req.body?.stated !== undefined) {
+    if (!isStatedProfile(req.body.stated)) {
+      res.status(400).json({ error: "invalid stated profile" });
+      return;
+    }
+    stated = req.body.stated;
   }
   if (!profilerConfigured) {
     res.status(503).json({ error: "profiler unconfigured (DUNE_API_KEY / SUPABASE_DB_URL)" });
