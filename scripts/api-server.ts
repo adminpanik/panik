@@ -63,6 +63,7 @@ import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
 import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../server/adminCampaigns";
 import { verifyWalletOwnership } from "../server/walletAuth";
+import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -426,17 +427,41 @@ app.get("/api/scores", adminLimit, async (req, res) => {
 });
 
 /**
+ * Issue a single-use SIWE nonce. The browser fetches one immediately before
+ * prompting a signature; verification consumes it atomically, which is what
+ * makes an ownership proof unreplayable (and unmakeable by a hostile page that
+ * never talked to us). Unauthenticated on purpose — a nonce authorizes nothing
+ * on its own — but rate-limited so it cannot be used to bulk-insert rows.
+ */
+app.get("/api/auth/nonce", publicLimit, async (req, res) => {
+  let store: SupabaseNonceStore;
+  try {
+    store = SupabaseNonceStore.fromEnv();
+  } catch (err) {
+    res.status(503).json({ error: `sign-in unconfigured: ${(err as Error).message}` });
+    return;
+  }
+  try {
+    const { nonce } = await store.issue();
+    res.json({ nonce, expiresInSec: AUTH_NONCE_TTL_MS / 1000 });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
  * Register the caller's OWN wallet for monitoring (onboarding). Replaces the
  * browser's direct rpc/register_watched_wallet call, which the publishable key
  * let anyone aim at a victim's row: rewriting risk_profile to "aggressive"
  * raises their alert threshold from 25 to 75 and mutes their liquidation
  * warnings, and unbounded inserts add wallets the worker polls every 60s.
  *
- * Ownership signature + strict per-IP limit; the RPC runs over the service
- * connection, which the migration's revoke does not (and must not) touch.
+ * Ownership signature bound to the "wallet-register" action + strict per-IP
+ * limit; the RPC runs over the service connection, which the migration's revoke
+ * does not (and must not) touch.
  */
 app.post("/api/wallets/register", strictLimit, async (req, res) => {
-  const proof = await verifyWalletOwnership(req.body);
+  const proof = await verifyWalletOwnership(req.body, "wallet-register");
   if (!proof.ok) {
     res.status(proof.status).json({ error: proof.error });
     return;
@@ -892,12 +917,14 @@ app.post("/api/profile/result", profileResultLimit, async (req, res) => {
 // Telegram deep-link mint - dev parity with the Vercel function api/telegram/link.ts.
 // (The webhook itself needs a public URL; tunnel to this server or use Vercel.)
 // Ownership-gated: the code this mints redirects a wallet's liquidation alerts
-// to whoever opens the deep link, so the caller must PROVE the wallet is theirs.
+// to whoever opens the deep link, so the caller must PROVE the wallet is theirs
+// with a proof bound to THIS action — a "register my wallet" signature must not
+// double as authorization to redirect someone's alerts.
 const telegramConfigured = Boolean(
   process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY && process.env.VITE_TELEGRAM_BOT_USERNAME,
 );
 app.post("/api/telegram/link", strictLimit, async (req, res) => {
-  const proof = await verifyWalletOwnership(req.body);
+  const proof = await verifyWalletOwnership(req.body, "telegram-link");
   if (!proof.ok) {
     res.status(proof.status).json({ error: proof.error });
     return;
