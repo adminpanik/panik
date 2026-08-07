@@ -287,7 +287,7 @@ export function TechyGlobe() {
 
         ctx.fillStyle = colorString;
         
-        // Slightly rounded vertical bars (dashes)
+        // Slightly rounded-sm vertical bars (dashes)
         ctx.fillRect(p.currX - barWidth / 2, p.currY - barHeight / 2, barWidth, barHeight);
         ctx.restore();
       }
@@ -313,7 +313,7 @@ export function TechyGlobe() {
       id="techy-globe-container"
     >
       {/* Absolute Ambient Background Radial Glow strictly behind the globe canvas */}
-      <div className="absolute -inset-20 rounded-full bg-gradient-to-tr from-panik-orange/15 via-transparent to-orange-500/[0.05] opacity-65 blur-3xl pointer-events-none z-0"></div>
+      <div className="absolute -inset-20 rounded-full bg-gradient-to-tr from-panik-orange/15 via-transparent to-panik-orange/[0.05] opacity-65 blur-3xl pointer-events-none z-0"></div>
       
       {/* Canvas */}
       <canvas 

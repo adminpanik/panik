@@ -104,7 +104,7 @@ export default function App() {
   }
 
   return (
-    <div className="relative min-h-screen bg-[#0A0A0B] text-[#F0F4FF] selection:bg-panik-orange/30 selection:text-white overflow-x-clip">
+    <div className="relative min-h-screen bg-surface-base text-text-primary selection:bg-panik-orange/30 selection:text-text-primary overflow-x-clip">
       {/* Navigation section */}
       <Navigation
         onScrollTo={handleScrollToSection}
@@ -116,8 +116,8 @@ export default function App() {
       {/* Global continuous background techy globe spanning Hero and Dashboard preview */}
       <div className="absolute left-1/2 top-[480px] sm:top-[520px] -translate-y-1/2 -translate-x-1/2 w-full max-w-[110rem] h-[1050px] z-0 select-none overflow-hidden pointer-events-none opacity-30">
         <TechyGlobe />
-        <div className="absolute inset-x-0 top-0 h-[250px] bg-gradient-to-b from-[#0A0A0B] to-transparent pointer-events-none z-20"></div>
-        <div className="absolute inset-x-0 bottom-0 h-[250px] bg-gradient-to-t from-[#0A0A0B] to-transparent pointer-events-none z-20"></div>
+        <div className="absolute inset-x-0 top-0 h-[250px] bg-gradient-to-b from-surface-base to-transparent pointer-events-none z-20"></div>
+        <div className="absolute inset-x-0 bottom-0 h-[250px] bg-gradient-to-t from-surface-base to-transparent pointer-events-none z-20"></div>
       </div>
 
       {/* Hero section */}

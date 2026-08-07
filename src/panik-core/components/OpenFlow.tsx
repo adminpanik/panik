@@ -355,7 +355,7 @@ export function OpenFlow({
   ]);
 
   const inputCls =
-    "w-full bg-[#111318] border border-white/10 rounded-xl px-3 py-2 text-sm font-mono tabular-nums text-white focus:border-panik-orange/50 focus:outline-hidden";
+    "w-full bg-surface-raised border border-border-strong rounded-md px-3 py-2 text-sm font-mono tabular-nums text-text-primary focus:border-panik-orange/50";
 
   const summary = useMemo(
     () =>
@@ -377,39 +377,39 @@ export function OpenFlow({
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative w-full max-w-lg bg-[#0d0f14] border border-white/10 rounded-2xl p-6 space-y-5 max-h-[85vh] overflow-y-auto"
+        className="relative w-full max-w-lg bg-surface-sunken border border-border-subtle rounded-lg p-6 space-y-5 max-h-[85vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-display font-bold text-white">Open Position</h2>
-            <p className="text-[11px] font-mono text-white/40 mt-0.5">{summary}</p>
+            <h2 className="text-lg font-display font-bold text-text-primary">Open Position</h2>
+            <p className="text-2xs font-mono text-text-muted mt-0.5">{summary}</p>
           </div>
           <button
             onClick={requestClose}
             disabled={executing}
             title={executing ? "Finish or cancel the pending transaction first" : "Close"}
-            className="text-white/40 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-white/40"
+            className="text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-muted"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 text-xs text-panik-text-secondary font-sans leading-relaxed">
-          Executes on <b className="text-white">Base mainnet</b> with real funds. Non-custodial:
+        <div className="rounded-md border border-border-subtle bg-white/[0.02] p-3 text-xs text-text-secondary font-sans leading-relaxed">
+          Executes on <b className="text-text-primary">Base mainnet</b> with real funds. Non-custodial:
           every step is a standard protocol transaction signed by your own wallet - PANIK never
           holds your assets.
         </div>
 
         {step === "unsupported" ? (
           <div className="space-y-4">
-            <p className="text-sm text-panik-text-secondary font-sans">
+            <p className="text-sm text-text-secondary font-sans">
               In-app opening for {plan.collateralSymbol} on{" "}
               {PROTOCOL_LABEL[plan.protocol] ?? plan.protocol} is not yet address-verified. Use the
               protocol's own app for now.
             </p>
             <button
               onClick={onClose}
-              className="w-full py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm font-mono text-white hover:bg-white/[0.1] transition-colors"
+              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-mono text-text-primary hover:bg-white/[0.1] transition-colors"
             >
               Close
             </button>
@@ -419,7 +419,7 @@ export function OpenFlow({
         {step === "connect" ? (
           <button
             onClick={() => connect({ connector: injected() })}
-            className="w-full py-3 rounded-xl bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
+            className="w-full py-3 rounded-md bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
           >
             Connect wallet
           </button>
@@ -428,7 +428,7 @@ export function OpenFlow({
         {step === "chain" ? (
           <button
             onClick={() => void switchChainAsync({ chainId: OPEN_CHAIN_ID })}
-            className="w-full py-3 rounded-xl bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
+            className="w-full py-3 rounded-md bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
           >
             Switch to Base
           </button>
@@ -437,8 +437,8 @@ export function OpenFlow({
         {step === "review" || step === "executing" ? (
           <div className="space-y-4">
             {completedSteps > 0 ? (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs text-amber-200/90 font-sans leading-relaxed">
-                <b className="text-amber-200">
+              <div className="rounded-md border border-risk-elevated/30 bg-risk-elevated/[0.06] p-3 text-xs text-risk-elevated/90 font-sans leading-relaxed">
+                <b className="text-risk-elevated">
                   {completedSteps} step{completedSteps > 1 ? "s" : ""} already landed on-chain.
                 </b>{" "}
                 This open resumes from the next step - your collateral is already supplied and is
@@ -448,7 +448,7 @@ export function OpenFlow({
             ) : null}
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1">
-                <span className="text-[10px] font-mono tracking-widest uppercase text-white/35">
+                <span className="text-2xs font-mono tracking-widest uppercase text-text-muted">
                   Collateral (USD)
                 </span>
                 <input
@@ -466,7 +466,7 @@ export function OpenFlow({
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[10px] font-mono tracking-widest uppercase text-white/35">
+                <span className="text-2xs font-mono tracking-widest uppercase text-text-muted">
                   Borrow USDC (max {borrowCap})
                 </span>
                 <input
@@ -483,22 +483,22 @@ export function OpenFlow({
               </label>
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
-              <span className="text-[10px] font-mono tracking-widest uppercase text-white/35">
+            <div className="flex items-center justify-between rounded-md border border-border-subtle bg-white/[0.02] p-3">
+              <span className="text-2xs font-mono tracking-widest uppercase text-text-muted">
                 Projected PANIK score
               </span>
-              <span className="text-sm font-mono tabular-nums text-white">
+              <span className="text-sm font-mono tabular-nums text-text-primary">
                 {projectedScore}
                 {projectedHf !== null ? ` · HF ${projectedHf?.toFixed(2)}` : ""}
               </span>
             </div>
-            <p className="text-[10px] font-mono text-white/30">
+            <p className="text-2xs font-mono text-text-muted">
               Borrow is capped at your {riskProfile} profile's target health factor - the advisor
               sized this plan to stay within your risk band.
             </p>
 
             {error ? (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/[0.06] p-3 text-xs text-red-300 font-mono break-words">
+              <div className="rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-mono break-words">
                 {error}
               </div>
             ) : null}
@@ -506,7 +506,7 @@ export function OpenFlow({
             <button
               onClick={() => void execute()}
               disabled={executing || collateralUsd <= 0}
-              className="w-full py-3 rounded-xl bg-panik-orange text-black font-mono font-bold text-sm hover:bg-panik-orange/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-md bg-panik-orange text-black font-mono font-bold text-sm hover:bg-panik-orange/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {executing ? (
                 <>
@@ -520,7 +520,7 @@ export function OpenFlow({
               )}
             </button>
             {txHashes.length > 0 && !doneHash ? (
-              <p className="text-[10px] font-mono text-white/40 text-center">
+              <p className="text-2xs font-mono text-text-muted text-center">
                 {txHashes.length} transaction{txHashes.length > 1 ? "s" : ""} confirmed
                 {executing ? "..." : " - retrying continues from the next step"}
               </p>
@@ -530,10 +530,10 @@ export function OpenFlow({
 
         {step === "done" && doneHash ? (
           <div className="space-y-4 text-center py-4">
-            <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
+            <CheckCircle2 className="w-10 h-10 text-risk-low mx-auto" />
             <div>
-              <p className="text-white font-display font-bold">Position opened</p>
-              <p className="text-sm text-panik-text-secondary font-mono mt-1">
+              <p className="text-text-primary font-display font-bold">Position opened</p>
+              <p className="text-sm text-text-secondary font-mono mt-1">
                 Your wallet is now watched - scoring picks the position up within a minute.
               </p>
             </div>
@@ -547,7 +547,7 @@ export function OpenFlow({
             </a>
             <button
               onClick={onClose}
-              className="w-full py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm font-mono text-white hover:bg-white/[0.1] transition-colors"
+              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-mono text-text-primary hover:bg-white/[0.1] transition-colors"
             >
               Done
             </button>
@@ -555,7 +555,7 @@ export function OpenFlow({
         ) : null}
 
         {step !== "unsupported" && step !== "done" && !executing && error === null ? (
-          <p className="text-[10px] font-mono text-white/25 text-center flex items-center justify-center gap-1">
+          <p className="text-2xs font-mono text-text-muted text-center flex items-center justify-center gap-1">
             <AlertTriangle className="w-3 h-3" /> Real funds. Review every wallet prompt before
             signing.
           </p>

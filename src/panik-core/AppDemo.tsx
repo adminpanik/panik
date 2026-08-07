@@ -30,7 +30,7 @@ import {
   X,
   ChevronDown,
 } from "lucide-react";
-import { calculateDynamicPosition, formatCompactUsd, formatCurrency } from "./lib/utils";
+import { calculateDynamicPosition, formatCompactUsd, formatCurrency, RISK_CHIP } from "./lib/utils";
 import { PositionState } from "./lib/types";
 import { LivePositions } from "./components/LivePositions";
 import { Sparkline } from "./components/Sparkline";
@@ -84,23 +84,28 @@ type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
 type WatchSource = "positions" | "recommendations";
 type RiskProfile = "conservative" | "moderate" | "aggressive";
 
-// Colour for the user-segment badge in the dashboard header.
+/**
+ * Colour for the user-segment badge in the dashboard header. Segments are
+ * categorical, not ordinal, so the palette is entirely cool: borrowing green or
+ * amber here would tell the user their segment is safe or dangerous.
+ */
 const SEGMENT_BADGE: Record<Segment, string> = {
   explorer: "bg-sky-500/10 text-sky-400 border-sky-500/25",
-  yield_seeker: "bg-emerald-500/10 text-emerald-400 border-emerald-500/25",
+  yield_seeker: "bg-blue-500/10 text-blue-400 border-blue-500/25",
   liquidity_provider: "bg-cyan-500/10 text-cyan-400 border-cyan-500/25",
-  active_trader: "bg-amber-500/10 text-amber-400 border-amber-500/25",
+  active_trader: "bg-indigo-500/10 text-indigo-400 border-indigo-500/25",
   risk_optimizer: "bg-violet-500/10 text-violet-400 border-violet-500/25",
 };
 
-// Colour ramp for the 5-level risk-tier badge (Conservative → Aggressive).
-const TIER_BADGE: Record<RiskTier, string> = {
-  conservative: "bg-emerald-500/10 text-emerald-400 border-emerald-500/25",
-  moderately_conservative: "bg-teal-500/10 text-teal-300 border-teal-500/25",
-  moderate: "bg-panik-orange/10 text-panik-orange border-panik-orange/25",
-  moderately_aggressive: "bg-orange-500/10 text-orange-400 border-orange-500/25",
-  aggressive: "bg-red-500/10 text-red-400 border-red-500/25",
-};
+/**
+ * The risk PROFILE badge is one style for all five tiers, distinguished by its
+ * label alone. A profile is a preference the user stated, not a danger level the
+ * engine measured, so it must not borrow the risk ramp: an "aggressive" profile
+ * painted red reads as "your positions are in trouble". The old five-step ramp
+ * also put `moderate` and `moderately_aggressive` a dE of 7.8 apart, which is to
+ * say it encoded a distinction nobody could see.
+ */
+const TIER_BADGE = "bg-white/5 text-text-secondary border-border-subtle";
 
 const truncateAddress = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
 
@@ -119,11 +124,11 @@ const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho
 
 /** Alert-outcome chip copy for the Portfolio history feed. */
 const NOTIFY_CHANNEL_CHIP: Record<string, { label: string; cls: string }> = {
-  telegram: { label: "SENT · TELEGRAM", cls: "text-emerald-400 border-emerald-500/25 bg-emerald-500/10" },
-  skipped: { label: "RECOVERY", cls: "text-white/40 border-white/10 bg-white/[0.03]" },
-  suppressed_cooldown: { label: "MUTED · COOLDOWN", cls: "text-white/40 border-white/10 bg-white/[0.03]" },
-  suppressed_immaterial: { label: "MUTED · NO DEBT", cls: "text-white/40 border-white/10 bg-white/[0.03]" },
-  blocked: { label: "BOT BLOCKED", cls: "text-red-400 border-red-500/25 bg-red-500/10" },
+  telegram: { label: "SENT · TELEGRAM", cls: "text-risk-low border-risk-low/25 bg-risk-low/10" },
+  skipped: { label: "RECOVERY", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
+  suppressed_cooldown: { label: "MUTED · COOLDOWN", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
+  suppressed_immaterial: { label: "MUTED · NO DEBT", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
+  blocked: { label: "BOT BLOCKED", cls: "text-risk-critical border-risk-critical/25 bg-risk-critical/10" },
 };
 
 function timeAgo(iso: string): string {
@@ -663,7 +668,7 @@ export function AppDemo() {
             { symbol: "USDT Pool", usd: 1500 },
           ];
     const total = src.reduce((a, b) => a + b.usd, 0) || 1;
-    const colors = ["bg-indigo-500", "bg-sky-500", "bg-panik-orange", "bg-emerald-500"];
+    const colors = ["bg-indigo-500", "bg-sky-500", "bg-panik-orange", "bg-risk-low"];
     return src.map((a, i) => ({ ...a, pct: (a.usd / total) * 100, color: colors[i % 4] as string }));
   }, [portfolioPositions]);
 
@@ -915,9 +920,9 @@ export function AppDemo() {
 
   // Color mappings for risk tags matching Figma
   const getFigmaRiskStyle = (risk: number) => {
-    if (risk < 25) return "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25";
-    if (risk < 50) return "bg-amber-500/10 text-amber-500 border border-amber-500/25";
-    return "bg-red-500/10 text-red-400 border border-red-500/25";
+    if (risk < 25) return "bg-risk-low/10 text-risk-low border border-risk-low/25";
+    if (risk < 50) return "bg-risk-elevated/10 text-risk-elevated border border-risk-elevated/25";
+    return "bg-risk-critical/10 text-risk-critical border border-risk-critical/25";
   };
 
   const getFigmaRiskLabel = (risk: number) => {
@@ -950,18 +955,18 @@ export function AppDemo() {
       />
     )}
 
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0A0A0B] text-[#F0F4FF] font-sans antialiased text-sm">
+    <div className="flex h-screen w-screen overflow-hidden bg-surface-base text-text-primary font-sans antialiased text-sm">
 
       {/* 1. LEFT SIDEBAR PANEL (exactly modeled after the Figma UI) */}
-      <aside className="w-64 h-full shrink-0 flex flex-col justify-between border-r border-white/[0.06] bg-[#0A0A0B] p-6 z-30">
+      <aside className="w-64 h-full shrink-0 flex flex-col justify-between border-r border-border-subtle bg-surface-base p-6 z-30">
         
         {/* Sidebar Header Brand block */}
         <div className="space-y-8">
           <div className="flex items-center gap-2.5">
             <img src="/panik-logo.png" alt="PANIK" width={32} height={32} style={{ objectFit: "contain" }} />
             <div className="flex flex-col">
-              <span className="font-display font-extrabold text-lg tracking-widest text-white leading-none">PANIK</span>
-              <span className="text-[8px] font-mono tracking-widest text-[#F0F4FF]/40 uppercase mt-0.5">RISK INTELLIGENCE</span>
+              <span className="font-display font-extrabold text-lg tracking-widest text-text-primary leading-none">PANIK</span>
+              <span className="text-2xs font-mono tracking-widest text-text-muted uppercase mt-0.5">RISK INTELLIGENCE</span>
             </div>
           </div>
 
@@ -969,61 +974,61 @@ export function AppDemo() {
           <nav className="space-y-1">
             <button
               onClick={() => setActiveTab("portfolio")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
                 activeTab === "portfolio"
-                  ? "bg-white/[0.06] border border-white/[0.08] text-white font-bold"
-                  : "text-panik-text-secondary hover:text-white hover:bg-white/[0.02] border border-transparent"
+                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
+                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
               }`}
             >
-              <Wallet className={`w-4 h-4 ${activeTab === "portfolio" ? "text-panik-orange" : "text-panik-text-secondary"}`} />
+              <Wallet className={`w-4 h-4 ${activeTab === "portfolio" ? "text-panik-orange" : "text-text-secondary"}`} />
               <span>Portfolio</span>
             </button>
 
             <button
               onClick={() => setActiveTab("compass")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
                 activeTab === "compass"
-                  ? "bg-white/[0.06] border border-white/[0.08] text-white font-bold"
-                  : "text-panik-text-secondary hover:text-white hover:bg-white/[0.02] border border-transparent"
+                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
+                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
               }`}
             >
-              <CompassIcon className={`w-4 h-4 ${activeTab === "compass" ? "text-panik-orange" : "text-panik-text-secondary"}`} />
+              <CompassIcon className={`w-4 h-4 ${activeTab === "compass" ? "text-panik-orange" : "text-text-secondary"}`} />
               <span>Compass</span>
             </button>
 
             <button
               onClick={() => setActiveTab("watch")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
                 activeTab === "watch"
-                  ? "bg-white/[0.06] border border-white/[0.08] text-white font-bold"
-                  : "text-panik-text-secondary hover:text-white hover:bg-white/[0.02] border border-transparent"
+                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
+                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
               }`}
             >
-              <Eye className={`w-4 h-4 ${activeTab === "watch" ? "text-panik-orange" : "text-panik-text-secondary"}`} />
+              <Eye className={`w-4 h-4 ${activeTab === "watch" ? "text-panik-orange" : "text-text-secondary"}`} />
               <span>Watch</span>
             </button>
 
             <button
               onClick={() => setActiveTab("advisor")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
                 activeTab === "advisor"
-                  ? "bg-white/[0.06] border border-white/[0.08] text-white font-bold"
-                  : "text-panik-text-secondary hover:text-white hover:bg-white/[0.02] border border-transparent"
+                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
+                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
               }`}
             >
-              <Sparkles className={`w-4 h-4 ${activeTab === "advisor" ? "text-panik-orange" : "text-panik-text-secondary"}`} />
+              <Sparkles className={`w-4 h-4 ${activeTab === "advisor" ? "text-panik-orange" : "text-text-secondary"}`} />
               <span>Advisor</span>
             </button>
 
             <button
               onClick={() => setActiveTab("settings")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-lg text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
                 activeTab === "settings"
-                  ? "bg-white/[0.06] border border-white/[0.08] text-white font-bold"
-                  : "text-panik-text-secondary hover:text-white hover:bg-white/[0.02] border border-transparent"
+                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
+                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
               }`}
             >
-              <SettingsIcon className={`w-4 h-4 ${activeTab === "settings" ? "text-panik-orange" : "text-panik-text-secondary"}`} />
+              <SettingsIcon className={`w-4 h-4 ${activeTab === "settings" ? "text-panik-orange" : "text-text-secondary"}`} />
               <span>Settings</span>
             </button>
           </nav>
@@ -1033,7 +1038,7 @@ export function AppDemo() {
         <div className="space-y-4">
           <a
             href="/"
-            className="flex items-center gap-2 text-xs font-mono text-panik-text-secondary hover:text-white transition-colors cursor-pointer pt-2 group"
+            className="flex items-center gap-2 text-xs font-mono text-text-secondary hover:text-text-primary transition-colors cursor-pointer pt-2 group"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-panik-orange group-hover:-translate-x-0.5 transition-transform" />
             <span>Back to Landing</span>
@@ -1042,16 +1047,16 @@ export function AppDemo() {
       </aside>
 
       {/* 2. MAIN APPLICATION CONTENT AREA */}
-      <div className="flex-1 h-full flex flex-col overflow-hidden bg-[#07080A] relative">
+      <div className="flex-1 h-full flex flex-col overflow-hidden bg-surface-base relative">
         
         {/* TOP STATUS BAR (Gas feeds, Block Number precisely simulating real active smart contracts) */}
-        <header className="h-16 shrink-0 border-b border-white/[0.06] px-8 flex items-center justify-between bg-[#0E1015]/40 backdrop-blur-md">
+        <header className="h-16 shrink-0 border-b border-border-subtle px-8 flex items-center justify-between bg-surface-raised/40 backdrop-blur-md">
           <div className="flex items-center gap-2.5">
             {/* User segment badge (from onboarding profiling) */}
             {userSegment && (
               <span
                 title={`Your DeFi profile: ${SEGMENT_LABELS[userSegment]}`}
-                className={`hidden md:flex items-center px-2.5 py-1 rounded-lg border text-[11px] font-mono font-bold ${SEGMENT_BADGE[userSegment]}`}
+                className={`hidden md:flex items-center px-2.5 py-1 rounded-md border text-2xs font-mono font-bold ${SEGMENT_BADGE[userSegment]}`}
               >
                 {SEGMENT_LABELS[userSegment]}
               </span>
@@ -1061,24 +1066,24 @@ export function AppDemo() {
             {riskTier && (
               <span
                 title={`Your risk appetite: ${RISK_TIER_LABELS[riskTier]}`}
-                className={`flex items-center px-2.5 py-1 rounded-lg border text-[11px] font-mono font-bold ${TIER_BADGE[riskTier]}`}
+                className={`flex items-center px-2.5 py-1 rounded-md border text-2xs font-mono font-bold ${TIER_BADGE}`}
               >
                 {RISK_TIER_LABELS[riskTier]}
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-6 text-[10px] font-mono text-[#748BAA]">
+          <div className="flex items-center gap-6 text-2xs font-mono text-text-muted">
             <div className="hidden md:flex items-center gap-1.5">
               <span>EST GAS:</span>
-              <strong className="text-emerald-400 bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10 tabular-nums">{gasPrice} GWEI</strong>
+              <strong className="text-risk-low bg-risk-low/5 px-2 py-0.5 rounded-sm border border-risk-low/10 tabular-nums">{gasPrice} GWEI</strong>
             </div>
             <div className="h-4 w-px bg-white/10 hidden md:block"></div>
             <button
               type="button"
               onClick={() => setShowOnboarding(true)}
               title="Change wallet - a previously onboarded address restores its saved profile instantly"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.05] hover:border-panik-orange/30 text-[11px] font-semibold text-white/80 transition-colors cursor-pointer group"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle hover:border-panik-orange/30 text-2xs font-semibold text-text-secondary transition-colors cursor-pointer group"
             >
               <Wallet className="w-3.5 h-3.5 text-panik-orange" />
               <span>
@@ -1088,7 +1093,7 @@ export function AppDemo() {
                     ? `Registry (${wallets.length} wallets)`
                     : "Connect wallet"}
               </span>
-              <RefreshCw className="w-3 h-3 text-white/25 group-hover:text-panik-orange transition-colors" />
+              <RefreshCw className="w-3 h-3 text-text-muted group-hover:text-panik-orange transition-colors" />
             </button>
           </div>
         </header>
@@ -1108,45 +1113,42 @@ export function AppDemo() {
                 className="space-y-8 max-w-5xl"
               >
                 {/* Title Section */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-white/[0.06] pb-5">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle pb-5">
                   <div>
-                    <h1 className="text-3xl font-display font-extrabold tracking-tight text-white mb-1">Compass</h1>
-                    <p className="text-panik-text-secondary font-mono text-xs">
+                    <h1 className="text-2xl font-display font-extrabold tracking-tight text-text-primary mb-1">Compass</h1>
+                    <p className="text-text-secondary font-mono text-xs">
                       Find and open positions matched to your risk profile
-                      {compassLive && (
-                        <span className="ml-2 text-[10px] text-emerald-400">● live</span>
-                      )}
                     </p>
                   </div>
 
                   {/* High Fidelity Risk Profile Toggle matching Figma */}
-                  <div className="bg-white/[0.02] border border-white/[0.06] p-1 rounded-xl flex items-center max-w-sm">
+                  <div className="bg-white/[0.02] border border-border-subtle p-1 rounded-md flex items-center max-w-sm">
                     <button
                       onClick={() => setSelectedRiskProfile("conservative")}
-                      className={`px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      className={`px-3 py-1.5 text-2xs font-mono uppercase tracking-wider rounded-md transition-all cursor-pointer ${
                         selectedRiskProfile === "conservative"
                           ? "bg-panik-orange/15 text-panik-orange font-bold border border-panik-orange/30"
-                          : "text-panik-text-secondary hover:text-white"
+                          : "text-text-secondary hover:text-text-primary"
                       }`}
                     >
                       Conservative
                     </button>
                     <button
                       onClick={() => setSelectedRiskProfile("moderate")}
-                      className={`px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      className={`px-3 py-1.5 text-2xs font-mono uppercase tracking-wider rounded-md transition-all cursor-pointer ${
                         selectedRiskProfile === "moderate"
                           ? "bg-panik-orange/15 text-panik-orange font-bold border border-panik-orange/30"
-                          : "text-panik-text-secondary hover:text-white"
+                          : "text-text-secondary hover:text-text-primary"
                       }`}
                     >
                       Moderate
                     </button>
                     <button
                       onClick={() => setSelectedRiskProfile("aggressive")}
-                      className={`px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                      className={`px-3 py-1.5 text-2xs font-mono uppercase tracking-wider rounded-md transition-all cursor-pointer ${
                         selectedRiskProfile === "aggressive"
                           ? "bg-panik-orange/15 text-panik-orange font-bold border border-panik-orange/30"
-                          : "text-panik-text-secondary hover:text-white"
+                          : "text-text-secondary hover:text-text-primary"
                       }`}
                     >
                       Aggressive
@@ -1156,8 +1158,8 @@ export function AppDemo() {
 
                 {/* Section 1: Recommended for your chosen Profile */}
                 <div className="space-y-4">
-                  <h2 className="text-base font-mono font-bold text-white tracking-wide uppercase flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <h2 className="text-base font-mono font-bold text-text-primary tracking-wide uppercase flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-risk-low"></span>
                     Recommended for your {selectedRiskProfile.toUpperCase()} Profile
                   </h2>
 
@@ -1166,16 +1168,16 @@ export function AppDemo() {
                       <div
                         key={preset.id}
                         onClick={() => setSelectedRiskBreakdownPreset(preset)}
-                        className="bg-[#111318]/60 hover:bg-[#161922]/70 border border-white/[0.06] rounded-2xl p-5 relative overflow-hidden transition-all hover:border-panik-orange/35 shadow-xl group cursor-pointer"
+                        className="bg-surface-raised/60 hover:bg-surface-overlay/70 border border-border-subtle rounded-lg p-5 relative overflow-hidden transition-all hover:border-panik-orange/35 shadow-xl group cursor-pointer"
                       >
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex items-center gap-3">
                             <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
                             <div>
-                              <h3 className="text-sm font-mono font-bold text-white tracking-wide group-hover:text-panik-orange transition-colors">
+                              <h3 className="text-sm font-mono font-bold text-text-primary tracking-wide group-hover:text-panik-orange transition-colors">
                                 {preset.protocol}
                               </h3>
-                              <span className="text-[10px] font-mono text-[#748BAA] uppercase block">
+                              <span className="text-2xs font-mono text-text-muted uppercase block">
                                 {preset.assetPair}
                               </span>
                             </div>
@@ -1187,7 +1189,7 @@ export function AppDemo() {
                               setSelectedRiskBreakdownPreset(preset);
                             }}
                             onMouseEnter={() => setSelectedRiskBreakdownPreset(preset)}
-                            className={`text-[10px] font-mono font-bold py-1 px-2.5 rounded-lg flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm ${getFigmaRiskStyle(preset.baseRisk)}`}
+                            className={`text-2xs font-mono font-bold py-1 px-2.5 rounded-md flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm ${getFigmaRiskStyle(preset.baseRisk)}`}
                             title="Hover or click to view detailed risk breakdown"
                           >
                             <span>{preset.baseRisk} {getFigmaRiskLabel(preset.baseRisk)}</span>
@@ -1201,30 +1203,30 @@ export function AppDemo() {
                           return (
                             <>
                               <div className="mb-2 flex items-baseline justify-between">
-                                <span className="text-xs text-emerald-400 font-mono font-bold tabular-nums">
+                                <span className="text-xs text-risk-low font-mono font-bold tabular-nums">
                                   APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
                                 </span>
                                 {py && (
-                                  <span className="text-[9px] font-mono text-panik-text-secondary uppercase tabular-nums">
+                                  <span className="text-2xs font-mono text-text-secondary uppercase tabular-nums">
                                     TVL {formatCompactUsd(py.tvlUsd)}
                                   </span>
                                 )}
                               </div>
-                              <div className="border-t border-white/[0.04] pt-3 mt-2">
+                              <div className="border-t border-border-subtle pt-3 mt-2">
                                 {py ? (
                                   <>
                                     <Sparkline
                                       data={py.apySeries}
-                                      stroke="#34d399"
+                                      stroke="var(--color-sky-400)"
                                       height={36}
                                       axes={{ yFormat: (v) => `${v < 0.1 && v > 0 ? v.toFixed(2) : v.toFixed(1)}%`, xStart: "30d ago", xEnd: "today" }}
                                     />
-                                    <span className="block text-[8px] font-mono uppercase text-panik-text-secondary mt-1">
+                                    <span className="block text-2xs font-mono uppercase text-text-secondary mt-1">
                                       Supply APY, last 30 days
                                     </span>
                                   </>
                                 ) : (
-                                  <span className="block text-[9px] font-mono text-white/25 py-3">
+                                  <span className="block text-2xs font-mono text-text-muted py-3">
                                     30d yield history unavailable
                                   </span>
                                 )}
@@ -1234,10 +1236,10 @@ export function AppDemo() {
                         })()}
 
                         {/* Direct action links to load this into simulator watch window */}
-                        <div className="mt-5 pt-3 border-t border-white/[0.03] flex justify-between items-center opacity-80 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                        <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center opacity-80 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => setOpenPositionPreset(preset)}
-                            className="text-xs font-mono font-bold text-white transition-all bg-gradient-to-tr from-panik-orange to-red-500 hover:opacity-90 px-3 py-1 rounded-lg cursor-pointer"
+                            className="text-xs font-mono font-bold text-surface-base transition-all bg-panik-orange hover:opacity-90 px-3 py-1 rounded-md cursor-pointer"
                           >
                             Open Position
                           </button>
@@ -1247,7 +1249,7 @@ export function AppDemo() {
                               setWatchSource("recommendations");
                               setActiveTab("watch");
                             }}
-                            className="text-xs font-mono font-bold text-panik-orange hover:text-amber-400 transition-colors bg-panik-orange/10 border border-panik-orange/25 px-3 py-1 rounded-lg cursor-pointer flex items-center gap-1"
+                            className="text-xs font-mono font-bold text-panik-orange hover:text-risk-elevated transition-colors bg-panik-orange/10 border border-panik-orange/25 px-3 py-1 rounded-md cursor-pointer flex items-center gap-1"
                           >
                             <span>Audit & Simulate →</span>
                           </button>
@@ -1259,8 +1261,8 @@ export function AppDemo() {
 
                 {/* Section 2: Vaults outside the core profile limits */}
                 <div className="space-y-4 pt-4">
-                  <h2 className="text-base font-mono font-bold text-panik-text-secondary tracking-wide uppercase flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500/60"></span>
+                  <h2 className="text-base font-mono font-bold text-text-secondary tracking-wide uppercase flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-risk-critical/60"></span>
                     Outside Your Profile
                   </h2>
 
@@ -1269,16 +1271,16 @@ export function AppDemo() {
                       <div
                         key={preset.id}
                         onClick={() => setSelectedRiskBreakdownPreset(preset)}
-                        className="bg-[#111318]/25 border border-white/[0.03] rounded-2xl p-5 relative overflow-hidden transition-all hover:bg-[#111318]/45 hover:border-white/[0.08] cursor-pointer group"
+                        className="bg-surface-raised/25 border border-border-subtle rounded-lg p-5 relative overflow-hidden transition-all hover:bg-surface-raised/45 hover:border-border-strong cursor-pointer group"
                       >
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex items-center gap-3">
                             <ProtocolLogo protocol={preset.protocol} size="w-8 h-8 opacity-60 group-hover:opacity-100 transition-opacity" />
                             <div>
-                              <h3 className="text-sm font-mono font-bold text-white/50 group-hover:text-white transition-colors">
+                              <h3 className="text-sm font-mono font-bold text-text-muted group-hover:text-text-primary transition-colors">
                                 {preset.protocol}
                               </h3>
-                              <span className="text-[10px] font-mono text-white/30 uppercase block">
+                              <span className="text-2xs font-mono text-text-muted uppercase block">
                                 {preset.assetPair}
                               </span>
                             </div>
@@ -1290,7 +1292,7 @@ export function AppDemo() {
                               setSelectedRiskBreakdownPreset(preset);
                             }}
                             onMouseEnter={() => setSelectedRiskBreakdownPreset(preset)}
-                            className={`text-[10px] font-mono py-1 px-2.5 rounded-lg opacity-60 hover:opacity-100 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm ${getFigmaRiskStyle(preset.baseRisk)}`}
+                            className={`text-2xs font-mono py-1 px-2.5 rounded-md opacity-60 hover:opacity-100 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm ${getFigmaRiskStyle(preset.baseRisk)}`}
                             title="Hover or click to view detailed risk breakdown"
                           >
                             <span>{preset.baseRisk} {getFigmaRiskLabel(preset.baseRisk)}</span>
@@ -1304,31 +1306,31 @@ export function AppDemo() {
                           return (
                             <>
                               <div className="mb-2 flex items-baseline justify-between">
-                                <span className="text-xs text-white/40 font-mono tabular-nums">
+                                <span className="text-xs text-text-muted font-mono tabular-nums">
                                   APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
                                 </span>
                                 {py && (
-                                  <span className="text-[9px] font-mono text-white/30 uppercase tabular-nums">
+                                  <span className="text-2xs font-mono text-text-muted uppercase tabular-nums">
                                     TVL {formatCompactUsd(py.tvlUsd)}
                                   </span>
                                 )}
                               </div>
-                              <div className="border-t border-white/[0.02] pt-3 mt-2">
+                              <div className="border-t border-border-subtle pt-3 mt-2">
                                 {py ? (
                                   <>
                                     <Sparkline
                                       data={py.apySeries}
-                                      stroke="#64748b"
+                                      stroke="var(--color-text-muted)"
                                       height={36}
                                       className="opacity-70"
                                       axes={{ yFormat: (v) => `${v < 0.1 && v > 0 ? v.toFixed(2) : v.toFixed(1)}%`, xStart: "30d ago", xEnd: "today" }}
                                     />
-                                    <span className="block text-[8px] font-mono uppercase text-[#748BAA]/40 font-bold mt-1">
+                                    <span className="block text-2xs font-mono uppercase text-text-muted font-bold mt-1">
                                       Supply APY, last 30 days
                                     </span>
                                   </>
                                 ) : (
-                                  <span className="block text-[9px] font-mono text-white/20 py-3">
+                                  <span className="block text-2xs font-mono text-white/20 py-3">
                                     30d yield history unavailable
                                   </span>
                                 )}
@@ -1337,15 +1339,15 @@ export function AppDemo() {
                           );
                         })()}
 
-                        <div className="mt-5 pt-3 border-t border-white/[0.03] flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
-                          <span className="text-[9px] font-mono text-[#F0F4FF]/25">Outside safety triggers</span>
+                        <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
+                          <span className="text-2xs font-mono text-text-muted">Outside safety triggers</span>
                           <button
                             onClick={() => {
                               setSelectedPresetId(preset.id);
                               setWatchSource("recommendations");
                               setActiveTab("watch");
                             }}
-                            className="text-xs font-mono font-semibold text-white/50 hover:text-white transition-colors bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] px-3 py-1 rounded-lg cursor-pointer"
+                            className="text-xs font-mono font-semibold text-text-muted hover:text-text-primary transition-colors bg-white/[0.02] hover:bg-white/[0.05] border border-border-subtle px-3 py-1 rounded-md cursor-pointer"
                           >
                             <span>Force Audit →</span>
                           </button>
@@ -1372,7 +1374,7 @@ export function AppDemo() {
                     positions this wallet actually holds on-chain (Current
                     Positions). Recommendations keeps the Compass-derived
                     what-if sandbox for markets you could open. */}
-                <div className="flex items-center gap-1 p-1 bg-black/30 border border-white/[0.06] rounded-xl w-max">
+                <div className="flex items-center gap-1 p-1 bg-black/30 border border-border-subtle rounded-md w-max">
                   {([
                     { key: "positions", label: "Current Positions", count: watchPositionMarkets.length as number | null },
                     { key: "recommendations", label: "Recommendations", count: null as number | null },
@@ -1383,14 +1385,14 @@ export function AppDemo() {
                         key={opt.key}
                         onClick={() => setWatchSource(opt.key)}
                         aria-pressed={active}
-                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer ${
-                          active ? "bg-panik-orange/15 text-panik-orange" : "text-white/50 hover:text-white/80"
+                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-2xs font-mono font-bold transition-all cursor-pointer ${
+                          active ? "bg-panik-orange/15 text-panik-orange" : "text-text-muted hover:text-text-secondary"
                         }`}
                       >
                         {opt.key === "positions" ? <Eye className="w-3.5 h-3.5" /> : <CompassIcon className="w-3.5 h-3.5" />}
                         <span>{opt.label}</span>
                         {opt.count !== null && opt.count > 0 && (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full tabular-nums ${active ? "bg-panik-orange/25" : "bg-white/10 text-white/50"}`}>
+                          <span className={`text-2xs px-1.5 py-0.5 rounded-full tabular-nums ${active ? "bg-panik-orange/25" : "bg-white/10 text-text-muted"}`}>
                             {opt.count}
                           </span>
                         )}
@@ -1401,17 +1403,17 @@ export function AppDemo() {
 
                 {watchSource === "positions" && watchPositionMarkets.length === 0 ? (
                   /* Positions mode with nothing on-chain: honest empty state */
-                  <div className="bg-[#111318]/50 border border-white/[0.06] rounded-2xl p-8 flex flex-col items-start gap-4">
+                  <div className="bg-surface-raised/50 border border-border-subtle rounded-lg p-8 flex flex-col items-start gap-4">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-xl bg-panik-orange/10 border border-panik-orange/25 flex items-center justify-center shrink-0">
+                      <div className="w-9 h-9 rounded-md bg-panik-orange/10 border border-panik-orange/25 flex items-center justify-center shrink-0">
                         <Eye className="w-4.5 h-4.5 text-panik-orange" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-display font-extrabold text-white">No open positions to watch yet</h2>
-                        <p className="text-[11px] font-mono text-panik-text-secondary">Watch mirrors the positions this wallet holds on-chain.</p>
+                        <h2 className="text-lg font-display font-extrabold text-text-primary">No open positions to watch yet</h2>
+                        <p className="text-2xs font-mono text-text-secondary">Watch mirrors the positions this wallet holds on-chain.</p>
                       </div>
                     </div>
-                    <p className="text-xs font-sans text-panik-text-secondary max-w-lg leading-relaxed">
+                    <p className="text-xs font-sans text-text-secondary max-w-lg leading-relaxed">
                       Once you open a position it appears here automatically - live-scored by the
                       PANIK engine, with the stress-test simulator preloaded to your real collateral
                       and debt. In the meantime, browse risk-scored markets under Recommendations.
@@ -1419,13 +1421,13 @@ export function AppDemo() {
                     <div className="flex flex-wrap gap-2.5">
                       <button
                         onClick={() => setWatchSource("recommendations")}
-                        className="px-4 py-2 rounded-xl font-mono text-xs font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/30 hover:bg-panik-orange/20 cursor-pointer transition-all"
+                        className="px-4 py-2 rounded-md font-mono text-xs font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/30 hover:bg-panik-orange/20 cursor-pointer transition-all"
                       >
                         Browse Recommendations →
                       </button>
                       <button
                         onClick={() => setActiveTab("compass")}
-                        className="px-4 py-2 rounded-xl font-mono text-xs font-bold text-white bg-gradient-to-tr from-panik-orange to-red-500 hover:opacity-90 cursor-pointer transition-all"
+                        className="px-4 py-2 rounded-md font-mono text-xs font-bold text-surface-base bg-panik-orange hover:opacity-90 cursor-pointer transition-all"
                       >
                         Open a Position in Compass
                       </button>
@@ -1437,15 +1439,15 @@ export function AppDemo() {
                 <div className="col-span-1 lg:col-span-8 space-y-6">
                   
                   {/* Active Simulator Header widget */}
-                  <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-2xl relative overflow-hidden backdrop-blur-xl">
+                  <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg relative overflow-hidden backdrop-blur-xl">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-panik-orange/5 rounded-full blur-2xl pointer-events-none"></div>
-                    <div className="flex justify-between items-center mb-4.5 border-b border-white/[0.05] pb-3">
+                    <div className="flex justify-between items-center mb-4.5 border-b border-border-subtle pb-3">
                       {/* Market selector - mode-aware. Positions mode lists the
                           wallet's real on-chain positions; Recommendations lists
                           the Compass preset catalog. */}
                       <div className="relative" ref={watchDropRef}>
-                        <span className="block text-[9px] font-mono tracking-widest text-panik-orange uppercase mb-1">
-                          {watchingOwnPosition ? "YOUR LIVE POSITION · SCORED ON-CHAIN" : "POSITION SIMULATOR · MARKET"}
+                        <span className="block text-2xs font-mono tracking-widest text-panik-orange uppercase mb-1">
+                          {watchingOwnPosition ? "YOUR POSITION · SCORED ON-CHAIN" : "POSITION SIMULATOR · MARKET"}
                         </span>
                         <button
                           id="watch-market-selector"
@@ -1454,11 +1456,11 @@ export function AppDemo() {
                           aria-haspopup="listbox"
                           aria-expanded={watchDropOpen}
                         >
-                          <h2 className="text-xl font-display font-extrabold text-white tracking-wide group-hover:text-panik-orange/90 transition-colors">
+                          <h2 className="text-lg font-display font-extrabold text-text-primary tracking-wide group-hover:text-panik-orange/90 transition-colors">
                             {activeMarket.protocol} · {activeMarket.assetPair}
                           </h2>
                           <ChevronDown
-                            className={`w-4 h-4 text-white/40 group-hover:text-panik-orange/70 transition-all duration-200 ${watchDropOpen ? "rotate-180" : ""}`}
+                            className={`w-4 h-4 text-text-muted group-hover:text-panik-orange/70 transition-all duration-200 ${watchDropOpen ? "rotate-180" : ""}`}
                           />
                         </button>
 
@@ -1472,16 +1474,12 @@ export function AppDemo() {
                               animate={{ opacity: 1, y: 0, scale: 1 }}
                               exit={{ opacity: 0, y: -6, scale: 0.97 }}
                               transition={{ duration: 0.14 }}
-                              className="absolute left-0 top-full mt-2 z-50 w-80 bg-[#0D1017] border border-white/[0.08] rounded-xl shadow-2xl overflow-hidden"
+                              className="absolute left-0 top-full mt-2 z-50 w-80 bg-surface-raised border border-border-subtle rounded-md shadow-2xl overflow-hidden"
                             >
                               {watchingOwnPosition
                                 ? watchPositionMarkets.map(({ key, position, preset }) => {
                                     const isActive = key === selectedPositionMarket?.key;
-                                    const riskCls =
-                                      preset.riskStatus === "CRITICAL" ? "text-red-400 bg-red-500/10 border-red-500/25" :
-                                      preset.riskStatus === "HIGH"     ? "text-red-500 bg-red-500/10 border-red-500/20" :
-                                      preset.riskStatus === "ELEVATED" ? "text-amber-400 bg-amber-500/10 border-amber-500/25" :
-                                                                         "text-emerald-400 bg-emerald-500/10 border-emerald-500/25";
+                                    const riskCls = RISK_CHIP[preset.riskStatus];
                                     return (
                                       <li
                                         key={key}
@@ -1498,27 +1496,23 @@ export function AppDemo() {
                                         }`}
                                       >
                                         <div className="min-w-0">
-                                          <span className="block text-[9px] font-mono text-white/35 uppercase tracking-wider">{preset.protocol}</span>
+                                          <span className="block text-2xs font-mono text-text-muted uppercase tracking-wider">{preset.protocol}</span>
                                           <span className={`block text-sm font-mono font-semibold truncate tabular-nums ${
-                                            isActive ? "text-white" : "text-white/70"
+                                            isActive ? "text-text-primary" : "text-text-secondary"
                                           }`}>{preset.collateralSymbol} · {position.collateralValueUsd === null ? "size unavailable (prices degraded)" : `${formatCurrency(position.collateralValueUsd)} supplied`}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
-                                          <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${riskCls}`}>
+                                          <span className={`text-2xs font-mono font-bold px-1.5 py-0.5 rounded-sm border ${riskCls}`}>
                                             {preset.riskStatus}
                                           </span>
-                                          <span className="text-[10px] font-mono text-white/30 tabular-nums">{preset.baseRisk}</span>
+                                          <span className="text-2xs font-mono text-text-muted tabular-nums">{preset.baseRisk}</span>
                                         </div>
                                       </li>
                                     );
                                   })
                                 : presetsWithLive.map((p) => {
                                     const isActive = p.id === selectedPresetId;
-                                    const riskCls =
-                                      p.riskStatus === "CRITICAL" ? "text-red-400 bg-red-500/10 border-red-500/25" :
-                                      p.riskStatus === "HIGH"     ? "text-red-500 bg-red-500/10 border-red-500/20" :
-                                      p.riskStatus === "ELEVATED" ? "text-amber-400 bg-amber-500/10 border-amber-500/25" :
-                                                                   "text-emerald-400 bg-emerald-500/10 border-emerald-500/25";
+                                    const riskCls = RISK_CHIP[p.riskStatus];
                                     return (
                                       <li
                                         key={p.id}
@@ -1535,16 +1529,16 @@ export function AppDemo() {
                                         }`}
                                       >
                                         <div className="min-w-0">
-                                          <span className="block text-[9px] font-mono text-white/35 uppercase tracking-wider">{p.protocol}</span>
+                                          <span className="block text-2xs font-mono text-text-muted uppercase tracking-wider">{p.protocol}</span>
                                           <span className={`block text-sm font-mono font-semibold truncate ${
-                                            isActive ? "text-white" : "text-white/70"
+                                            isActive ? "text-text-primary" : "text-text-secondary"
                                           }`}>{p.assetPair}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
-                                          <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${riskCls}`}>
+                                          <span className={`text-2xs font-mono font-bold px-1.5 py-0.5 rounded-sm border ${riskCls}`}>
                                             {p.riskStatus}
                                           </span>
-                                          <span className="text-[10px] font-mono text-white/30 tabular-nums">{p.baseRisk}</span>
+                                          <span className="text-2xs font-mono text-text-muted tabular-nums">{p.baseRisk}</span>
                                         </div>
                                       </li>
                                     );
@@ -1558,24 +1552,26 @@ export function AppDemo() {
                             forms, so the open action must be one click away here. */}
                         <button
                           onClick={() => setOpenPositionPreset(activeMarket)}
-                          className="px-3 py-1.5 rounded-lg font-mono text-[10px] font-bold text-white bg-gradient-to-tr from-panik-orange to-red-500 hover:opacity-90 cursor-pointer transition-all"
+                          className="px-3 py-1.5 rounded-md font-mono text-2xs font-bold text-surface-base bg-panik-orange hover:bg-panik-orange/90 cursor-pointer transition-all"
                         >
                           Open This Position
                         </button>
-                        <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/25 flex items-center font-bold">
-                          {liveWatch ? "Live" : "Demo"}
-                        </span>
+                        {!liveWatch && (
+                          <span className="text-2xs font-mono text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
+                            Demo
+                          </span>
+                        )}
                       </div>
                     </div>
 
                     {/* REDESIGNED PANIK RISK INDEX CARD (Primary intelligence focal point) */}
-                    <div className="mb-6 p-5 bg-[#090C12] border border-white/[0.07] rounded-xl flex flex-col md:flex-row gap-6 relative overflow-hidden text-left">
+                    <div className="mb-6 p-5 bg-surface-sunken border border-border-subtle rounded-md flex flex-col md:flex-row gap-6 relative overflow-hidden text-left">
                       <div className="absolute top-0 left-0 w-24 h-24 bg-white/[0.01] rounded-full blur-xl pointer-events-none"></div>
                       
                       {/* Left: Score display & interpretation */}
                       <div className="flex-1 md:max-w-[280px] flex flex-col justify-between">
                         <div>
-                          <div className="flex items-center gap-1.5 text-white/40 font-mono text-[9px] uppercase tracking-wider mb-2">
+                          <div className="flex items-center gap-1.5 text-text-muted font-mono text-2xs uppercase tracking-wider mb-2">
                             <Activity className="w-3.5 h-3.5 text-panik-orange shrink-0" />
                             <span>Panik Risk Index</span>
                             <InfoTip text="0-100 composite of position health, asset risk, protocol safety, and market stress. Higher means closer to liquidation; your risk profile sets where alerts fire." />
@@ -1583,20 +1579,15 @@ export function AppDemo() {
 
                           <div className="flex items-baseline gap-2 mb-2">
                             <span className={`text-4xl font-mono font-black tracking-tight tabular-nums ${
-                              positionState.riskScore < 25 ? "text-emerald-400" :
-                              positionState.riskScore < 50 ? "text-amber-400" :
-                              "text-red-400"
+                              positionState.riskScore < 25 ? "text-risk-low" :
+                              positionState.riskScore < 50 ? "text-risk-elevated" :
+                              "text-risk-critical"
                             }`}>
                               {positionState.riskScore}
                             </span>
-                            <span className="text-xs font-mono text-white/30 tabular-nums">/ 100</span>
+                            <span className="text-xs font-mono text-text-muted tabular-nums">/ 100</span>
 
-                            <span className={`ml-auto text-[9px] font-mono font-bold px-2 py-0.5 rounded border ${
-                              positionState.status === "CRITICAL" ? "bg-red-500/25 text-red-400 border-red-500/35" :
-                              positionState.status === "HIGH" ? "bg-red-500/10 text-red-500 border-red-500/25" :
-                              positionState.status === "ELEVATED" ? "bg-amber-500/10 text-amber-500 border-amber-500/25" :
-                              "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
-                            }`}>
+                            <span className={`ml-auto text-2xs font-mono font-bold px-2 py-0.5 rounded-sm border ${RISK_CHIP[positionState.status]}`}>
                               {positionState.status === "CRITICAL" ? "CRITICAL THREAT" :
                                positionState.status === "HIGH" ? "HIGH RISK" :
                                positionState.status === "ELEVATED" ? "ELEVATED" : "LOW RISK"}
@@ -1605,22 +1596,22 @@ export function AppDemo() {
                         </div>
 
                         {/* Plain language summary & trend indicators */}
-                        <div className="mt-3 pt-3 border-t border-white/[0.04] space-y-2.5">
-                          <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                        <div className="mt-3 pt-3 border-t border-border-subtle space-y-2.5">
+                          <div className="flex items-center gap-1.5 font-mono text-2xs">
                             {trendNum > 0 ? (
-                              <span className="text-amber-500 font-bold flex items-center gap-1">
+                              <span className="text-risk-elevated font-bold flex items-center gap-1">
                                 <span>▲</span>
                                 <span>+{trendNum} in the last 24 hours</span>
                               </span>
                             ) : (
-                              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                              <span className="text-risk-low font-bold flex items-center gap-1">
                                 <span>▼</span>
                                 <span>{trendNum} in the last 24 hours</span>
                               </span>
                             )}
                           </div>
                           
-                          <p className="text-[11px] text-[#A0AEC0] leading-relaxed font-sans">
+                          <p className="text-2xs text-text-secondary leading-relaxed font-sans">
                             {positionState.status === "CRITICAL" && "Extreme liquidation danger. Spot price is dangerously close to your liquidation benchmark."}
                             {positionState.status === "HIGH" && "Liquidation threat is high due to current leverage ratios. Repayment or buffer injection strongly advised."}
                             {positionState.status === "ELEVATED" && "Moderate leverage risk. Position is stable but vulnerable to short-term market volatile swings."}
@@ -1634,7 +1625,7 @@ export function AppDemo() {
                             if (borrowUsd <= 0 || cv <= 0) return null;
                             if (positionState.healthFactor <= 1.0) {
                               return (
-                                <p className="text-[11px] font-sans leading-relaxed text-red-400 font-semibold">
+                                <p className="text-2xs font-sans leading-relaxed text-risk-critical font-semibold">
                                   At this simulated price your {formatCurrency(cv)} collateral is past the
                                   liquidation threshold - liquidators could seize it.
                                 </p>
@@ -1643,11 +1634,11 @@ export function AppDemo() {
                             if (lp > 0 && lp < positionState.currentPrice) {
                               const dropPct = Math.round((1 - lp / positionState.currentPrice) * 100);
                               return (
-                                <p className="text-[11px] font-sans leading-relaxed text-[#A0AEC0]">
+                                <p className="text-2xs font-sans leading-relaxed text-text-secondary">
                                   A further <span className="text-panik-orange font-semibold tabular-nums">-{dropPct}%</span>{" "}
                                   {activeMarket.collateralAsset} move (to{" "}
                                   <span className="text-panik-orange font-semibold tabular-nums">{formatCurrency(lp)}</span>) puts
-                                  your <span className="text-white font-semibold tabular-nums">{formatCurrency(cv)}</span> collateral
+                                  your <span className="text-text-primary font-semibold tabular-nums">{formatCurrency(cv)}</span> collateral
                                   up for liquidation.
                                 </p>
                               );
@@ -1658,22 +1649,22 @@ export function AppDemo() {
                       </div>
 
                       {/* Right: Top Risk Drivers section */}
-                      <div className="flex-1 border-t md:border-t-0 md:border-l border-white/[0.04] pt-4 md:pt-0 md:pl-6 space-y-4">
-                        <span className="block text-[9px] font-mono tracking-widest text-[#748BAA] uppercase select-none">
+                      <div className="flex-1 border-t md:border-t-0 md:border-l border-border-subtle pt-4 md:pt-0 md:pl-6 space-y-4">
+                        <span className="block text-2xs font-mono tracking-widest text-text-muted uppercase select-none">
                           Top Risk Drivers
                         </span>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                           {/* Driver 1: Health Factor */}
                           <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-[10px] font-mono">
-                              <span className="text-[#A0AEC0] flex items-center gap-1">
+                            <div className="flex justify-between items-center text-2xs font-mono">
+                              <span className="text-text-secondary flex items-center gap-1">
                                 Health Factor
                                 <InfoTip text="Your distance to liquidation, scaled 0-100. The heaviest input to the composite score (40% weight)." />
                               </span>
                               <span className={`font-bold tabular-nums ${
-                                healthFactorScore > 75 ? "text-red-400" :
-                                healthFactorScore > 40 ? "text-amber-400" : "text-emerald-400"
+                                healthFactorScore > 75 ? "text-risk-critical" :
+                                healthFactorScore > 40 ? "text-risk-elevated" : "text-risk-low"
                               }`}>
                                 {healthFactorScore}%
                               </span>
@@ -1681,8 +1672,8 @@ export function AppDemo() {
                             <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
                               <div 
                                 className={`h-full rounded-full transition-all duration-300 ${
-                                  healthFactorScore > 75 ? "bg-red-500" :
-                                  healthFactorScore > 40 ? "bg-amber-500" : "bg-emerald-500"
+                                  healthFactorScore > 75 ? "bg-risk-critical" :
+                                  healthFactorScore > 40 ? "bg-risk-elevated" : "bg-risk-low"
                                 }`}
                                 style={{ width: `${healthFactorScore}%` }}
                               ></div>
@@ -1691,8 +1682,8 @@ export function AppDemo() {
 
                           {/* Driver 2: Asset Volatility */}
                           <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-[10px] font-mono">
-                              <span className="text-[#A0AEC0] flex items-center gap-1">
+                            <div className="flex justify-between items-center text-2xs font-mono">
+                              <span className="text-text-secondary flex items-center gap-1">
                                 Asset Volatility
                                 <InfoTip text="How sharply your collateral's price has moved recently (30d vol, drawdown, correlation). Volatile collateral erodes your buffer faster. 25% weight." />
                               </span>
@@ -1708,16 +1699,16 @@ export function AppDemo() {
 
                           {/* Driver 3: Protocol Risk */}
                           <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-[10px] font-mono">
-                              <span className="text-[#A0AEC0] flex items-center gap-1">
+                            <div className="flex justify-between items-center text-2xs font-mono">
+                              <span className="text-text-secondary flex items-center gap-1">
                                 Protocol Risk
                                 <InfoTip text="Audit posture, governance timelock, and market controls of the protocol holding this position. 20% weight." />
                               </span>
-                              <span className="text-emerald-400 font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
+                              <span className="text-risk-low font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
                             </div>
                             <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
                               <div 
-                                className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                                className="h-full bg-risk-low rounded-full transition-all duration-300"
                                 style={{ width: `${positionState.breakdown.protocolSafety}%` }}
                               ></div>
                             </div>
@@ -1725,14 +1716,14 @@ export function AppDemo() {
 
                           {/* Driver 4: Pool Conditions */}
                           <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-[10px] font-mono">
-                              <span className="text-[#A0AEC0] flex items-center gap-1">
+                            <div className="flex justify-between items-center text-2xs font-mono">
+                              <span className="text-text-secondary flex items-center gap-1">
                                 Pool Conditions
                                 <InfoTip text="Market-wide stress: sector TVL flows and broad drawdowns that hit every position at once. 15% weight." />
                               </span>
                               <span className={`font-bold tabular-nums ${
-                                positionState.breakdown.systemicMarketStress > 70 ? "text-red-400" :
-                                positionState.breakdown.systemicMarketStress > 40 ? "text-amber-400" : "text-emerald-400"
+                                positionState.breakdown.systemicMarketStress > 70 ? "text-risk-critical" :
+                                positionState.breakdown.systemicMarketStress > 40 ? "text-risk-elevated" : "text-risk-low"
                               }`}>
                                 {positionState.breakdown.systemicMarketStress}%
                               </span>
@@ -1740,8 +1731,8 @@ export function AppDemo() {
                             <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
                               <div 
                                 className={`h-full rounded-full transition-all duration-300 ${
-                                  positionState.breakdown.systemicMarketStress > 70 ? "bg-red-500" :
-                                  positionState.breakdown.systemicMarketStress > 40 ? "bg-amber-500" : "bg-emerald-500"
+                                  positionState.breakdown.systemicMarketStress > 70 ? "bg-risk-critical" :
+                                  positionState.breakdown.systemicMarketStress > 40 ? "bg-risk-elevated" : "bg-risk-low"
                                 }`}
                                 style={{ width: `${positionState.breakdown.systemicMarketStress}%` }}
                               ></div>
@@ -1750,7 +1741,7 @@ export function AppDemo() {
                         </div>
 
                         {/* Explanatory footer line inside bento block */}
-                        <div className="pt-2.5 flex items-center gap-1.5 text-[9px] font-mono text-white/30 border-t border-white/[0.03]">
+                        <div className="pt-2.5 flex items-center gap-1.5 text-2xs font-mono text-text-muted border-t border-border-subtle">
                           <HelpCircle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                           <span>Core parameters compiled from real-time pool triggers & volatility parameters.</span>
                         </div>
@@ -1761,50 +1752,50 @@ export function AppDemo() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       
                       {/* Health Factor */}
-                      <div className="bg-[#0A0D14]/85 border border-white/[0.06] p-4.5 rounded-xl">
-                        <span className="flex items-center gap-1.5 text-[10px] font-mono text-panik-text-secondary uppercase tracking-wider mb-1">
+                      <div className="bg-surface-sunken/85 border border-border-subtle p-4.5 rounded-md">
+                        <span className="flex items-center gap-1.5 text-2xs font-mono text-text-secondary uppercase tracking-wider mb-1">
                           HEALTH FACTOR
                           <InfoTip text="Collateral value times the protocol's liquidation threshold, divided by your debt. Below 1.00 the protocol can liquidate you. The buffer matters more than the raw number." />
                         </span>
                         <div className="flex items-baseline gap-1">
                           <span className={`text-4xl font-mono font-bold tracking-tight tabular-nums ${
-                            positionState.healthFactor < 1.3 ? "text-red-400" :
-                            positionState.healthFactor < 1.7 ? "text-amber-400" :
-                            "text-emerald-400"
+                            positionState.healthFactor < 1.3 ? "text-risk-critical" :
+                            positionState.healthFactor < 1.7 ? "text-risk-elevated" :
+                            "text-risk-low"
                           }`}>
                             {positionState.healthFactor.toFixed(2)}
                           </span>
                         </div>
-                        <span className="text-[9px] font-mono text-[#F0F4FF]/45 block mt-2">Liquidation trigger limit is &lt; 1.00</span>
+                        <span className="text-2xs font-mono text-text-muted block mt-2">Liquidation trigger limit is &lt; 1.00</span>
                       </div>
 
                       {/* Position LTV */}
-                      <div className="bg-[#0A0D14]/85 border border-white/[0.06] p-4.5 rounded-xl">
-                        <span className="flex items-center gap-1.5 text-[10px] font-mono text-panik-text-secondary uppercase tracking-wider mb-1">
+                      <div className="bg-surface-sunken/85 border border-border-subtle p-4.5 rounded-md">
+                        <span className="flex items-center gap-1.5 text-2xs font-mono text-text-secondary uppercase tracking-wider mb-1">
                           POSITION LTV
                           <InfoTip text="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation." />
                         </span>
                         <div className="flex items-baseline gap-1">
-                          <span className="text-4xl font-mono font-bold tracking-tight text-white/95 tabular-nums">
+                          <span className="text-4xl font-mono font-bold tracking-tight text-text-primary tabular-nums">
                             {Math.round((borrowUsd / (collateralAmount * assetPrice)) * 100)}%
                           </span>
                         </div>
-                        <span className="text-[9px] font-mono text-[#F0F4FF]/45 block mt-2">Maximum risk cap parameter: {activeMarket.protocol === "Aave V3" ? "82%" : "78%"}</span>
+                        <span className="text-2xs font-mono text-text-muted block mt-2">Maximum risk cap parameter: {activeMarket.protocol === "Aave V3" ? "82%" : "78%"}</span>
                       </div>
 
                     </div>
 
                     {/* PANIK Detailed Auditing Card */}
-                    <div className="border border-white/[0.06] bg-[#0E1119]/85 p-5 rounded-2xl mt-6">
-                      <span className="block text-[10px] font-mono text-[#748BAA] tracking-widest uppercase mb-3.5">
+                    <div className="border border-border-subtle bg-surface-raised/85 p-5 rounded-lg mt-6">
+                      <span className="block text-2xs font-mono text-text-muted tracking-widest uppercase mb-3.5">
                         PANIK DETAILED AUDITING
                       </span>
                       
                       <div className="space-y-3.5">
                         <div>
-                          <div className="flex justify-between text-[10px] font-mono mb-1">
-                            <span className="text-[#F0F4FF]/75">Collateral Health</span>
-                            <span className="text-white font-bold tabular-nums">{positionState.breakdown.positionHealth}%</span>
+                          <div className="flex justify-between text-2xs font-mono mb-1">
+                            <span className="text-text-secondary">Collateral Health</span>
+                            <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.positionHealth}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                             <div className="h-full bg-panik-orange" style={{ width: `${positionState.breakdown.positionHealth}%` }}></div>
@@ -1812,9 +1803,9 @@ export function AppDemo() {
                         </div>
 
                         <div>
-                          <div className="flex justify-between text-[10px] font-mono mb-1">
-                            <span className="text-[#F0F4FF]/75">Asset Volatility</span>
-                            <span className="text-white font-bold tabular-nums">{positionState.breakdown.assetVolatility}%</span>
+                          <div className="flex justify-between text-2xs font-mono mb-1">
+                            <span className="text-text-secondary">Asset Volatility</span>
+                            <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.assetVolatility}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                             <div className="h-full bg-white/40" style={{ width: `${positionState.breakdown.assetVolatility}%` }}></div>
@@ -1822,12 +1813,12 @@ export function AppDemo() {
                         </div>
 
                         <div>
-                          <div className="flex justify-between text-[10px] font-mono mb-1">
-                            <span className="text-[#F0F4FF]/75">Protocol Risk</span>
-                            <span className="text-white font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
+                          <div className="flex justify-between text-2xs font-mono mb-1">
+                            <span className="text-text-secondary">Protocol Risk</span>
+                            <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-red-400" style={{ width: `${positionState.breakdown.protocolSafety}%` }}></div>
+                            <div className="h-full bg-risk-critical" style={{ width: `${positionState.breakdown.protocolSafety}%` }}></div>
                           </div>
                         </div>
                       </div>
@@ -1841,8 +1832,8 @@ export function AppDemo() {
                 <div className="col-span-1 lg:col-span-4 space-y-6">
                   
                   {/* Scenario presets (#3): the answer first, sliders second */}
-                  <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-2xl space-y-3">
-                    <span className="text-[10px] font-mono text-white tracking-widest uppercase block border-b border-white/[0.05] pb-2">
+                  <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                    <span className="text-2xs font-mono text-text-primary tracking-widest uppercase block border-b border-border-subtle pb-2">
                       Price Scenarios
                     </span>
                     <div className="grid grid-cols-2 gap-2">
@@ -1856,48 +1847,48 @@ export function AppDemo() {
                           <button
                             key={s.key}
                             onClick={() => applyScenario(s.key, s.pct)}
-                            className={`text-left p-2.5 rounded-lg border transition-all cursor-pointer ${
+                            className={`text-left p-2.5 rounded-md border transition-all cursor-pointer ${
                               active
                                 ? "bg-panik-orange/10 border-panik-orange/40"
-                                : "bg-white/[0.01] border-white/[0.05] hover:bg-white/[0.04]"
+                                : "bg-white/[0.01] border-border-subtle hover:bg-white/[0.04]"
                             }`}
                           >
                             <div className="flex items-baseline justify-between">
-                              <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${active ? "text-panik-orange" : "text-white/80"}`}>
+                              <span className={`text-2xs font-mono font-bold uppercase tracking-wider ${active ? "text-panik-orange" : "text-text-secondary"}`}>
                                 {s.label}
                               </span>
                               {s.pct !== 0 && (
-                                <span className="text-[9px] font-mono text-red-400/80 tabular-nums">{Math.round(s.pct * 100)}%</span>
+                                <span className="text-2xs font-mono text-risk-critical/80 tabular-nums">{Math.round(s.pct * 100)}%</span>
                               )}
                             </div>
-                            <span className="block text-[10px] font-mono text-white/60 mt-1 tabular-nums">
+                            <span className="block text-2xs font-mono text-text-secondary mt-1 tabular-nums">
                               {formatCurrency(price)}
                               {borrowUsd > 0 && (
-                                <span className={`ml-1.5 font-bold tabular-nums ${liquidated ? "text-red-400" : estHf < 1.3 ? "text-amber-400" : "text-emerald-400"}`}>
+                                <span className={`ml-1.5 font-bold tabular-nums ${liquidated ? "text-risk-critical" : estHf < 1.3 ? "text-risk-elevated" : "text-risk-low"}`}>
                                   {liquidated ? "LIQUIDATED" : `HF ~${estHf.toFixed(2)}`}
                                 </span>
                               )}
                             </span>
-                            <span className="block text-[8px] font-mono text-white/25 mt-0.5">{s.note}</span>
+                            <span className="block text-2xs font-mono text-text-muted mt-0.5">{s.note}</span>
                           </button>
                         );
                       })}
                     </div>
-                    <p className="text-[8px] font-mono text-white/25 leading-relaxed">
+                    <p className="text-2xs font-mono text-text-muted leading-relaxed">
                       Crash and black-swan magnitudes mirror the backtest event set. HF preview is an
                       estimate; the headline score uses the live engine.
                     </p>
                   </div>
 
                   {/* Advanced parameters (#4): direct inputs for amounts + prices */}
-                  <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-2xl space-y-4">
-                    <span className="text-[10px] font-mono text-white tracking-widest uppercase block border-b border-white/[0.05] pb-2">
+                  <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-4">
+                    <span className="text-2xs font-mono text-text-primary tracking-widest uppercase block border-b border-border-subtle pb-2">
                        Simulate Fluctuation Parameters
                     </span>
 
                     {/* Collateral amount */}
-                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
-                      <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
+                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
+                      <div className="flex justify-between items-center text-xs font-mono text-text-secondary">
                         <span>Collateral Deposited ({activeMarket.collateralAsset}):</span>
                         <input
                           type="number"
@@ -1905,7 +1896,7 @@ export function AppDemo() {
                           step={activeMarket.defaultCollateral < 10 ? 0.1 : 100}
                           value={collateralAmount}
                           onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-white text-xs font-mono outline-hidden focus:border-panik-orange/60 tabular-nums"
+                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-text-primary text-xs font-mono focus:border-panik-orange/60 tabular-nums"
                           aria-label="Collateral amount"
                         />
                       </div>
@@ -1916,18 +1907,18 @@ export function AppDemo() {
                         step={activeMarket.defaultCollateral < 10 ? 0.05 : 50}
                         value={Math.min(collateralAmount, activeMarket.defaultCollateral * 2.5)}
                         onChange={(e) => setCollateralAmount(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
+                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
                         id="watch-collateral-slider"
                       />
-                      <div className="flex justify-between text-[8px] font-mono text-white/20">
+                      <div className="flex justify-between text-2xs font-mono text-white/20">
                         <span>Withdrawn (0)</span>
                         <span>Topped up (2.5x) - worth {formatCurrency(collateralAmount * assetPrice)}</span>
                       </div>
                     </div>
 
                     {/* Collateral price */}
-                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
-                      <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
+                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
+                      <div className="flex justify-between items-center text-xs font-mono text-text-secondary">
                         <span>Collateral Asset Price ({activeMarket.collateralAsset}):</span>
                         <input
                           type="number"
@@ -1938,8 +1929,8 @@ export function AppDemo() {
                             setAssetPrice(Math.max(0, Number(e.target.value)));
                             setActiveScenario("custom");
                           }}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 tabular-nums ${
-                            assetPrice < activeMarket.defaultPrice * 0.8 ? "text-red-400 font-bold" : "text-white"
+                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-panik-orange/60 tabular-nums ${
+                            assetPrice < activeMarket.defaultPrice * 0.8 ? "text-risk-critical font-bold" : "text-text-primary"
                           }`}
                           aria-label="Collateral asset price in USD"
                         />
@@ -1954,18 +1945,18 @@ export function AppDemo() {
                           setAssetPrice(Number(e.target.value));
                           setActiveScenario("custom");
                         }}
-                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
+                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
                         id="watch-price-slider"
                       />
-                      <div className="flex justify-between text-[8px] font-mono text-white/20">
+                      <div className="flex justify-between text-2xs font-mono text-white/20">
                         <span>Minus -60% Downside ({formatCurrency(activeMarket.defaultPrice * 0.4)})</span>
                         <span>Plus +30% Upside ({formatCurrency(activeMarket.defaultPrice * 1.3)})</span>
                       </div>
                     </div>
 
                     {/* Borrowed amount */}
-                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
-                      <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
+                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
+                      <div className="flex justify-between items-center text-xs font-mono text-text-secondary">
                         <span>Borrowed Amount ({activeMarket.debtAsset}):</span>
                         <input
                           type="number"
@@ -1973,8 +1964,8 @@ export function AppDemo() {
                           step={activeMarket.defaultBorrow < 10 ? 0.1 : 50}
                           value={borrowAmount}
                           onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 tabular-nums ${
-                            borrowAmount > activeMarket.defaultBorrow * 1.2 ? "text-red-400 font-bold" : "text-white"
+                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-panik-orange/60 tabular-nums ${
+                            borrowAmount > activeMarket.defaultBorrow * 1.2 ? "text-risk-critical font-bold" : "text-text-primary"
                           }`}
                           aria-label="Borrowed amount"
                         />
@@ -1986,18 +1977,18 @@ export function AppDemo() {
                         step={activeMarket.defaultBorrow < 10 ? "0.1" : "50"}
                         value={Math.min(borrowAmount, activeMarket.defaultBorrow * 1.6)}
                         onChange={(e) => setBorrowAmount(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
+                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
                         id="watch-borrow-slider"
                       />
-                      <div className="flex justify-between text-[8px] font-mono text-white/20">
+                      <div className="flex justify-between text-2xs font-mono text-white/20">
                         <span>Fully repaid (0)</span>
                         <span>Leveraged (+60% Debt)</span>
                       </div>
                     </div>
 
                     {/* Borrowed asset price (depeg scenarios) */}
-                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-lg border border-white/[0.03] transition-colors">
-                      <div className="flex justify-between items-center text-xs font-mono text-panik-text-secondary">
+                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
+                      <div className="flex justify-between items-center text-xs font-mono text-text-secondary">
                         <span>Borrowed Asset Price ({activeMarket.debtAsset}):</span>
                         <input
                           type="number"
@@ -2005,8 +1996,8 @@ export function AppDemo() {
                           step={0.005}
                           value={debtPrice}
                           onChange={(e) => setDebtPrice(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 tabular-nums ${
-                            Math.abs(debtPrice - 1) > 0.02 ? "text-amber-400 font-bold" : "text-white"
+                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-panik-orange/60 tabular-nums ${
+                            Math.abs(debtPrice - 1) > 0.02 ? "text-risk-elevated font-bold" : "text-text-primary"
                           }`}
                           aria-label="Borrowed asset price in USD"
                         />
@@ -2018,10 +2009,10 @@ export function AppDemo() {
                         step={0.005}
                         value={Math.min(Math.max(debtPrice, 0.85), 1.05)}
                         onChange={(e) => setDebtPrice(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
+                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
                         id="watch-debt-price-slider"
                       />
-                      <div className="flex justify-between text-[8px] font-mono text-white/20">
+                      <div className="flex justify-between text-2xs font-mono text-white/20">
                         <span>Depeg ($0.85 - USDC hit $0.87 in Mar 2023)</span>
                         <span>Premium ($1.05)</span>
                       </div>
@@ -2046,9 +2037,9 @@ export function AppDemo() {
                 transition={{ duration: 0.18 }}
                 className="space-y-6 max-w-4xl"
               >
-                <div className="border-b border-white/[0.06] pb-5">
-                  <h1 className="text-3xl font-display font-extrabold tracking-tight text-white mb-1">AI Advisor</h1>
-                  <p className="text-panik-text-secondary font-mono text-xs">Intelligent decentralized risk modeling and real-time execution guidance</p>
+                <div className="border-b border-border-subtle pb-5">
+                  <h1 className="text-2xl font-display font-extrabold tracking-tight text-text-primary mb-1">AI Advisor</h1>
+                  <p className="text-text-secondary font-mono text-xs">Intelligent decentralized risk modeling and real-time execution guidance</p>
                 </div>
 
                 {advisorLive.report ? (
@@ -2058,20 +2049,20 @@ export function AppDemo() {
                     onOpen={(plan) => setOpenFlowPlan(plan)}
                   />
                 ) : (
-                <div className="bg-[#111318]/50 border border-white/[0.06] p-12 rounded-2xl flex flex-col items-center text-center max-w-2xl mx-auto my-8">
+                <div className="bg-surface-raised/50 border border-border-subtle p-12 rounded-lg flex flex-col items-center text-center max-w-2xl mx-auto my-8">
                   <div className="w-12 h-12 rounded-full bg-panik-orange/10 border border-panik-orange/30 flex items-center justify-center mb-6">
                     <Sparkles className="w-5 h-5 text-panik-orange" />
                   </div>
                   
-                  <span className="text-[10px] font-mono tracking-widest text-panik-orange uppercase font-bold mb-2">
+                  <span className="text-2xs font-mono tracking-widest text-panik-orange uppercase font-bold mb-2">
                     Coming Soon
                   </span>
                   
-                  <h3 className="text-xl font-display font-bold text-white tracking-tight mb-3">
+                  <h3 className="text-lg font-display font-bold text-text-primary tracking-tight mb-3">
                     Adaptive Intelligence at Your Service
                   </h3>
                   
-                  <p className="text-sm text-panik-text-secondary leading-relaxed font-sans max-w-md">
+                  <p className="text-sm text-text-secondary leading-relaxed font-sans max-w-md">
                     Our AI-powered guardrail recommendations, automated health rating models, and simulated action guides are currently undergoing extensive parameter audits on Base. Joining the waitlist guarantees early access to this feature upon release.
                   </p>
 
@@ -2083,9 +2074,9 @@ export function AppDemo() {
                         setAdvisorNotifyChecked(e.target.checked);
                         localStorage.setItem("panik_advisor_notify", String(e.target.checked));
                       }}
-                      className="w-4 h-4 rounded border border-white/20 bg-[#111318] accent-panik-orange cursor-pointer"
+                      className="w-4 h-4 rounded-sm border border-border-subtle bg-surface-raised accent-panik-orange cursor-pointer"
                     />
-                    <span className="text-xs font-mono text-panik-text-secondary group-hover:text-white transition-colors">
+                    <span className="text-xs font-mono text-text-secondary group-hover:text-text-primary transition-colors">
                       Notify me when Advisor goes live
                     </span>
                   </label>
@@ -2104,16 +2095,16 @@ export function AppDemo() {
                 transition={{ duration: 0.18 }}
                 className="space-y-6 max-w-5xl"
               >
-                <div className="border-b border-white/[0.06] pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="border-b border-border-subtle pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
-                    <h1 className="text-3xl font-display font-extrabold tracking-tight text-white mb-1">DeFi Portfolio</h1>
-                    <p className="text-panik-text-secondary font-mono text-xs">Real-time risk monitoring across your connected DeFi positions</p>
+                    <h1 className="text-2xl font-display font-extrabold tracking-tight text-text-primary mb-1">DeFi Portfolio</h1>
+                    <p className="text-text-secondary font-mono text-xs">Real-time risk monitoring across your connected DeFi positions</p>
                   </div>
                   {/* Primary action: opening positions lives in Compass; this is
                       the pointer Portfolio was missing (UX journey fix). */}
                   <button
                     onClick={() => setActiveTab("compass")}
-                    className="shrink-0 px-4 py-2.5 rounded-xl font-mono text-xs font-bold text-white bg-gradient-to-tr from-panik-orange to-red-500 hover:opacity-90 cursor-pointer transition-all shadow-lg"
+                    className="shrink-0 px-4 py-2.5 rounded-md font-mono text-xs font-bold text-surface-base bg-panik-orange hover:opacity-90 cursor-pointer transition-all shadow-lg"
                   >
                     + Open Position
                   </button>
@@ -2121,16 +2112,16 @@ export function AppDemo() {
 
                 {/* Empty-wallet path: don't leave a fresh wallet at a dead end */}
                 {portfolioPositions !== null && portfolioPositions.length === 0 && (
-                  <div className="bg-panik-orange/[0.04] border border-panik-orange/20 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="bg-panik-orange/[0.04] border border-panik-orange/20 rounded-lg p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
-                      <span className="block text-sm font-display font-bold text-white mb-0.5">No positions yet</span>
-                      <span className="text-xs font-sans text-panik-text-secondary">
+                      <span className="block text-sm font-display font-bold text-text-primary mb-0.5">No positions yet</span>
+                      <span className="text-xs font-sans text-text-secondary">
                         Browse risk-scored opportunities matched to your {selectedRiskProfile} profile and open your first position.
                       </span>
                     </div>
                     <button
                       onClick={() => setActiveTab("compass")}
-                      className="shrink-0 px-4 py-2 rounded-xl font-mono text-xs font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/30 hover:bg-panik-orange/20 cursor-pointer transition-all"
+                      className="shrink-0 px-4 py-2 rounded-md font-mono text-xs font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/30 hover:bg-panik-orange/20 cursor-pointer transition-all"
                     >
                       Explore Compass →
                     </button>
@@ -2140,16 +2131,16 @@ export function AppDemo() {
                 {/* Wallet selector — a portfolio is ONE wallet; ALL = ops/registry view */}
                 {wallets.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[9px] font-mono uppercase tracking-widest text-panik-text-secondary">Wallet:</span>
+                    <span className="text-2xs font-mono uppercase tracking-widest text-text-secondary">Wallet:</span>
                     {wallets.map((w) => (
                       <button
                         key={w.wallet}
                         onClick={() => setSelectedWallet(w.wallet)}
                         title={w.label ?? w.wallet}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-mono border transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-md text-2xs font-mono border transition-all cursor-pointer ${
                           selectedWallet === w.wallet
                             ? "bg-panik-orange/15 text-panik-orange border-panik-orange/30 font-bold"
-                            : "bg-white/[0.02] text-panik-text-secondary border-white/[0.06] hover:text-white"
+                            : "bg-white/[0.02] text-text-secondary border-border-subtle hover:text-text-primary"
                         }`}
                       >
                         {w.wallet.slice(0, 6)}…{w.wallet.slice(-4)}
@@ -2159,10 +2150,10 @@ export function AppDemo() {
                     {!boundMode && (
                       <button
                         onClick={() => setSelectedWallet("all")}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-mono border transition-all cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-md text-2xs font-mono border transition-all cursor-pointer ${
                           selectedWallet === "all"
                             ? "bg-panik-orange/15 text-panik-orange border-panik-orange/30 font-bold"
-                            : "bg-white/[0.02] text-panik-text-secondary border-white/[0.06] hover:text-white"
+                            : "bg-white/[0.02] text-text-secondary border-border-subtle hover:text-text-primary"
                         }`}
                       >
                         ALL (registry)
@@ -2173,54 +2164,54 @@ export function AppDemo() {
 
                 {/* Macro metrics columns — computed from LIVE positions when available */}
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4.5">
-                  <div className="bg-[#111318]/50 border border-white/[0.06] p-4.5 rounded-2xl">
-                    <span className="flex items-center gap-1 text-[8px] font-mono text-[#748BAA] uppercase font-bold">
-                      Monitored Capital {liveMacro && <span className="text-emerald-400">· LIVE</span>}
+                  <div className="bg-surface-raised/50 border border-border-subtle p-4.5 rounded-lg">
+                    <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase font-bold">
+                      Monitored Capital
                       <InfoTip text="Total collateral value PANIK is watching for this wallet across all protocols." />
                     </span>
-                    <span className="text-2xl font-mono font-bold text-white mt-1 block tabular-nums">
+                    <span className="text-2xl font-mono font-bold text-text-primary mt-1 block tabular-nums">
                       {liveMacro ? `$${Math.round(liveMacro.capital).toLocaleString()}` : "$18,450"}
                     </span>
-                    <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/5 px-1.5 py-0.5 rounded border border-emerald-500/10 inline-block mt-1">● Guard active</span>
+                    <span className="text-2xs font-mono text-risk-low bg-risk-low/5 px-1.5 py-0.5 rounded-sm border border-risk-low/10 inline-block mt-1">● Guard active</span>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-white/[0.06] p-4.5 rounded-2xl">
-                    <span className="flex items-center gap-1 text-[8px] font-mono text-[#748BAA] uppercase font-bold">
-                      Monitored Liabilities {liveMacro && <span className="text-emerald-400">· LIVE</span>}
+                  <div className="bg-surface-raised/50 border border-border-subtle p-4.5 rounded-lg">
+                    <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase font-bold">
+                      Monitored Liabilities
                       <InfoTip text="Total borrowed across your positions. Net LTV is liabilities divided by capital - lower means safer." />
                     </span>
-                    <span className="text-2xl font-mono font-bold text-white mt-1 block tabular-nums">
+                    <span className="text-2xl font-mono font-bold text-text-primary mt-1 block tabular-nums">
                       {liveMacro ? `$${Math.round(liveMacro.debt).toLocaleString()}` : "$9,310"}
                     </span>
-                    <span className="text-[9px] font-mono text-panik-text-secondary mt-1 block tabular-nums">
+                    <span className="text-2xs font-mono text-text-secondary mt-1 block tabular-nums">
                       Net LTV ratio: {liveMacro ? `${Math.round(liveMacro.ltv * 100)}%` : "50%"}
                     </span>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-white/[0.06] p-4.5 rounded-2xl">
-                    <span className="block text-[8px] font-mono text-[#748BAA] uppercase font-bold">Protocols Watched</span>
+                  <div className="bg-surface-raised/50 border border-border-subtle p-4.5 rounded-lg">
+                    <span className="block text-2xs font-mono text-text-muted uppercase font-bold">Protocols Watched</span>
                     <span className="text-2xl font-mono font-bold text-panik-orange mt-1 block tabular-nums">
                       {liveMacro ? `${liveMacro.positions} Positions` : "4 Pools"}
                     </span>
-                    <span className="text-[9px] font-mono text-panik-text-secondary mt-1 block">
+                    <span className="text-2xs font-mono text-text-secondary mt-1 block">
                       {liveMacro ? `Aave V3, Moonwell · ${liveMacro.protocols} protocols` : "Aave, Moonwell"}
                     </span>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-white/[0.06] p-4.5 rounded-2xl">
-                    <span className="flex items-center gap-1 text-[8px] font-mono text-[#748BAA] uppercase font-bold">
-                      Aggregate Risk Index {liveMacro && <span className="text-emerald-400">· LIVE</span>}
+                  <div className="bg-surface-raised/50 border border-border-subtle p-4.5 rounded-lg">
+                    <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase font-bold">
+                      Aggregate Risk Index
                       <InfoTip text="Collateral-weighted average PANIK score across this wallet's positions. Bigger positions move it more." />
                     </span>
                     <span className={`text-2xl font-mono font-bold mt-1 block tabular-nums ${
-                      (liveMacro?.aggregate ?? 22) >= 50 ? "text-red-400" :
-                      (liveMacro?.aggregate ?? 22) >= 25 ? "text-amber-400" : "text-emerald-400"
+                      (liveMacro?.aggregate ?? 22) >= 50 ? "text-risk-critical" :
+                      (liveMacro?.aggregate ?? 22) >= 25 ? "text-risk-elevated" : "text-risk-low"
                     }`}>
                       {liveMacro ? liveMacro.aggregate : 22} / 100
                     </span>
-                    <span className={`text-[9px] font-mono font-bold block mt-1 ${
-                      (liveMacro?.aggregate ?? 22) >= 50 ? "text-red-400" :
-                      (liveMacro?.aggregate ?? 22) >= 25 ? "text-amber-400" : "text-emerald-400"
+                    <span className={`text-2xs font-mono font-bold block mt-1 ${
+                      (liveMacro?.aggregate ?? 22) >= 50 ? "text-risk-critical" :
+                      (liveMacro?.aggregate ?? 22) >= 25 ? "text-risk-elevated" : "text-risk-low"
                     }`}>
                       {(liveMacro?.aggregate ?? 22) >= 50 ? "ELEVATED PORTFOLIO RISK" :
                        (liveMacro?.aggregate ?? 22) >= 25 ? "WATCH STATUS" : "SECURE HEALTH STATUS"}
@@ -2248,18 +2239,18 @@ export function AppDemo() {
                   </div>
 
                   {/* Right Column: Asset Allocation visual breakdown (lg:col-span-5) */}
-                  <div className="lg:col-span-5 bg-white/[0.01] border border-white/[0.06] rounded-2xl p-5.5 flex flex-col justify-between">
+                  <div className="lg:col-span-5 bg-white/[0.01] border border-border-subtle rounded-lg p-5.5 flex flex-col justify-between">
                     <div>
-                      <h3 className="text-sm font-mono tracking-widest text-[#748BAA] font-bold uppercase mb-4">
+                      <h3 className="text-sm font-mono tracking-widest text-text-muted font-bold uppercase mb-4">
                         Asset Allocation Weight
                       </h3>
-                      <p className="text-xs text-panik-text-secondary leading-normal mb-5 font-sans">
+                      <p className="text-xs text-text-secondary leading-normal mb-5 font-sans">
                         Breakdown of collateral asset distributions backing the protected portfolio vault lines.
                       </p>
 
                       <div className="space-y-5">
                         {/* Beautiful segmented bar visual indicator representing asset weight allocation */}
-                        <div className="h-4.5 w-full bg-white/[0.03] rounded-full overflow-hidden flex border border-white/[0.05] shadow-lg">
+                        <div className="h-4.5 w-full bg-white/[0.03] rounded-full overflow-hidden flex border border-border-subtle shadow-lg">
                           {allocation.map((a) => (
                             <div
                               key={a.symbol}
@@ -2275,18 +2266,17 @@ export function AppDemo() {
                           {allocation.map((a) => (
                             <div
                               key={a.symbol}
-                              className="flex justify-between items-center bg-white/[0.02] border border-white/[0.04] p-3 rounded-xl hover:bg-white/[0.04] transition-all"
+                              className="flex justify-between items-center bg-white/[0.02] border border-border-subtle p-3 rounded-md hover:bg-white/[0.04] transition-all"
                             >
                               <div className="flex items-center gap-2.5">
                                 <span className={`w-2.5 h-2.5 rounded-full ${a.color}`}></span>
-                                <span className="font-mono text-xs font-bold text-white">
+                                <span className="font-mono text-xs font-bold text-text-primary">
                                   {a.symbol}
-                                  {liveMacro && <span className="ml-1.5 text-[8px] text-emerald-400 font-normal">LIVE</span>}
                                 </span>
                               </div>
                               <div className="text-right">
-                                <span className="font-mono text-xs font-bold text-white tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
-                                <span className="block text-[9px] font-mono text-panik-text-secondary tabular-nums">{a.pct.toFixed(1)}% weight</span>
+                                <span className="font-mono text-xs font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
+                                <span className="block text-2xs font-mono text-text-secondary tabular-nums">{a.pct.toFixed(1)}% weight</span>
                               </div>
                             </div>
                           ))}
@@ -2294,7 +2284,7 @@ export function AppDemo() {
                       </div>
                     </div>
 
-                    <div className="mt-4 p-3 bg-panik-orange/5 border border-panik-orange/15 rounded-xl text-[11px] font-mono text-[#F0F4FF]/75 leading-relaxed">
+                    <div className="mt-4 p-3 bg-panik-orange/5 border border-panik-orange/15 rounded-md text-2xs font-mono text-text-secondary leading-relaxed">
                       All positions undergo continuous drift analysis against current collateral price benchmarks.
                     </div>
                   </div>
@@ -2304,35 +2294,35 @@ export function AppDemo() {
                     net-worth-chart + activity-feed layout, adapted to risk). */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Risk index over time (score_snapshots via /api/history) */}
-                  <div className="lg:col-span-7 bg-white/[0.01] border border-white/[0.06] rounded-2xl p-5.5">
+                  <div className="lg:col-span-7 bg-white/[0.01] border border-border-subtle rounded-lg p-5.5">
                     <div className="flex items-baseline justify-between mb-1">
-                      <h3 className="text-sm font-mono tracking-widest text-[#748BAA] font-bold uppercase">
+                      <h3 className="text-sm font-mono tracking-widest text-text-muted font-bold uppercase">
                         Risk Index History
                       </h3>
                       {riskHistory && (
                         <span className={`text-lg font-mono font-bold tabular-nums ${
-                          (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 50 ? "text-red-400" :
-                          (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 25 ? "text-amber-400" : "text-emerald-400"
+                          (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 50 ? "text-risk-critical" :
+                          (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 25 ? "text-risk-elevated" : "text-risk-low"
                         }`}>
                           {riskHistory.series[riskHistory.series.length - 1]} / 100
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-panik-text-secondary leading-normal mb-4 font-sans">
+                    <p className="text-xs text-text-secondary leading-normal mb-4 font-sans">
                       Aggregate PANIK score of this wallet over time, protocols weighted by collateral.
                     </p>
                     {riskHistory ? (
+                      // Series colour is cool and fixed: repainting 30 days of history in
+                      // today's band colour claims the whole series was that band. The
+                      // current band is already stated in the chip above.
                       <Sparkline
                         data={riskHistory.series}
                         height={110}
-                        stroke={
-                          (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 50 ? "#f87171" :
-                          (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 25 ? "#f59e0b" : "#34d399"
-                        }
+                        stroke="var(--color-sky-400)"
                         axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
                       />
                     ) : (
-                      <div className="py-8 text-center text-[11px] font-mono text-white/25 leading-relaxed">
+                      <div className="py-8 text-center text-2xs font-mono text-text-muted leading-relaxed">
                         Score history builds as the watch worker monitors this wallet (every 60s).
                         <br />Check back after a few scoring cycles.
                       </div>
@@ -2340,39 +2330,39 @@ export function AppDemo() {
                   </div>
 
                   {/* Alert history (watch_transitions IS the alert log) */}
-                  <div className="lg:col-span-5 bg-white/[0.01] border border-white/[0.06] rounded-2xl p-5.5">
-                    <h3 className="text-sm font-mono tracking-widest text-[#748BAA] font-bold uppercase mb-1">
+                  <div className="lg:col-span-5 bg-white/[0.01] border border-border-subtle rounded-lg p-5.5">
+                    <h3 className="text-sm font-mono tracking-widest text-text-muted font-bold uppercase mb-1">
                       Alert History
                     </h3>
-                    <p className="text-xs text-panik-text-secondary leading-normal mb-4 font-sans">
+                    <p className="text-xs text-text-secondary leading-normal mb-4 font-sans">
                       Every risk-status change PANIK detected, and what was sent.
                     </p>
                     {walletHistory?.alerts?.length ? (
                       <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                         {walletHistory.alerts.slice(0, 12).map((a, i) => {
                           const chip = a.notify_channel
-                            ? NOTIFY_CHANNEL_CHIP[a.notify_channel] ?? { label: a.notify_channel.toUpperCase(), cls: "text-white/40 border-white/10 bg-white/[0.03]" }
-                            : { label: "QUEUED", cls: "text-amber-400 border-amber-500/25 bg-amber-500/10" };
+                            ? NOTIFY_CHANNEL_CHIP[a.notify_channel] ?? { label: a.notify_channel.toUpperCase(), cls: "text-text-muted border-border-subtle bg-white/[0.03]" }
+                            : { label: "QUEUED", cls: "text-risk-elevated border-risk-elevated/25 bg-risk-elevated/10" };
                           return (
-                            <div key={`${a.created_at}-${i}`} className="flex items-start gap-2.5 bg-white/[0.02] border border-white/[0.04] p-3 rounded-xl">
+                            <div key={`${a.created_at}-${i}`} className="flex items-start gap-2.5 bg-white/[0.02] border border-border-subtle p-3 rounded-md">
                               {a.to_status === "outside" ? (
-                                <Flame className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                                <Flame className="w-4 h-4 text-risk-critical shrink-0 mt-0.5" />
                               ) : a.to_status === "approaching" ? (
-                                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                                <ShieldAlert className="w-4 h-4 text-risk-elevated shrink-0 mt-0.5" />
                               ) : (
-                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                                <CheckCircle2 className="w-4 h-4 text-risk-low shrink-0 mt-0.5" />
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline justify-between gap-2">
-                                  <span className="text-[11px] font-mono font-bold text-white truncate">
+                                  <span className="text-2xs font-mono font-bold text-text-primary truncate">
                                     {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
-                                    <span className="text-white/40 font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
+                                    <span className="text-text-muted font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
                                   </span>
-                                  <span className="text-[9px] font-mono text-white/30 shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
+                                  <span className="text-2xs font-mono text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
                                 </div>
                                 <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-[9px] font-mono text-white/50 tabular-nums">score {a.score} ({a.band})</span>
-                                  <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>
+                                  <span className="text-2xs font-mono text-text-muted tabular-nums">score {a.score} ({a.band})</span>
+                                  <span className={`text-2xs font-mono px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>{chip.label}</span>
                                 </div>
                               </div>
                             </div>
@@ -2380,7 +2370,7 @@ export function AppDemo() {
                         })}
                       </div>
                     ) : (
-                      <div className="py-8 text-center text-[11px] font-mono text-white/25 leading-relaxed">
+                      <div className="py-8 text-center text-2xs font-mono text-text-muted leading-relaxed">
                         No alerts yet - PANIK messages you the moment a position
                         <br />crosses your profile's risk limit.
                       </div>
@@ -2401,9 +2391,9 @@ export function AppDemo() {
                 transition={{ duration: 0.18 }}
                 className="max-w-5xl space-y-6"
               >
-                <div className="border-b border-white/[0.05] pb-3">
-                  <span className="block text-[9px] font-mono tracking-widest text-panik-orange uppercase">Sentry System Preferences</span>
-                  <h2 className="text-xl font-display font-extrabold text-white tracking-wide">Settings &amp; Endpoints</h2>
+                <div className="border-b border-border-subtle pb-3">
+                  <span className="block text-2xs font-mono tracking-widest text-panik-orange uppercase">Sentry System Preferences</span>
+                  <h2 className="text-lg font-display font-extrabold text-text-primary tracking-wide">Settings &amp; Endpoints</h2>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -2411,26 +2401,26 @@ export function AppDemo() {
                   <div className="lg:col-span-8 space-y-6">
 
                     {/* Telegram alerts dispatcher (the real Connect flow) */}
-                    <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-2xl space-y-3">
-                      <div className="flex items-center gap-2 border-b border-white/[0.05] pb-2.5">
+                    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                      <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
                         <Bell className="w-4 h-4 text-panik-orange" />
-                        <h3 className="text-[11px] font-mono uppercase tracking-widest text-white font-bold">
+                        <h3 className="text-2xs font-mono uppercase tracking-widest text-text-primary font-bold">
                           Web3 Telegram Alerts Dispatcher
                         </h3>
                       </div>
-                      <p className="text-[12px] text-[#A0AEC0] leading-relaxed font-sans">
+                      <p className="text-xs text-text-secondary leading-relaxed font-sans">
                         Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit. PANIK only
                         pings you on a real transition toward liquidation - debounced, deduped, and rate-limited, never on noise.
                       </p>
                       <div className="flex flex-col sm:flex-row gap-3 pt-1">
-                        <div className="flex-1 h-10 px-3 flex items-center bg-[#0A0A0B]/80 border border-white/10 rounded-lg font-mono text-[11px] truncate">
+                        <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-mono text-2xs truncate">
                           {telegramLink.status === "connected" ? (
-                            <span className="text-emerald-400 flex items-center gap-1.5">
+                            <span className="text-risk-low flex items-center gap-1.5">
                               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                               Connected
                             </span>
                           ) : (
-                            <span className="text-white/55">
+                            <span className="text-text-muted">
                               {telegramEligible ? `Linking ${onboardedWallet?.slice(0, 6)}...${onboardedWallet?.slice(-4)}` : "No EVM wallet onboarded"}
                             </span>
                           )}
@@ -2439,7 +2429,7 @@ export function AppDemo() {
                           type="button"
                           disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
                           onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
-                          className="h-10 px-4 rounded-lg text-[11px] font-mono font-extrabold uppercase tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-gradient-to-tr from-panik-orange to-red-500 text-white hover:opacity-90 cursor-pointer"
+                          className="h-10 px-4 rounded-md text-2xs font-mono font-extrabold uppercase tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-panik-orange text-surface-base hover:opacity-90 cursor-pointer"
                         >
                           {telegramLink.status === "signing" ? "Sign in wallet..." :
                            telegramLink.status === "requesting" ? "Opening..." :
@@ -2448,33 +2438,33 @@ export function AppDemo() {
                         </button>
                       </div>
                       {telegramEligible && telegramLink.status !== "connected" && (
-                        <p className="text-[10px] font-mono text-white/40">
+                        <p className="text-2xs font-mono text-text-muted">
                           Sign to prove wallet ownership - free, no transaction, no gas.
                         </p>
                       )}
                       {!telegramEligible && (
-                        <p className="text-[10px] font-mono text-white/30">Onboard with an EVM wallet (0x...) to enable alerts.</p>
+                        <p className="text-2xs font-mono text-text-muted">Onboard with an EVM wallet (0x...) to enable alerts.</p>
                       )}
                       {telegramLink.status === "connected" && (
-                        <p className="text-[11px] font-mono text-emerald-400">
+                        <p className="text-2xs font-mono text-risk-low">
                           Alerts are on. Send /stop in the bot anytime to pause them.
                         </p>
                       )}
                       {telegramLink.status === "opened" && (
-                        <div className="space-y-1.5 pt-1.5 border-t border-white/[0.05]">
-                          <p className="text-[10px] font-mono text-emerald-400 flex items-center">
+                        <div className="space-y-1.5 pt-1.5 border-t border-border-subtle">
+                          <p className="text-2xs font-mono text-risk-low flex items-center">
                             Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
                           </p>
-                          <p className="text-[11px] font-sans text-[#A0AEC0] leading-relaxed">
-                            If the link didn't open automatically, copy this command, open <strong className="text-white">@{telegramBotUsername}</strong> in Telegram, and send it:
+                          <p className="text-2xs font-sans text-text-secondary leading-relaxed">
+                            If the link didn't open automatically, copy this command, open <strong className="text-text-primary">@{telegramBotUsername}</strong> in Telegram, and send it:
                           </p>
-                          <div className="flex items-center bg-[#0A0A0B]/80 border border-white/10 rounded px-2.5 py-1.5 font-mono text-[10px] text-emerald-400 select-all break-all">
+                          <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-mono text-2xs text-risk-low select-all break-all">
                             /start {telegramLink.code}
                           </div>
                         </div>
                       )}
                       {telegramLink.status === "error" && telegramLink.error && (
-                        <p className="text-[10px] font-mono text-red-400">{telegramLink.error}</p>
+                        <p className="text-2xs font-mono text-risk-critical">{telegramLink.error}</p>
                       )}
                     </div>
 
@@ -2482,11 +2472,11 @@ export function AppDemo() {
                         Hidden per business-dev QA (2026-07-03) until the
                         Deleverager ships - flip SHOW_AUTO_REPAY_CARD to restore. */}
                     {SHOW_AUTO_REPAY_CARD && (
-                    <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-2xl space-y-3">
-                      <div className="flex justify-between items-center border-b border-white/[0.05] pb-2.5">
+                    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                      <div className="flex justify-between items-center border-b border-border-subtle pb-2.5">
                         <div className="flex items-center gap-2">
                           <Sliders className="w-4 h-4 text-panik-orange" />
-                          <h3 className="text-[11px] font-mono uppercase tracking-widest text-white font-bold">
+                          <h3 className="text-2xs font-mono uppercase tracking-widest text-text-primary font-bold">
                             Emergency Auto Repayment Trigger
                           </h3>
                         </div>
@@ -2499,14 +2489,14 @@ export function AppDemo() {
                           <div className={`bg-white w-4 h-4 rounded-full transition-transform ${isRepayActive ? "translate-x-4" : "translate-x-0"}`} />
                         </button>
                       </div>
-                      <p className="text-[12px] text-[#A0AEC0] leading-relaxed font-sans">
+                      <p className="text-xs text-text-secondary leading-relaxed font-sans">
                         Set the share of borrowed liability PANIK should target for emergency repayment when a position
                         enters extreme risk. Execution ships with the Deleverager; this stores your preference.
                       </p>
-                      <div className={`bg-[#0A0A0B]/60 p-3 rounded-lg border border-white/[0.03] space-y-1.5 transition-opacity ${isRepayActive ? "" : "opacity-40 pointer-events-none"}`}>
-                        <div className="flex justify-between text-[11px] font-mono text-panik-text-secondary">
+                      <div className={`bg-surface-base/60 p-3 rounded-md border border-border-subtle space-y-1.5 transition-opacity ${isRepayActive ? "" : "opacity-40 pointer-events-none"}`}>
+                        <div className="flex justify-between text-2xs font-mono text-text-secondary">
                           <span>Auto target repayment chunk:</span>
-                          <span className="text-white font-bold tabular-nums">{automaticRepayTarget}% of liability</span>
+                          <span className="text-text-primary font-bold tabular-nums">{automaticRepayTarget}% of liability</span>
                         </div>
                         <input
                           type="range"
@@ -2515,7 +2505,7 @@ export function AppDemo() {
                           step={5}
                           value={automaticRepayTarget}
                           onChange={(e) => setAutomaticRepayTarget(Number(e.target.value))}
-                          className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-panik-orange"
+                          className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
                         />
                       </div>
                     </div>
@@ -2524,16 +2514,16 @@ export function AppDemo() {
 
                   {/* Integration sidebar */}
                   <div className="lg:col-span-4 space-y-4">
-                    <div className="bg-white/[0.01] border border-white/[0.05] p-5 rounded-2xl space-y-2">
-                      <h4 className="text-[10px] font-mono font-bold text-white uppercase tracking-widest">How to connect alerts</h4>
-                      <ol className="text-[11px] text-[#A0AEC0] space-y-1.5 list-decimal pl-4 font-sans leading-relaxed">
-                        <li>Click <span className="text-panik-orange font-semibold">Connect Telegram</span> - it opens <span className="text-white font-semibold">@{telegramBotUsername}</span>.</li>
+                    <div className="bg-white/[0.01] border border-border-subtle p-5 rounded-lg space-y-2">
+                      <h4 className="text-2xs font-mono font-bold text-text-primary uppercase tracking-widest">How to connect alerts</h4>
+                      <ol className="text-2xs text-text-secondary space-y-1.5 list-decimal pl-4 font-sans leading-relaxed">
+                        <li>Click <span className="text-panik-orange font-semibold">Connect Telegram</span> - it opens <span className="text-text-primary font-semibold">@{telegramBotUsername}</span>.</li>
                         <li>Press <span className="text-panik-orange">Start</span> in the chat to confirm.</li>
                         <li>Alerts fire when your wallet nears its risk limit.</li>
                         <li>Send <span className="text-panik-orange">/stop</span> any time to mute them.</li>
                       </ol>
                     </div>
-                    <div className="p-3 bg-panik-orange/[0.03] border border-panik-orange/15 rounded-2xl font-sans text-[11px] text-[#A0AEC0] leading-relaxed">
+                    <div className="p-3 bg-panik-orange/[0.03] border border-panik-orange/15 rounded-lg font-sans text-2xs text-text-secondary leading-relaxed">
                       We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
                     </div>
                   </div>
@@ -2554,7 +2544,7 @@ export function AppDemo() {
                 animate={{ opacity: 0.5 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setSelectedRiskBreakdownPreset(null)}
-                className="absolute inset-0 bg-[#07080A]/85 z-40 backdrop-blur-xs cursor-pointer"
+                className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
               />
               
               {/* Slide-out side panel */}
@@ -2563,17 +2553,17 @@ export function AppDemo() {
                 animate={{ x: 0 }}
                 exit={{ x: "100%" }}
                 transition={{ type: "spring", damping: 26, stiffness: 220 }}
-                className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-[#0E1015] border-l border-white/[0.08] shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
+                className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
               >
                 {/* Panel Header */}
-                <div className="shrink-0 p-6 border-b border-white/[0.06] flex items-center justify-between bg-[#12151D]/60 font-sans">
+                <div className="shrink-0 p-6 border-b border-border-subtle flex items-center justify-between bg-surface-raised/60 font-sans">
                   <div className="flex items-center gap-3">
                     <ProtocolLogo protocol={selectedRiskBreakdownPreset.protocol} size="w-8 h-8" />
                     <div>
-                      <h3 className="font-mono font-bold text-white text-sm uppercase">
+                      <h3 className="font-mono font-bold text-text-primary text-sm uppercase">
                         {selectedRiskBreakdownPreset.protocol} Risk Breakdown
                       </h3>
-                      <span className="text-[10px] font-mono text-panik-text-secondary uppercase block">
+                      <span className="text-2xs font-mono text-text-secondary uppercase block">
                         {selectedRiskBreakdownPreset.assetPair}
                       </span>
                     </div>
@@ -2581,7 +2571,7 @@ export function AppDemo() {
                   
                   <button
                     onClick={() => setSelectedRiskBreakdownPreset(null)}
-                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/5 cursor-pointer transition-colors"
+                    className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-text-secondary hover:text-text-primary border border-border-subtle cursor-pointer transition-colors"
                     title="Close Panel"
                   >
                     <X className="w-4.5 h-4.5" />
@@ -2592,24 +2582,25 @@ export function AppDemo() {
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
                   
                   {/* Scoreboard View */}
-                  <div className="bg-[#111318]/40 border border-white/[0.06] rounded-xl p-4 space-y-4">
+                  <div className="bg-surface-raised/40 border border-border-subtle rounded-md p-4 space-y-4">
                     <div className="flex justify-between items-center">
-                      <span className="flex items-center gap-1.5 text-[10px] font-mono text-white/50 uppercase tracking-widest">
+                      <span className="flex items-center gap-1.5 text-2xs font-mono text-text-muted uppercase tracking-widest">
                         Panik Risk Score
                         <InfoTip text="0-100 composite of the four weighted components below. LOW under 25, ELEVATED under 50, HIGH under 75, CRITICAL above." />
                       </span>
                       <div className="flex items-center gap-1.5">
-                        <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
-                          breakdownData?.isLive
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
-                            : "bg-white/[0.04] text-white/40 border-white/10"
-                        }`}>
-                          {breakdownData?.isLive ? "● LIVE" : "DEMO"}
-                        </span>
-                        <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded border ${
-                          selectedRiskBreakdownPreset.baseRisk < 25 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25" :
-                          selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-amber-500/10 text-amber-500 border-amber-500/25" :
-                          "bg-red-500/10 text-red-400 border-red-500/25"
+                        {/* Live is the default and needs no badge. Only the
+                            fixture case is worth calling out, because it is the
+                            one the reader would otherwise get wrong. */}
+                        {!breakdownData?.isLive && (
+                          <span className="text-2xs font-mono px-2 py-0.5 rounded-sm border bg-white/[0.04] text-text-muted border-border-subtle">
+                            DEMO
+                          </span>
+                        )}
+                        <span className={`text-2xs font-mono font-bold px-2.5 py-0.5 rounded-sm border ${
+                          selectedRiskBreakdownPreset.baseRisk < 25 ? "bg-risk-low/10 text-risk-low border-risk-low/25" :
+                          selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25" :
+                          "bg-risk-critical/10 text-risk-critical border-risk-critical/25"
                         }`}>
                           {selectedRiskBreakdownPreset.riskStatus}
                         </span>
@@ -2617,18 +2608,18 @@ export function AppDemo() {
                     </div>
                     
                     <div className="flex items-baseline justify-center gap-1.5">
-                      <span className="text-5xl font-mono font-bold text-white tracking-tighter tabular-nums">
+                      <span className="text-4xl font-mono font-bold text-text-primary tracking-tighter tabular-nums">
                         {selectedRiskBreakdownPreset.baseRisk}
                       </span>
-                      <span className="text-xs font-mono text-white/30 tabular-nums">/ 100</span>
+                      <span className="text-xs font-mono text-text-muted tabular-nums">/ 100</span>
                     </div>
 
                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full ${
-                          selectedRiskBreakdownPreset.baseRisk < 25 ? "bg-emerald-500" :
-                          selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-amber-500" :
-                          "bg-red-500"
+                          selectedRiskBreakdownPreset.baseRisk < 25 ? "bg-risk-low" :
+                          selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-risk-elevated" :
+                          "bg-risk-critical"
                         }`}
                         style={{ width: `${selectedRiskBreakdownPreset.baseRisk}%` }}
                       ></div>
@@ -2639,36 +2630,36 @@ export function AppDemo() {
                     {breakdownData && (
                       <>
                         <div className="grid grid-cols-4 gap-2 pt-2 text-center text-xs font-mono">
-                          <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
-                            <span className="flex items-center justify-center gap-1 text-[8px] text-white/40 uppercase mb-0.5">
+                          <div className="bg-white/[0.02] border border-border-subtle p-2 rounded-md">
+                            <span className="flex items-center justify-center gap-1 text-2xs text-text-muted uppercase mb-0.5">
                               Position ×40%
                               <InfoTip text="Distance to liquidation: health factor plus current LTV." />
                             </span>
-                            <strong className="text-white tabular-nums">{breakdownData.subs.positionHealth}</strong>
+                            <strong className="text-text-primary tabular-nums">{breakdownData.subs.positionHealth}</strong>
                           </div>
-                          <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
-                            <span className="flex items-center justify-center gap-1 text-[8px] text-white/40 uppercase mb-0.5">
+                          <div className="bg-white/[0.02] border border-border-subtle p-2 rounded-md">
+                            <span className="flex items-center justify-center gap-1 text-2xs text-text-muted uppercase mb-0.5">
                               Asset ×25%
                               <InfoTip text="Collateral price volatility, 90d drawdown, and BTC correlation." />
                             </span>
-                            <strong className="text-white tabular-nums">{breakdownData.subs.assetRisk}</strong>
+                            <strong className="text-text-primary tabular-nums">{breakdownData.subs.assetRisk}</strong>
                           </div>
-                          <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
-                            <span className="flex items-center justify-center gap-1 text-[8px] text-white/40 uppercase mb-0.5">
+                          <div className="bg-white/[0.02] border border-border-subtle p-2 rounded-md">
+                            <span className="flex items-center justify-center gap-1 text-2xs text-text-muted uppercase mb-0.5">
                               Protocol ×20%
                               <InfoTip text="Protocol safety: audits, governance timelock, market controls." />
                             </span>
-                            <strong className="text-white tabular-nums">{breakdownData.subs.protocolSafety}</strong>
+                            <strong className="text-text-primary tabular-nums">{breakdownData.subs.protocolSafety}</strong>
                           </div>
-                          <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
-                            <span className="flex items-center justify-center gap-1 text-[8px] text-white/40 uppercase mb-0.5">
+                          <div className="bg-white/[0.02] border border-border-subtle p-2 rounded-md">
+                            <span className="flex items-center justify-center gap-1 text-2xs text-text-muted uppercase mb-0.5">
                               Systemic ×15%
                               <InfoTip text="Market-wide stress: sector TVL flows and capital flight." />
                             </span>
-                            <strong className="text-white tabular-nums">{breakdownData.subs.systemicRisk}</strong>
+                            <strong className="text-text-primary tabular-nums">{breakdownData.subs.systemicRisk}</strong>
                           </div>
                         </div>
-                        <p className="text-[9px] font-mono text-white/30 leading-relaxed">
+                        <p className="text-2xs font-mono text-text-muted leading-relaxed">
                           The headline score is the weighted sum of these four components.
                         </p>
                       </>
@@ -2677,34 +2668,34 @@ export function AppDemo() {
 
                   {/* 10 Risk Dimensions Table/Cards Grid */}
                   <div className="space-y-3">
-                    <span className="block text-[10px] font-mono text-[#748BAA] tracking-wider uppercase">
+                    <span className="block text-2xs font-mono text-text-muted tracking-wider uppercase">
                       Liquidation & Pool Metrics
                     </span>
                     
                     <div className="grid grid-cols-2 gap-3">
                       {/* Dimension 1: LTV */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-[8px] font-mono text-white/40 uppercase">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase">
                           1. LTV Rating
                           <InfoTip text="Debt as a share of collateral value. Closer to the protocol's max means a smaller cushion." />
                         </span>
-                        <span className="text-base font-mono font-bold text-white mt-1 tabular-nums">
+                        <span className="text-base font-mono font-bold text-text-primary mt-1 tabular-nums">
                           {Math.round((selectedRiskBreakdownPreset.defaultBorrow / (selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)) * 100)}%
                         </span>
                       </div>
 
                       {/* Dimension 2: Health Factor (live engine value when available) */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-[8px] font-mono text-white/40 uppercase">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase">
                           2. Health Factor
                           <InfoTip text="Below 1.00 the protocol can liquidate this position. No debt means no liquidation risk." />
                         </span>
                         {breakdownData?.healthFactor == null ? (
-                          <span className="text-base font-mono font-bold mt-1 text-emerald-400">No debt</span>
+                          <span className="text-base font-mono font-bold mt-1 text-risk-low">No debt</span>
                         ) : (
                           <span className={`text-base font-mono font-bold mt-1 tabular-nums ${
-                            breakdownData.healthFactor < 1.3 ? "text-red-400" :
-                            breakdownData.healthFactor < 1.7 ? "text-amber-400" : "text-emerald-400"
+                            breakdownData.healthFactor < 1.3 ? "text-risk-critical" :
+                            breakdownData.healthFactor < 1.7 ? "text-risk-elevated" : "text-risk-low"
                           }`}>
                             {breakdownData.healthFactor.toFixed(2)}
                           </span>
@@ -2712,8 +2703,8 @@ export function AppDemo() {
                       </div>
 
                       {/* Dimension 3: Liquidation Price (from the engine's drawdown when live) */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-[8px] font-mono text-white/40 uppercase">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase">
                           3. Liquidation Price
                           <InfoTip text="The collateral price at which this position becomes liquidatable." />
                         </span>
@@ -2723,78 +2714,78 @@ export function AppDemo() {
                       </div>
 
                       {/* Dimension 4: Buffer to Liquidation */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-[8px] font-mono text-white/40 uppercase">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase">
                           4. Buffer to Liquidation
                           <InfoTip text="How far the collateral price must fall before liquidation. Your real safety margin - the most decision-useful number here." />
                         </span>
-                        <span className="text-base font-mono font-bold text-white mt-1 tabular-nums">
+                        <span className="text-base font-mono font-bold text-text-primary mt-1 tabular-nums">
                           {breakdownData?.bufferPct != null ? `${breakdownData.bufferPct}%` : "-"}
                         </span>
                       </div>
 
                       {/* Dimension 5: Collateral Value */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
-                        <span className="text-[8px] font-mono text-white/40 uppercase">5. Collateral Value</span>
-                        <span className="text-xs font-mono font-bold text-white mt-1 truncate tabular-nums">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="text-2xs font-mono text-text-muted uppercase">5. Collateral Value</span>
+                        <span className="text-xs font-mono font-bold text-text-primary mt-1 truncate tabular-nums">
                           {selectedRiskBreakdownPreset.defaultCollateral} {selectedRiskBreakdownPreset.collateralAsset} ({formatCurrency(selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)})
                         </span>
                       </div>
 
                       {/* Dimension 6: Borrowed Amount */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
-                        <span className="text-[8px] font-mono text-white/40 uppercase">6. Borrowed Amount</span>
-                        <span className="text-xs font-mono font-bold text-white mt-1 truncate tabular-nums">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="text-2xs font-mono text-text-muted uppercase">6. Borrowed Amount</span>
+                        <span className="text-xs font-mono font-bold text-text-primary mt-1 truncate tabular-nums">
                           {selectedRiskBreakdownPreset.defaultBorrow} {selectedRiskBreakdownPreset.debtAsset}
                         </span>
                       </div>
 
                       {/* Dimension 7: Pool Utilization */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg col-span-2 flex justify-between items-center text-xs font-mono">
-                        <span className="flex items-center gap-1 text-[8px] font-mono text-white/40 uppercase">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md col-span-2 flex justify-between items-center text-xs font-mono">
+                        <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase">
                           7. Pool Borrow Utilization
                           <InfoTip text="Share of the pool's supplied funds currently borrowed. Very high utilization can delay withdrawals and spike rates." />
                         </span>
-                        <span className="text-xs font-mono font-bold text-emerald-400 tabular-nums">
+                        <span className="text-xs font-mono font-bold text-risk-low tabular-nums">
                           {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (Optimal range)
                         </span>
                       </div>
 
                       {/* Dimension 8: Supply APY with 30d trend (DefiLlama) */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-[8px] font-mono text-white/40 uppercase">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase">
                           8. Supply APY (30d)
                           <InfoTip text="What suppliers earn in this pool right now, with the last 30 days' trend." />
                         </span>
                         {breakdownData?.poolYield ? (
                           <>
-                            <span className="text-base font-mono font-bold text-emerald-400 mt-1 tabular-nums">
+                            <span className="text-base font-mono font-bold text-risk-low mt-1 tabular-nums">
                               {breakdownData.poolYield.apy.toFixed(2)}%
                             </span>
-                            <Sparkline data={breakdownData.poolYield.apySeries} stroke="#34d399" height={24} className="mt-1" />
+                            <Sparkline data={breakdownData.poolYield.apySeries} stroke="var(--color-sky-400)" height={24} className="mt-1" />
                           </>
                         ) : (
-                          <span className="text-base font-mono font-bold text-white/30 mt-1 tabular-nums">
+                          <span className="text-base font-mono font-bold text-text-muted mt-1 tabular-nums">
                             {selectedRiskBreakdownPreset.apy.toFixed(1)}%
                           </span>
                         )}
                       </div>
 
                       {/* Dimension 9: Pool TVL with 30d trend (DefiLlama) */}
-                      <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-[8px] font-mono text-white/40 uppercase">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase">
                           9. Pool TVL (30d)
                           <InfoTip text="Total value locked in this pool. Falling TVL can signal capital flight." />
                         </span>
                         {breakdownData?.poolYield ? (
                           <>
-                            <span className="text-base font-mono font-bold text-white mt-1 tabular-nums">
+                            <span className="text-base font-mono font-bold text-text-primary mt-1 tabular-nums">
                               {formatCompactUsd(breakdownData.poolYield.tvlUsd)}
                             </span>
-                            <Sparkline data={breakdownData.poolYield.tvlSeries} stroke="#38bdf8" height={24} className="mt-1" />
+                            <Sparkline data={breakdownData.poolYield.tvlSeries} stroke="var(--color-sky-400)" height={24} className="mt-1" />
                           </>
                         ) : (
-                          <span className="text-base font-mono font-bold text-white/30 mt-1">-</span>
+                          <span className="text-base font-mono font-bold text-text-muted mt-1">-</span>
                         )}
                       </div>
                     </div>
@@ -2802,15 +2793,15 @@ export function AppDemo() {
 
                   {/* Dimension 8, 9, 10: Risk Signals */}
                   <div className="space-y-3.5">
-                    <span className="block text-[10px] font-mono text-[#748BAA] tracking-wider uppercase">
+                    <span className="block text-2xs font-mono text-text-muted tracking-wider uppercase">
                       Risk Signals & Drivers
                     </span>
 
                     <div className="space-y-2 text-xs font-mono">
                       {/* Dimension 10: Protocol Signals */}
-                      <div className="bg-white/[0.01] border border-white/[0.04] p-3 rounded-lg leading-relaxed">
-                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">10. Protocol Security Signal</span>
-                        <p className="text-white/80">
+                      <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
+                        <span className="block text-2xs text-text-muted uppercase mb-1 font-bold">10. Protocol Security Signal</span>
+                        <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.protocol === "Aave V3" && "Aave V3 safety module is funded and active. Dynamic interest-rate curves and isolation mode in place. Governance secured by multi-sig and timelock."}
                           {selectedRiskBreakdownPreset.protocol === "Moonwell" && "Moonwell markets run on Base with a 48-hour governance timelock on system parameters. Collateral factors monitored continuously."}
                           {selectedRiskBreakdownPreset.protocol === "Morpho" && "Morpho Blue markets are isolated and immutable. Oracle and LLTV are fixed at market creation, so live parameters cannot be changed by governance."}
@@ -2819,17 +2810,17 @@ export function AppDemo() {
                       </div>
 
                       {/* Dimension 11: Pool Signals */}
-                      <div className="bg-white/[0.01] border border-white/[0.04] p-3 rounded-lg leading-relaxed">
-                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">11. Pool Liquidity Signal</span>
-                        <p className="text-white/80">
+                      <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
+                        <span className="block text-2xs text-text-muted uppercase mb-1 font-bold">11. Pool Liquidity Signal</span>
+                        <p className="text-text-secondary">
                           Primary pool depth exceeds $82,000,000 in active vault lines. Slippage parameters on decentralized exchanges index &lt; 0.15% depth buffer. No oracle drift.
                         </p>
                       </div>
 
                       {/* Dimension 12: Position Signals */}
-                      <div className="bg-white/[0.01] border border-white/[0.04] p-3 rounded-lg leading-relaxed">
-                        <span className="block text-[8px] text-white/30 uppercase mb-1 font-bold">12. Position Watch Signal</span>
-                        <p className="text-white/80">
+                      <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
+                        <span className="block text-2xs text-text-muted uppercase mb-1 font-bold">12. Position Watch Signal</span>
+                        <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.baseRisk < 20 
                             ? "Position health maintains normal volatility parameters. No automated hedges currently required."
                             : "Position health has entered an elevated stress range. Consider reducing leverage or adding collateral before the health factor approaches 1.25."
@@ -2844,10 +2835,10 @@ export function AppDemo() {
                 </div>
 
                 {/* Panel Footer */}
-                <div className="shrink-0 p-5 border-t border-white/[0.06] bg-[#0A0A0B] flex gap-3 font-sans">
+                <div className="shrink-0 p-5 border-t border-border-subtle bg-surface-base flex gap-3 font-sans">
                   <button
                     onClick={() => setSelectedRiskBreakdownPreset(null)}
-                    className="flex-1 py-3 text-center text-xs font-mono text-white/60 bg-white/5 hover:bg-white/10 rounded-lg cursor-pointer transition-colors border border-white/5"
+                    className="flex-1 py-3 text-center text-xs font-mono text-text-secondary bg-white/5 hover:bg-white/10 rounded-md cursor-pointer transition-colors border border-border-subtle"
                   >
                     Close Panel
                   </button>
@@ -2858,13 +2849,13 @@ export function AppDemo() {
                       setActiveTab("watch");
                       setSelectedRiskBreakdownPreset(null);
                     }}
-                    className="flex-1 py-3 text-center text-xs font-mono font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/25 rounded-lg cursor-pointer hover:bg-panik-orange/20 transition-all"
+                    className="flex-1 py-3 text-center text-xs font-mono font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/25 rounded-md cursor-pointer hover:bg-panik-orange/20 transition-all"
                   >
                     Open Simulator
                   </button>
                   <button
                     onClick={() => setOpenPositionPreset(selectedRiskBreakdownPreset)}
-                    className="flex-1 py-3 text-center text-xs font-mono font-bold text-white bg-gradient-to-tr from-panik-orange to-red-500 rounded-lg cursor-pointer hover:opacity-90 transition-all shadow-lg"
+                    className="flex-1 py-3 text-center text-xs font-mono font-bold text-surface-base bg-panik-orange rounded-md cursor-pointer hover:opacity-90 transition-all shadow-lg"
                   >
                     Open Position
                   </button>
@@ -2908,21 +2899,21 @@ export function AppDemo() {
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[210] w-full max-w-xl px-4">
           <div
             role="alert"
-            className="flex items-center gap-3 bg-[#1a1113] border border-red-500/40 rounded-xl px-4 py-3 shadow-2xl shadow-black/60"
+            className="flex items-center gap-3 bg-surface-overlay border border-risk-critical/40 rounded-md px-4 py-3 shadow-2xl shadow-black/60"
           >
-            <ShieldAlert className="w-4 h-4 shrink-0 text-red-400" />
+            <ShieldAlert className="w-4 h-4 shrink-0 text-risk-critical" />
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-mono font-bold text-red-300 uppercase tracking-wider">
+              <p className="text-xs font-mono font-bold text-risk-critical uppercase tracking-wider">
                 Alerts inactive
               </p>
-              <p className="text-[11px] text-panik-text-secondary mt-0.5">
+              <p className="text-2xs text-text-secondary mt-0.5">
                 {monitoringError} Verify wallet ownership to enable liquidation alerts.
               </p>
             </div>
             <button
               onClick={retryMonitoring}
               disabled={monitoringBusy}
-              className="shrink-0 px-3 py-1.5 rounded-lg bg-panik-orange/90 hover:bg-panik-orange disabled:opacity-50 text-[11px] font-mono font-bold uppercase tracking-wider text-black transition-colors cursor-pointer"
+              className="shrink-0 px-3 py-1.5 rounded-md bg-panik-orange/90 hover:bg-panik-orange disabled:opacity-50 text-2xs font-mono font-bold uppercase tracking-wider text-black transition-colors cursor-pointer"
             >
               {monitoringBusy ? "Verifying..." : "Retry"}
             </button>
@@ -2961,17 +2952,17 @@ export function AppDemo() {
       {/* First-run onboarding tooltip tour */}
       {currentTourStep && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] w-full max-w-sm px-4">
-          <div className="bg-[#111318] border border-panik-orange/30 rounded-xl p-4 shadow-2xl shadow-black/60">
+          <div className="bg-surface-raised border border-panik-orange/30 rounded-md p-4 shadow-2xl shadow-black/60">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-mono text-panik-orange uppercase tracking-widest font-bold">
+              <span className="text-2xs font-mono text-panik-orange uppercase tracking-widest font-bold">
                 Step {currentTourStep.step} of {TOUR_STEPS.length}
               </span>
-              <button onClick={dismissTour} className="text-white/30 hover:text-white transition-colors text-[10px] font-mono uppercase cursor-pointer">
+              <button onClick={dismissTour} className="text-text-muted hover:text-text-primary transition-colors text-2xs font-mono uppercase cursor-pointer">
                 Skip tour
               </button>
             </div>
-            <p className="text-sm font-display font-semibold text-white mb-0.5">{currentTourStep.label}</p>
-            <p className="text-xs text-panik-text-secondary font-sans leading-relaxed mb-4">{currentTourStep.body}</p>
+            <p className="text-sm font-display font-semibold text-text-primary mb-0.5">{currentTourStep.label}</p>
+            <p className="text-xs text-text-secondary font-sans leading-relaxed mb-4">{currentTourStep.body}</p>
             <div className="flex items-center justify-between">
               <div className="flex gap-1">
                 {TOUR_STEPS.map((s) => (
@@ -2986,7 +2977,7 @@ export function AppDemo() {
                     dismissTour();
                   }
                 }}
-                className="h-8 px-4 bg-panik-orange hover:bg-panik-orange/90 text-white font-mono text-[10px] uppercase tracking-wider rounded-lg cursor-pointer transition-colors"
+                className="h-8 px-4 bg-panik-orange hover:bg-panik-orange/90 text-surface-base font-mono text-2xs uppercase tracking-wider rounded-md cursor-pointer transition-colors"
               >
                 {tooltipStep === TOUR_STEPS.length ? "Done" : "Next →"}
               </button>

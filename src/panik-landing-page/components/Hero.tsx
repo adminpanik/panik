@@ -50,12 +50,12 @@ export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWai
             className="flex flex-col items-center pointer-events-none w-full"
           >
             {/* Heading - centered display style */}
-            <h1 className="font-display font-medium text-4xl sm:text-5xl md:text-6xl lg:text-7xl tracking-tight leading-[1.05] text-[#F8FAFC]/90 max-w-3xl mb-6 select-none">
+            <h1 className="font-display font-medium text-4xl md:text-display tracking-tight leading-[1.05] text-text-primary max-w-3xl mb-6 select-none">
               Institutional-grade risk intelligence. Built for your <span className="text-panik-orange font-semibold">DeFi positions.</span>
             </h1>
 
             {/* Subheading - centered readable layout */}
-            <p className="text-panik-text-secondary font-sans text-sm sm:text-base leading-relaxed max-w-2xl mb-10 select-none">
+            <p className="text-text-secondary font-sans text-sm sm:text-base leading-relaxed max-w-2xl mb-10 select-none">
               Panik scores your DeFi positions against your personal risk tolerance using the Panik Risk Scoring Engine. Know your risk before you enter. Act before it costs you.
             </p>
           </motion.div>
@@ -74,7 +74,7 @@ export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWai
                     window.scrollTo({ top: elementPosition - navHeight, behavior: 'smooth' });
                   }
                 }}
-                className="w-full sm:w-auto h-13 px-7 bg-transparent border border-white/10 hover:border-white/25 hover:bg-white/[0.04] text-[#F8FAFC]/90 font-mono text-xs uppercase tracking-wider rounded-lg transition-all duration-300 cursor-pointer pointer-events-auto active:scale-[0.98]"
+                className="w-full sm:w-auto h-13 px-7 bg-transparent border border-border-subtle hover:border-border-strong hover:bg-white/[0.04] text-text-primary font-mono text-xs uppercase tracking-wider rounded-md transition-all duration-300 cursor-pointer pointer-events-auto active:scale-[0.98]"
               >
                 <span>HOW IT WORKS</span>
               </button>
@@ -82,7 +82,7 @@ export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWai
               {!hasSubscribed && (
                 <a
                   href="/try"
-                  className="w-full sm:w-auto h-13 px-9 bg-panik-orange hover:bg-panik-orange/95 text-white font-mono text-xs uppercase tracking-widest font-extrabold rounded-lg flex items-center justify-center gap-2.5 cursor-pointer transition-all duration-300 transform hover:scale-[1.03] active:scale-[0.98] pointer-events-auto shadow-lg shadow-orange-500/20 panik-glow-orange shrink-0 no-underline"
+                  className="w-full sm:w-auto h-13 px-9 bg-panik-orange hover:bg-panik-orange/95 text-surface-base font-mono text-xs uppercase tracking-widest font-extrabold rounded-md flex items-center justify-center gap-2.5 cursor-pointer transition-all duration-300 transform hover:scale-[1.03] active:scale-[0.98] pointer-events-auto shadow-lg shadow-panik-orange/20 panik-glow-orange shrink-0 no-underline"
                   id="hero-btn-try-now"
                 >
                   <span>TRY IT NOW →</span>

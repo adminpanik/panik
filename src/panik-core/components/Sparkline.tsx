@@ -28,7 +28,7 @@ export function Sparkline(props: {
   /** Optional min/max + time-range labels around the chart. */
   axes?: SparklineAxes;
 }) {
-  const { data, stroke = "#34d399", height = 36, className, axes } = props;
+  const { data, stroke = "var(--color-sky-400)", height = 36, className, axes } = props;
   const gradientId = useId();
   if (data.length < 2) return null;
 
@@ -84,14 +84,14 @@ export function Sparkline(props: {
           style={{ height }}
           aria-hidden="true"
         >
-          <span className="text-[8px] font-mono tabular-nums text-white/30 leading-none">{axes.yFormat(max)}</span>
-          <span className="text-[8px] font-mono tabular-nums text-white/30 leading-none">{axes.yFormat(min)}</span>
+          <span className="text-2xs font-mono tabular-nums text-text-muted leading-none">{axes.yFormat(max)}</span>
+          <span className="text-2xs font-mono tabular-nums text-text-muted leading-none">{axes.yFormat(min)}</span>
         </div>
         <div className="flex-1 min-w-0">{svg}</div>
       </div>
       <div className="flex justify-between pl-9 mt-0.5" aria-hidden="true">
-        <span className="text-[8px] font-mono text-white/25 uppercase">{axes.xStart}</span>
-        <span className="text-[8px] font-mono text-white/25 uppercase">{axes.xEnd}</span>
+        <span className="text-2xs font-mono text-text-muted uppercase">{axes.xStart}</span>
+        <span className="text-2xs font-mono text-text-muted uppercase">{axes.xEnd}</span>
       </div>
     </div>
   );

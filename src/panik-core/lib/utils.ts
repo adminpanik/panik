@@ -108,6 +108,27 @@ export function calculateDynamicPosition(
   };
 }
 
+/**
+ * The one place a risk band turns into pixels. Every band gets the same tint
+ * recipe so the hue is the only variable: 10% fill, full-strength label, 25%
+ * edge. Risk never appears as a solid fill, which is what keeps HIGH (orange)
+ * from being mistaken for the brand accent on a button.
+ *
+ * UNKNOWN is a band, not an absence of one. A position we could not price is
+ * not a safe position, and rendering it in the same neutral grey as chrome was
+ * a silent safety claim.
+ */
+export const RISK_CHIP: Record<"LOW" | "ELEVATED" | "HIGH" | "CRITICAL" | "UNKNOWN", string> = {
+  LOW: "bg-risk-low/10 text-risk-low border-risk-low/25",
+  ELEVATED: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
+  HIGH: "bg-risk-high/10 text-risk-high border-risk-high/25",
+  CRITICAL: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
+  // No fill: the grey is dark enough that a 10% wash of itself drags the label to
+  // 4.26:1 on the lightest surface. Unfilled, it clears 4.5:1 on all four, and the
+  // dashed edge carries the "not measured" distinction without relying on hue.
+  UNKNOWN: "text-risk-unknown border-risk-unknown/40 border-dashed",
+};
+
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",

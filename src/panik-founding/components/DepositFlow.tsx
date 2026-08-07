@@ -332,20 +332,20 @@ export function DepositFlow() {
       : `https://sepolia.basescan.org/tx/${hash}`;
 
   return (
-    <div className="panik-glass rounded-xl p-6">
-      <h3 className="font-display font-semibold text-sm text-white/70 mb-5 uppercase tracking-wider">
+    <div className="panik-glass rounded-md p-6">
+      <h3 className="font-display font-semibold text-sm text-text-secondary mb-5 uppercase tracking-wider">
         Deposit
       </h3>
 
       {/* ─── No contract ─── */}
       {step === "no-contract" && (
         <div className="text-center py-8">
-          <div className="text-3xl mb-3">🔧</div>
-          <p className="text-sm text-white/40 mb-1">
+          <div className="text-2xl mb-3">🔧</div>
+          <p className="text-sm text-text-muted mb-1">
             Contract not deployed yet.
           </p>
-          <p className="text-xs text-white/25">
-            Set <code className="text-orange-400/60">VITE_ESCROW_CONTRACT_ADDRESS</code> in your <code className="text-orange-400/60">.env</code> file.
+          <p className="text-xs text-text-muted">
+            Set <code className="text-panik-orange/60">VITE_ESCROW_CONTRACT_ADDRESS</code> in your <code className="text-panik-orange/60">.env</code> file.
           </p>
         </div>
       )}
@@ -353,11 +353,11 @@ export function DepositFlow() {
       {/* ─── Shipped Ended ─── */}
       {step === "shipped-ended" && (
         <div className="text-center py-8">
-          <div className="text-3xl mb-3">🚀</div>
-          <h4 className="font-display font-semibold text-white/90 mb-2">
+          <div className="text-2xl mb-3">🚀</div>
+          <h4 className="font-display font-semibold text-text-primary mb-2">
             PANIK has launched!
           </h4>
-          <p className="text-sm text-white/40">
+          <p className="text-sm text-text-muted">
             The escrow program has ended because the product is officially live on Base mainnet. Thank you to all our backers!
           </p>
         </div>
@@ -366,11 +366,11 @@ export function DepositFlow() {
       {/* ─── Deadline Passed ─── */}
       {step === "deadline-passed" && (
         <div className="text-center py-8">
-          <div className="text-3xl mb-3">⏳</div>
-          <h4 className="font-display font-semibold text-white/90 mb-2">
+          <div className="text-2xl mb-3">⏳</div>
+          <h4 className="font-display font-semibold text-text-primary mb-2">
             Deposits Closed
           </h4>
-          <p className="text-sm text-white/40">
+          <p className="text-sm text-text-muted">
             The global 90-day escrow deadline has been reached. Deposits are closed. If you were a depositor, you can claim your refund below.
           </p>
         </div>
@@ -379,13 +379,13 @@ export function DepositFlow() {
       {/* ─── Connect wallet ─── */}
       {step === "connect" && (
         <div className="text-center py-4">
-          <p className="text-sm text-white/40 mb-5">
+          <p className="text-sm text-text-muted mb-5">
             Connect your wallet to deposit {DEPOSIT_DISPLAY} USDC and become a founding user.
           </p>
           <button
             onClick={handleConnect}
             disabled={isConnecting}
-            className="w-full py-3.5 px-6 rounded-xl font-semibold text-sm bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-400 hover:to-orange-500 active:scale-[0.98] transition-all duration-200 shadow-lg shadow-orange-500/20 hover:shadow-orange-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3.5 px-6 rounded-md font-semibold text-sm bg-panik-orange text-surface-base active:scale-[0.98] transition-all duration-200 shadow-lg shadow-panik-orange/20 hover:shadow-panik-orange/30 disabled:opacity-50 disabled:cursor-not-allowed"
             id="connect-wallet-btn"
           >
             {isConnecting ? (
@@ -402,14 +402,14 @@ export function DepositFlow() {
       {/* ─── Wrong chain ─── */}
       {step === "wrong-chain" && (
         <div className="text-center py-4">
-          <div className="text-3xl mb-3">⛓️</div>
-          <p className="text-sm text-white/50 mb-1">Wrong network detected.</p>
-          <p className="text-xs text-white/30 mb-5">
-            Please switch to <strong className="text-white/60">{targetChain.name}</strong> to continue.
+          <div className="text-2xl mb-3">⛓️</div>
+          <p className="text-sm text-text-muted mb-1">Wrong network detected.</p>
+          <p className="text-xs text-text-muted mb-5">
+            Please switch to <strong className="text-text-secondary">{targetChain.name}</strong> to continue.
           </p>
           <button
             onClick={handleSwitchChain}
-            className="w-full py-3 px-6 rounded-xl font-semibold text-sm bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-400 hover:to-orange-500 active:scale-[0.98] transition-all shadow-lg shadow-orange-500/20"
+            className="w-full py-3 px-6 rounded-md font-semibold text-sm bg-panik-orange text-surface-base active:scale-[0.98] transition-all shadow-lg shadow-panik-orange/20"
             id="switch-chain-btn"
           >
             Switch to {targetChain.name}
@@ -421,19 +421,19 @@ export function DepositFlow() {
       {/* ─── Insufficient balance ─── */}
       {step === "check-balance" && (
         <div className="text-center py-4">
-          <div className="text-3xl mb-3">💸</div>
-          <p className="text-sm text-white/50 mb-1">Insufficient USDC balance.</p>
-          <p className="text-xs text-white/30 mb-4">
+          <div className="text-2xl mb-3">💸</div>
+          <p className="text-sm text-text-muted mb-1">Insufficient USDC balance.</p>
+          <p className="text-xs text-text-muted mb-4">
             You need at least {DEPOSIT_DISPLAY} USDC on {targetChain.name}.
           </p>
-          <div className="bg-white/[0.03] rounded-lg p-4 mb-4">
-            <p className="text-xs text-white/40 mb-2">Need USDC on Base?</p>
+          <div className="bg-white/[0.03] rounded-md p-4 mb-4">
+            <p className="text-xs text-text-muted mb-2">Need USDC on Base?</p>
             <div className="flex gap-2 justify-center">
               <a
                 href="https://bridge.base.org"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-orange-400 hover:text-orange-300 underline underline-offset-2 transition-colors"
+                className="text-xs text-panik-orange hover:text-panik-orange underline underline-offset-2 transition-colors"
               >
                 Bridge from Ethereum
               </a>
@@ -442,7 +442,7 @@ export function DepositFlow() {
                 href="https://www.coinbase.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-orange-400 hover:text-orange-300 underline underline-offset-2 transition-colors"
+                className="text-xs text-panik-orange hover:text-panik-orange underline underline-offset-2 transition-colors"
               >
                 Buy on Coinbase
               </a>
@@ -458,25 +458,25 @@ export function DepositFlow() {
       {/* ─── Approve ─── */}
       {step === "approve" && (
         <div className="py-4">
-          <div className="bg-white/[0.03] rounded-lg p-4 mb-5">
+          <div className="bg-white/[0.03] rounded-md p-4 mb-5">
             <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-white/40">Deposit amount</span>
-              <span className="font-mono text-white/80 tabular-nums">
+              <span className="text-text-muted">Deposit amount</span>
+              <span className="font-mono text-text-secondary tabular-nums">
                 {DEPOSIT_DISPLAY} USDC
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-white/30">Network</span>
-              <span className="font-mono text-white/50">{targetChain.name}</span>
+              <span className="text-text-muted">Network</span>
+              <span className="font-mono text-text-muted">{targetChain.name}</span>
             </div>
           </div>
-          <p className="text-xs text-white/30 mb-4 text-center">
+          <p className="text-xs text-text-muted mb-4 text-center">
             Step 1 of 2: Approve USDC spending, then deposit.
           </p>
           <button
             onClick={handleApprove}
             disabled={isApproving}
-            className="w-full py-3.5 px-6 rounded-xl font-semibold text-sm bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-400 hover:to-orange-500 active:scale-[0.98] transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3.5 px-6 rounded-md font-semibold text-sm bg-panik-orange text-surface-base active:scale-[0.98] transition-all shadow-lg shadow-panik-orange/20 disabled:opacity-50 disabled:cursor-not-allowed"
             id="approve-usdc-btn"
           >
             {isApproving ? (
@@ -495,18 +495,18 @@ export function DepositFlow() {
       {step === "deposit" && (
         <div className="py-4">
           <div className="flex items-center gap-2 mb-5 justify-center">
-            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-panik-green/20 text-panik-green text-xs">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-risk-low/20 text-risk-low text-xs">
               ✓
             </span>
-            <span className="text-xs text-panik-green/80">USDC approved</span>
+            <span className="text-xs text-risk-low/80">USDC approved</span>
           </div>
-          <p className="text-xs text-white/30 mb-4 text-center">
+          <p className="text-xs text-text-muted mb-4 text-center">
             Step 2 of 2: Confirm the deposit transaction.
           </p>
           <button
             onClick={handleDeposit}
             disabled={isDepositing}
-            className="w-full py-3.5 px-6 rounded-xl font-semibold text-sm bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-400 hover:to-orange-500 active:scale-[0.98] transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3.5 px-6 rounded-md font-semibold text-sm bg-panik-orange text-surface-base active:scale-[0.98] transition-all shadow-lg shadow-panik-orange/20 disabled:opacity-50 disabled:cursor-not-allowed"
             id="deposit-btn"
           >
             {isDepositing ? (
@@ -527,10 +527,10 @@ export function DepositFlow() {
           <div className="mb-4">
             <Spinner size="lg" />
           </div>
-          <p className="text-sm text-white/50 mb-2">
+          <p className="text-sm text-text-muted mb-2">
             Transaction pending…
           </p>
-          <p className="text-xs text-white/25">
+          <p className="text-xs text-text-muted">
             Waiting for on-chain confirmation.
           </p>
           {(approveTxHash || depositTxHash) && (
@@ -538,7 +538,7 @@ export function DepositFlow() {
               href={basescanTxUrl((depositTxHash || approveTxHash)!)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block mt-3 text-xs text-orange-400/70 hover:text-orange-400 font-mono underline underline-offset-2 transition-colors"
+              className="inline-block mt-3 text-xs text-panik-orange/70 hover:text-panik-orange font-mono underline underline-offset-2 transition-colors"
             >
               View on Basescan ↗
             </a>
@@ -550,10 +550,10 @@ export function DepositFlow() {
       {step === "success" && (
         <div className="text-center py-6">
           <div className="text-4xl mb-3">🎉</div>
-          <h4 className="font-display font-bold text-lg text-white mb-2">
+          <h4 className="font-display font-bold text-lg text-text-primary mb-2">
             You're a founding user!
           </h4>
-          <p className="text-sm text-white/40 mb-4">
+          <p className="text-sm text-text-muted mb-4">
             Your {DEPOSIT_DISPLAY} USDC is held in escrow. The escrow has a single
             global deadline{refundDeadlineDate ? ` of ${refundDeadlineDate}` : ""}.
             If we haven't shipped by then, come back to claim your refund.
@@ -563,7 +563,7 @@ export function DepositFlow() {
               href={basescanTxUrl(depositTxHash)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 font-mono underline underline-offset-2 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs text-panik-orange hover:text-panik-orange font-mono underline underline-offset-2 transition-colors"
               id="success-tx-link"
             >
               View transaction ↗
@@ -575,11 +575,11 @@ export function DepositFlow() {
       {/* ─── Already paid ─── */}
       {step === "already-paid" && (
         <div className="text-center py-6">
-          <div className="text-3xl mb-3">✅</div>
-          <h4 className="font-display font-semibold text-white/90 mb-2">
+          <div className="text-2xl mb-3">✅</div>
+          <h4 className="font-display font-semibold text-text-primary mb-2">
             Already deposited
           </h4>
-          <p className="text-sm text-white/40">
+          <p className="text-sm text-text-muted">
             This wallet has already deposited {DEPOSIT_DISPLAY} USDC.
             You're a founding user!
           </p>
@@ -590,11 +590,11 @@ export function DepositFlow() {
       {/* ─── Error ─── */}
       {step === "error" && (
         <div className="text-center py-6">
-          <div className="text-3xl mb-3">⚠️</div>
-          <p className="text-sm text-panik-red mb-4">{errorMsg}</p>
+          <div className="text-2xl mb-3">⚠️</div>
+          <p className="text-sm text-risk-critical mb-4">{errorMsg}</p>
           <button
             onClick={handleRetry}
-            className="px-6 py-2.5 rounded-xl text-sm font-semibold border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 transition-all"
+            className="px-6 py-2.5 rounded-md text-sm font-semibold border border-panik-orange/30 text-panik-orange hover:bg-panik-orange/10 transition-all"
             id="retry-btn"
           >
             Try Again
@@ -614,7 +614,7 @@ function Spinner({ size = "sm" }: { size?: "sm" | "lg" }) {
       : "w-4 h-4 border-[1.5px]";
   return (
     <span
-      className={`inline-block ${cls} border-orange-400/30 border-t-orange-400 rounded-full animate-spin`}
+      className={`inline-block ${cls} border-panik-orange/30 border-t-panik-orange rounded-full animate-spin`}
     />
   );
 }
@@ -629,13 +629,13 @@ function WalletInfo({
 }) {
   if (!address) return null;
   return (
-    <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-center gap-3 text-xs">
-      <span className="text-white/25 font-mono">
+    <div className="mt-4 pt-3 border-t border-border-subtle flex items-center justify-center gap-3 text-xs">
+      <span className="text-text-muted font-mono">
         {address.slice(0, 6)}…{address.slice(-4)}
       </span>
       <button
         onClick={onDisconnect}
-        className="text-white/30 hover:text-panik-red transition-colors"
+        className="text-text-muted hover:text-risk-critical transition-colors"
         id="disconnect-btn"
       >
         Disconnect

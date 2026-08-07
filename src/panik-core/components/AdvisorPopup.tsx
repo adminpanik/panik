@@ -200,12 +200,12 @@ export function AdvisorPopup({
           initial={{ opacity: 0, y: 16, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 8, scale: 0.98 }}
-          className={`fixed bottom-6 right-6 z-[80] w-full max-w-sm rounded-2xl border p-4 shadow-2xl shadow-black/60 backdrop-blur-md ${
+          className={`fixed bottom-6 right-6 z-[80] w-full max-w-sm rounded-lg border p-4 shadow-2xl shadow-black/60 backdrop-blur-md ${
             notification.urgency === "critical"
-              ? "bg-[#1a0f10]/95 border-red-500/40"
+              ? "bg-surface-overlay/95 border-risk-critical/40"
               : notification.urgency === "warning"
-                ? "bg-[#171208]/95 border-amber-500/30"
-                : "bg-[#111318]/95 border-panik-orange/25"
+                ? "bg-surface-overlay/95 border-risk-elevated/30"
+                : "bg-surface-raised/95 border-panik-orange/25"
           }`}
         >
           <div className="flex items-start gap-3">
@@ -214,24 +214,24 @@ export function AdvisorPopup({
             ) : (
               <AlertTriangle
                 className={`w-4 h-4 mt-0.5 shrink-0 ${
-                  notification.urgency === "critical" ? "text-red-400" : "text-amber-400"
+                  notification.urgency === "critical" ? "text-risk-critical" : "text-risk-elevated"
                 }`}
               />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-mono tracking-widest uppercase text-white/40 mb-1">
+              <p className="text-2xs font-mono tracking-widest uppercase text-text-muted mb-1">
                 AI Advisor
               </p>
-              <p className="text-sm text-white font-sans leading-relaxed">{notification.headline}</p>
+              <p className="text-sm text-text-primary font-sans leading-relaxed">{notification.headline}</p>
               <div className="flex items-center gap-2 mt-3">
                 {notification.actionLabel ? (
                   <button
                     onClick={act}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold tracking-wide transition-colors ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-2xs font-mono font-bold tracking-wide transition-colors ${
                       notification.kind === "exit"
-                        ? "bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25"
+                        ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25"
                         : notification.kind === "reduce"
-                          ? "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25"
+                          ? "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25"
                           : "bg-panik-orange/15 text-panik-orange border border-panik-orange/30 hover:bg-panik-orange/25"
                     }`}
                   >
@@ -243,13 +243,13 @@ export function AdvisorPopup({
                     onView();
                     setNotification(null);
                   }}
-                  className="px-3 py-1.5 rounded-lg text-[11px] font-mono text-white/60 border border-white/10 hover:text-white hover:bg-white/[0.06] transition-colors"
+                  className="px-3 py-1.5 rounded-md text-2xs font-mono text-text-secondary border border-border-subtle hover:text-text-primary hover:bg-white/[0.06] transition-colors"
                 >
                   View in Advisor
                 </button>
               </div>
             </div>
-            <button onClick={dismiss} className="text-white/30 hover:text-white transition-colors shrink-0">
+            <button onClick={dismiss} className="text-text-muted hover:text-text-primary transition-colors shrink-0">
               <X className="w-4 h-4" />
             </button>
           </div>

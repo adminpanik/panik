@@ -87,29 +87,29 @@ export function EscrowStats() {
       : `https://sepolia.basescan.org/address/${escrowAddress}`;
 
   return (
-    <div className="panik-glass rounded-xl p-6">
-      <h3 className="font-display font-semibold text-sm text-white/70 mb-4 uppercase tracking-wider">
+    <div className="panik-glass rounded-md p-6">
+      <h3 className="font-display font-semibold text-sm text-text-secondary mb-4 uppercase tracking-wider">
         Escrow Status
       </h3>
 
       <div className="grid grid-cols-2 gap-4 mb-4">
         {/* Founding users count */}
-        <div className="bg-white/[0.03] rounded-lg p-4 text-center">
-          <div className="font-display text-2xl font-bold text-orange-400 mb-1 tabular-nums">
+        <div className="bg-white/[0.03] rounded-md p-4 text-center">
+          <div className="font-display text-2xl font-bold text-panik-orange mb-1 tabular-nums">
             {count !== null ? count : "…"}
           </div>
-          <div className="text-[11px] text-white/35 uppercase tracking-wide">
+          <div className="text-2xs text-text-muted uppercase tracking-wide">
             Founding Users
           </div>
         </div>
 
         {/* Deposit amount */}
-        <div className="bg-white/[0.03] rounded-lg p-4 text-center">
-          <div className="font-display text-2xl font-bold text-white/80 mb-1 tabular-nums">
+        <div className="bg-white/[0.03] rounded-md p-4 text-center">
+          <div className="font-display text-2xl font-bold text-text-secondary mb-1 tabular-nums">
             {DEPOSIT_DISPLAY}
-            <span className="text-sm text-white/40 ml-1">USDC</span>
+            <span className="text-sm text-text-muted ml-1">USDC</span>
           </div>
-          <div className="text-[11px] text-white/35 uppercase tracking-wide">
+          <div className="text-2xs text-text-muted uppercase tracking-wide">
             Per Deposit
           </div>
         </div>
@@ -117,15 +117,15 @@ export function EscrowStats() {
 
       {/* Global deadline countdown */}
       {deadlineDate && (
-        <div className="mb-4 text-xs flex justify-between items-center bg-white/[0.02] border border-white/[0.04] rounded-lg p-3">
-          <span className="text-white/40">Launch Target:</span>
-          <span className="font-mono text-white/80">
+        <div className="mb-4 text-xs flex justify-between items-center bg-white/[0.02] border border-border-subtle rounded-md p-3">
+          <span className="text-text-muted">Launch Target:</span>
+          <span className="font-mono text-text-secondary">
             {isShipped ? (
-              <span className="text-emerald-400 font-semibold">Shipped!</span>
+              <span className="text-risk-low font-semibold">Shipped!</span>
             ) : daysRemaining !== null && daysRemaining > 0 ? (
               <span className="tabular-nums">{daysRemaining} days left</span>
             ) : (
-              <span className="text-rose-400 font-semibold">Refund period active</span>
+              <span className="text-risk-critical font-semibold">Refund period active</span>
             )}
           </span>
         </div>
@@ -134,37 +134,37 @@ export function EscrowStats() {
       {/* Contract address */}
       {escrowAddress && (
         <div className="flex items-center gap-2 text-xs">
-          <span className="text-white/30">Contract:</span>
+          <span className="text-text-muted">Contract:</span>
           <a
             href={basescanUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-mono text-orange-400/70 hover:text-orange-400 transition-colors truncate"
+            className="font-mono text-panik-orange/70 hover:text-panik-orange transition-colors truncate"
             id="escrow-contract-link"
           >
             {escrowAddress.slice(0, 6)}…{escrowAddress.slice(-4)}
           </a>
           <span className="text-white/20">·</span>
-          <span className="text-white/25 font-mono">
+          <span className="text-text-muted font-mono">
             {chainId === 8453 ? "Base" : "Base Sepolia"}
           </span>
         </div>
       )}
 
       {!escrowAddress && (
-        <div className="text-xs text-white/25 font-mono text-center py-2">
+        <div className="text-xs text-text-muted font-mono text-center py-2">
           Contract not deployed yet
         </div>
       )}
 
       {/* Connected user's status */}
       {isConnected && hasPaid && (
-        <div className="mt-4 pt-4 border-t border-white/[0.06]">
+        <div className="mt-4 pt-4 border-t border-border-subtle">
           <div className="flex items-center gap-2 text-xs">
             <span
-              className={`inline-block w-2 h-2 rounded-full ${isRefunded ? "bg-white/30" : isShipped ? "bg-emerald-500" : "bg-orange-400"}`}
+              className={`inline-block w-2 h-2 rounded-full ${isRefunded ? "bg-white/30" : isShipped ? "bg-risk-low" : "bg-panik-orange"}`}
             />
-            <span className="text-white/50">
+            <span className="text-text-muted">
               {isRefunded
                 ? "Refunded"
                 : isShipped

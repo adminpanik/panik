@@ -78,12 +78,12 @@ export function TrialBanner() {
     const remainingMs = state.expiresAt ? new Date(state.expiresAt).getTime() - Date.now() : 0;
     return (
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9998] panik-glass rounded-full pl-4 pr-3 py-2 flex items-center gap-2.5 shadow-lg">
-        <Clock className="w-4 h-4 text-orange-400" />
-        <span className="text-xs text-white/70">
+        <Clock className="w-4 h-4 text-panik-orange" />
+        <span className="text-xs text-text-secondary">
           Trial active
-          {state.expiresAt && <span className="text-white/90 font-mono tabular-nums"> · {formatRemaining(remainingMs)} left</span>}
+          {state.expiresAt && <span className="text-text-primary font-mono tabular-nums"> · {formatRemaining(remainingMs)} left</span>}
         </span>
-        <button onClick={() => setDismissed(true)} className="text-white/30 hover:text-white/60 transition-colors" aria-label="Dismiss">
+        <button onClick={() => setDismissed(true)} className="text-text-muted hover:text-text-secondary transition-colors" aria-label="Dismiss">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -93,12 +93,12 @@ export function TrialBanner() {
   // expired | invalid
   return (
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9998] panik-glass rounded-full pl-4 pr-3 py-2 flex items-center gap-2.5 shadow-lg">
-      <AlertCircle className="w-4 h-4 text-red-400" />
-      <span className="text-xs text-white/70">
+      <AlertCircle className="w-4 h-4 text-risk-critical" />
+      <span className="text-xs text-text-secondary">
         {state.kind === "expired" ? "Your trial has expired." : "Trial link isn't valid."}
       </span>
-      <a href="/try" className="text-xs font-medium text-orange-400 hover:text-orange-300 transition-colors">Get access</a>
-      <button onClick={() => setDismissed(true)} className="text-white/30 hover:text-white/60 transition-colors" aria-label="Dismiss">
+      <a href="/try" className="text-xs font-medium text-panik-orange hover:text-panik-orange transition-colors">Get access</a>
+      <button onClick={() => setDismissed(true)} className="text-text-muted hover:text-text-secondary transition-colors" aria-label="Dismiss">
         <X className="w-3.5 h-3.5" />
       </button>
     </div>

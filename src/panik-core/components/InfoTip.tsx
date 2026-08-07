@@ -31,13 +31,13 @@ export function InfoTip(props: { text: string; className?: string }) {
       ref={anchor}
       tabIndex={0}
       aria-label={props.text}
-      className={`inline-flex align-middle outline-hidden ${props.className ?? ""}`}
+      className={`inline-flex align-middle ${props.className ?? ""}`}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}
       onBlur={hide}
     >
-      <HelpCircle className="w-3 h-3 text-white/25 hover:text-panik-orange transition-colors cursor-help shrink-0" />
+      <HelpCircle className="w-3 h-3 text-text-muted hover:text-panik-orange transition-colors cursor-help shrink-0" />
       {pos &&
         createPortal(
           <span
@@ -45,7 +45,7 @@ export function InfoTip(props: { text: string; className?: string }) {
             className={`fixed z-[300] w-60 -translate-x-1/2 pointer-events-none ${pos.below ? "" : "-translate-y-full"}`}
             style={{ left: pos.x, top: pos.below ? pos.y + 6 : pos.y - 6 }}
           >
-            <span className="block p-2.5 rounded-lg bg-[#1A1D26] border border-white/10 text-[10px] font-sans normal-case tracking-normal font-normal text-white/85 leading-relaxed shadow-2xl text-left">
+            <span className="block p-2.5 rounded-md bg-surface-overlay border border-border-subtle text-2xs font-sans normal-case tracking-normal font-normal text-text-secondary leading-relaxed shadow-2xl text-left">
               {props.text}
             </span>
           </span>,

@@ -301,24 +301,24 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative w-full max-w-lg bg-[#0d0f14] border border-white/10 rounded-2xl p-6 space-y-5 max-h-[85vh] overflow-y-auto"
+        className="relative w-full max-w-lg bg-surface-sunken border border-border-subtle rounded-lg p-6 space-y-5 max-h-[85vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-display font-bold text-white">{title}</h2>
+            <h2 className="text-lg font-display font-bold text-text-primary">{title}</h2>
             {EXIT_ENV === "testnet" ? (
-              <span className="px-2 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-400 text-[10px] font-mono font-bold tracking-widest">
+              <span className="px-2 py-0.5 rounded-sm border border-risk-elevated/40 bg-risk-elevated/10 text-risk-elevated text-2xs font-mono font-bold tracking-widest">
                 TESTNET
               </span>
             ) : null}
           </div>
-          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {EXIT_ENV === "testnet" && step !== "unavailable" ? (
-          <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-3 text-xs text-amber-200/90 font-sans leading-relaxed">
+          <div className="rounded-md border border-risk-elevated/25 bg-risk-elevated/[0.06] p-3 text-xs text-risk-elevated/90 font-sans leading-relaxed">
             Execution runs on <b>Base Sepolia</b> against a demo position - your mainnet position
             is not touched. Mainnet execution ships after audit.
           </div>
@@ -326,14 +326,14 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
 
         {step === "unavailable" ? (
           <div className="space-y-4">
-            <p className="text-sm text-panik-text-secondary font-sans leading-relaxed">
+            <p className="text-sm text-text-secondary font-sans leading-relaxed">
               {`${prefill.protocol.replace("_", " ")} exits are proven against Base mainnet in the
               executor's fork suite, but this protocol has no Base Sepolia demo deployment - it
               unlocks with the mainnet release. The Aave V3 demo exit is available today.`}
             </p>
             <button
               onClick={onClose}
-              className="w-full py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm font-mono text-white hover:bg-white/[0.1] transition-colors"
+              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-mono text-text-primary hover:bg-white/[0.1] transition-colors"
             >
               Close
             </button>
@@ -343,7 +343,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         {step === "connect" ? (
           <button
             onClick={() => connect({ connector: injected() })}
-            className="w-full py-3 rounded-xl bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
+            className="w-full py-3 rounded-md bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
           >
             Connect wallet
           </button>
@@ -352,14 +352,14 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         {step === "chain" ? (
           <button
             onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })}
-            className="w-full py-3 rounded-xl bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
+            className="w-full py-3 rounded-md bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
           >
             Switch to {getExitChain().name}
           </button>
         ) : null}
 
         {step === "loading" ? (
-          <div className="flex items-center gap-3 text-sm text-panik-text-secondary font-mono py-6 justify-center">
+          <div className="flex items-center gap-3 text-sm text-text-secondary font-mono py-6 justify-center">
             <Loader2 className="w-4 h-4 animate-spin" /> Reading position + running pre-flight...
           </div>
         ) : null}
@@ -370,10 +370,10 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
               {position.views.map((v) => (
                 <div
                   key={v.reserve}
-                  className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 flex items-center justify-between text-sm"
+                  className="rounded-md border border-border-subtle bg-white/[0.02] p-3 flex items-center justify-between text-sm"
                 >
-                  <span className="font-mono text-white">{v.symbol}</span>
-                  <span className="font-mono text-xs tabular-nums text-panik-text-secondary text-right">
+                  <span className="font-mono text-text-primary">{v.symbol}</span>
+                  <span className="font-mono text-xs tabular-nums text-text-secondary text-right">
                     {v.repay > 0n
                       ? `repay ${v.repay === AMOUNT_FULL ? fmtUnits(v.debt, v.decimals) : fmtUnits(v.repay, v.decimals)}`
                       : ""}
@@ -389,7 +389,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
             {position.requiredUsdc > 0n ? (
               <div
                 className={`text-xs font-mono tabular-nums flex items-center gap-2 ${
-                  position.usdcBalance >= position.requiredUsdc ? "text-white/50" : "text-red-400"
+                  position.usdcBalance >= position.requiredUsdc ? "text-text-muted" : "text-risk-critical"
                 }`}
               >
                 {position.usdcBalance < position.requiredUsdc ? (
@@ -401,7 +401,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
             ) : null}
 
             {error ? (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/[0.06] p-3 text-xs text-red-300 font-mono break-words">
+              <div className="rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-mono break-words">
                 {error}
               </div>
             ) : null}
@@ -412,7 +412,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
                 step === "executing" ||
                 (position.requiredUsdc > 0n && position.usdcBalance < position.requiredUsdc)
               }
-              className="w-full py-3 rounded-xl bg-panik-orange text-black font-mono font-bold text-sm hover:bg-panik-orange/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-md bg-panik-orange text-black font-mono font-bold text-sm hover:bg-panik-orange/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {step === "executing" ? (
                 <>
@@ -425,7 +425,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
                 </>
               )}
             </button>
-            <p className="text-[10px] font-mono text-white/30 text-center">
+            <p className="text-2xs font-mono text-text-muted text-center">
               Approvals are exact-amount (+2% accrual buffer). Every transaction is simulated
               before you sign it.
             </p>
@@ -434,13 +434,13 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
 
         {step === "done" && receipt ? (
           <div className="space-y-4 text-center py-4">
-            <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
+            <CheckCircle2 className="w-10 h-10 text-risk-low mx-auto" />
             <div>
-              <p className="text-white font-display font-bold">
+              <p className="text-text-primary font-display font-bold">
                 {prefill.kind === "full" ? "Position exited" : "Position reduced"}
               </p>
               {receipt.usdcReceived > 0n && position ? (
-                <p className="text-sm text-panik-text-secondary font-mono tabular-nums mt-1">
+                <p className="text-sm text-text-secondary font-mono tabular-nums mt-1">
                   {fmtUnits(receipt.usdcReceived, position.usdcDecimals)} USDC swept to your wallet
                 </p>
               ) : null}
@@ -455,7 +455,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
             </a>
             <button
               onClick={onClose}
-              className="w-full py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm font-mono text-white hover:bg-white/[0.1] transition-colors"
+              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-mono text-text-primary hover:bg-white/[0.1] transition-colors"
             >
               Done
             </button>
@@ -464,12 +464,12 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
 
         {step === "error" ? (
           <div className="space-y-4">
-            <div className="rounded-xl border border-red-500/30 bg-red-500/[0.06] p-3 text-xs text-red-300 font-mono break-words">
+            <div className="rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-mono break-words">
               {error}
             </div>
             <button
               onClick={() => setStep("loading")}
-              className="w-full py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm font-mono text-white hover:bg-white/[0.1] transition-colors"
+              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-mono text-text-primary hover:bg-white/[0.1] transition-colors"
             >
               Retry
             </button>

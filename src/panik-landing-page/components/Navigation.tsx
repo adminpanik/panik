@@ -47,7 +47,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-50 h-20 bg-[#09090B]/80 backdrop-blur-xl border-b border-white/[0.06] transition-all duration-300">
+      <nav className="fixed top-0 left-0 right-0 z-50 h-20 bg-surface-base/80 backdrop-blur-xl border-b border-border-subtle transition-all duration-300">
         <div className="max-w-7xl mx-auto h-full px-6 flex items-center justify-between">
           
           {/* Logo Brand */}
@@ -57,27 +57,27 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
             id="nav-logo-container"
           >
             <PanikLogoMark size={32} />
-            <span className="font-display font-medium text-lg tracking-[0.1em] text-[#F8FAFC] group-hover:text-white transition-colors uppercase">
+            <span className="font-display font-medium text-lg tracking-[0.1em] text-text-primary group-hover:text-text-primary transition-colors uppercase">
               PANIK
             </span>
           </div>
 
           {/* Center Links (Desktop) */}
-          <div className="hidden md:flex items-center gap-7 text-[11px] font-mono tracking-wider text-panik-text-secondary select-none">
+          <div className="hidden md:flex items-center gap-7 text-2xs font-mono tracking-wider text-text-secondary select-none">
             
             {/* Products Dropdown (Aave style) */}
             <div className="relative group py-5">
               <button 
                 onClick={() => onScrollTo("products")}
-                className="flex items-center gap-1.5 hover:text-[#F8FAFC] transition-colors cursor-pointer uppercase font-medium"
+                className="flex items-center gap-1.5 hover:text-text-primary transition-colors cursor-pointer uppercase font-medium"
               >
                 <span>Products</span>
                 <ChevronDown className="w-3.5 h-3.5 opacity-60 group-hover:rotate-180 transition-transform duration-300" />
               </button>
               
               {/* Dropdown Panel */}
-              <div className="absolute top-full left-1/2 -translate-x-1/2 w-80 bg-[#111318] border border-white/[0.08] rounded-xl p-4.5 shadow-2xl opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto transition-all duration-300 z-50 backdrop-blur-xl">
-                <span className="block text-[8px] font-mono text-white/40 tracking-widest uppercase mb-3">PANIK SUITE</span>
+              <div className="absolute top-full left-1/2 -translate-x-1/2 w-80 bg-surface-raised border border-border-subtle rounded-md p-4.5 shadow-2xl opacity-0 translate-y-2 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:pointer-events-auto transition-all duration-300 z-50 backdrop-blur-xl">
+                <span className="block text-2xs font-mono text-text-muted tracking-widest uppercase mb-3">PANIK SUITE</span>
                 <div className="space-y-4">
                   <div 
                     className="group/item cursor-pointer" 
@@ -86,11 +86,11 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
                       window.dispatchEvent(new CustomEvent("panik-activate-product", { detail: { index: 0 } }));
                     }}
                   >
-                    <div className="flex items-center gap-2 text-white font-sans text-xs font-semibold group-hover/item:text-panik-orange transition-colors">
+                    <div className="flex items-center gap-2 text-text-primary font-sans text-xs font-semibold group-hover/item:text-panik-orange transition-colors">
                       <Compass className="w-3.5 h-3.5 text-panik-orange" />
                       <span>Compass</span>
                     </div>
-                    <span className="block text-[10.5px] text-panik-text-secondary mt-0.5 font-sans leading-normal">Surfaces calibrated risk profiles before you commit capital.</span>
+                    <span className="block text-2xs text-text-secondary mt-0.5 font-sans leading-normal">Surfaces calibrated risk profiles before you commit capital.</span>
                   </div>
                   
                   <div 
@@ -100,11 +100,11 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
                       window.dispatchEvent(new CustomEvent("panik-activate-product", { detail: { index: 1 } }));
                     }}
                   >
-                    <div className="flex items-center gap-2 text-white font-sans text-xs font-semibold group-hover/item:text-panik-orange transition-colors">
+                    <div className="flex items-center gap-2 text-text-primary font-sans text-xs font-semibold group-hover/item:text-panik-orange transition-colors">
                       <Eye className="w-3.5 h-3.5 text-panik-orange" />
                       <span>Watch</span>
                     </div>
-                    <span className="block text-[10.5px] text-panik-text-secondary mt-0.5 font-sans leading-normal">Continuous 60-second auditing on live collateral pools.</span>
+                    <span className="block text-2xs text-text-secondary mt-0.5 font-sans leading-normal">Continuous 60-second auditing on live collateral pools.</span>
                   </div>
 
                   <div 
@@ -114,11 +114,11 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
                       window.dispatchEvent(new CustomEvent("panik-activate-product", { detail: { index: 2 } }));
                     }}
                   >
-                    <div className="flex items-center gap-2 text-white font-sans text-xs font-semibold group-hover/item:text-panik-orange transition-colors">
+                    <div className="flex items-center gap-2 text-text-primary font-sans text-xs font-semibold group-hover/item:text-panik-orange transition-colors">
                       <Zap className="w-3.5 h-3.5 text-panik-orange" />
                       <span>Advisor</span>
                     </div>
-                    <span className="block text-[10.5px] text-panik-text-secondary mt-0.5 font-sans leading-normal">Plain-language recommendations with precise transaction costs.</span>
+                    <span className="block text-2xs text-text-secondary mt-0.5 font-sans leading-normal">Plain-language recommendations with precise transaction costs.</span>
                   </div>
                 </div>
               </div>
@@ -128,7 +128,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
             
             <button 
               onClick={() => onScrollTo("scoring")} 
-              className="hover:text-[#F8FAFC] transition-colors cursor-pointer uppercase font-medium"
+              className="hover:text-text-primary transition-colors cursor-pointer uppercase font-medium"
               id="btn-nav-how-it-works"
             >
               How it works
@@ -138,7 +138,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
 
             <button 
               onClick={() => onScrollTo("backtest")} 
-              className="hover:text-[#F8FAFC] transition-colors cursor-pointer uppercase font-medium"
+              className="hover:text-text-primary transition-colors cursor-pointer uppercase font-medium"
               id="btn-nav-backtest"
             >
               Performance
@@ -148,7 +148,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
 
             <button
               onClick={() => onScrollTo("faq")}
-              className="hover:text-[#F8FAFC] transition-colors cursor-pointer uppercase font-medium"
+              className="hover:text-text-primary transition-colors cursor-pointer uppercase font-medium"
               id="btn-nav-faq"
             >
               FAQ
@@ -161,7 +161,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
               <button
                 type="button"
                 onClick={onOpenWaitlistModal}
-                className="h-9 px-5 bg-panik-orange hover:bg-panik-orange/90 text-white font-mono text-[11px] uppercase tracking-wider font-semibold rounded-lg flex items-center gap-2 transition-all duration-300 cursor-pointer shadow-md shadow-orange-500/20"
+                className="h-9 px-5 bg-panik-orange hover:bg-panik-orange/90 text-surface-base font-mono text-2xs uppercase tracking-wider font-semibold rounded-md flex items-center gap-2 transition-all duration-300 cursor-pointer shadow-md shadow-panik-orange/20"
               >
                 JOIN WAITLIST →
               </button>
@@ -171,7 +171,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
           {/* Hamburger Menu (Mobile/Tablet Toggle) */}
           <button 
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)} 
-            className="md:hidden p-2 text-panik-text-secondary hover:text-white transition-colors"
+            className="md:hidden p-2 text-text-secondary hover:text-text-primary transition-colors"
             id="btn-mobile-menu-toggle"
             aria-label="Toggle Menu"
           >
@@ -197,7 +197,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
         {/* Slide-in drawer panel */}
         <div 
           ref={drawerRef}
-          className={`absolute top-0 right-0 h-full w-full max-w-[340px] bg-[#09090B]/95 backdrop-blur-xl border-l border-white/[0.06] shadow-2xl transform transition-transform duration-300 ease-out ${
+          className={`absolute top-0 right-0 h-full w-full max-w-[340px] bg-surface-base/95 backdrop-blur-xl border-l border-border-subtle shadow-2xl transform transition-transform duration-300 ease-out ${
             mobileMenuOpen ? "translate-x-0" : "translate-x-full"
           }`}
         >
@@ -210,7 +210,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
                 <button
                   type="button"
                   onClick={() => { onOpenWaitlistModal(); setMobileMenuOpen(false); }}
-                  className="w-full h-14 bg-panik-orange hover:bg-panik-orange/90 text-white font-mono text-xs uppercase tracking-wider font-bold rounded-xl flex items-center justify-center gap-2.5 transition-all duration-300 cursor-pointer shadow-lg shadow-orange-500/20 mb-6"
+                  className="w-full h-14 bg-panik-orange hover:bg-panik-orange/90 text-surface-base font-mono text-xs uppercase tracking-wider font-bold rounded-md flex items-center justify-center gap-2.5 transition-all duration-300 cursor-pointer shadow-lg shadow-panik-orange/20 mb-6"
                 >
                   JOIN WAITLIST →
                 </button>
@@ -218,7 +218,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
 
               <button 
                 onClick={() => handleMobileNav("products")}
-                className="block w-full text-left py-4 px-4 rounded-xl text-sm font-mono text-panik-text-primary hover:text-panik-orange hover:bg-white/[0.03] transition-all duration-200"
+                className="block w-full text-left py-4 px-4 rounded-md text-sm font-mono text-text-primary hover:text-panik-orange hover:bg-white/[0.03] transition-all duration-200"
               >
                 <span className="text-panik-orange/50 text-xs mr-3">01</span>
                 PRODUCTS
@@ -226,7 +226,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
 
               <button 
                 onClick={() => handleMobileNav("scoring")}
-                className="block w-full text-left py-4 px-4 rounded-xl text-sm font-mono text-panik-text-primary hover:text-panik-orange hover:bg-white/[0.03] transition-all duration-200"
+                className="block w-full text-left py-4 px-4 rounded-md text-sm font-mono text-text-primary hover:text-panik-orange hover:bg-white/[0.03] transition-all duration-200"
               >
                 <span className="text-panik-orange/50 text-xs mr-3">02</span>
                 HOW IT WORKS
@@ -234,7 +234,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
 
               <button 
                 onClick={() => handleMobileNav("backtest")}
-                className="block w-full text-left py-4 px-4 rounded-xl text-sm font-mono text-panik-text-primary hover:text-panik-orange hover:bg-white/[0.03] transition-all duration-200"
+                className="block w-full text-left py-4 px-4 rounded-md text-sm font-mono text-text-primary hover:text-panik-orange hover:bg-white/[0.03] transition-all duration-200"
               >
                 <span className="text-panik-orange/50 text-xs mr-3">03</span>
                 PERFORMANCE
@@ -242,7 +242,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
 
               <button
                 onClick={() => handleMobileNav("faq")}
-                className="block w-full text-left py-4 px-4 rounded-xl text-sm font-mono text-panik-text-primary hover:text-panik-orange hover:bg-white/[0.03] transition-all duration-200"
+                className="block w-full text-left py-4 px-4 rounded-md text-sm font-mono text-text-primary hover:text-panik-orange hover:bg-white/[0.03] transition-all duration-200"
               >
                 <span className="text-panik-orange/50 text-xs mr-3">04</span>
                 FREQUENTLY ASKED QUESTIONS
@@ -250,8 +250,8 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
             </div>
 
             {/* Footer accent in drawer */}
-            <div className="pt-6 border-t border-white/[0.06]">
-              <span className="flex items-center gap-1.5 text-panik-orange bg-panik-orange/10 border border-panik-orange/20 px-2.5 py-1 rounded text-[9px] font-mono font-bold w-fit">
+            <div className="pt-6 border-t border-border-subtle">
+              <span className="flex items-center gap-1.5 text-panik-orange bg-panik-orange/10 border border-panik-orange/20 px-2.5 py-1 rounded-sm text-2xs font-mono font-bold w-fit">
                 BUILT ON BASE
               </span>
             </div>
