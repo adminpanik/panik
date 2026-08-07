@@ -48,6 +48,25 @@
    */
   --color-panik-orange: #F97316;
 
+  /**
+   * Risk ramp — four bands plus "we do not know". STATUS ONLY, and always as
+   * a tint (`bg-risk-x/10 text-risk-x border-risk-x/25`), never a solid fill.
+   * risk-high shares the brand hue on purpose: one hue, two treatments, so an
+   * orange chip is never mistaken for a button and vice versa.
+   *
+   * The five greens the UI had collapse to one. HIGH moves off red, which it
+   * shared with CRITICAL at a distance nobody could see.
+   *
+   * risk-unknown is not cosmetic. A position we could not price and a position
+   * that is genuinely safe used to render the same neutral grey, which in a
+   * liquidation product reads as a safety claim we cannot make.
+   */
+  --color-risk-low: #10B981;
+  --color-risk-elevated: #F59E0B;
+  --color-risk-high: #F97316;
+  --color-risk-critical: #F87171;
+  --color-risk-unknown: #7A8699;
+
   /* Legacy aliases. Retired once the migration onto the tokens above lands. */
   --color-panik-text-primary: #F8FAFC;
   --color-panik-text-secondary: #94A3B8;
