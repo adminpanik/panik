@@ -1089,7 +1089,7 @@ export function AppDemo() {
             className="flex items-center gap-2 text-xs font-sans text-text-secondary hover:text-text-primary transition-colors cursor-pointer pt-2 group"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-text-muted group-hover:-translate-x-0.5 transition-transform" />
-            <span>Back to Landing</span>
+            <span>Back to landing</span>
           </a>
         </div>
       </aside>
@@ -1215,7 +1215,7 @@ export function AppDemo() {
                 {/* Section 1: Recommended for your chosen Profile */}
                 <div className="space-y-4">
                   <h2 className="text-base font-sans font-bold text-text-primary tracking-wide">
-                    Recommended for your {selectedRiskProfile.toUpperCase()} Profile
+                    Recommended for your {selectedRiskProfile} profile
                   </h2>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1299,7 +1299,7 @@ export function AppDemo() {
                             secondary path, so it reads as a link. */}
                         <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
                           <Button onClick={() => setOpenPositionPreset(preset)}>
-                            Open Position
+                            Open position
                           </Button>
                           <Button
                             variant="quiet"
@@ -1320,7 +1320,7 @@ export function AppDemo() {
                 {/* Section 2: Vaults outside the core profile limits */}
                 <div className="space-y-4 pt-4">
                   <h2 className="text-base font-sans font-bold text-text-secondary tracking-wide">
-                    Outside Your Profile
+                    Outside your profile
                   </h2>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1438,7 +1438,7 @@ export function AppDemo() {
                     what-if sandbox for markets you could open. */}
                 <div className="flex items-center gap-1 p-1 bg-black/30 border border-border-subtle rounded-md w-max">
                   {([
-                    { key: "positions", label: "Current Positions", count: watchPositionMarkets.length as number | null },
+                    { key: "positions", label: "Current positions", count: watchPositionMarkets.length as number | null },
                     { key: "recommendations", label: "Recommendations", count: null as number | null },
                   ] as const).map((opt) => {
                     const active = watchSource === opt.key;
@@ -1634,7 +1634,7 @@ export function AppDemo() {
                         <div>
                           <div className="flex items-center gap-1.5 text-text-muted font-sans text-2xs mb-2">
                             <Activity className="w-3.5 h-3.5 text-text-primary shrink-0" />
-                            <span>Panik Risk Index</span>
+                            <span>Panik risk index</span>
                             <InfoTip text="0-100 composite of position health, asset risk, protocol safety, and market stress. Higher means closer to liquidation; your risk profile sets where alerts fire." />
                           </div>
 
@@ -1748,11 +1748,11 @@ export function AppDemo() {
                             </div>
                           </div>
 
-                          {/* Driver 2: Asset Volatility */}
+                          {/* Driver 2: Asset volatility */}
                           <div className="space-y-1.5">
                             <div className="flex justify-between items-center text-2xs font-sans">
                               <span className="text-text-secondary flex items-center gap-1">
-                                Asset Volatility
+                                Asset volatility
                                 <InfoTip text="How sharply your collateral's price has moved recently (30d vol, drawdown, correlation). Volatile collateral erodes your buffer faster. 25% weight." />
                               </span>
                               <span className="text-blue-400 font-bold tabular-nums">{positionState.breakdown.assetVolatility}%</span>
@@ -1765,11 +1765,11 @@ export function AppDemo() {
                             </div>
                           </div>
 
-                          {/* Driver 3: Protocol Risk */}
+                          {/* Driver 3: Protocol risk */}
                           <div className="space-y-1.5">
                             <div className="flex justify-between items-center text-2xs font-sans">
                               <span className="text-text-secondary flex items-center gap-1">
-                                Protocol Risk
+                                Protocol risk
                                 <InfoTip text="Audit posture, governance timelock, and market controls of the protocol holding this position. 20% weight." />
                               </span>
                               <span className="text-risk-low font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
@@ -1862,7 +1862,7 @@ export function AppDemo() {
                       <div className="space-y-3.5">
                         <div>
                           <div className="flex justify-between text-2xs font-sans mb-1">
-                            <span className="text-text-secondary">Collateral Health</span>
+                            <span className="text-text-secondary">Collateral health</span>
                             <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.positionHealth}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
@@ -1872,7 +1872,7 @@ export function AppDemo() {
 
                         <div>
                           <div className="flex justify-between text-2xs font-sans mb-1">
-                            <span className="text-text-secondary">Asset Volatility</span>
+                            <span className="text-text-secondary">Asset volatility</span>
                             <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.assetVolatility}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
@@ -1882,7 +1882,7 @@ export function AppDemo() {
 
                         <div>
                           <div className="flex justify-between text-2xs font-sans mb-1">
-                            <span className="text-text-secondary">Protocol Risk</span>
+                            <span className="text-text-secondary">Protocol risk</span>
                             <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
@@ -2047,7 +2047,7 @@ export function AppDemo() {
                       />
                       <div className="flex justify-between text-2xs font-sans text-white/20">
                         <span>Fully repaid (0)</span>
-                        <span>Leveraged (+60% Debt)</span>
+                        <span>Leveraged (+60% debt)</span>
                       </div>
                     </div>
 
@@ -2545,7 +2545,7 @@ export function AppDemo() {
                         <div className="flex items-center gap-2">
                           <Sliders className="w-4 h-4 text-text-primary" />
                           <h3 className="text-2xs font-sans text-text-primary font-bold">
-                            Emergency Auto Repayment Trigger
+                            Emergency auto repayment
                           </h3>
                         </div>
                         <button
@@ -2626,7 +2626,7 @@ export function AppDemo() {
                     <ProtocolLogo protocol={selectedRiskBreakdownPreset.protocol} size="w-8 h-8" />
                     <div>
                       <h3 className="font-sans font-bold text-text-primary text-sm">
-                        {selectedRiskBreakdownPreset.protocol} Risk Breakdown
+                        {selectedRiskBreakdownPreset.protocol} risk breakdown
                       </h3>
                       <span className="text-2xs font-sans text-text-secondary block">
                         {selectedRiskBreakdownPreset.assetPair}
@@ -2637,7 +2637,7 @@ export function AppDemo() {
                   <button
                     onClick={() => setSelectedRiskBreakdownPreset(null)}
                     className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-text-secondary hover:text-text-primary border border-border-subtle cursor-pointer transition-colors"
-                    title="Close Panel"
+                    title="Close panel"
                   >
                     <X className="w-4.5 h-4.5" />
                   </button>
@@ -2650,7 +2650,7 @@ export function AppDemo() {
                   <div className="bg-surface-raised/40 border border-border-subtle rounded-md p-4 space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="flex items-center gap-1.5 text-2xs font-sans text-text-muted">
-                        Panik Risk Score
+                        Panik risk score
                         <InfoTip text="0-100 composite of the four weighted components below. LOW under 25, ELEVATED under 50, HIGH under 75, CRITICAL above." />
                       </span>
                       <div className="flex items-center gap-1.5">
@@ -2738,7 +2738,7 @@ export function AppDemo() {
                       {/* Dimension 1: LTV */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          1. LTV Rating
+                          1. LTV rating
                           <InfoTip text="Debt as a share of collateral value. Closer to the protocol's max means a smaller cushion." />
                         </span>
                         <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
@@ -2749,7 +2749,7 @@ export function AppDemo() {
                       {/* Dimension 2: Health Factor (live engine value when available) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          2. Health Factor
+                          2. Health factor
                           <InfoTip text="Below 1.00 the protocol can liquidate this position. No debt means no liquidation risk." />
                         </span>
                         {breakdownData?.healthFactor == null ? (
@@ -2767,7 +2767,7 @@ export function AppDemo() {
                       {/* Dimension 3: Liquidation Price (from the engine's drawdown when live) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          3. Liquidation Price
+                          3. Liquidation price
                           <InfoTip text="The collateral price at which this position becomes liquidatable." />
                         </span>
                         <span className="text-sm font-sans font-bold text-text-primary mt-1 tabular-nums">
@@ -2778,7 +2778,7 @@ export function AppDemo() {
                       {/* Dimension 4: Buffer to Liquidation */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          4. Buffer to Liquidation
+                          4. Buffer to liquidation
                           <InfoTip text="How far the collateral price must fall before liquidation. Your real safety margin - the most decision-useful number here." />
                         </span>
                         <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
@@ -2788,7 +2788,7 @@ export function AppDemo() {
 
                       {/* Dimension 5: Collateral Value */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="text-2xs font-sans text-text-muted">5. Collateral Value</span>
+                        <span className="text-2xs font-sans text-text-muted">5. Collateral value</span>
                         <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
                           {selectedRiskBreakdownPreset.defaultCollateral} {selectedRiskBreakdownPreset.collateralAsset} ({formatCurrency(selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)})
                         </span>
@@ -2796,7 +2796,7 @@ export function AppDemo() {
 
                       {/* Dimension 6: Borrowed Amount */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="text-2xs font-sans text-text-muted">6. Borrowed Amount</span>
+                        <span className="text-2xs font-sans text-text-muted">6. Borrowed amount</span>
                         <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
                           {selectedRiskBreakdownPreset.defaultBorrow} {selectedRiskBreakdownPreset.debtAsset}
                         </span>
@@ -2805,7 +2805,7 @@ export function AppDemo() {
                       {/* Dimension 7: Pool Utilization */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md col-span-2 flex justify-between items-center text-xs font-sans">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          7. Pool Borrow Utilization
+                          7. Pool borrow utilization
                           <InfoTip text="Share of the pool's supplied funds currently borrowed. Very high utilization can delay withdrawals and spike rates." />
                         </span>
                         <span className="text-xs font-sans font-bold text-risk-low tabular-nums">
@@ -2862,7 +2862,7 @@ export function AppDemo() {
                     <div className="space-y-2 text-xs font-sans">
                       {/* Dimension 10: Protocol Signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">10. Protocol Security Signal</span>
+                        <span className="block text-2xs text-text-muted mb-1 font-bold">10. Protocol security signal</span>
                         <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.protocol === "Aave V3" && "Aave V3 safety module is funded and active. Dynamic interest-rate curves and isolation mode in place. Governance secured by multi-sig and timelock."}
                           {selectedRiskBreakdownPreset.protocol === "Moonwell" && "Moonwell markets run on Base with a 48-hour governance timelock on system parameters. Collateral factors monitored continuously."}
@@ -2873,7 +2873,7 @@ export function AppDemo() {
 
                       {/* Dimension 11: Pool Signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">11. Pool Liquidity Signal</span>
+                        <span className="block text-2xs text-text-muted mb-1 font-bold">11. Pool liquidity signal</span>
                         <p className="text-text-secondary">
                           Primary pool depth exceeds $82,000,000 in active vault lines. Slippage parameters on decentralized exchanges index &lt; 0.15% depth buffer. No oracle drift.
                         </p>
@@ -2881,7 +2881,7 @@ export function AppDemo() {
 
                       {/* Dimension 12: Position Signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">12. Position Watch Signal</span>
+                        <span className="block text-2xs text-text-muted mb-1 font-bold">12. Position watch signal</span>
                         <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.baseRisk < 20 
                             ? "Position health maintains normal volatility parameters. No automated hedges currently required."
@@ -2919,7 +2919,7 @@ export function AppDemo() {
                     onClick={() => setOpenPositionPreset(selectedRiskBreakdownPreset)}
                     className="flex-1 py-3 text-center text-xs font-sans font-bold text-surface-base bg-text-primary rounded-md cursor-pointer hover:opacity-90 transition-all shadow-lg"
                   >
-                    Open Position
+                    Open position
                   </button>
                 </div>
               </motion.div>

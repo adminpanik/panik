@@ -78,7 +78,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
             <div className="flex items-center gap-3">
               <ProtocolLogo protocol={target.protocol} size="w-8 h-8" />
               <div>
-                <h3 className="font-sans font-bold text-text-primary text-sm">Open Position</h3>
+                <h3 className="font-sans font-bold text-text-primary text-sm">Open position</h3>
                 <span className="block text-2xs font-sans text-text-secondary">
                   {target.protocol} · {target.assetPair}
                 </span>
@@ -161,7 +161,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
               {/* Projection */}
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
-                  <span className="block text-2xs font-sans text-text-muted mb-0.5">Est. Health</span>
+                  <span className="block text-2xs font-sans text-text-muted mb-0.5">Est. health</span>
                   <strong className={`text-sm font-sans tabular-nums ${
                     !Number.isFinite(estHf) ? "text-risk-low" : estHf < 1.3 ? "text-risk-critical" : estHf < 1.7 ? "text-risk-elevated" : "text-risk-low"
                   }`}>
@@ -169,7 +169,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                   </strong>
                 </div>
                 <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
-                  <span className="block text-2xs font-sans text-text-muted mb-0.5">Liq. Buffer</span>
+                  <span className="block text-2xs font-sans text-text-muted mb-0.5">Liq. buffer</span>
                   <strong className="text-sm font-sans tabular-nums text-text-primary">{liqBufferPct}%</strong>
                 </div>
                 <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
@@ -183,7 +183,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                 disabled={depositUsd <= 0}
                 className="w-full py-3 rounded-md font-sans text-xs font-bold text-surface-base bg-text-primary hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center gap-2"
               >
-                <span>Open Position (Demo)</span>
+                <span>Open position (demo)</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
               <p className="text-2xs font-sans text-text-muted text-center leading-relaxed">

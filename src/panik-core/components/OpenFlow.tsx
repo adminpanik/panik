@@ -381,7 +381,7 @@ export function OpenFlow({
       >
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-sans font-bold text-text-primary">Open Position</h2>
+            <h2 className="text-lg font-sans font-bold text-text-primary">Open position</h2>
             <p className="text-2xs font-sans text-text-muted mt-0.5">{summary}</p>
           </div>
           <button
