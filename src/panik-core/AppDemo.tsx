@@ -1159,8 +1159,7 @@ export function AppDemo() {
 
                 {/* Section 1: Recommended for your chosen Profile */}
                 <div className="space-y-4">
-                  <h2 className="text-base font-mono font-bold text-text-primary tracking-wide uppercase flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-risk-low"></span>
+                  <h2 className="text-base font-mono font-bold text-text-primary tracking-wide uppercase">
                     Recommended for your {selectedRiskProfile.toUpperCase()} Profile
                   </h2>
 
@@ -1236,24 +1235,24 @@ export function AppDemo() {
                           );
                         })()}
 
-                        {/* Direct action links to load this into simulator watch window */}
-                        <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center opacity-80 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => setOpenPositionPreset(preset)}
-                            className="text-xs font-mono font-bold text-surface-base transition-all bg-panik-orange hover:opacity-90 px-3 py-1 rounded-md cursor-pointer"
-                          >
+                        {/* One primary per card. Five cards used to put five solid
+                            and five outlined buttons on one screen, which is ten
+                            things competing to be the next step. Simulating is the
+                            secondary path, so it reads as a link. */}
+                        <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
+                          <Button onClick={() => setOpenPositionPreset(preset)}>
                             Open Position
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            variant="quiet"
                             onClick={() => {
                               setSelectedPresetId(preset.id);
                               setWatchSource("recommendations");
                               setActiveTab("watch");
                             }}
-                            className="text-xs font-mono font-bold text-panik-orange hover:text-risk-elevated transition-colors bg-panik-orange/10 border border-panik-orange/25 px-3 py-1 rounded-md cursor-pointer flex items-center gap-1"
                           >
-                            <span>Audit & Simulate →</span>
-                          </button>
+                            Audit &amp; Simulate →
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -1262,8 +1261,7 @@ export function AppDemo() {
 
                 {/* Section 2: Vaults outside the core profile limits */}
                 <div className="space-y-4 pt-4">
-                  <h2 className="text-base font-mono font-bold text-text-secondary tracking-wide uppercase flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-risk-critical/60"></span>
+                  <h2 className="text-base font-mono font-bold text-text-secondary tracking-wide uppercase">
                     Outside Your Profile
                   </h2>
 
@@ -1342,16 +1340,18 @@ export function AppDemo() {
 
                         <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
                           <span className="text-2xs font-mono text-text-muted">Outside safety triggers</span>
-                          <button
+                          {/* No primary here on purpose: nothing on this card is a
+                              recommended next step. */}
+                          <Button
+                            variant="quiet"
                             onClick={() => {
                               setSelectedPresetId(preset.id);
                               setWatchSource("recommendations");
                               setActiveTab("watch");
                             }}
-                            className="text-xs font-mono font-semibold text-text-muted hover:text-text-primary transition-colors bg-white/[0.02] hover:bg-white/[0.05] border border-border-subtle px-3 py-1 rounded-md cursor-pointer"
                           >
-                            <span>Force Audit →</span>
-                          </button>
+                            Force Audit →
+                          </Button>
                         </div>
                       </div>
                     ))}
