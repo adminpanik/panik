@@ -449,7 +449,7 @@ export function DepositFlow() {
             </div>
           </div>
           <p className="text-xs text-white/20 font-mono tabular-nums">
-            Balance: {usdcBalance !== undefined ? (Number(usdcBalance) / 1e6).toFixed(2) : "—"} USDC
+            Balance: {usdcBalance !== undefined ? (Number(usdcBalance) / 1e6).toFixed(2) : "…"} USDC
           </p>
           <WalletInfo address={address} onDisconnect={disconnect} />
         </div>
@@ -555,8 +555,8 @@ export function DepositFlow() {
           </h4>
           <p className="text-sm text-white/40 mb-4">
             Your {DEPOSIT_DISPLAY} USDC is held in escrow. The escrow has a single
-            global deadline{refundDeadlineDate ? ` of ${refundDeadlineDate}` : ""} —
-            if we haven't shipped by then, come back to claim your refund.
+            global deadline{refundDeadlineDate ? ` of ${refundDeadlineDate}` : ""}.
+            If we haven't shipped by then, come back to claim your refund.
           </p>
           {depositTxHash && (
             <a

@@ -70,10 +70,10 @@ const QUESTIONS: Question[] = [
     text: "Your biggest frustration managing DeFi positions today?",
     hint: "Pick up to two",
     options: [
-      { key: "no_unified_view", label: "No unified view — I check multiple dashboards for full exposure" },
-      { key: "slow_reaction", label: "Slow reaction — by the time I knew, it was too late to act well" },
-      { key: "silent_risk", label: "Silent risk — I had no alerts set up and missed a critical change" },
-      { key: "execution_friction", label: "Execution friction — acting across protocols takes too long" },
+      { key: "no_unified_view", label: "No unified view. I check multiple dashboards for full exposure" },
+      { key: "slow_reaction", label: "Slow reaction. By the time I knew, it was too late to act well" },
+      { key: "silent_risk", label: "Silent risk. I had no alerts set up and missed a critical change" },
+      { key: "execution_friction", label: "Execution friction. Acting across protocols takes too long" },
     ],
   },
   {
@@ -92,9 +92,9 @@ const QUESTIONS: Question[] = [
 
 const APPETITE_LABEL: Record<Appetite, string> = { conservative: "Conservative", moderate: "Moderate", aggressive: "Aggressive" };
 const APPETITE_BLURB: Record<Appetite, string> = {
-  conservative: "You prize safety — Panik will surface risk early and favor low-leverage vaults.",
-  moderate: "Balanced — Panik will flag meaningful risk while leaving room to run.",
-  aggressive: "You run lean and chase yield — Panik will alert mainly near real danger.",
+  conservative: "You prize safety, so Panik will surface risk early and favor low-leverage vaults.",
+  moderate: "Balanced. Panik will flag meaningful risk while leaving room to run.",
+  aggressive: "You run lean and chase yield, so Panik will alert mainly near real danger.",
 };
 const Q_SUMMARY_LABEL: Record<string, Record<string, string>> = Object.fromEntries(
   QUESTIONS.map((q) => [q.id, Object.fromEntries(q.options.map((o) => [o.key, o.label]))]),
@@ -472,7 +472,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                 {(["q1", "q2", "q5"] as const).map((id) => (
                   <div key={id} className="p-4 flex flex-col gap-1 text-xs">
                     <span className="font-mono text-white/40 uppercase">{QUESTIONS.find((x) => x.id === id)!.text}</span>
-                    <span className="font-sans text-[#F0F4FF] font-medium">{answers[id] ? Q_SUMMARY_LABEL[id][answers[id]!] : "—"}</span>
+                    <span className="font-sans text-[#F0F4FF] font-medium">{answers[id] ? Q_SUMMARY_LABEL[id][answers[id]!] : "Not answered"}</span>
                   </div>
                 ))}
                 {answers.q3.length > 0 && (
@@ -570,7 +570,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
 
               <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04] flex gap-3 text-xs text-white/50 leading-relaxed font-sans">
                 <Info className="w-5 h-5 text-white/30 shrink-0 mt-0.5" />
-                <p>Connecting reserves eligibility for future beta releases. Your funds stay under your control — no transactions are required.</p>
+                <p>Connecting reserves eligibility for future beta releases. Your funds stay under your control. No transactions are required.</p>
               </div>
 
               <div className="flex items-center justify-between pt-1">

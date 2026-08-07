@@ -45,7 +45,7 @@ const ACTION_CHIP: Record<string, string> = {
 /** null = the engine could not price this leg (degraded feed); never show $0. */
 const fmtUsd = (n: number | null) =>
   n === null || !Number.isFinite(n)
-    ? "$—"
+    ? "$…"
     : `$${Math.abs(n) >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(0)}`;
 
 function SectionRow({ label, text }: { label: string; text: string }) {

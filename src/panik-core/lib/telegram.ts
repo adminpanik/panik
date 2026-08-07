@@ -146,7 +146,7 @@ export async function registerWatchedWallet(
     return {
       ok: false,
       error: rejectedSignature(err)
-        ? "Signature declined — alerts stay off until you verify this wallet."
+        ? "Signature declined. Alerts stay off until you verify this wallet."
         : ((err as Error).message ?? "Could not verify wallet ownership."),
     };
   }
@@ -232,7 +232,7 @@ export function useTelegramLink(getProof: GetProof) {
       } catch (err) {
         // Rejecting the prompt is a normal choice, not a crash.
         setStatus("error");
-        setError(rejectedSignature(err) ? "Signature declined — Telegram alerts need it." : (err as Error).message);
+        setError(rejectedSignature(err) ? "Signature declined. Telegram alerts need it." : (err as Error).message);
         return;
       }
       setStatus("requesting");

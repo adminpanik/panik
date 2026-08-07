@@ -171,7 +171,7 @@ export function BacktestResults() {
         {/* Footnote */}
         <ScrollReveal duration={0.6} delay={0.25}>
           <p className="mt-12 pt-6 border-t border-white/[0.04] text-[11px] text-[#7A8699] font-sans leading-relaxed max-w-2xl">
-            A 27% pooled false-alarm rate is expected and accepted. To achieve early warnings, the engine flags positions that ultimately recover through repayment or market stabilization. Earlier warnings require broader capture — this tradeoff is intentional and disclosed.
+            A 27% pooled false-alarm rate is expected and accepted. To achieve early warnings, the engine flags positions that ultimately recover through repayment or market stabilization. Earlier warnings require broader capture, and this tradeoff is intentional and disclosed.
           </p>
         </ScrollReveal>
 

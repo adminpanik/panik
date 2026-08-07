@@ -162,7 +162,7 @@ export function RefundBanner() {
             </h4>
             <p className="text-xs text-white/40">
               Refunds still exist on-chain and remain claimable after the global
-              escrow deadline{deadlineDate ? ` (${deadlineDate})` : ""} — this app
+              escrow deadline{deadlineDate ? ` (${deadlineDate})` : ""}. This app
               just can't read your refund status right now. Retry shortly, or call{" "}
               <code className="text-orange-400/60">claimRefund()</code> directly on{" "}
               <a

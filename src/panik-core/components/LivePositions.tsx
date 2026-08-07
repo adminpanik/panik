@@ -31,9 +31,9 @@ function statusCopy(p: LiveWalletPosition): { text: string; cls: string } {
   return { text: "Within your profile", cls: "text-emerald-400" };
 }
 
-/** Unknown dollar magnitudes render as a dash — never as "$0". */
+/** Unknown dollar magnitudes render as an ellipsis — never as "$0". */
 const fmtUsd = (v: number | null) =>
-  v === null || !Number.isFinite(v) ? "$—" : `$${Math.round(v).toLocaleString()}`;
+  v === null || !Number.isFinite(v) ? "$…" : `$${Math.round(v).toLocaleString()}`;
 
 interface LivePositionsProps {
   positions: LiveWalletPosition[] | null;
@@ -48,7 +48,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
     return (
       <div className="flex items-center gap-2 text-[10px] font-mono text-panik-text-secondary bg-white/[0.02] border border-white/[0.05] rounded-xl px-4 py-3">
         <WifiOff className="w-3.5 h-3.5 text-panik-text-secondary" />
-        <span>Live feed offline (run `npm run dev:api`) — showing simulation data below.</span>
+        <span>Live feed offline (run `npm run dev:api`). Showing simulation data below.</span>
       </div>
     );
   }

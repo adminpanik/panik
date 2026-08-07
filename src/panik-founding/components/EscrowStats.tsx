@@ -96,7 +96,7 @@ export function EscrowStats() {
         {/* Founding users count */}
         <div className="bg-white/[0.03] rounded-lg p-4 text-center">
           <div className="font-display text-2xl font-bold text-orange-400 mb-1 tabular-nums">
-            {count !== null ? count : "—"}
+            {count !== null ? count : "…"}
           </div>
           <div className="text-[11px] text-white/35 uppercase tracking-wide">
             Founding Users
@@ -168,7 +168,7 @@ export function EscrowStats() {
               {isRefunded
                 ? "Refunded"
                 : isShipped
-                  ? "PANIK is Shipped! — Founding user active"
+                  ? "PANIK is Shipped! Founding user active"
                   : "Deposit held in escrow"}
             </span>
           </div>

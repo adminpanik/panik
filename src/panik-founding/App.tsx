@@ -66,7 +66,7 @@ const BENEFITS = [
   {
     icon: "⚡",
     title: "Earlier Access",
-    desc: "Access to PANIK before the public — you're first in line.",
+    desc: "Access to PANIK before the public. You're first in line.",
   },
   {
     icon: "📡",
@@ -76,7 +76,7 @@ const BENEFITS = [
   {
     icon: "🎯",
     title: "Direct Product Input",
-    desc: "Direct access to the team during build — your feedback shapes features pre-launch.",
+    desc: "Direct access to the team during build. Your feedback shapes features pre-launch.",
   },
   {
     icon: "🏆",
@@ -221,7 +221,7 @@ function FoundingApp() {
                 title: "We build PANIK",
                 desc: `Your deposit sits in the escrow contract. We have until ${
                   deadlineDate ?? "the deadline"
-                } to ship — one date fixed when the contract was deployed, identical for every depositor whenever you deposit.`,
+                } to ship. One date fixed when the contract was deployed, identical for every depositor whenever you deposit.`,
               },
               {
                 step: "03",
@@ -260,7 +260,7 @@ function FoundingApp() {
                   <strong className="text-white/60">Held by the contract.</strong>{" "}
                   Funds sit in the escrow contract, not a team wallet. Until the
                   deadline, we can sweep the balance to our treasury by calling{" "}
-                  <code className="text-white/50">ship()</code> — a team
+                  <code className="text-white/50">ship()</code>. This is a team
                   decision, taken on-chain and publicly visible. The contract
                   cannot check that we actually launched.
                 </span>
@@ -279,8 +279,8 @@ function FoundingApp() {
                     One deadline for everyone.
                   </strong>{" "}
                   {deadlineDate
-                    ? `It was fixed when the contract was deployed — ${deadlineDate} — not 90 days from your own deposit.`
-                    : "It is fixed when the contract is deployed — 90 days from deployment, not 90 days from your own deposit."}{" "}
+                    ? `It was fixed when the contract was deployed (${deadlineDate}), not 90 days from your own deposit.`
+                    : "It is fixed when the contract is deployed: 90 days from deployment, not 90 days from your own deposit."}{" "}
                   Once it passes without a release, the team is locked out of
                   your funds permanently.
                 </span>
@@ -289,7 +289,7 @@ function FoundingApp() {
                 <span className="text-orange-400 mt-0.5">✓</span>
                 <span>
                   <strong className="text-white/60">Verifiable.</strong> Contract
-                  source is public on Basescan — read it yourself.
+                  source is public on Basescan. Read it yourself.
                 </span>
               </li>
             </ul>

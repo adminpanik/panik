@@ -110,7 +110,7 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
   };
 
   const stepLabel = onWalletStep
-    ? "Step 1 — your wallet"
+    ? "Step 1: your wallet"
     : onReveal
       ? "Your analysis"
       : `Question ${step} of ${TOTAL_QUESTIONS}`;
@@ -271,7 +271,7 @@ function WalletStep(props: {
         <ArrowRight className="w-4 h-4" />
       </button>
       <p className="mt-3 text-center text-[10px] font-mono text-panik-text-secondary/70">
-        Read-only. Panik never moves funds — it only reads public on-chain data.
+        Read-only. Panik never moves funds. It only reads public on-chain data.
       </p>
     </>
   );
