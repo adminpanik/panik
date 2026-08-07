@@ -117,6 +117,17 @@
     position: relative;
   }
 
+  /**
+   * One global focus indicator instead of per-input `focus:` classes, so a
+   * control cannot ship without one. 2px of brand orange at 7.10:1 against the
+   * page and 3.5:1 against the resting input border satisfies both WCAG 1.4.11
+   * and 2.4.13.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-panik-orange);
+    outline-offset: 2px;
+  }
+
   body::after {
     content: "";
     position: fixed;
