@@ -699,8 +699,12 @@ export function AppDemo() {
             { symbol: "USDT Pool", usd: 1500 },
           ];
     const total = src.reduce((a, b) => a + b.usd, 0) || 1;
-    const colors = ["bg-indigo-500", "bg-sky-500", "bg-panik-orange", "bg-risk-low"];
-    return src.map((a, i) => ({ ...a, pct: (a.usd / total) * 100, color: colors[i % 4] as string }));
+    // One hue, stepped. `src` is sorted largest-first, so opacity falls with
+    // weight and the bar reads as a single distribution. Four unrelated hues
+    // (indigo / sky / orange / green) read as four unrelated things, and two of
+    // them were on loan from the risk ramp and the brand.
+    const shades = ["bg-white/70", "bg-white/45", "bg-white/28", "bg-white/16"];
+    return src.map((a, i) => ({ ...a, pct: (a.usd / total) * 100, color: shades[i % 4] as string }));
   }, [portfolioPositions]);
 
   // Load selected preset for Watch/Simulator tab (Recommendations source)
