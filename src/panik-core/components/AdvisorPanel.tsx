@@ -124,7 +124,7 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
       {items.map(([label, value]) => (
         <div className="flex items-baseline gap-2" key={label}>
           <span className="text-[10px] font-mono tracking-widest uppercase text-white/30">{label}</span>
-          <span className="text-xs font-mono text-white/80">{value}</span>
+          <span className="text-xs font-mono tabular-nums text-white/80">{value}</span>
         </div>
       ))}
     </div>
@@ -200,7 +200,7 @@ function OpportunityCard({
           <div className="text-sm font-display font-bold text-white truncate">
             {plan.collateralSymbol} on {PROTOCOL_LABEL[rec.protocol]}
           </div>
-          <div className="text-[10px] font-mono text-white/35 tracking-wider">
+          <div className="text-[10px] font-mono tabular-nums text-white/35 tracking-wider">
             Projected score {plan.projectedScore}
             {plan.apy !== null ? ` · ${(plan.apy * 100).toFixed(1)}% APY` : ""}
           </div>
@@ -211,7 +211,7 @@ function OpportunityCard({
         {rec.sections.recommendation}
       </p>
       <div className="flex items-center justify-between pt-1">
-        <span className="text-[10px] font-mono text-white/30">
+        <span className="text-[10px] font-mono tabular-nums text-white/30">
           ~{fmtUsd(plan.collateralUsd)} collateral
           {plan.borrowUsd > 0 ? ` / ${fmtUsd(plan.borrowUsd)} borrow` : ""}
         </span>

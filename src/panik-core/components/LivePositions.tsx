@@ -90,7 +90,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                     {PROTOCOL_NAME[p.protocol]} · {p.scoredCollateralSymbol} position
                   </h4>
                   <span
-                    className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded border ${bandStyle(p.band)}`}
+                    className={`text-[9px] font-mono tabular-nums font-bold px-2 py-0.5 rounded border ${bandStyle(p.band)}`}
                   >
                     {p.total} {p.band}
                   </span>
@@ -103,12 +103,12 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                     <strong
                       className={
                         p.healthFactor === null
-                          ? "text-emerald-400"
+                          ? "text-emerald-400 tabular-nums"
                           : p.healthFactor < 1.25
-                            ? "text-red-400"
+                            ? "text-red-400 tabular-nums"
                             : p.healthFactor < 1.7
-                              ? "text-amber-400"
-                              : "text-emerald-400"
+                              ? "text-amber-400 tabular-nums"
+                              : "text-emerald-400 tabular-nums"
                       }
                     >
                       {p.healthFactor === null ? "no debt" : p.healthFactor.toFixed(2)}
@@ -137,7 +137,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
               </div>
 
               <div className="flex items-center gap-3 shrink-0 text-[9px] font-mono text-panik-text-secondary">
-                <span className="flex items-center gap-1" title="Sub-scores: position / asset / protocol / systemic">
+                <span className="flex items-center gap-1 tabular-nums" title="Sub-scores: position / asset / protocol / systemic">
                   <Activity className="w-3 h-3 text-panik-orange" />
                   {Math.round(p.subScores.positionHealth)} · {Math.round(p.subScores.assetRisk)} ·{" "}
                   {Math.round(p.subScores.protocolSafety)} · {Math.round(p.subScores.systemicRisk)}

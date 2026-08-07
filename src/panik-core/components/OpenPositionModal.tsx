@@ -113,7 +113,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                     <button
                       key={v}
                       onClick={() => setDepositUsd(v)}
-                      className={`py-1.5 rounded-lg border text-[10px] font-mono transition-all cursor-pointer ${
+                      className={`py-1.5 rounded-lg border text-[10px] font-mono tabular-nums transition-all cursor-pointer ${
                         depositUsd === v
                           ? "bg-panik-orange/15 text-panik-orange border-panik-orange/40 font-bold"
                           : "bg-white/[0.02] text-white/60 border-white/[0.07] hover:bg-white/[0.05]"
@@ -129,7 +129,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                   step={100}
                   value={depositUsd}
                   onChange={(e) => setDepositUsd(Math.max(0, Number(e.target.value)))}
-                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono outline-hidden focus:border-panik-orange/60"
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono tabular-nums outline-hidden focus:border-panik-orange/60"
                   aria-label="Deposit amount in USD"
                 />
               </div>
@@ -138,7 +138,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
               <div>
                 <div className="flex justify-between text-[10px] font-mono uppercase tracking-widest text-panik-text-secondary mb-2">
                   <span>Borrow ({target.debtAsset})</span>
-                  <span className="text-white normal-case">
+                  <span className="text-white normal-case tabular-nums">
                     {formatCurrency(borrowUsd)} · {borrowPct}% of deposit
                   </span>
                 </div>
@@ -162,7 +162,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-2.5">
                   <span className="block text-[8px] font-mono text-white/40 uppercase mb-0.5">Est. Health</span>
-                  <strong className={`text-sm font-mono ${
+                  <strong className={`text-sm font-mono tabular-nums ${
                     !Number.isFinite(estHf) ? "text-emerald-400" : estHf < 1.3 ? "text-red-400" : estHf < 1.7 ? "text-amber-400" : "text-emerald-400"
                   }`}>
                     {Number.isFinite(estHf) ? estHf.toFixed(2) : "∞"}
@@ -170,11 +170,11 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                 </div>
                 <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-2.5">
                   <span className="block text-[8px] font-mono text-white/40 uppercase mb-0.5">Liq. Buffer</span>
-                  <strong className="text-sm font-mono text-white">{liqBufferPct}%</strong>
+                  <strong className="text-sm font-mono tabular-nums text-white">{liqBufferPct}%</strong>
                 </div>
                 <div className="bg-white/[0.02] border border-white/[0.05] rounded-lg p-2.5">
                   <span className="block text-[8px] font-mono text-white/40 uppercase mb-0.5">Supply APY</span>
-                  <strong className="text-sm font-mono text-emerald-400">{target.apy.toFixed(1)}%</strong>
+                  <strong className="text-sm font-mono tabular-nums text-emerald-400">{target.apy.toFixed(1)}%</strong>
                 </div>
               </div>
 

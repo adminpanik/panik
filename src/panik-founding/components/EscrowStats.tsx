@@ -95,7 +95,7 @@ export function EscrowStats() {
       <div className="grid grid-cols-2 gap-4 mb-4">
         {/* Founding users count */}
         <div className="bg-white/[0.03] rounded-lg p-4 text-center">
-          <div className="font-display text-2xl font-bold text-orange-400 mb-1">
+          <div className="font-display text-2xl font-bold text-orange-400 mb-1 tabular-nums">
             {count !== null ? count : "—"}
           </div>
           <div className="text-[11px] text-white/35 uppercase tracking-wide">
@@ -105,7 +105,7 @@ export function EscrowStats() {
 
         {/* Deposit amount */}
         <div className="bg-white/[0.03] rounded-lg p-4 text-center">
-          <div className="font-display text-2xl font-bold text-white/80 mb-1">
+          <div className="font-display text-2xl font-bold text-white/80 mb-1 tabular-nums">
             {DEPOSIT_DISPLAY}
             <span className="text-sm text-white/40 ml-1">USDC</span>
           </div>
@@ -123,7 +123,7 @@ export function EscrowStats() {
             {isShipped ? (
               <span className="text-emerald-400 font-semibold">Shipped!</span>
             ) : daysRemaining !== null && daysRemaining > 0 ? (
-              <span>{daysRemaining} days left</span>
+              <span className="tabular-nums">{daysRemaining} days left</span>
             ) : (
               <span className="text-rose-400 font-semibold">Refund period active</span>
             )}

@@ -355,7 +355,7 @@ export function OpenFlow({
   ]);
 
   const inputCls =
-    "w-full bg-[#111318] border border-white/10 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-panik-orange/50 focus:outline-hidden";
+    "w-full bg-[#111318] border border-white/10 rounded-xl px-3 py-2 text-sm font-mono tabular-nums text-white focus:border-panik-orange/50 focus:outline-hidden";
 
   const summary = useMemo(
     () =>
@@ -487,7 +487,7 @@ export function OpenFlow({
               <span className="text-[10px] font-mono tracking-widest uppercase text-white/35">
                 Projected PANIK score
               </span>
-              <span className="text-sm font-mono text-white">
+              <span className="text-sm font-mono tabular-nums text-white">
                 {projectedScore}
                 {projectedHf !== null ? ` · HF ${projectedHf?.toFixed(2)}` : ""}
               </span>

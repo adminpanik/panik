@@ -1071,7 +1071,7 @@ export function AppDemo() {
           <div className="flex items-center gap-6 text-[10px] font-mono text-[#748BAA]">
             <div className="hidden md:flex items-center gap-1.5">
               <span>EST GAS:</span>
-              <strong className="text-emerald-400 bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10">{gasPrice} GWEI</strong>
+              <strong className="text-emerald-400 bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10 tabular-nums">{gasPrice} GWEI</strong>
             </div>
             <div className="h-4 w-px bg-white/10 hidden md:block"></div>
             <button
@@ -1201,11 +1201,11 @@ export function AppDemo() {
                           return (
                             <>
                               <div className="mb-2 flex items-baseline justify-between">
-                                <span className="text-xs text-emerald-400 font-mono font-bold">
+                                <span className="text-xs text-emerald-400 font-mono font-bold tabular-nums">
                                   APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
                                 </span>
                                 {py && (
-                                  <span className="text-[9px] font-mono text-panik-text-secondary uppercase">
+                                  <span className="text-[9px] font-mono text-panik-text-secondary uppercase tabular-nums">
                                     TVL {formatCompactUsd(py.tvlUsd)}
                                   </span>
                                 )}
@@ -1304,11 +1304,11 @@ export function AppDemo() {
                           return (
                             <>
                               <div className="mb-2 flex items-baseline justify-between">
-                                <span className="text-xs text-white/40 font-mono">
+                                <span className="text-xs text-white/40 font-mono tabular-nums">
                                   APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
                                 </span>
                                 {py && (
-                                  <span className="text-[9px] font-mono text-white/30 uppercase">
+                                  <span className="text-[9px] font-mono text-white/30 uppercase tabular-nums">
                                     TVL {formatCompactUsd(py.tvlUsd)}
                                   </span>
                                 )}
@@ -1390,7 +1390,7 @@ export function AppDemo() {
                         {opt.key === "positions" ? <Eye className="w-3.5 h-3.5" /> : <CompassIcon className="w-3.5 h-3.5" />}
                         <span>{opt.label}</span>
                         {opt.count !== null && opt.count > 0 && (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${active ? "bg-panik-orange/25" : "bg-white/10 text-white/50"}`}>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full tabular-nums ${active ? "bg-panik-orange/25" : "bg-white/10 text-white/50"}`}>
                             {opt.count}
                           </span>
                         )}
@@ -1499,7 +1499,7 @@ export function AppDemo() {
                                       >
                                         <div className="min-w-0">
                                           <span className="block text-[9px] font-mono text-white/35 uppercase tracking-wider">{preset.protocol}</span>
-                                          <span className={`block text-sm font-mono font-semibold truncate ${
+                                          <span className={`block text-sm font-mono font-semibold truncate tabular-nums ${
                                             isActive ? "text-white" : "text-white/70"
                                           }`}>{preset.collateralSymbol} · {position.collateralValueUsd === null ? "size unavailable (prices degraded)" : `${formatCurrency(position.collateralValueUsd)} supplied`}</span>
                                         </div>
@@ -1507,7 +1507,7 @@ export function AppDemo() {
                                           <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${riskCls}`}>
                                             {preset.riskStatus}
                                           </span>
-                                          <span className="text-[10px] font-mono text-white/30">{preset.baseRisk}</span>
+                                          <span className="text-[10px] font-mono text-white/30 tabular-nums">{preset.baseRisk}</span>
                                         </div>
                                       </li>
                                     );
@@ -1544,7 +1544,7 @@ export function AppDemo() {
                                           <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${riskCls}`}>
                                             {p.riskStatus}
                                           </span>
-                                          <span className="text-[10px] font-mono text-white/30">{p.baseRisk}</span>
+                                          <span className="text-[10px] font-mono text-white/30 tabular-nums">{p.baseRisk}</span>
                                         </div>
                                       </li>
                                     );
@@ -1583,14 +1583,14 @@ export function AppDemo() {
                           </div>
 
                           <div className="flex items-baseline gap-2 mb-2">
-                            <span className={`text-4xl font-mono font-black tracking-tight ${
+                            <span className={`text-4xl font-mono font-black tracking-tight tabular-nums ${
                               positionState.riskScore < 25 ? "text-emerald-400" :
                               positionState.riskScore < 50 ? "text-amber-400" :
                               "text-red-400"
                             }`}>
                               {positionState.riskScore}
                             </span>
-                            <span className="text-xs font-mono text-white/30">/ 100</span>
+                            <span className="text-xs font-mono text-white/30 tabular-nums">/ 100</span>
 
                             <span className={`ml-auto text-[9px] font-mono font-bold px-2 py-0.5 rounded border ${
                               positionState.status === "CRITICAL" ? "bg-red-500/25 text-red-400 border-red-500/35" :
@@ -1645,10 +1645,10 @@ export function AppDemo() {
                               const dropPct = Math.round((1 - lp / positionState.currentPrice) * 100);
                               return (
                                 <p className="text-[11px] font-sans leading-relaxed text-[#A0AEC0]">
-                                  A further <span className="text-panik-orange font-semibold">-{dropPct}%</span>{" "}
+                                  A further <span className="text-panik-orange font-semibold tabular-nums">-{dropPct}%</span>{" "}
                                   {activeMarket.collateralAsset} move (to{" "}
-                                  <span className="text-panik-orange font-semibold">{formatCurrency(lp)}</span>) puts
-                                  your <span className="text-white font-semibold">{formatCurrency(cv)}</span> collateral
+                                  <span className="text-panik-orange font-semibold tabular-nums">{formatCurrency(lp)}</span>) puts
+                                  your <span className="text-white font-semibold tabular-nums">{formatCurrency(cv)}</span> collateral
                                   up for liquidation.
                                 </p>
                               );
@@ -1672,7 +1672,7 @@ export function AppDemo() {
                                 Health Factor
                                 <InfoTip text="Your distance to liquidation, scaled 0-100. The heaviest input to the composite score (40% weight)." />
                               </span>
-                              <span className={`font-bold ${
+                              <span className={`font-bold tabular-nums ${
                                 healthFactorScore > 75 ? "text-red-400" :
                                 healthFactorScore > 40 ? "text-amber-400" : "text-emerald-400"
                               }`}>
@@ -1697,7 +1697,7 @@ export function AppDemo() {
                                 Asset Volatility
                                 <InfoTip text="How sharply your collateral's price has moved recently (30d vol, drawdown, correlation). Volatile collateral erodes your buffer faster. 25% weight." />
                               </span>
-                              <span className="text-blue-400 font-bold">{positionState.breakdown.assetVolatility}%</span>
+                              <span className="text-blue-400 font-bold tabular-nums">{positionState.breakdown.assetVolatility}%</span>
                             </div>
                             <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
                               <div 
@@ -1714,7 +1714,7 @@ export function AppDemo() {
                                 Protocol Risk
                                 <InfoTip text="Audit posture, governance timelock, and market controls of the protocol holding this position. 20% weight." />
                               </span>
-                              <span className="text-emerald-400 font-bold">{positionState.breakdown.protocolSafety}%</span>
+                              <span className="text-emerald-400 font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
                             </div>
                             <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
                               <div 
@@ -1731,7 +1731,7 @@ export function AppDemo() {
                                 Pool Conditions
                                 <InfoTip text="Market-wide stress: sector TVL flows and broad drawdowns that hit every position at once. 15% weight." />
                               </span>
-                              <span className={`font-bold ${
+                              <span className={`font-bold tabular-nums ${
                                 positionState.breakdown.systemicMarketStress > 70 ? "text-red-400" :
                                 positionState.breakdown.systemicMarketStress > 40 ? "text-amber-400" : "text-emerald-400"
                               }`}>
@@ -1768,7 +1768,7 @@ export function AppDemo() {
                           <InfoTip text="Collateral value times the protocol's liquidation threshold, divided by your debt. Below 1.00 the protocol can liquidate you. The buffer matters more than the raw number." />
                         </span>
                         <div className="flex items-baseline gap-1">
-                          <span className={`text-4xl font-mono font-bold tracking-tight ${
+                          <span className={`text-4xl font-mono font-bold tracking-tight tabular-nums ${
                             positionState.healthFactor < 1.3 ? "text-red-400" :
                             positionState.healthFactor < 1.7 ? "text-amber-400" :
                             "text-emerald-400"
@@ -1786,7 +1786,7 @@ export function AppDemo() {
                           <InfoTip text="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation." />
                         </span>
                         <div className="flex items-baseline gap-1">
-                          <span className="text-4xl font-mono font-bold tracking-tight text-white/95">
+                          <span className="text-4xl font-mono font-bold tracking-tight text-white/95 tabular-nums">
                             {Math.round((borrowUsd / (collateralAmount * assetPrice)) * 100)}%
                           </span>
                         </div>
@@ -1805,7 +1805,7 @@ export function AppDemo() {
                         <div>
                           <div className="flex justify-between text-[10px] font-mono mb-1">
                             <span className="text-[#F0F4FF]/75">Collateral Health</span>
-                            <span className="text-white font-bold">{positionState.breakdown.positionHealth}%</span>
+                            <span className="text-white font-bold tabular-nums">{positionState.breakdown.positionHealth}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                             <div className="h-full bg-panik-orange" style={{ width: `${positionState.breakdown.positionHealth}%` }}></div>
@@ -1815,7 +1815,7 @@ export function AppDemo() {
                         <div>
                           <div className="flex justify-between text-[10px] font-mono mb-1">
                             <span className="text-[#F0F4FF]/75">Asset Volatility</span>
-                            <span className="text-white font-bold">{positionState.breakdown.assetVolatility}%</span>
+                            <span className="text-white font-bold tabular-nums">{positionState.breakdown.assetVolatility}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                             <div className="h-full bg-white/40" style={{ width: `${positionState.breakdown.assetVolatility}%` }}></div>
@@ -1825,7 +1825,7 @@ export function AppDemo() {
                         <div>
                           <div className="flex justify-between text-[10px] font-mono mb-1">
                             <span className="text-[#F0F4FF]/75">Protocol Risk</span>
-                            <span className="text-white font-bold">{positionState.breakdown.protocolSafety}%</span>
+                            <span className="text-white font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                             <div className="h-full bg-red-400" style={{ width: `${positionState.breakdown.protocolSafety}%` }}></div>
@@ -1868,13 +1868,13 @@ export function AppDemo() {
                                 {s.label}
                               </span>
                               {s.pct !== 0 && (
-                                <span className="text-[9px] font-mono text-red-400/80">{Math.round(s.pct * 100)}%</span>
+                                <span className="text-[9px] font-mono text-red-400/80 tabular-nums">{Math.round(s.pct * 100)}%</span>
                               )}
                             </div>
-                            <span className="block text-[10px] font-mono text-white/60 mt-1">
+                            <span className="block text-[10px] font-mono text-white/60 mt-1 tabular-nums">
                               {formatCurrency(price)}
                               {borrowUsd > 0 && (
-                                <span className={`ml-1.5 font-bold ${liquidated ? "text-red-400" : estHf < 1.3 ? "text-amber-400" : "text-emerald-400"}`}>
+                                <span className={`ml-1.5 font-bold tabular-nums ${liquidated ? "text-red-400" : estHf < 1.3 ? "text-amber-400" : "text-emerald-400"}`}>
                                   {liquidated ? "LIQUIDATED" : `HF ~${estHf.toFixed(2)}`}
                                 </span>
                               )}
@@ -1906,7 +1906,7 @@ export function AppDemo() {
                           step={activeMarket.defaultCollateral < 10 ? 0.1 : 100}
                           value={collateralAmount}
                           onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-white text-xs font-mono outline-hidden focus:border-panik-orange/60"
+                          className="w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-white text-xs font-mono outline-hidden focus:border-panik-orange/60 tabular-nums"
                           aria-label="Collateral amount"
                         />
                       </div>
@@ -1939,7 +1939,7 @@ export function AppDemo() {
                             setAssetPrice(Math.max(0, Number(e.target.value)));
                             setActiveScenario("custom");
                           }}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 ${
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 tabular-nums ${
                             assetPrice < activeMarket.defaultPrice * 0.8 ? "text-red-400 font-bold" : "text-white"
                           }`}
                           aria-label="Collateral asset price in USD"
@@ -1974,7 +1974,7 @@ export function AppDemo() {
                           step={activeMarket.defaultBorrow < 10 ? 0.1 : 50}
                           value={borrowAmount}
                           onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 ${
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 tabular-nums ${
                             borrowAmount > activeMarket.defaultBorrow * 1.2 ? "text-red-400 font-bold" : "text-white"
                           }`}
                           aria-label="Borrowed amount"
@@ -2006,7 +2006,7 @@ export function AppDemo() {
                           step={0.005}
                           value={debtPrice}
                           onChange={(e) => setDebtPrice(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 ${
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 tabular-nums ${
                             Math.abs(debtPrice - 1) > 0.02 ? "text-amber-400 font-bold" : "text-white"
                           }`}
                           aria-label="Borrowed asset price in USD"
@@ -2179,7 +2179,7 @@ export function AppDemo() {
                       Monitored Capital {liveMacro && <span className="text-emerald-400">· LIVE</span>}
                       <InfoTip text="Total collateral value PANIK is watching for this wallet across all protocols." />
                     </span>
-                    <span className="text-2xl font-mono font-bold text-white mt-1 block">
+                    <span className="text-2xl font-mono font-bold text-white mt-1 block tabular-nums">
                       {liveMacro ? `$${Math.round(liveMacro.capital).toLocaleString()}` : "$18,450"}
                     </span>
                     <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/5 px-1.5 py-0.5 rounded border border-emerald-500/10 inline-block mt-1">● Guard active</span>
@@ -2190,17 +2190,17 @@ export function AppDemo() {
                       Monitored Liabilities {liveMacro && <span className="text-emerald-400">· LIVE</span>}
                       <InfoTip text="Total borrowed across your positions. Net LTV is liabilities divided by capital - lower means safer." />
                     </span>
-                    <span className="text-2xl font-mono font-bold text-white mt-1 block">
+                    <span className="text-2xl font-mono font-bold text-white mt-1 block tabular-nums">
                       {liveMacro ? `$${Math.round(liveMacro.debt).toLocaleString()}` : "$9,310"}
                     </span>
-                    <span className="text-[9px] font-mono text-panik-text-secondary mt-1 block">
+                    <span className="text-[9px] font-mono text-panik-text-secondary mt-1 block tabular-nums">
                       Net LTV ratio: {liveMacro ? `${Math.round(liveMacro.ltv * 100)}%` : "50%"}
                     </span>
                   </div>
 
                   <div className="bg-[#111318]/50 border border-white/[0.06] p-4.5 rounded-2xl">
                     <span className="block text-[8px] font-mono text-[#748BAA] uppercase font-bold">Protocols Watched</span>
-                    <span className="text-2xl font-mono font-bold text-panik-orange mt-1 block">
+                    <span className="text-2xl font-mono font-bold text-panik-orange mt-1 block tabular-nums">
                       {liveMacro ? `${liveMacro.positions} Positions` : "4 Pools"}
                     </span>
                     <span className="text-[9px] font-mono text-panik-text-secondary mt-1 block">
@@ -2213,7 +2213,7 @@ export function AppDemo() {
                       Aggregate Risk Index {liveMacro && <span className="text-emerald-400">· LIVE</span>}
                       <InfoTip text="Collateral-weighted average PANIK score across this wallet's positions. Bigger positions move it more." />
                     </span>
-                    <span className={`text-2xl font-mono font-bold mt-1 block ${
+                    <span className={`text-2xl font-mono font-bold mt-1 block tabular-nums ${
                       (liveMacro?.aggregate ?? 22) >= 50 ? "text-red-400" :
                       (liveMacro?.aggregate ?? 22) >= 25 ? "text-amber-400" : "text-emerald-400"
                     }`}>
@@ -2286,8 +2286,8 @@ export function AppDemo() {
                                 </span>
                               </div>
                               <div className="text-right">
-                                <span className="font-mono text-xs font-bold text-white">${Math.round(a.usd).toLocaleString()}</span>
-                                <span className="block text-[9px] font-mono text-panik-text-secondary">{a.pct.toFixed(1)}% weight</span>
+                                <span className="font-mono text-xs font-bold text-white tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
+                                <span className="block text-[9px] font-mono text-panik-text-secondary tabular-nums">{a.pct.toFixed(1)}% weight</span>
                               </div>
                             </div>
                           ))}
@@ -2311,7 +2311,7 @@ export function AppDemo() {
                         Risk Index History
                       </h3>
                       {riskHistory && (
-                        <span className={`text-lg font-mono font-bold ${
+                        <span className={`text-lg font-mono font-bold tabular-nums ${
                           (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 50 ? "text-red-400" :
                           (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 25 ? "text-amber-400" : "text-emerald-400"
                         }`}>
@@ -2369,10 +2369,10 @@ export function AppDemo() {
                                     {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
                                     <span className="text-white/40 font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
                                   </span>
-                                  <span className="text-[9px] font-mono text-white/30 shrink-0">{timeAgo(a.created_at)}</span>
+                                  <span className="text-[9px] font-mono text-white/30 shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
                                 </div>
                                 <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-[9px] font-mono text-white/50">score {a.score} ({a.band})</span>
+                                  <span className="text-[9px] font-mono text-white/50 tabular-nums">score {a.score} ({a.band})</span>
                                   <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>
                                 </div>
                               </div>
@@ -2508,7 +2508,7 @@ export function AppDemo() {
                       <div className={`bg-[#0A0A0B]/60 p-3 rounded-lg border border-white/[0.03] space-y-1.5 transition-opacity ${isRepayActive ? "" : "opacity-40 pointer-events-none"}`}>
                         <div className="flex justify-between text-[11px] font-mono text-panik-text-secondary">
                           <span>Auto target repayment chunk:</span>
-                          <span className="text-white font-bold">{automaticRepayTarget}% of liability</span>
+                          <span className="text-white font-bold tabular-nums">{automaticRepayTarget}% of liability</span>
                         </div>
                         <input
                           type="range"
@@ -2619,10 +2619,10 @@ export function AppDemo() {
                     </div>
                     
                     <div className="flex items-baseline justify-center gap-1.5">
-                      <span className="text-5xl font-mono font-bold text-white tracking-tighter">
+                      <span className="text-5xl font-mono font-bold text-white tracking-tighter tabular-nums">
                         {selectedRiskBreakdownPreset.baseRisk}
                       </span>
-                      <span className="text-xs font-mono text-white/30">/ 100</span>
+                      <span className="text-xs font-mono text-white/30 tabular-nums">/ 100</span>
                     </div>
 
                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
@@ -2646,28 +2646,28 @@ export function AppDemo() {
                               Position ×40%
                               <InfoTip text="Distance to liquidation: health factor plus current LTV." />
                             </span>
-                            <strong className="text-white">{breakdownData.subs.positionHealth}</strong>
+                            <strong className="text-white tabular-nums">{breakdownData.subs.positionHealth}</strong>
                           </div>
                           <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
                             <span className="flex items-center justify-center gap-1 text-[8px] text-white/40 uppercase mb-0.5">
                               Asset ×25%
                               <InfoTip text="Collateral price volatility, 90d drawdown, and BTC correlation." />
                             </span>
-                            <strong className="text-white">{breakdownData.subs.assetRisk}</strong>
+                            <strong className="text-white tabular-nums">{breakdownData.subs.assetRisk}</strong>
                           </div>
                           <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
                             <span className="flex items-center justify-center gap-1 text-[8px] text-white/40 uppercase mb-0.5">
                               Protocol ×20%
                               <InfoTip text="Protocol safety: audits, governance timelock, market controls." />
                             </span>
-                            <strong className="text-white">{breakdownData.subs.protocolSafety}</strong>
+                            <strong className="text-white tabular-nums">{breakdownData.subs.protocolSafety}</strong>
                           </div>
                           <div className="bg-white/[0.02] border border-white/[0.04] p-2 rounded-lg">
                             <span className="flex items-center justify-center gap-1 text-[8px] text-white/40 uppercase mb-0.5">
                               Systemic ×15%
                               <InfoTip text="Market-wide stress: sector TVL flows and capital flight." />
                             </span>
-                            <strong className="text-white">{breakdownData.subs.systemicRisk}</strong>
+                            <strong className="text-white tabular-nums">{breakdownData.subs.systemicRisk}</strong>
                           </div>
                         </div>
                         <p className="text-[9px] font-mono text-white/30 leading-relaxed">
@@ -2690,7 +2690,7 @@ export function AppDemo() {
                           1. LTV Rating
                           <InfoTip text="Debt as a share of collateral value. Closer to the protocol's max means a smaller cushion." />
                         </span>
-                        <span className="text-base font-mono font-bold text-white mt-1">
+                        <span className="text-base font-mono font-bold text-white mt-1 tabular-nums">
                           {Math.round((selectedRiskBreakdownPreset.defaultBorrow / (selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)) * 100)}%
                         </span>
                       </div>
@@ -2704,7 +2704,7 @@ export function AppDemo() {
                         {breakdownData?.healthFactor == null ? (
                           <span className="text-base font-mono font-bold mt-1 text-emerald-400">No debt</span>
                         ) : (
-                          <span className={`text-base font-mono font-bold mt-1 ${
+                          <span className={`text-base font-mono font-bold mt-1 tabular-nums ${
                             breakdownData.healthFactor < 1.3 ? "text-red-400" :
                             breakdownData.healthFactor < 1.7 ? "text-amber-400" : "text-emerald-400"
                           }`}>
@@ -2719,7 +2719,7 @@ export function AppDemo() {
                           3. Liquidation Price
                           <InfoTip text="The collateral price at which this position becomes liquidatable." />
                         </span>
-                        <span className="text-sm font-mono font-bold text-panik-orange mt-1">
+                        <span className="text-sm font-mono font-bold text-panik-orange mt-1 tabular-nums">
                           {breakdownData?.liqPrice != null ? formatCurrency(breakdownData.liqPrice) : "-"}
                         </span>
                       </div>
@@ -2730,7 +2730,7 @@ export function AppDemo() {
                           4. Buffer to Liquidation
                           <InfoTip text="How far the collateral price must fall before liquidation. Your real safety margin - the most decision-useful number here." />
                         </span>
-                        <span className="text-base font-mono font-bold text-white mt-1">
+                        <span className="text-base font-mono font-bold text-white mt-1 tabular-nums">
                           {breakdownData?.bufferPct != null ? `${breakdownData.bufferPct}%` : "-"}
                         </span>
                       </div>
@@ -2738,7 +2738,7 @@ export function AppDemo() {
                       {/* Dimension 5: Collateral Value */}
                       <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
                         <span className="text-[8px] font-mono text-white/40 uppercase">5. Collateral Value</span>
-                        <span className="text-xs font-mono font-bold text-white mt-1 truncate">
+                        <span className="text-xs font-mono font-bold text-white mt-1 truncate tabular-nums">
                           {selectedRiskBreakdownPreset.defaultCollateral} {selectedRiskBreakdownPreset.collateralAsset} ({formatCurrency(selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)})
                         </span>
                       </div>
@@ -2746,7 +2746,7 @@ export function AppDemo() {
                       {/* Dimension 6: Borrowed Amount */}
                       <div className="bg-[#0A0B0F]/65 border border-white/[0.05] p-3 rounded-lg flex flex-col justify-between">
                         <span className="text-[8px] font-mono text-white/40 uppercase">6. Borrowed Amount</span>
-                        <span className="text-xs font-mono font-bold text-white mt-1 truncate">
+                        <span className="text-xs font-mono font-bold text-white mt-1 truncate tabular-nums">
                           {selectedRiskBreakdownPreset.defaultBorrow} {selectedRiskBreakdownPreset.debtAsset}
                         </span>
                       </div>
@@ -2757,7 +2757,7 @@ export function AppDemo() {
                           7. Pool Borrow Utilization
                           <InfoTip text="Share of the pool's supplied funds currently borrowed. Very high utilization can delay withdrawals and spike rates." />
                         </span>
-                        <span className="text-xs font-mono font-bold text-emerald-400">
+                        <span className="text-xs font-mono font-bold text-emerald-400 tabular-nums">
                           {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (Optimal range)
                         </span>
                       </div>
@@ -2770,13 +2770,13 @@ export function AppDemo() {
                         </span>
                         {breakdownData?.poolYield ? (
                           <>
-                            <span className="text-base font-mono font-bold text-emerald-400 mt-1">
+                            <span className="text-base font-mono font-bold text-emerald-400 mt-1 tabular-nums">
                               {breakdownData.poolYield.apy.toFixed(2)}%
                             </span>
                             <Sparkline data={breakdownData.poolYield.apySeries} stroke="#34d399" height={24} className="mt-1" />
                           </>
                         ) : (
-                          <span className="text-base font-mono font-bold text-white/30 mt-1">
+                          <span className="text-base font-mono font-bold text-white/30 mt-1 tabular-nums">
                             {selectedRiskBreakdownPreset.apy.toFixed(1)}%
                           </span>
                         )}
@@ -2790,7 +2790,7 @@ export function AppDemo() {
                         </span>
                         {breakdownData?.poolYield ? (
                           <>
-                            <span className="text-base font-mono font-bold text-white mt-1">
+                            <span className="text-base font-mono font-bold text-white mt-1 tabular-nums">
                               {formatCompactUsd(breakdownData.poolYield.tvlUsd)}
                             </span>
                             <Sparkline data={breakdownData.poolYield.tvlSeries} stroke="#38bdf8" height={24} className="mt-1" />

@@ -448,7 +448,7 @@ export function DepositFlow() {
               </a>
             </div>
           </div>
-          <p className="text-xs text-white/20 font-mono">
+          <p className="text-xs text-white/20 font-mono tabular-nums">
             Balance: {usdcBalance !== undefined ? (Number(usdcBalance) / 1e6).toFixed(2) : "—"} USDC
           </p>
           <WalletInfo address={address} onDisconnect={disconnect} />
@@ -461,7 +461,7 @@ export function DepositFlow() {
           <div className="bg-white/[0.03] rounded-lg p-4 mb-5">
             <div className="flex items-center justify-between text-sm mb-2">
               <span className="text-white/40">Deposit amount</span>
-              <span className="font-mono text-white/80">
+              <span className="font-mono text-white/80 tabular-nums">
                 {DEPOSIT_DISPLAY} USDC
               </span>
             </div>

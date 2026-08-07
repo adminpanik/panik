@@ -84,8 +84,8 @@ export function Sparkline(props: {
           style={{ height }}
           aria-hidden="true"
         >
-          <span className="text-[8px] font-mono text-white/30 leading-none">{axes.yFormat(max)}</span>
-          <span className="text-[8px] font-mono text-white/30 leading-none">{axes.yFormat(min)}</span>
+          <span className="text-[8px] font-mono tabular-nums text-white/30 leading-none">{axes.yFormat(max)}</span>
+          <span className="text-[8px] font-mono tabular-nums text-white/30 leading-none">{axes.yFormat(min)}</span>
         </div>
         <div className="flex-1 min-w-0">{svg}</div>
       </div>

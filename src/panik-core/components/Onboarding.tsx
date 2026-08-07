@@ -427,7 +427,7 @@ function Chip(props: { k: string; v: string }) {
   return (
     <div className="px-3 py-2 rounded-lg border border-white/[0.07] bg-white/[0.02]">
       <div className="text-[9px] font-mono uppercase tracking-widest text-panik-text-secondary">{props.k}</div>
-      <div className="text-sm font-bold text-white mt-0.5 font-mono">{props.v}</div>
+      <div className="text-sm font-bold text-white mt-0.5 font-mono tabular-nums">{props.v}</div>
     </div>
   );
 }

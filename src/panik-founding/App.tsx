@@ -149,7 +149,7 @@ function FoundingApp() {
             className={`text-lg md:text-xl text-white/50 max-w-2xl mx-auto leading-relaxed mb-4 transition-all duration-700 delay-200 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
           >
             There is one deadline for everyone:{" "}
-            <span className="text-white/80 font-medium">
+            <span className="text-white/80 font-medium tabular-nums">
               {deadlineDate ?? "90 days from contract deployment"}
             </span>
             . If we haven't shipped PANIK by then, you claim your money back

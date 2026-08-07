@@ -373,7 +373,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
                   className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 flex items-center justify-between text-sm"
                 >
                   <span className="font-mono text-white">{v.symbol}</span>
-                  <span className="font-mono text-xs text-panik-text-secondary text-right">
+                  <span className="font-mono text-xs tabular-nums text-panik-text-secondary text-right">
                     {v.repay > 0n
                       ? `repay ${v.repay === AMOUNT_FULL ? fmtUnits(v.debt, v.decimals) : fmtUnits(v.repay, v.decimals)}`
                       : ""}
@@ -388,7 +388,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
 
             {position.requiredUsdc > 0n ? (
               <div
-                className={`text-xs font-mono flex items-center gap-2 ${
+                className={`text-xs font-mono tabular-nums flex items-center gap-2 ${
                   position.usdcBalance >= position.requiredUsdc ? "text-white/50" : "text-red-400"
                 }`}
               >
@@ -440,7 +440,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
                 {prefill.kind === "full" ? "Position exited" : "Position reduced"}
               </p>
               {receipt.usdcReceived > 0n && position ? (
-                <p className="text-sm text-panik-text-secondary font-mono mt-1">
+                <p className="text-sm text-panik-text-secondary font-mono tabular-nums mt-1">
                   {fmtUnits(receipt.usdcReceived, position.usdcDecimals)} USDC swept to your wallet
                 </p>
               ) : null}
