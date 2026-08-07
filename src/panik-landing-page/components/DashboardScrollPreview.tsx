@@ -16,7 +16,6 @@ import {
   HelpCircle,
   CheckCircle,
   Sliders,
-  Bell,
 } from "lucide-react";
 import { motion, useScroll, useTransform, AnimatePresence } from "motion/react";
 import { calculateDynamicPosition, formatCurrency } from "../utils";
@@ -440,7 +439,17 @@ export function DashboardScrollPreview() {
                           {/* Position 2 */}
                           <div className="bg-surface-raised/60 border border-border-subtle p-2 rounded-md flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <div className="w-6.5 h-6.5 rounded-sm bg-risk-low/20 border border-risk-low/30 flex items-center justify-center shrink-0 overflow-hidden">
+                              {/* Cyan, not green. Compound's own brand colour is
+                                  a saturated green and green in this product
+                                  means risk-low, so a green tile beside a
+                                  CRITICAL chip states two contradictory things
+                                  about the same row. cyan-400 is the substitute
+                                  the product tiles already use for exactly this
+                                  reason (see PROTOCOL_TILE_HEX in
+                                  panik-core/components/ProtocolLogo). The
+                                  landing page is where this matters most: it is
+                                  the first place anyone is taught the ramp. */}
+                              <div className="w-6.5 h-6.5 rounded-sm bg-cyan-400/20 border border-cyan-400/30 flex items-center justify-center shrink-0 overflow-hidden">
                                 <img src="/compound-logo.png" alt="Compound" className="w-full h-full object-contain" />
                               </div>
                               <div className="text-left font-mono">
@@ -643,7 +652,7 @@ export function DashboardScrollPreview() {
                           <div className="bg-surface-raised/60 border border-border-subtle p-3 rounded-md flex flex-col justify-between text-left relative overflow-hidden">
                             <div className="flex justify-between items-start mb-2">
                               <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-sm bg-risk-low/20 border border-risk-low/30 flex items-center justify-center shrink-0 overflow-hidden">
+                                <div className="w-7 h-7 rounded-sm bg-cyan-400/20 border border-cyan-400/30 flex items-center justify-center shrink-0 overflow-hidden">
                                   <img src="/compound-logo.png" alt="Compound" className="w-full h-full object-contain" />
                                 </div>
                                 <div className="text-left font-mono">
@@ -738,7 +747,7 @@ export function DashboardScrollPreview() {
                           <div className="bg-surface-raised/30 border border-border-subtle p-3 rounded-md flex flex-col justify-between text-left relative overflow-hidden opacity-85">
                             <div className="flex justify-between items-start mb-2">
                               <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-sm bg-risk-low/20 border border-risk-low/30 flex items-center justify-center shrink-0 overflow-hidden">
+                                <div className="w-7 h-7 rounded-sm bg-cyan-400/20 border border-cyan-400/30 flex items-center justify-center shrink-0 overflow-hidden">
                                   <img src="/compound-logo.png" alt="Compound" className="w-full h-full object-contain" />
                                 </div>
                                 <div className="text-left font-mono">

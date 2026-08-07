@@ -18,6 +18,7 @@ import type {
   LiveProtocol,
 } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
+import { formatUsd } from "../lib/utils";
 import { EXIT_ENV } from "../lib/exit";
 
 const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
@@ -41,12 +42,6 @@ const ACTION_CHIP: Record<string, string> = {
   EXIT: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
   OPEN: "bg-white/[0.06] text-text-primary border-border-subtle",
 };
-
-/** null = the engine could not price this leg (degraded feed); never show $0. */
-const fmtUsd = (n: number | null) =>
-  n === null || !Number.isFinite(n)
-    ? "$…"
-    : `$${Math.abs(n) >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(0)}`;
 
 function SectionRow({ label, text }: { label: string; text: string }) {
   return (
@@ -114,8 +109,8 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
   const items: [string, string][] = [
     ["Score", `${n.total} · ${n.band}`],
     ["Health factor", n.healthFactor === null ? "no debt" : n.healthFactor.toFixed(2)],
-    ["Collateral", fmtUsd(n.collateralValueUsd)],
-    ["Debt", fmtUsd(n.borrowValueUsd)],
+    ["Collateral", formatUsd(n.collateralValueUsd)],
+    ["Debt", formatUsd(n.borrowValueUsd)],
     ["Asset", n.scoredCollateralSymbol],
   ];
   if (n.usdValuesUnavailable) items.push(["Prices", "degraded - USD unverified"]);
@@ -216,8 +211,8 @@ function OpportunityCard({
       </p>
       <div className="flex items-center justify-between pt-1">
         <span className="text-sm font-sans tabular-nums text-text-secondary">
-          ~{fmtUsd(plan.collateralUsd)} collateral
-          {plan.borrowUsd > 0 ? ` / ${fmtUsd(plan.borrowUsd)} borrow` : ""}
+          ~{formatUsd(plan.collateralUsd)} collateral
+          {plan.borrowUsd > 0 ? ` / ${formatUsd(plan.borrowUsd)} borrow` : ""}
         </span>
         <ActionButton rec={rec} onOpen={onOpen} />
       </div>

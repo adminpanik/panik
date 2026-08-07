@@ -19,6 +19,7 @@ import type {
   AdvisorReport,
   AdvisorUrgency,
 } from "../lib/live";
+import { formatUsd } from "../lib/utils";
 
 const STORE_KEY = "panik_advisor_popup_v1";
 const COOLDOWN_MS = 30 * 60 * 1000;
@@ -64,15 +65,13 @@ interface Notification {
   kind: "exit" | "reduce" | "open" | "info";
 }
 
-const fmtUsd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
-
 function legHeadline(rec: AdvisorRecommendation): string {
   const label = PROTOCOL_LABEL[rec.protocol] ?? rec.protocol;
   switch (rec.action) {
     case "EXIT":
       return `${label} position moved to EXIT - full atomic exit recommended.`;
     case "REDUCE":
-      return `${label} moved to REDUCE${rec.repayPlan ? ` - repay ~${fmtUsd(rec.repayPlan.repayUsd)}` : ""}.`;
+      return `${label} moved to REDUCE${rec.repayPlan ? ` - repay ~${formatUsd(rec.repayPlan.repayUsd)}` : ""}.`;
     case "REBALANCE":
       return `${label}: consider rebalancing to a safer protocol.`;
     default:

@@ -1,20 +1,6 @@
 import React from "react";
 
 /**
- * Official brand colours. Full-colour tiles are still correct in marketing
- * contexts, and these are the values the brands themselves publish.
- *
- * Aave's was wrong: #8C82F2 was an eyeballed approximation. The value in the
- * official brand kit (aave.com/brand -> aave-brand-assets.zip) is #9391F7.
- */
-export const PROTOCOL_BRAND_HEX = {
-  aave: "#9391F7",
-  moonwell: "#1D6AF3",
-  morpho: "#2470FF",
-  compound: "#00D395",
-} as const;
-
-/**
  * The hue the PRODUCT tile uses. Aave carries its own brand colour; the other
  * three do not, and the reasons are specific rather than stylistic.
  *
@@ -40,7 +26,10 @@ export const PROTOCOL_BRAND_HEX = {
  * tinted pill carrying a number.
  */
 const PROTOCOL_TILE_HEX: Record<string, string> = {
-  aave: "#9391F7", // official Aave purple, already cool
+  // The official Aave purple, and already cool enough to keep. (#8C82F2, which
+  // this replaced, was an eyeballed approximation; #9391F7 is the value in the
+  // brand kit at aave.com/brand -> aave-brand-assets.zip.)
+  aave: "#9391F7",
   moonwell: "#7DD3FC", // sky-300 - the lightest of the four
   morpho: "#3B82F6", // blue-500 - deeper, to break the Moonwell collision
   compound: "#22D3EE", // cyan-400, standing in for a brand green we cannot use
@@ -221,38 +210,25 @@ export function ProtocolLogo({ protocol, size = "w-6 h-6", pad = TILE_PAD, label
  *
  * This is CONTENT, not decoration - it is the VALUE of the "Protocols watched"
  * card, which previously showed a position count under a label promising
- * protocols. So every mark carries an accessible name, and the overflow chip
- * names the protocols it stands in for rather than reducing them to a number a
- * screen reader cannot expand.
+ * protocols. So every mark carries an accessible name.
+ *
+ * No truncation and no "+N" chip. The list is a Set over `LiveProtocol`, which
+ * has four members, and this component drew four marks, so the overflow branch
+ * could not run - it was a fixed cost paid for a case the type system already
+ * ruled out. If a fifth protocol is ever integrated, four marks on one line is
+ * what has to be re-argued, not a chip nobody ever saw.
+ *
+ * Geometry is fixed here rather than passed: 32px marks at a 4px inset is what
+ * fits inside the 34px value line-box the three sibling cards' numerals sit on,
+ * and that is a fact about the card, not a choice its one caller should keep
+ * restating.
  */
-export function ProtocolMarks({
-  protocols,
-  max = 4,
-  size = "w-6 h-6",
-  pad,
-}: {
-  protocols: string[];
-  max?: number;
-  size?: string;
-  pad?: string;
-}) {
-  const shown = protocols.slice(0, max);
-  const rest = protocols.slice(max);
+export function ProtocolMarks({ protocols }: { protocols: string[] }) {
   return (
     <span className="flex items-center gap-1.5">
-      {shown.map((p) => (
-        <ProtocolLogo key={p} protocol={p} size={size} pad={pad} label={p} />
+      {protocols.map((p) => (
+        <ProtocolLogo key={p} protocol={p} size="w-8 h-8" pad="p-1" label={p} />
       ))}
-      {rest.length > 0 && (
-        <span
-          role="img"
-          aria-label={`and ${rest.length} more: ${rest.join(", ")}`}
-          title={rest.join(", ")}
-          className={`${TILE} ${pad ?? TILE_PAD} ${size} font-sans font-bold text-xs`}
-        >
-          +{rest.length}
-        </span>
-      )}
     </span>
   );
 }

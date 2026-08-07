@@ -10,6 +10,7 @@ import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
+import { formatUsd, RISK_CHIP } from "../lib/utils";
 import { Button, Card, EmptyState, RiskChip, Skeleton } from "../ui";
 
 const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
@@ -39,13 +40,8 @@ function healthCopy(p: LiveWalletPosition): string {
   return `Health factor ${p.healthFactor.toFixed(2)}`;
 }
 
-/** Unknown dollar magnitudes render as an ellipsis — never as "$0". */
-const fmtUsd = (v: number | null) =>
-  v === null || !Number.isFinite(v) ? "$…" : `$${Math.round(v).toLocaleString()}`;
-
 interface LivePositionsProps {
   positions: LiveWalletPosition[] | null;
-  updatedAt: number;
   offline: boolean;
   /** Optional: open this real position in the Watch simulator (stress-test bridge). */
   onStressTest?: (position: LiveWalletPosition) => void;
@@ -185,10 +181,21 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       holds on four independent axes: different shape (a bordered
                       block, not a figure pair), different colour, an icon, and
                       words that say it outright. No branch of this can emit
-                      "$0". */}
+                      "$0".
+
+                      The treatment comes from `RISK_CHIP.UNKNOWN` rather than
+                      being retyped here, and the difference is not cosmetic:
+                      the canonical entry carries NO fill because a 10% wash of
+                      this grey under this grey label measures 4.26:1, and the
+                      hand-written copy this replaced had reintroduced exactly
+                      that fill. A contrast decision that lives in one file and
+                      is re-typed in another is a decision that only holds
+                      until someone types it slightly differently. */}
                   {p.usdValuesUnavailable ? (
                     <div className="flex">
-                      <span className="inline-flex items-center gap-1.5 rounded-sm border border-dashed border-risk-unknown/50 bg-risk-unknown/[0.08] px-2 py-1 text-sm font-sans font-semibold text-risk-unknown">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
+                      >
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         USD amounts unavailable
                       </span>
@@ -197,13 +204,13 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums text-text-secondary">
                       <span className="whitespace-nowrap">
                         <span className="font-semibold text-text-primary">
-                          {fmtUsd(p.collateralValueUsd)}
+                          {formatUsd(p.collateralValueUsd)}
                         </span>{" "}
                         collateral
                       </span>
                       <span className="whitespace-nowrap">
                         <span className="font-semibold text-text-primary">
-                          {fmtUsd(p.borrowValueUsd)}
+                          {formatUsd(p.borrowValueUsd)}
                         </span>{" "}
                         debt
                       </span>

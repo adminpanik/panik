@@ -31,82 +31,24 @@ import {
 } from "lucide-react";
 import { calculateDynamicPosition, formatCurrency } from "../utils";
 import { RISK_CHIP } from "../../panik-core/lib/utils";
+/**
+ * The product's real brand marks, not a second set drawn for this file.
+ *
+ * There used to be a local `ProtocolLogo` here whose Compound "logo" was three
+ * stacked rectangles - not a rough approximation of Compound's mark but a
+ * different shape entirely - and whose Moonwell crescents were hand-drawn
+ * curves. This is the marketing surface: it is the first and often only place
+ * a visitor sees these protocols named, so a wrong mark here is a wrong mark
+ * in the only impression that gets made. The panik-core component carries the
+ * vectors copied verbatim from each protocol's own published SVG, the
+ * non-uniform-scale fitting Aave's guidelines require, and the reasoning for
+ * every tile hue. Cross-package import was already established in this file by
+ * `RISK_CHIP` directly above.
+ */
+import { ProtocolLogo } from "../../panik-core/components/ProtocolLogo";
+import { RiskChip } from "../../panik-core/ui";
 import { PositionState } from "../types";
 import { motion, AnimatePresence } from "motion/react";
-
-function ProtocolLogo({ protocol, size = "w-6 h-6" }: { protocol: string; size?: string }) {
-  if (protocol.toLowerCase().includes("aave")) {
-    return (
-      <img src="/aave-logo.png" alt="Aave" className={`rounded-md shrink-0 ${size} object-contain`} />
-    );
-  }
-  if (protocol.toLowerCase().includes("compound")) {
-    return (
-      <div className={`rounded-md overflow-hidden shrink-0 ${size} flex items-center justify-center bg-surface-sunken border border-border-subtle p-1.5`}>
-        <svg viewBox="0 0 100 100" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M15 30 H85 V42 H15 Z" fill="#00D395" />
-          <path d="M15 48 H85 V60 H15 Z" fill="#00D395" opacity="0.8" />
-          <path d="M15 66 H85 V78 H15 Z" fill="#00D395" opacity="0.6" />
-        </svg>
-      </div>
-    );
-  }
-  if (protocol.toLowerCase().includes("moonwell")) {
-    return (
-      <div className={`rounded-md overflow-hidden shrink-0 ${size} flex items-center justify-center bg-[#1D6AF3] p-1.5 border border-border-subtle`}>
-        <svg viewBox="0 0 100 100" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-          {/* Moonwell Left Crescent */}
-          <path d="M 42,28 C 28,31 16,42 16,50 C 16,58 28,69 42,72 C 32,66 26,59 26,50 C 26,41 32,34 42,28 Z" fill="#FFFFFF" />
-          {/* Moonwell Right Crescent */}
-          <path d="M 58,28 C 72,31 84,42 84,50 C 84,58 72,69 58,72 C 68,66 74,59 74,50 C 74,41 68,34 58,28 Z" fill="#FFFFFF" />
-        </svg>
-      </div>
-    );
-  }
-  if (protocol.toLowerCase().includes("gmx")) {
-    return (
-      <div className={`rounded-md overflow-hidden shrink-0 ${size} flex items-center justify-center bg-surface-base border border-border-subtle p-1.5`}>
-        <svg viewBox="0 0 100 100" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="gmx-gradient" x1="16" y1="77" x2="66" y2="25" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="var(--color-indigo-500)" />   {/* Royal Violet */}
-              <stop offset="40%" stopColor="var(--color-blue-500)" />  {/* Bright Blue */}
-              <stop offset="100%" stopColor="var(--color-cyan-400)" /> {/* Neon Cyan */}
-            </linearGradient>
-          </defs>
-          {/* Main GMX Left & Center Hook Symbol */}
-          <path 
-            d="M 50,18 
-               L 16,77 
-               H 58 
-               L 50,63 
-               H 37 
-               L 50,40 
-               L 58,54 
-               H 69 
-               L 50,21 
-               Z" 
-            fill="url(#gmx-gradient)" 
-          />
-          {/* Separate GMX Right-Hand Slanted Guard Bar */}
-          <path 
-            d="M 66,46 
-               L 54,46 
-               L 72,77 
-               H 84 
-               Z" 
-            fill="url(#gmx-gradient)" 
-          />
-        </svg>
-      </div>
-    );
-  }
-  return (
-    <div className={`rounded-md bg-panik-orange/15 border border-panik-orange/30 flex items-center justify-center font-mono font-bold text-xs text-panik-orange shrink-0 ${size}`}>
-      {protocol[0]}
-    </div>
-  );
-}
 
 interface AppMockupProps {
   onBackToLanding: () => void;
@@ -361,19 +303,6 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
 
   const { recommended, outside } = getProfileThresholds();
 
-  // Color mappings for risk tags matching Figma
-  const getFigmaRiskStyle = (risk: number) => {
-    if (risk < 25) return "bg-risk-low/10 text-risk-low border border-risk-low/25";
-    if (risk < 50) return "bg-risk-elevated/10 text-risk-elevated border border-risk-elevated/25";
-    return "bg-risk-critical/10 text-risk-critical border border-risk-critical/25";
-  };
-
-  const getFigmaRiskLabel = (risk: number) => {
-    if (risk < 25) return "LOW";
-    if (risk < 50) return "ELEVATED";
-    return "HIGH";
-  };
-
   // Send a test Alert helper for settings tab
   const handleSendTestAlert = () => {
     addLog("Sending test firewall event trigger packet...");
@@ -571,10 +500,10 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
                               setSelectedRiskBreakdownPreset(preset);
                             }}
                             onMouseEnter={() => setSelectedRiskBreakdownPreset(preset)}
-                            className={`text-2xs font-mono font-bold py-1 px-2.5 rounded-md flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm ${getFigmaRiskStyle(preset.baseRisk)}`}
+                            className={`text-2xs font-mono font-bold py-1 px-2.5 rounded-md flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm border ${RISK_CHIP[preset.riskStatus]}`}
                             title="Hover or click to view detailed risk breakdown"
                           >
-                            <span>{preset.baseRisk} {getFigmaRiskLabel(preset.baseRisk)}</span>
+                            <span>{preset.baseRisk} {preset.riskStatus}</span>
                             <Sliders className="w-3 h-3 text-current stroke-[2.5]" />
                           </button>
                         </div>
@@ -651,10 +580,10 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
                               setSelectedRiskBreakdownPreset(preset);
                             }}
                             onMouseEnter={() => setSelectedRiskBreakdownPreset(preset)}
-                            className={`text-2xs font-mono py-1 px-2.5 rounded-md opacity-60 hover:opacity-100 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm ${getFigmaRiskStyle(preset.baseRisk)}`}
+                            className={`text-2xs font-mono py-1 px-2.5 rounded-md opacity-60 hover:opacity-100 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm border ${RISK_CHIP[preset.riskStatus]}`}
                             title="Hover or click to view detailed risk breakdown"
                           >
-                            <span>{preset.baseRisk} {getFigmaRiskLabel(preset.baseRisk)}</span>
+                            <span>{preset.baseRisk} {preset.riskStatus}</span>
                             <Sliders className="w-3 h-3 text-current stroke-[2.5]" />
                           </button>
                         </div>
@@ -753,11 +682,11 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
                             </span>
                             <span className="text-xs font-mono text-text-muted">/ 100</span>
 
-                            <span className={`ml-auto text-2xs font-mono font-bold px-2 py-0.5 rounded-sm border ${RISK_CHIP[positionState.status]}`}>
+                            <RiskChip band={positionState.status} className="ml-auto">
                               {positionState.status === "CRITICAL" ? "CRITICAL THREAT" :
                                positionState.status === "HIGH" ? "HIGH RISK" :
                                positionState.status === "ELEVATED" ? "ELEVATED" : "LOW RISK"}
-                            </span>
+                            </RiskChip>
                           </div>
                         </div>
 

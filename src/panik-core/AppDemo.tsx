@@ -31,13 +31,22 @@ import {
   ChevronDown,
   Plus,
 } from "lucide-react";
-import { calculateDynamicPosition, formatCompactUsd, formatCurrency, RISK_CHIP } from "./lib/utils";
+import {
+  bandOfHealthFactor,
+  calculateDynamicPosition,
+  formatCompactUsd,
+  formatCurrency,
+  formatUsd,
+  RISK_CHIP,
+  RISK_FILL,
+  RISK_TEXT,
+} from "./lib/utils";
 import { PositionState } from "./lib/types";
 import { LivePositions } from "./components/LivePositions";
 import { Sparkline } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
-import { Button, Card, EmptyState, Stat } from "./ui";
+import { Button, Card, EmptyState, RiskChip, Stat, TabPanel } from "./ui";
 import {
   useAdvisor,
   useChainTelemetry,
@@ -48,6 +57,7 @@ import {
   useWalletHistory,
   useWalletPositions,
   useWalletRegistry,
+  type Band,
   type LiveProtocol,
 } from "./lib/live";
 import { AdvisorPanel } from "./components/AdvisorPanel";
@@ -77,18 +87,6 @@ import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
 
-/**
- * One measure for every tab panel, centred. The five panels had drifted to four
- * different caps (4xl through 6xl) and none was centred, so on a wide monitor
- * each tab settled at a different width and dumped all the slack on the right.
- *
- * 1600px is chosen for the widest thing on the page: Portfolio's 7/5 split. At
- * that cap the left column is ~930px, which is a table row a person can still
- * read across, and the right column is ~660px, which is enough for the
- * allocation legend to stop wrapping. Going wider only lengthens the rows.
- */
-const PANEL = "mx-auto w-full max-w-[1600px]";
-
 /** Source of truth for the sidebar: order here is the arrow-key order. */
 const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
   { id: "portfolio", label: "Portfolio", icon: Wallet },
@@ -97,6 +95,17 @@ const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
   { id: "advisor", label: "Advisor", icon: Sparkles },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
+
+/**
+ * A risk-driver bar's band. Two cut points, three states, and the cut points
+ * differ per driver — a health-factor sub-score turns amber at 40 and red at
+ * 75, market stress at 40 and 70 — which is why this takes them as arguments
+ * rather than reusing `bandOfScore`'s 25/50/75 composite ramp. It returns a
+ * `Band` so the class lookup is still `RISK_TEXT` / `RISK_FILL` and no call
+ * site ever types a colour.
+ */
+const driverBand = (value: number, elevatedOver: number, criticalOver: number): Band =>
+  value > criticalOver ? "CRITICAL" : value > elevatedOver ? "ELEVATED" : "LOW";
 
 /** Tailwind's `md`. The nav swaps here, so the JS query and the CSS agree. */
 const DESKTOP_MQ = "(min-width: 48rem)";
@@ -511,9 +520,6 @@ export function AppDemo() {
   const [onboardedWallet, setOnboardedWallet] = useState<string | null>(
     () => localStorage.getItem("panik_wallet")
   );
-  const [userSegment, setUserSegment] = useState<Segment | null>(
-    () => localStorage.getItem("panik_user_segment") as Segment | null
-  );
   const [riskTier, setRiskTier] = useState<RiskTier | null>(
     () => localStorage.getItem("panik_risk_tier") as RiskTier | null
   );
@@ -527,7 +533,6 @@ export function AppDemo() {
     localStorage.setItem("panik_risk_score", String(result.riskScore));
     localStorage.setItem("panik_wallet", wallet);
     setSelectedRiskProfile(result.riskProfile3);
-    setUserSegment(result.segment);
     setRiskTier(result.riskTier);
     setOnboardedWallet(wallet);
     setShowOnboarding(false);
@@ -548,7 +553,14 @@ export function AppDemo() {
   // Backfill: users onboarded before per-wallet profiles existed only have
   // the flat localStorage keys. Persist their profile into the store once so
   // they can switch away and back without redoing the quiz.
+  //
+  // The segment is READ here rather than held in state. It was a `useState`
+  // seeded from localStorage, and after its badge was deleted this effect was
+  // the only thing left that ever looked at it — so the component was carrying
+  // a render-triggering copy of a string that nothing renders. localStorage is
+  // already the source of truth for it; the copy was the derived value.
   useEffect(() => {
+    const userSegment = localStorage.getItem("panik_user_segment") as Segment | null;
     if (!onboardedWallet || !userSegment || !riskTier) return;
     if (loadProfileStore()[onboardedWallet.toLowerCase()]) return;
     saveProfileForWallet(onboardedWallet, {
@@ -560,7 +572,7 @@ export function AppDemo() {
       segmentLabel: SEGMENT_LABELS[userSegment],
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onboardedWallet, userSegment, riskTier]);
+  }, [onboardedWallet, riskTier]);
 
   // Saved per-wallet profiles for the wallet-switch flow. Recomputed whenever
   // the overlay opens so a just-saved profile is seen.
@@ -570,15 +582,12 @@ export function AppDemo() {
     [onboardedWallet, showOnboarding],
   );
 
-  // Telemetry simulation
-  const [blockNumber, setBlockNumber] = useState<number>(19384910);
+  // Live gas price for the header strip. This is the ONLY piece of chain
+  // telemetry this component still keeps: the block number, the rolling event
+  // log and a one-second refresh countdown were all held in state that nothing
+  // rendered. The countdown in particular re-rendered this entire component
+  // once a second, forever, to update a number with no reader.
   const [gasPrice, setGasPrice] = useState<number>(2.8);
-  const [secTillUpdate, setSecTillUpdate] = useState<number>(60);
-  const [logs, setLogs] = useState<string[]>([
-    "08:04:12 UTC - Risk engine initialized on Base RPC node.",
-    "08:04:13 UTC - Position listener bound. Connected presets loaded.",
-    "08:04:15 UTC - Status OK. Integrity rate: 99.8%"
-  ]);
 
   // Settings tab preferences (auto-repayment trigger).
   const [automaticRepayTarget, setAutomaticRepayTarget] = useState<number>(30);
@@ -586,7 +595,7 @@ export function AppDemo() {
 
   // ── LIVE data (scoring API; every hook degrades gracefully offline) ──────
   // Declared FIRST — the memos below consume these (const = TDZ).
-  const { positions: livePositions, updatedAt: liveUpdatedAt, offline: liveOffline } = useLiveScores();
+  const { positions: livePositions, offline: liveOffline } = useLiveScores();
   const { scores: compassLive } = useCompassScores();
   const { pools: poolYields } = useCompassYields();
   const chainTel = useChainTelemetry();
@@ -935,11 +944,6 @@ export function AppDemo() {
     setAssetPrice(activeMarket.defaultPrice);
     setDebtPrice(1);
     setActiveScenario("current");
-    addLog(
-      watchingOwnPosition
-        ? `Loaded YOUR live position: ${activeMarket.protocol} (${activeMarket.collateralAsset}/${activeMarket.debtAsset})`
-        : `Position simulation loaded: ${activeMarket.protocol} (${activeMarket.collateralAsset}/${activeMarket.debtAsset})`,
-    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMarket.id]);
 
@@ -975,7 +979,6 @@ export function AppDemo() {
   const applyScenario = (key: ScenarioKey, pct: number) => {
     setAssetPrice(scenarioPrice(pct));
     setActiveScenario(key);
-    addLog(`Scenario applied: ${key} (${Math.round(pct * 100)}% ${activeMarket.collateralAsset} move)`);
   };
 
   // LIVE Watch scoring: sliders → the real engine (debounced /api/prospective,
@@ -1030,50 +1033,28 @@ export function AppDemo() {
   const diff = positionState.riskScore - activeMarket.baseRisk;
   const trendNum = diff !== 0 ? diff : (positionState.riskScore >= 75 ? 14 : positionState.riskScore >= 50 ? 9 : positionState.riskScore >= 25 ? 6 : -2);
   const healthFactorScore = Math.max(5, Math.min(98, Math.round(100 - (positionState.healthFactor / 2.5) * 80)));
+  // Each driver bar cuts at its OWN thresholds — these are 0-100 sub-scores,
+  // not the composite, so `bandOfScore` would be the wrong ramp. What they do
+  // share is the class lookup, which is the part that was being retyped.
+  const hfDriverBand = driverBand(healthFactorScore, 40, 75);
+  const stressDriverBand = driverBand(positionState.breakdown.systemicMarketStress, 40, 70);
 
-  const addLog = (message: string) => {
-    const timestamp = new Date().toUTCString().replace(/.*(\d{2}:\d{2}:\d{2}).*/, "$1");
-    setLogs(prev => [...prev.slice(-30), `${timestamp} UTC - ${message}`]);
-  };
-
-  // LIVE chain telemetry: real Base block number + gas price via the API
-  // (the previous random-walk simulation is gone).
+  // LIVE chain telemetry: real Base gas price via the API (the previous
+  // random-walk simulation is gone). The block number arrives on the same poll
+  // and is deliberately not stored: nothing renders it.
   useEffect(() => {
-    if (chainTel.blockNumber) {
-      setBlockNumber(chainTel.blockNumber);
-      addLog(`Block ${chainTel.blockNumber.toLocaleString()} confirmed on Base. Oracle parameters refreshed.`);
-    }
     if (chainTel.gasGwei !== null) {
       setGasPrice(+chainTel.gasGwei.toFixed(4));
     }
-  }, [chainTel.blockNumber, chainTel.gasGwei]);
-
-  // Refresh countdown (display only — the live feeds poll on their own cadence)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSecTillUpdate(prev => (prev <= 1 ? 60 : prev - 1));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "watch") {
-      addLog(`Parameter simulated delta: Volatility Price $${assetPrice} USD | Borrows Debt ${borrowAmount}`);
-    }
-  }, [assetPrice, borrowAmount]);
+  }, [chainTel.gasGwei]);
 
   // Custom simulation handlers for Watch Cockpit
   const handleSimulateCollateralInflow = () => {
-    const boost = +(collateralAmount * 1.5).toFixed(2);
-    setCollateralAmount(boost);
-    addLog(`Automation Trigger: Deposited emergency defensive buffer of +${(boost - collateralAmount).toFixed(2)} ${activeMarket.collateralAsset}`);
+    setCollateralAmount(+(collateralAmount * 1.5).toFixed(2));
   };
 
   const handleSimulateFlashRepay = () => {
-    const currentDebt = borrowAmount;
-    const reducedDebt = +(borrowAmount * 0.5).toFixed(2);
-    setBorrowAmount(reducedDebt);
-    addLog(`Automation Trigger: Executed flash loan repayment of -${(currentDebt - reducedDebt).toFixed(2)} ${activeMarket.debtAsset} to lower systemic margins.`);
+    setBorrowAmount(+(borrowAmount * 0.5).toFixed(2));
   };
 
   // Profile-based filtering for Compass — runs on LIVE engine scores when
@@ -1100,19 +1081,6 @@ export function AppDemo() {
   };
 
   const { recommended, outside } = getProfileThresholds();
-
-  // Color mappings for risk tags matching Figma
-  const getFigmaRiskStyle = (risk: number) => {
-    if (risk < 25) return "bg-risk-low/10 text-risk-low border border-risk-low/25";
-    if (risk < 50) return "bg-risk-elevated/10 text-risk-elevated border border-risk-elevated/25";
-    return "bg-risk-critical/10 text-risk-critical border border-risk-critical/25";
-  };
-
-  const getFigmaRiskLabel = (risk: number) => {
-    if (risk < 25) return "LOW";
-    if (risk < 50) return "ELEVATED";
-    return "HIGH";
-  };
 
   const TOUR_STEPS = [
     { step: 1, label: "Start here", body: "This is your Panik dashboard. Use the sidebar to navigate between tools." },
@@ -1274,17 +1242,7 @@ export function AppDemo() {
             
             {/* VIEW A: COMPASS TAB (Fully interactive and identical to the requested design layout!) */}
             {activeTab === "compass" && (
-              <motion.div
-                key="compass"
-                role="tabpanel"
-                id="panel-compass"
-                aria-labelledby="tab-compass"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.18 }}
-                className={`${PANEL} space-y-8`}
-              >
+              <TabPanel key="compass" tab="compass" gap="space-y-8">
                 {/* Title Section */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle pb-5">
                   <div>
@@ -1364,10 +1322,10 @@ export function AppDemo() {
                               setSelectedRiskBreakdownPreset(preset);
                             }}
                             onMouseEnter={() => setSelectedRiskBreakdownPreset(preset)}
-                            className={`text-2xs font-sans font-bold py-1 px-2.5 rounded-md flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm ${getFigmaRiskStyle(preset.baseRisk)}`}
+                            className={`text-2xs font-sans font-bold py-1 px-2.5 rounded-md flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm border ${RISK_CHIP[preset.riskStatus]}`}
                             title="Hover or click to view detailed risk breakdown"
                           >
-                            <span>{preset.baseRisk} {getFigmaRiskLabel(preset.baseRisk)}</span>
+                            <span>{preset.baseRisk} {preset.riskStatus}</span>
                             <Sliders className="w-3 h-3 text-current stroke-[2.5]" />
                           </button>
                         </div>
@@ -1395,7 +1353,7 @@ export function AppDemo() {
                                   <>
                                     <Sparkline
                                       data={py.apySeries}
-                                      stroke="var(--color-sky-400)"
+                                      stroke="var(--color-chart-series)"
                                       height={36}
                                       axes={{ yFormat: (v) => `${v < 0.1 && v > 0 ? v.toFixed(2) : v.toFixed(1)}%`, xStart: "30d ago", xEnd: "today" }}
                                     />
@@ -1473,10 +1431,10 @@ export function AppDemo() {
                               setSelectedRiskBreakdownPreset(preset);
                             }}
                             onMouseEnter={() => setSelectedRiskBreakdownPreset(preset)}
-                            className={`text-2xs font-sans py-1 px-2.5 rounded-md opacity-60 hover:opacity-100 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm ${getFigmaRiskStyle(preset.baseRisk)}`}
+                            className={`text-2xs font-sans py-1 px-2.5 rounded-md opacity-60 hover:opacity-100 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm border ${RISK_CHIP[preset.riskStatus]}`}
                             title="Hover or click to view detailed risk breakdown"
                           >
-                            <span>{preset.baseRisk} {getFigmaRiskLabel(preset.baseRisk)}</span>
+                            <span>{preset.baseRisk} {preset.riskStatus}</span>
                             <Sliders className="w-3 h-3 text-current stroke-[2.5]" />
                           </button>
                         </div>
@@ -1540,22 +1498,12 @@ export function AppDemo() {
                   </div>
                 </div>
 
-              </motion.div>
+              </TabPanel>
             )}
 
             {/* VIEW B: WATCH TAB (The high-fidelity mathematical simulator control cockpit!) */}
             {activeTab === "watch" && (
-              <motion.div
-                key="watch"
-                role="tabpanel"
-                id="panel-watch"
-                aria-labelledby="tab-watch"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.18 }}
-                className={`${PANEL} space-y-6`}
-              >
+              <TabPanel key="watch" tab="watch">
                 {/* Source toggle. Business requirement: Watch mirrors the
                     positions this wallet actually holds on-chain (Current
                     Positions). Recommendations keeps the Compass-derived
@@ -1674,7 +1622,6 @@ export function AppDemo() {
                               {watchingOwnPosition
                                 ? watchPositionMarkets.map(({ key, position, preset }) => {
                                     const isActive = key === selectedPositionMarket?.key;
-                                    const riskCls = RISK_CHIP[preset.riskStatus];
                                     return (
                                       <li
                                         key={key}
@@ -1697,9 +1644,7 @@ export function AppDemo() {
                                           }`}>{preset.collateralSymbol} · {position.collateralValueUsd === null ? "size unavailable (prices degraded)" : `${formatCurrency(position.collateralValueUsd)} supplied`}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
-                                          <span className={`text-2xs font-sans font-bold px-1.5 py-0.5 rounded-sm border ${riskCls}`}>
-                                            {preset.riskStatus}
-                                          </span>
+                                          <RiskChip band={preset.riskStatus}>{preset.riskStatus}</RiskChip>
                                           <span className="text-2xs font-sans text-text-muted tabular-nums">{preset.baseRisk}</span>
                                         </div>
                                       </li>
@@ -1707,7 +1652,6 @@ export function AppDemo() {
                                   })
                                 : presetsWithLive.map((p) => {
                                     const isActive = p.id === selectedPresetId;
-                                    const riskCls = RISK_CHIP[p.riskStatus];
                                     return (
                                       <li
                                         key={p.id}
@@ -1730,9 +1674,7 @@ export function AppDemo() {
                                           }`}>{p.assetPair}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
-                                          <span className={`text-2xs font-sans font-bold px-1.5 py-0.5 rounded-sm border ${riskCls}`}>
-                                            {p.riskStatus}
-                                          </span>
+                                          <RiskChip band={p.riskStatus}>{p.riskStatus}</RiskChip>
                                           <span className="text-2xs font-sans text-text-muted tabular-nums">{p.baseRisk}</span>
                                         </div>
                                       </li>
@@ -1783,20 +1725,21 @@ export function AppDemo() {
                           </div>
 
                           <div className="flex items-baseline gap-2 mb-2">
-                            <span className={`text-4xl font-sans font-black tracking-tight tabular-nums ${
-                              positionState.riskScore < 25 ? "text-risk-low" :
-                              positionState.riskScore < 50 ? "text-risk-elevated" :
-                              "text-risk-critical"
-                            }`}>
+                            {/* The numeral takes its colour from the SAME band
+                                the chip beside it names. It used to re-derive
+                                one from the score with no HIGH branch, so a
+                                50-74 score rendered as a red numeral six pixels
+                                from an orange chip reading HIGH RISK. */}
+                            <span className={`text-4xl font-sans font-black tracking-tight tabular-nums ${RISK_TEXT[positionState.status]}`}>
                               {positionState.riskScore}
                             </span>
                             <span className="text-xs font-sans text-text-muted tabular-nums">/ 100</span>
 
-                            <span className={`ml-auto text-2xs font-sans font-bold px-2 py-0.5 rounded-sm border ${RISK_CHIP[positionState.status]}`}>
+                            <RiskChip band={positionState.status} className="ml-auto">
                               {positionState.status === "CRITICAL" ? "CRITICAL THREAT" :
                                positionState.status === "HIGH" ? "HIGH RISK" :
                                positionState.status === "ELEVATED" ? "ELEVATED" : "LOW RISK"}
-                            </span>
+                            </RiskChip>
                           </div>
                         </div>
 
@@ -1874,19 +1817,13 @@ export function AppDemo() {
                                 Health factor
                                 <InfoTip text="Your distance to liquidation, scaled 0-100. The heaviest input to the composite score (40% weight)." />
                               </span>
-                              <span className={`font-bold tabular-nums ${
-                                healthFactorScore > 75 ? "text-risk-critical" :
-                                healthFactorScore > 40 ? "text-risk-elevated" : "text-risk-low"
-                              }`}>
+                              <span className={`font-bold tabular-nums ${RISK_TEXT[hfDriverBand]}`}>
                                 {healthFactorScore}%
                               </span>
                             </div>
                             <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
-                              <div 
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  healthFactorScore > 75 ? "bg-risk-critical" :
-                                  healthFactorScore > 40 ? "bg-risk-elevated" : "bg-risk-low"
-                                }`}
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${RISK_FILL[hfDriverBand]}`}
                                 style={{ width: `${healthFactorScore}%` }}
                               ></div>
                             </div>
@@ -1933,19 +1870,13 @@ export function AppDemo() {
                                 Pool conditions
                                 <InfoTip text="Market-wide stress: sector TVL flows and broad drawdowns that hit every position at once. 15% weight." />
                               </span>
-                              <span className={`font-bold tabular-nums ${
-                                positionState.breakdown.systemicMarketStress > 70 ? "text-risk-critical" :
-                                positionState.breakdown.systemicMarketStress > 40 ? "text-risk-elevated" : "text-risk-low"
-                              }`}>
+                              <span className={`font-bold tabular-nums ${RISK_TEXT[stressDriverBand]}`}>
                                 {positionState.breakdown.systemicMarketStress}%
                               </span>
                             </div>
                             <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
-                              <div 
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  positionState.breakdown.systemicMarketStress > 70 ? "bg-risk-critical" :
-                                  positionState.breakdown.systemicMarketStress > 40 ? "bg-risk-elevated" : "bg-risk-low"
-                                }`}
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${RISK_FILL[stressDriverBand]}`}
                                 style={{ width: `${positionState.breakdown.systemicMarketStress}%` }}
                               ></div>
                             </div>
@@ -1970,11 +1901,7 @@ export function AppDemo() {
                           <InfoTip text="Collateral value times the protocol's liquidation threshold, divided by your debt. Below 1.00 the protocol can liquidate you. The buffer matters more than the raw number." />
                         </span>
                         <div className="flex items-baseline gap-1">
-                          <span className={`text-4xl font-sans font-bold tracking-tight tabular-nums ${
-                            positionState.healthFactor < 1.3 ? "text-risk-critical" :
-                            positionState.healthFactor < 1.7 ? "text-risk-elevated" :
-                            "text-risk-low"
-                          }`}>
+                          <span className={`text-4xl font-sans font-bold tracking-tight tabular-nums ${RISK_TEXT[bandOfHealthFactor(positionState.healthFactor)]}`}>
                             {positionState.healthFactor.toFixed(2)}
                           </span>
                         </div>
@@ -2233,22 +2160,12 @@ export function AppDemo() {
                 </div>
                 )}
 
-              </motion.div>
+              </TabPanel>
             )}
 
             {/* VIEW C: ADVISOR TAB (Autonomous Alert Rules Configuration & Diagnosing Engine) */}
             {activeTab === "advisor" && (
-              <motion.div
-                key="advisor"
-                role="tabpanel"
-                id="panel-advisor"
-                aria-labelledby="tab-advisor"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.18 }}
-                className={`${PANEL} space-y-6`}
-              >
+              <TabPanel key="advisor" tab="advisor">
                 <div className="border-b border-border-subtle pb-5">
                   <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">AI Advisor</h1>
                 </div>
@@ -2289,22 +2206,12 @@ export function AppDemo() {
                   </label>
                 </div>
                 )}
-              </motion.div>
+              </TabPanel>
             )}
 
             {/* VIEW D: PORTFOLIO TAB (Aggregate Vaults Portfolio Under Protective Firewall) */}
             {activeTab === "portfolio" && (
-              <motion.div
-                key="portfolio"
-                role="tabpanel"
-                id="panel-portfolio"
-                aria-labelledby="tab-portfolio"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.18 }}
-                className={`${PANEL} space-y-6`}
-              >
+              <TabPanel key="portfolio" tab="portfolio">
                 <div className="border-b border-border-subtle pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">DeFi Portfolio</h1>
@@ -2418,7 +2325,7 @@ export function AppDemo() {
                           /* No subline. The figure and the label already say
                              everything this card knows; anything else here is
                              text for the sake of text. */
-                          value={liveMacro ? `$${Math.round(liveMacro.capital).toLocaleString()}` : "$18,450"}
+                          value={liveMacro ? formatUsd(liveMacro.capital) : "$18,450"}
                         />
                       </Card>
 
@@ -2430,7 +2337,7 @@ export function AppDemo() {
                               <InfoTip text="Total borrowed across your positions. Net LTV is liabilities divided by capital - lower means safer." />
                             </>
                           }
-                          value={liveMacro ? `$${Math.round(liveMacro.debt).toLocaleString()}` : "$9,310"}
+                          value={liveMacro ? formatUsd(liveMacro.debt) : "$9,310"}
                           sub={`Net LTV ratio: ${liveMacro ? `${Math.round(liveMacro.ltv * 100)}%` : "50%"}`}
                         />
                       </Card>
@@ -2469,8 +2376,6 @@ export function AppDemo() {
                             <span className="flex h-[34px] items-center">
                               <ProtocolMarks
                                 protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]}
-                                size="w-8 h-8"
-                                pad="p-1"
                               />
                             </span>
                           }
@@ -2526,7 +2431,6 @@ export function AppDemo() {
                   <div className="lg:col-span-7 space-y-6">
                     <LivePositions
                       positions={portfolioPositions}
-                      updatedAt={boundMode ? ownLive.updatedAt : liveUpdatedAt}
                       offline={boundMode ? ownLive.offline : liveOffline}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
@@ -2556,7 +2460,7 @@ export function AppDemo() {
                         <Sparkline
                           data={riskHistory.series}
                           height={110}
-                          stroke="var(--color-sky-400)"
+                          stroke="var(--color-chart-series)"
                           axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
                         />
                       ) : (
@@ -2603,7 +2507,7 @@ export function AppDemo() {
                               </span>
                             </div>
                             <div className="text-right shrink-0">
-                              <span className="font-sans text-sm font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
+                              <span className="font-sans text-sm font-bold text-text-primary tabular-nums">{formatUsd(a.usd)}</span>
                               <span className="block text-xs font-sans text-text-secondary tabular-nums">{a.pct.toFixed(1)}%</span>
                             </div>
                           </div>
@@ -2679,22 +2583,12 @@ export function AppDemo() {
                   </div>
                 </div>
 
-              </motion.div>
+              </TabPanel>
             )}
 
             {/* VIEW E: SETTINGS TAB (Sentry preferences + Telegram alert dispatcher) */}
             {activeTab === "settings" && (
-              <motion.div
-                key="settings"
-                role="tabpanel"
-                id="panel-settings"
-                aria-labelledby="tab-settings"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.18 }}
-                className={`${PANEL} space-y-6`}
-              >
+              <TabPanel key="settings" tab="settings">
                 <div className="border-b border-border-subtle pb-3">
                   <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide">Settings</h2>
                 </div>
@@ -2837,7 +2731,7 @@ export function AppDemo() {
                     </div>
                   </div>
                 </div>
-              </motion.div>
+              </TabPanel>
             )}
 
           </AnimatePresence>
@@ -2906,11 +2800,14 @@ export function AppDemo() {
                             DEMO
                           </span>
                         )}
-                        <span className={`text-2xs font-sans font-bold px-2.5 py-0.5 rounded-sm border ${
-                          selectedRiskBreakdownPreset.baseRisk < 25 ? "bg-risk-low/10 text-risk-low border-risk-low/25" :
-                          selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25" :
-                          "bg-risk-critical/10 text-risk-critical border-risk-critical/25"
-                        }`}>
+                        {/* Keyed on the band this preset ALREADY carries, not
+                            on a band re-derived from its number. The re-derived
+                            chain had no HIGH branch, so a preset labelled HIGH
+                            (50-74) was painted CRITICAL red while its own text
+                            said HIGH — the word and the colour contradicting
+                            each other inside one chip, in the panel whose whole
+                            job is explaining what the number means. */}
+                        <span className={`text-2xs font-sans font-bold px-2.5 py-0.5 rounded-sm border ${RISK_CHIP[selectedRiskBreakdownPreset.riskStatus]}`}>
                           {selectedRiskBreakdownPreset.riskStatus}
                         </span>
                       </div>
@@ -2925,11 +2822,7 @@ export function AppDemo() {
 
                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${
-                          selectedRiskBreakdownPreset.baseRisk < 25 ? "bg-risk-low" :
-                          selectedRiskBreakdownPreset.baseRisk < 50 ? "bg-risk-elevated" :
-                          "bg-risk-critical"
-                        }`}
+                        className={`h-full rounded-full ${RISK_FILL[selectedRiskBreakdownPreset.riskStatus]}`}
                         style={{ width: `${selectedRiskBreakdownPreset.baseRisk}%` }}
                       ></div>
                     </div>
@@ -2999,10 +2892,7 @@ export function AppDemo() {
                         {breakdownData?.healthFactor == null ? (
                           <span className="text-base font-sans font-bold mt-1 text-risk-low">No debt</span>
                         ) : (
-                          <span className={`text-base font-sans font-bold mt-1 tabular-nums ${
-                            breakdownData.healthFactor < 1.3 ? "text-risk-critical" :
-                            breakdownData.healthFactor < 1.7 ? "text-risk-elevated" : "text-risk-low"
-                          }`}>
+                          <span className={`text-base font-sans font-bold mt-1 tabular-nums ${RISK_TEXT[bandOfHealthFactor(breakdownData.healthFactor)]}`}>
                             {breakdownData.healthFactor.toFixed(2)}
                           </span>
                         )}
@@ -3068,7 +2958,7 @@ export function AppDemo() {
                             <span className="text-base font-sans font-bold text-risk-low mt-1 tabular-nums">
                               {breakdownData.poolYield.apy.toFixed(2)}%
                             </span>
-                            <Sparkline data={breakdownData.poolYield.apySeries} stroke="var(--color-sky-400)" height={24} className="mt-1" />
+                            <Sparkline data={breakdownData.poolYield.apySeries} stroke="var(--color-chart-series)" height={24} className="mt-1" />
                           </>
                         ) : (
                           <span className="text-base font-sans font-bold text-text-muted mt-1 tabular-nums">
@@ -3088,7 +2978,7 @@ export function AppDemo() {
                             <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
                               {formatCompactUsd(breakdownData.poolYield.tvlUsd)}
                             </span>
-                            <Sparkline data={breakdownData.poolYield.tvlSeries} stroke="var(--color-sky-400)" height={24} className="mt-1" />
+                            <Sparkline data={breakdownData.poolYield.tvlSeries} stroke="var(--color-chart-series)" height={24} className="mt-1" />
                           </>
                         ) : (
                           <span className="text-base font-sans font-bold text-text-muted mt-1">-</span>

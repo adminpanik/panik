@@ -20,7 +20,7 @@ export interface SparklineAxes {
 
 export function Sparkline(props: {
   data: number[];
-  /** CSS color for the line + gradient fill. */
+  /** CSS color for the line + gradient fill. Defaults to the chart-series token. */
   stroke?: string;
   /** Rendered height in px (width fills the container). */
   height?: number;
@@ -28,7 +28,7 @@ export function Sparkline(props: {
   /** Optional min/max + time-range labels around the chart. */
   axes?: SparklineAxes;
 }) {
-  const { data, stroke = "var(--color-sky-400)", height = 36, className, axes } = props;
+  const { data, stroke = "var(--color-chart-series)", height = 36, className, axes } = props;
   const gradientId = useId();
   if (data.length < 2) return null;
 
