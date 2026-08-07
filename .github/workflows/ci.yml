@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Typecheck, tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # .npmrc carries legacy-peer-deps=true (wagmi@3 declares peerOptional
+      # typescript >=5.9.3 while the repo pins ~5.8). Pass it explicitly so a
+      # strict `npm ci` cannot ERESOLVE if that file ever moves.
+      - run: npm ci --legacy-peer-deps
+
+      # Typecheck is EXPECTED to report exactly 3 pre-existing wagmi
+      # `chain`/`account` errors in src/panik-founding. Gate on the count so a
+      # 4th fails the build but the known 3 don't block every PR. Drive this to
+      # zero and flip the check to `npm run lint` outright.
+      - name: Typecheck (baseline = 3 known errors)
+        run: |
+          set +e
+          npm run lint > lint.log 2>&1
+          set -e
+          count=$(grep -cE "error TS" lint.log || true)
+          echo "TypeScript errors: $count (baseline 3)"
+          cat lint.log
+          if [ "$count" -gt 3 ]; then
+            echo "::error::Typecheck regressed: $count errors, baseline is 3"
+            exit 1
+          fi
+
+      - name: API + app tests
+        run: npm test
+
+      - name: Scoring engine tests
+        run: npm run test:scoring
+
+      - name: Production build
+        run: npm run build
+
+  contracts:
+    name: Foundry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive # forge-std is a submodule; without this, build fails
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: forge build
+        working-directory: contracts
+        run: forge build
+
+      - name: forge test
+        working-directory: contracts
+        run: forge test -vvv
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks needs history to scan the diff
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
