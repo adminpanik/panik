@@ -412,7 +412,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
                 step === "executing" ||
                 (position.requiredUsdc > 0n && position.usdcBalance < position.requiredUsdc)
               }
-              className="w-full py-3 rounded-md bg-panik-orange text-black font-mono font-bold text-sm hover:bg-panik-orange/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-md bg-text-primary text-black font-mono font-bold text-sm hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {step === "executing" ? (
                 <>

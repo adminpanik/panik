@@ -1439,7 +1439,7 @@ export function AppDemo() {
                       </button>
                       <button
                         onClick={() => setActiveTab("compass")}
-                        className="px-4 py-2 rounded-md font-mono text-xs font-bold text-surface-base bg-panik-orange hover:opacity-90 cursor-pointer transition-all"
+                        className="px-4 py-2 rounded-md font-mono text-xs font-bold text-surface-base bg-text-primary hover:opacity-90 cursor-pointer transition-all"
                       >
                         Open a Position in Compass
                       </button>
@@ -1564,7 +1564,7 @@ export function AppDemo() {
                             forms, so the open action must be one click away here. */}
                         <button
                           onClick={() => setOpenPositionPreset(activeMarket)}
-                          className="px-3 py-1.5 rounded-md font-mono text-2xs font-bold text-surface-base bg-panik-orange hover:bg-panik-orange/90 cursor-pointer transition-all"
+                          className="px-3 py-1.5 rounded-md font-mono text-2xs font-bold text-surface-base bg-text-primary hover:opacity-90 cursor-pointer transition-all"
                         >
                           Open This Position
                         </button>
@@ -1810,7 +1810,7 @@ export function AppDemo() {
                             <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.positionHealth}%</span>
                           </div>
                           <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-panik-orange" style={{ width: `${positionState.breakdown.positionHealth}%` }}></div>
+                            <div className="h-full bg-text-primary" style={{ width: `${positionState.breakdown.positionHealth}%` }}></div>
                           </div>
                         </div>
 
@@ -2456,7 +2456,7 @@ export function AppDemo() {
                           type="button"
                           disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
                           onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
-                          className="h-10 px-4 rounded-md text-2xs font-mono font-extrabold uppercase tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-panik-orange text-surface-base hover:opacity-90 cursor-pointer"
+                          className="h-10 px-4 rounded-md text-2xs font-mono font-extrabold uppercase tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-text-primary text-surface-base hover:opacity-90 cursor-pointer"
                         >
                           {telegramLink.status === "signing" ? "Sign in wallet..." :
                            telegramLink.status === "requesting" ? "Opening..." :
@@ -2511,7 +2511,7 @@ export function AppDemo() {
                           type="button"
                           aria-pressed={isRepayActive}
                           onClick={() => setIsRepayActive((v) => !v)}
-                          className={`w-9 h-5 rounded-full p-[2px] transition-colors cursor-pointer ${isRepayActive ? "bg-panik-orange" : "bg-white/15"}`}
+                          className={`w-9 h-5 rounded-full p-[2px] transition-colors cursor-pointer ${isRepayActive ? "bg-text-primary" : "bg-white/15"}`}
                         >
                           <div className={`bg-white w-4 h-4 rounded-full transition-transform ${isRepayActive ? "translate-x-4" : "translate-x-0"}`} />
                         </button>
@@ -2882,7 +2882,7 @@ export function AppDemo() {
                   </button>
                   <button
                     onClick={() => setOpenPositionPreset(selectedRiskBreakdownPreset)}
-                    className="flex-1 py-3 text-center text-xs font-mono font-bold text-surface-base bg-panik-orange rounded-md cursor-pointer hover:opacity-90 transition-all shadow-lg"
+                    className="flex-1 py-3 text-center text-xs font-mono font-bold text-surface-base bg-text-primary rounded-md cursor-pointer hover:opacity-90 transition-all shadow-lg"
                   >
                     Open Position
                   </button>
@@ -2940,7 +2940,7 @@ export function AppDemo() {
             <button
               onClick={retryMonitoring}
               disabled={monitoringBusy}
-              className="shrink-0 px-3 py-1.5 rounded-md bg-panik-orange/90 hover:bg-panik-orange disabled:opacity-50 text-2xs font-mono font-bold uppercase tracking-wider text-black transition-colors cursor-pointer"
+              className="shrink-0 px-3 py-1.5 rounded-md bg-text-primary hover:opacity-90 disabled:opacity-50 text-2xs font-mono font-bold uppercase tracking-wider text-black transition-colors cursor-pointer"
             >
               {monitoringBusy ? "Verifying..." : "Retry"}
             </button>
@@ -2993,7 +2993,7 @@ export function AppDemo() {
             <div className="flex items-center justify-between">
               <div className="flex gap-1">
                 {TOUR_STEPS.map((s) => (
-                  <span key={s.step} className={`h-1 w-6 rounded-full transition-colors ${s.step <= currentTourStep.step ? "bg-panik-orange" : "bg-white/10"}`} />
+                  <span key={s.step} className={`h-1 w-6 rounded-full transition-colors ${s.step <= currentTourStep.step ? "bg-text-primary" : "bg-white/10"}`} />
                 ))}
               </div>
               <button
@@ -3004,7 +3004,7 @@ export function AppDemo() {
                     dismissTour();
                   }
                 }}
-                className="h-8 px-4 bg-panik-orange hover:bg-panik-orange/90 text-surface-base font-mono text-2xs uppercase tracking-wider rounded-md cursor-pointer transition-colors"
+                className="h-8 px-4 bg-text-primary hover:opacity-90 text-surface-base font-mono text-2xs uppercase tracking-wider rounded-md cursor-pointer transition-colors"
               >
                 {tooltipStep === TOUR_STEPS.length ? "Done" : "Next →"}
               </button>

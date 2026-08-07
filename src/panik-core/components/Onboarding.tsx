@@ -164,7 +164,7 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
               {/* Progress bar */}
               <div className="h-1 w-full bg-white/[0.05] rounded-full overflow-hidden mb-7">
                 <motion.div
-                  className="h-full bg-panik-orange rounded-full"
+                  className="h-full bg-text-primary rounded-full"
                   initial={false}
                   animate={{ width: `${progressPct}%` }}
                   transition={{ duration: 0.4, ease: "easeOut" }}
@@ -265,7 +265,7 @@ function WalletStep(props: {
         type="button"
         onClick={props.onSubmit}
         disabled={!props.walletValid}
-        className="mt-7 w-full h-12 rounded-md font-mono text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 bg-panik-orange hover:bg-panik-orange/90 text-surface-base panik-glow-orange disabled:bg-white/[0.06] disabled:text-text-secondary disabled:shadow-none"
+        className="mt-7 w-full h-12 rounded-md font-mono text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 bg-text-primary hover:opacity-90 text-surface-base disabled:bg-white/[0.06] disabled:text-text-secondary disabled:shadow-none"
       >
         <span>Continue</span>
         <ArrowRight className="w-4 h-4" />
@@ -451,7 +451,7 @@ function RevealShell(props: {
       <button
         type="button"
         onClick={props.onEnter}
-        className="mt-7 w-full h-12 rounded-md font-mono text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer bg-panik-orange hover:bg-panik-orange/90 text-surface-base panik-glow-orange"
+        className="mt-7 w-full h-12 rounded-md font-mono text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer bg-text-primary hover:opacity-90 text-surface-base"
       >
         <span>Enter Panik</span>
         <ArrowRight className="w-4 h-4" />

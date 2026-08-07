@@ -181,7 +181,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
               <button
                 onClick={submit}
                 disabled={depositUsd <= 0}
-                className="w-full py-3 rounded-md font-mono text-xs font-bold uppercase tracking-wider text-surface-base bg-panik-orange hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-md font-mono text-xs font-bold uppercase tracking-wider text-surface-base bg-text-primary hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center gap-2"
               >
                 <span>Open Position (Demo)</span>
                 <ArrowRight className="w-4 h-4" />
