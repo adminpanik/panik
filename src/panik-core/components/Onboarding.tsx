@@ -248,7 +248,7 @@ function WalletStep(props: {
           placeholder="0x... your Base wallet address"
           aria-invalid={Boolean(props.walletError)}
           aria-describedby={props.walletError ? "wallet-error" : undefined}
-          className={`w-full h-12 pl-10 pr-4 rounded-xl bg-[#090C12] border text-sm font-mono text-white placeholder:text-white/25 outline-none transition-all ${
+          className={`w-full h-12 pl-10 pr-4 rounded-xl bg-[#090C12] border text-sm font-mono text-white placeholder:text-white/25 outline-hidden transition-all ${
             props.walletError ? "border-red-500/50 focus:border-red-500/70" : "border-white/[0.08] focus:border-panik-orange/60"
           }`}
         />

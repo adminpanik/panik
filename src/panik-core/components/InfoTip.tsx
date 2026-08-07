@@ -31,7 +31,7 @@ export function InfoTip(props: { text: string; className?: string }) {
       ref={anchor}
       tabIndex={0}
       aria-label={props.text}
-      className={`inline-flex align-middle outline-none ${props.className ?? ""}`}
+      className={`inline-flex align-middle outline-hidden ${props.className ?? ""}`}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}

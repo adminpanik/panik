@@ -73,7 +73,7 @@ function KeyGate({ onUnlock }: { onUnlock: (key: string) => void }) {
           onChange={(e) => setKey(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
           placeholder="Admin access key"
-          className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition-colors"
+          className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-white placeholder:text-white/25 outline-hidden focus:border-orange-500/40 transition-colors"
         />
         {error && <p className="text-xs text-red-400/90 mb-3">{error}</p>}
         <button
@@ -168,7 +168,7 @@ function CreateForm({ apiKey, onCreated }: { apiKey: string; onCreated: (c: Camp
     }
   }
 
-  const field = "w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition-colors";
+  const field = "w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-white/25 outline-hidden focus:border-orange-500/40 transition-colors";
 
   return (
     <div className="panik-glass rounded-2xl p-6 mb-8">

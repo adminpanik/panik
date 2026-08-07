@@ -355,7 +355,7 @@ export function OpenFlow({
   ]);
 
   const inputCls =
-    "w-full bg-[#111318] border border-white/10 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-panik-orange/50 focus:outline-none";
+    "w-full bg-[#111318] border border-white/10 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-panik-orange/50 focus:outline-hidden";
 
   const summary = useMemo(
     () =>

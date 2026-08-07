@@ -1906,7 +1906,7 @@ export function AppDemo() {
                           step={activeMarket.defaultCollateral < 10 ? 0.1 : 100}
                           value={collateralAmount}
                           onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-white text-xs font-mono outline-none focus:border-panik-orange/60"
+                          className="w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-white text-xs font-mono outline-hidden focus:border-panik-orange/60"
                           aria-label="Collateral amount"
                         />
                       </div>
@@ -1939,7 +1939,7 @@ export function AppDemo() {
                             setAssetPrice(Math.max(0, Number(e.target.value)));
                             setActiveScenario("custom");
                           }}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-none focus:border-panik-orange/60 ${
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 ${
                             assetPrice < activeMarket.defaultPrice * 0.8 ? "text-red-400 font-bold" : "text-white"
                           }`}
                           aria-label="Collateral asset price in USD"
@@ -1974,7 +1974,7 @@ export function AppDemo() {
                           step={activeMarket.defaultBorrow < 10 ? 0.1 : 50}
                           value={borrowAmount}
                           onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-none focus:border-panik-orange/60 ${
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 ${
                             borrowAmount > activeMarket.defaultBorrow * 1.2 ? "text-red-400 font-bold" : "text-white"
                           }`}
                           aria-label="Borrowed amount"
@@ -2006,7 +2006,7 @@ export function AppDemo() {
                           step={0.005}
                           value={debtPrice}
                           onChange={(e) => setDebtPrice(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-none focus:border-panik-orange/60 ${
+                          className={`w-24 bg-black/40 border border-white/10 rounded px-2 py-0.5 text-right text-xs font-mono outline-hidden focus:border-panik-orange/60 ${
                             Math.abs(debtPrice - 1) > 0.02 ? "text-amber-400 font-bold" : "text-white"
                           }`}
                           aria-label="Borrowed asset price in USD"

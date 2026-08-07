@@ -209,7 +209,7 @@ export default function App() {
                   placeholder="PANIK-TRY-XXXXXXXX"
                   spellCheck={false}
                   autoCapitalize="characters"
-                  className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition-colors"
+                  className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-white placeholder:text-white/25 outline-hidden focus:border-orange-500/40 transition-colors"
                 />
               )}
 
@@ -229,7 +229,7 @@ export default function App() {
                   placeholder="you@email.com"
                   aria-invalid={emailError}
                   aria-label="Email address"
-                  className={`w-full rounded-lg border bg-black/30 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-white/25 outline-none transition-colors ${
+                  className={`w-full rounded-lg border bg-black/30 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-white/25 outline-hidden transition-colors ${
                     emailError ? "border-red-500/50 focus:border-red-500/60" : "border-white/12 focus:border-orange-500/40"
                   }`}
                 />

@@ -129,7 +129,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                   step={100}
                   value={depositUsd}
                   onChange={(e) => setDepositUsd(Math.max(0, Number(e.target.value)))}
-                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono outline-none focus:border-panik-orange/60"
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm font-mono outline-hidden focus:border-panik-orange/60"
                   aria-label="Deposit amount in USD"
                 />
               </div>

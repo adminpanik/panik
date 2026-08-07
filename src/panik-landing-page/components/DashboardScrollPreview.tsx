@@ -1137,7 +1137,7 @@ export function DashboardScrollPreview() {
                                   type="text"
                                   readOnly
                                   value="https://api.telegram.org/bot<token>/sendMessage"
-                                  className="flex-1 h-7 px-2.5 bg-[#0A0A0B]/80 border border-white/10 font-mono text-[8px] text-white/50 rounded-md outline-none"
+                                  className="flex-1 h-7 px-2.5 bg-[#0A0A0B]/80 border border-white/10 font-mono text-[8px] text-white/50 rounded-md outline-hidden"
                                 />
                                 <button
                                   className="h-7 px-2.5 bg-gradient-to-tr from-panik-orange to-red-500 text-white font-mono text-[8.5px] uppercase tracking-wide font-extrabold rounded-md hover:opacity-90 transition-all cursor-pointer"

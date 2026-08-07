@@ -361,7 +361,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                       type="email" id="modal-email-input" value={email} onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@company.com (or wallet email if applicable)"
                       aria-describedby={emailError ? "email-error" : undefined}
-                      className="w-full h-12 pl-12 pr-4 bg-[#111318] border border-white/[0.08] hover:border-white/18 focus:border-panik-orange/50 focus:ring-1 focus:ring-panik-orange/20 text-[#F0F4FF] placeholder-white/25 text-sm font-sans rounded-lg outline-none transition-all duration-300"
+                      className="w-full h-12 pl-12 pr-4 bg-[#111318] border border-white/[0.08] hover:border-white/18 focus:border-panik-orange/50 focus:ring-1 focus:ring-panik-orange/20 text-[#F0F4FF] placeholder-white/25 text-sm font-sans rounded-lg outline-hidden transition-all duration-300"
                       required
                     />
                   </div>
@@ -439,7 +439,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                       Anything else about how you manage DeFi positions? <span className="text-white/40">(Optional)</span>
                     </label>
                     <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Protocols you use, alerting strategies, features you want…"
-                      className="w-full p-3.5 bg-[#111318] border border-white/[0.08] hover:border-white/18 focus:border-panik-orange/50 focus:ring-1 focus:ring-panik-orange/20 text-[#F0F4FF] placeholder-white/25 text-sm font-sans rounded-lg outline-none transition-all resize-none" />
+                      className="w-full p-3.5 bg-[#111318] border border-white/[0.08] hover:border-white/18 focus:border-panik-orange/50 focus:ring-1 focus:ring-panik-orange/20 text-[#F0F4FF] placeholder-white/25 text-sm font-sans rounded-lg outline-hidden transition-all resize-none" />
                   </div>
                 )}
               </div>
@@ -532,7 +532,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                           setWalletError("That doesn't look like a valid EVM address (0x + 40 hex characters).");
                       }}
                       placeholder="0x…"
-                      className="w-full h-12 pl-12 pr-4 bg-[#111318] border border-white/[0.08] hover:border-white/18 focus:border-panik-orange/50 focus:ring-1 focus:ring-panik-orange/20 text-[#F0F4FF] placeholder-white/25 text-sm font-mono rounded-lg outline-none transition-all" />
+                      className="w-full h-12 pl-12 pr-4 bg-[#111318] border border-white/[0.08] hover:border-white/18 focus:border-panik-orange/50 focus:ring-1 focus:ring-panik-orange/20 text-[#F0F4FF] placeholder-white/25 text-sm font-mono rounded-lg outline-hidden transition-all" />
                   </div>
                 </div>
               ) : (
