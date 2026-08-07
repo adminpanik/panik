@@ -38,10 +38,13 @@ lines, ever.** `/simpcommit` enforces this.
 
 ## Verification before a PR goes up
 
-- `npm run lint` (tsc --noEmit) — baseline on `main` is **3 pre-existing errors** in
-  `src/panik-founding/{DepositFlow,RefundBanner}.tsx` (wagmi `chain`/`account` typing).
-  Match the baseline exactly; zero new errors.
-- `npm test` (26) and `npm run test:scoring` (193+) must pass.
+- `npm run lint` (tsc --noEmit) — baseline is **0 errors**. The 3 long-standing wagmi
+  `chain`/`account` errors in `src/panik-founding/{DepositFlow,RefundBanner}.tsx`
+  disappeared once `@types/react` was installed (`feat/design-system`, Phase 0) — they
+  were an artifact of missing type packages, not a real wagmi incompatibility.
+  `strictNullChecks` is on. The CI ratchet still fails at >=4 and can now be replaced
+  with a plain `npm run lint`.
+- `npm test` (144) and `npm run test:scoring` (212) must pass.
 - Contracts: `cd contracts && forge test`. forge-std is a tracked submodule —
   `git clone --recursive` builds with no setup.
 - Report failures with their output. Never claim a command ran when it didn't.
