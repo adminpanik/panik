@@ -1313,14 +1313,17 @@ export function AppDemo() {
                     Recommended for your {selectedRiskProfile} profile
                   </h2>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* `lg`, not `md`: at a 768px window the sidebar has already
+                      taken 256px, so two columns here were 208px each, which
+                      is narrower than "Compound V3" plus its risk chip. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {recommended.map((preset) => (
                       <div
                         key={preset.id}
                         onClick={() => setSelectedRiskBreakdownPreset(preset)}
                         className="bg-surface-raised/60 hover:bg-surface-overlay/70 border border-border-subtle rounded-lg p-5 relative overflow-hidden transition-all hover:border-border-strong shadow-xl group cursor-pointer"
                       >
-                        <div className="flex justify-between items-start mb-4">
+                        <div className="flex flex-wrap justify-between items-start gap-x-3 gap-y-2 mb-4">
                           <div className="flex items-center gap-3">
                             <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
                             <div>
@@ -1418,14 +1421,17 @@ export function AppDemo() {
                     Outside your profile
                   </h2>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* `lg`, not `md`: at a 768px window the sidebar has already
+                      taken 256px, so two columns here were 208px each, which
+                      is narrower than "Compound V3" plus its risk chip. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {outside.map((preset) => (
                       <div
                         key={preset.id}
                         onClick={() => setSelectedRiskBreakdownPreset(preset)}
                         className="bg-surface-raised/25 border border-border-subtle rounded-lg p-5 relative overflow-hidden transition-all hover:bg-surface-raised/45 hover:border-border-strong cursor-pointer group"
                       >
-                        <div className="flex justify-between items-start mb-4">
+                        <div className="flex flex-wrap justify-between items-start gap-x-3 gap-y-2 mb-4">
                           <div className="flex items-center gap-3">
                             <ProtocolLogo protocol={preset.protocol} size="w-8 h-8 opacity-60 group-hover:opacity-100 transition-opacity" />
                             <div>
