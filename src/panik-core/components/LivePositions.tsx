@@ -167,51 +167,74 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       breaks in half — half a pair reads as a whole number — but
                       at 14px the single span was ~230px against ~240px of row
                       on a 390px phone, so the pair now wraps BETWEEN its halves
-                      instead of overflowing. */}
-                  <div
-                    className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums ${
-                      p.usdValuesUnavailable ? "text-risk-unknown" : "text-text-secondary"
-                    }`}
-                  >
-                    <span className="whitespace-nowrap">
-                      <span className={p.usdValuesUnavailable ? "font-semibold" : "font-semibold text-text-primary"}>
-                        {fmtUsd(p.collateralValueUsd)}
-                      </span>{" "}
-                      collateral
-                    </span>
-                    <span className="whitespace-nowrap">
-                      <span className={p.usdValuesUnavailable ? "font-semibold" : "font-semibold text-text-primary"}>
-                        {fmtUsd(p.borrowValueUsd)}
-                      </span>{" "}
-                      debt
-                    </span>
-                  </div>
+                      instead of overflowing.
+
+                      When the price feed is degraded this line is REPLACED, not
+                      dimmed. It used to render "$… collateral / $… debt" in
+                      grey, and an ellipsis standing where digits belong is what
+                      a truncated string looks like, so the honest statement
+                      "we could not price this" was read as "this component is
+                      broken". A sentence cannot be mistaken for a clipped
+                      number, so the sentence is what renders.
+
+                      The treatment is the one this product already uses for
+                      "we do not know": dashed edge, risk-unknown grey — the
+                      same pairing as EmptyState's `problem` tone and the
+                      unknown score chip. Distinctness from a healthy row is a
+                      CORRECTNESS requirement here, not a preference, and it now
+                      holds on four independent axes: different shape (a bordered
+                      block, not a figure pair), different colour, an icon, and
+                      words that say it outright. No branch of this can emit
+                      "$0". */}
+                  {p.usdValuesUnavailable ? (
+                    <div className="flex">
+                      <span className="inline-flex items-center gap-1.5 rounded-sm border border-dashed border-risk-unknown/50 bg-risk-unknown/[0.08] px-2 py-1 text-sm font-sans font-semibold text-risk-unknown">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        USD amounts unavailable
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums text-text-secondary">
+                      <span className="whitespace-nowrap">
+                        <span className="font-semibold text-text-primary">
+                          {fmtUsd(p.collateralValueUsd)}
+                        </span>{" "}
+                        collateral
+                      </span>
+                      <span className="whitespace-nowrap">
+                        <span className="font-semibold text-text-primary">
+                          {fmtUsd(p.borrowValueUsd)}
+                        </span>{" "}
+                        debt
+                      </span>
+                    </div>
+                  )}
 
                   {/* Line 3 — verdict, as one sentence.
-                      The degraded-price marker used to be a bordered chip
-                      wedged into the value row, which put a box in the middle
-                      of the only line whose job is to be scanned. It reads as
-                      the tail of the sentence instead, but it still says so in
-                      three independent ways — the amounts render as "$…" and
-                      not "$0", the icon is there, and the words are there — so
-                      a position we could not price can never be mistaken for a
-                      healthy one. */}
-                  {/* 14px, not 12px. This sentence is the row's verdict — "your
-                      health factor is X and that is outside the profile you
-                      chose" — and it was set smaller than the protocol label
-                      above it. Secondary is the right COLOUR (it is prose, and
-                      prose does not compete with figures); 12px was the wrong
-                      size for it. */}
+
+                      14px, not 12px. This is the row's verdict — "your health
+                      factor is X and that is outside the profile you chose" —
+                      and it was set smaller than the protocol label above it.
+                      Secondary is the right COLOUR (it is prose, and prose does
+                      not compete with figures); 12px was the wrong size for it.
+
+                      The "Prices degraded" explanation stays, and it now says
+                      what it means in the open rather than only in a `title`
+                      nobody hovers. That clause is the whole answer to the
+                      question the old "$…" provoked: the score and the health
+                      factor above it are exact, and it is only the dollars that
+                      are missing. The icon moved up into the block on line 2 —
+                      it was the same warning twice, six pixels apart. */}
                   <div className="flex items-baseline justify-between gap-3">
                     <p className="min-w-0 text-sm font-sans text-text-secondary">
                       <span className="tabular-nums">{health}</span>, {status}
                       {p.usdValuesUnavailable && (
                         <span
-                          className="mt-1 flex items-center gap-1 text-text-muted"
+                          className="mt-1 block text-text-secondary"
                           title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score are unaffected; only the dollar amounts are unknown."
                         >
-                          <AlertTriangle className="h-3 w-3 shrink-0" />
-                          Prices degraded
+                          <strong className="font-semibold text-text-primary">Prices degraded</strong>
+                          {": the score and health factor above are exact. Only the dollar amounts are unknown."}
                         </span>
                       )}
                     </p>
