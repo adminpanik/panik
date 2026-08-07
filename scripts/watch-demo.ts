@@ -99,14 +99,17 @@ for (const wallet of WALLETS) {
     }
     for (const s of scores) {
       const hf = s.healthFactor === null ? "—" : s.healthFactor.toFixed(2);
+      const usd = (v: number | null) =>
+        v === null ? "$—" : `$${Math.round(v).toLocaleString()}`;
       console.log(
         `${wallet.slice(0, 12)}…`.padEnd(14) + s.protocol.padEnd(10) +
         s.scoredCollateralSymbol.padEnd(14) +
-        `$${Math.round(s.collateralValueUsd).toLocaleString()}`.padStart(12) +
-        `$${Math.round(s.borrowValueUsd).toLocaleString()}`.padStart(12) +
+        usd(s.collateralValueUsd).padStart(12) +
+        usd(s.borrowValueUsd).padStart(12) +
         hf.padStart(8) + String(s.total).padStart(7) +
         `  ${s.band}`.padEnd(11) +
-        (s.total >= 50 ? "outside" : s.total >= 40 ? "approaching" : "within"),
+        (s.total >= 50 ? "outside" : s.total >= 40 ? "approaching" : "within") +
+        (s.usdValuesUnavailable ? "  [prices degraded]" : ""),
       );
     }
     watch.watch(wallet);

@@ -47,6 +47,30 @@ describe("ChainlinkPriceReader", () => {
     expect(a?.isStale).toBe(true);
     expect(b?.isStale).toBe(true);
   });
+
+  // `now - updatedAt > max` is FALSE for every future timestamp, so without an
+  // explicit guard a feed reporting the future is accepted unconditionally.
+  it("rejects future-dated and missing round timestamps", async () => {
+    const multicall = vi.fn().mockResolvedValueOnce([
+      round(1667_46000000n, NOW + 3600), // an hour in the future
+      round(1_00000000n, 0), // never updated
+    ]);
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const [future, missing] = await new ChainlinkPriceReader(client, feeds, {
+      now: () => NOW,
+    }).readAll();
+    expect(future?.isStale).toBe(true);
+    expect(missing?.isStale).toBe(true);
+  });
+
+  it("accepts a round inside heartbeat × grace (ETH: 1200 × 1.5 = 1800s)", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([round(2000_00000000n, NOW - 1799), round(1_00000000n, NOW)]);
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const [eth] = await new ChainlinkPriceReader(client, feeds, { now: () => NOW }).readAll();
+    expect(eth?.isStale).toBe(false);
+  });
 });
 
 describe("PriceWatcher (event-trigger detection)", () => {

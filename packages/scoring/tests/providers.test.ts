@@ -35,7 +35,9 @@ describe("CoinGeckoProvider", () => {
     const input = await provider.getAssetRiskInput("ethereum");
     expect(input.dailyReturns30d).toHaveLength(30);
     expect(input.btcReturns30d).toHaveLength(30);
-    expect(input.maxPrice90d).toBeGreaterThan(input.minPrice90d);
+    // Ordered 90d series (91 closes) — the drawdown term needs the ordering.
+    expect(input.prices90d).toHaveLength(91);
+    expect(input.maxPrice90d ?? 0).toBeGreaterThan(input.minPrice90d ?? 0);
     expect(fetchFn).toHaveBeenCalledTimes(2); // ethereum + bitcoin
 
     // Second asset reuses the cached BTC series: only ONE new fetch.

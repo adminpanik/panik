@@ -7,7 +7,7 @@
  */
 
 import { parseAbi } from "viem";
-import type { PublicClientLike } from "../adapters/chain";
+import { CHAINLINK_ETH_USD_BASE, type PublicClientLike } from "../adapters/chain";
 
 export const aggregatorV3Abi = parseAbi([
   "function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)",
@@ -21,11 +21,23 @@ export interface ChainlinkFeed {
 }
 
 /**
+ * ETH/USD on Base — the single source of the repo's ETH staleness policy.
+ * Every consumer (including the Comet ETH-quoted markets, which need it to
+ * denominate USD display values) reuses THIS feed definition rather than
+ * inventing its own bound: 1200s heartbeat × the 1.5 grace = 1800s.
+ */
+export const ETH_USD_FEED_BASE: ChainlinkFeed = {
+  symbol: "ETH",
+  address: CHAINLINK_ETH_USD_BASE,
+  heartbeatSeconds: 1200,
+};
+
+/**
  * Base mainnet feeds — addresses verified LIVE 2026-06-13 via description()
  * eth_calls (each returned the expected pair name). All 8 decimals.
  */
 export const CHAINLINK_FEEDS_BASE: ChainlinkFeed[] = [
-  { symbol: "ETH", address: "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70", heartbeatSeconds: 1200 },
+  ETH_USD_FEED_BASE,
   { symbol: "USDC", address: "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B", heartbeatSeconds: 86_400 },
   { symbol: "cbETH", address: "0xd7818272B9e248357d13057AAb0B417aF31E817d", heartbeatSeconds: 1200 },
   { symbol: "BTC", address: "0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F", heartbeatSeconds: 1200 },
@@ -38,9 +50,10 @@ export interface FeedReading {
   /** Unix seconds of the feed's last update (0 when read failed). */
   updatedAt: number;
   /**
-   * True when the read failed, the answer was non-positive, or the feed is
-   * older than heartbeat × grace. Stale prices must DEGRADE scoring, not
-   * feed it (§3.4) — callers skip or flag, never score on a stale price.
+   * True when the read failed, the answer was non-positive, the timestamp is
+   * absent/future-dated, or the feed is older than heartbeat × grace. Stale
+   * prices must DEGRADE scoring, not feed it (§3.4) — callers flag, never
+   * score money math on a stale price.
    */
   isStale: boolean;
 }
@@ -91,8 +104,15 @@ export class ChainlinkPriceReader {
       ];
       const price = Number(answer) / 1e8;
       const updated = Number(updatedAt);
+      // `now - updatedAt > max` is FALSE for any future timestamp, so a feed
+      // reporting a round from the future would otherwise be accepted
+      // unconditionally. Treat the future (and a missing/absurd stamp) as stale.
+      const unusableStamp =
+        !Number.isFinite(updated) || updated <= 0 || updated > nowS;
       const isStale =
-        answer <= 0n || nowS - updated > feed.heartbeatSeconds * this.grace;
+        answer <= 0n ||
+        unusableStamp ||
+        nowS - updated > feed.heartbeatSeconds * this.grace;
       return { symbol: feed.symbol, price, updatedAt: updated, isStale };
     });
   }

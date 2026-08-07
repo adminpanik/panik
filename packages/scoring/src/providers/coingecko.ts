@@ -56,6 +56,9 @@ export class CoinGeckoProvider implements AssetRiskProvider {
     return {
       dailyReturns30d: dailyReturns(asset).slice(-30),
       btcReturns30d: dailyReturns(btc).slice(-30),
+      // Ordered series drives the true max drawdown; the extremes are kept
+      // for backwards compatibility with consumers still reading them.
+      prices90d: win90,
       maxPrice90d: Math.max(...win90),
       minPrice90d: Math.min(...win90),
     };

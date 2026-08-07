@@ -59,8 +59,7 @@ function assetRiskAt(ts: number) {
   return {
     dailyReturns30d: returns(WETH_DAILY, from30, d),
     btcReturns30d: returns(WBTC_DAILY, from30, d),
-    maxPrice90d: Math.max(...weth90),
-    minPrice90d: Math.min(...weth90),
+    prices90d: weth90, // ordered → true peak-to-trough max drawdown
   };
 }
 

@@ -18,9 +18,25 @@ const UINT256_MAX = 2n ** 256n - 1n;
 
 export interface ActiveReading {
   protocol: Protocol;
+  /**
+   * HF / LTV / maxLtv. These are RATIOS of same-denominated quantities, so
+   * they survive a missing USD price entirely — a reader that cannot value
+   * the position in dollars must still report them (see
+   * `usdValuesUnavailable`), never drop the leg.
+   */
   positionHealth: PositionHealthInput;
-  collateralValueUsd: number;
-  borrowValueUsd: number;
+  /** null when the USD denomination could not be established this read. */
+  collateralValueUsd: number | null;
+  /** null when the USD denomination could not be established this read. */
+  borrowValueUsd: number | null;
+  /**
+   * True when a price input the USD conversion depends on was missing or
+   * stale. The position is STILL scored (HF/LTV are denomination-free); only
+   * the dollar magnitudes are withheld. Consumers must treat this as
+   * "degraded", not as "safe": the minimum-borrow materiality gate is waived
+   * and the UI/advisor must say the prices are degraded.
+   */
+  usdValuesUnavailable?: boolean;
   /** Dominant collateral symbol, or null when discovery failed. */
   dominantCollateralSymbol: string | null;
 }
@@ -93,10 +109,24 @@ export class AaveActiveReader {
         if (b.status !== "success") return;
         const entry = aTokens[i];
         if (!entry) return;
-        // Normalise by decimals; ranking only needs relative scale, so a
-        // rough USD weight (1.0 for stables/sats handled by price later) is
-        // refined in the adapter. Here: prefer the largest normalised balance
-        // weighted by a crude price class (BTC≫ETH≫stable).
+        // KNOWN LIMITATION: these are hardcoded, never-updated price classes,
+        // not real prices. getUserAccountData only returns AGGREGATE collateral
+        // USD and aToken balances are raw token amounts, so this adapter has no
+        // per-asset USD value to rank with; a real fix needs price plumbing
+        // (AaveOracle.getAssetsPrices or the Chainlink feeds) that does not
+        // exist here yet.
+        //
+        // Consequences, in order of likelihood:
+        //  - ACROSS classes: near-equal legs are mis-ranked once the true
+        //    BTC/ETH ratio drifts far from 60000/1800 (~33).
+        //  - WITHIN the 1_800 class: WETH and wstETH share it, but wstETH is a
+        //    yield-accruing wrapper trading at ~1.15–1.25× WETH, so ordering is
+        //    NOT safe here either — e.g. 100 WETH ranks above 90 wstETH though
+        //    90 wstETH is worth more. Only a leg dominant by a margin wider
+        //    than the class error (~25% within the class, ~1.5x across) is
+        //    reliably picked.
+        // A wrong pick means the wrong scored asset, the wrong
+        // `safestAlternativeProtocol`, and the wrong ExitFlow prefill.
         const scale =
           entry.reserve.symbol === "cbBTC" ? 60_000
           : entry.reserve.symbol === "USDC" ? 1

@@ -75,7 +75,12 @@ export const COMETS_BASE = [
   },
 ] as const;
 
-/** Chainlink ETH/USD on Base (verified via description() 2026-06-13). */
+/**
+ * Chainlink ETH/USD on Base (verified via description() 2026-06-13).
+ * The staleness POLICY for this feed lives in providers/chainlink.ts
+ * (`ETH_USD_FEED_BASE`); read it through `ChainlinkPriceReader`, never with a
+ * private aggregator ABI and a private age bound.
+ */
 export const CHAINLINK_ETH_USD_BASE =
   "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70" as const;
 
@@ -87,8 +92,4 @@ export const cometAbi = parseAbi([
   "function baseTokenPriceFeed() view returns (address)",
   "function baseScale() view returns (uint64)",
   "function getPrice(address priceFeed) view returns (uint128)",
-]);
-
-export const chainlinkAggregatorAbi = parseAbi([
-  "function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)",
 ]);

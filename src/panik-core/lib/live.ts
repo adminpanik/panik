@@ -24,8 +24,15 @@ export interface LiveWalletPosition {
   band: Band;
   subScores: SubScores;
   healthFactor: number | null;
-  collateralValueUsd: number;
-  borrowValueUsd: number;
+  /** null when the engine could not price the position in USD — see below. */
+  collateralValueUsd: number | null;
+  borrowValueUsd: number | null;
+  /**
+   * True when a price feed the USD conversion depends on was missing or stale.
+   * The score, band and health factor are still exact (they are ratios); only
+   * the dollar magnitudes are unknown. Must be surfaced, never rendered as $0.
+   */
+  usdValuesUnavailable?: boolean;
   scoredCollateralSymbol: string;
   label: string | null;
   riskProfile: string;
@@ -276,8 +283,10 @@ export interface AdvisorRecommendation {
     total: number;
     band: Band;
     healthFactor: number | null;
-    collateralValueUsd: number;
-    borrowValueUsd: number;
+    /** null when the leg could not be priced in USD (degraded feed). */
+    collateralValueUsd: number | null;
+    borrowValueUsd: number | null;
+    usdValuesUnavailable?: boolean;
     subScores: SubScores;
     scoredCollateralSymbol: string;
   };

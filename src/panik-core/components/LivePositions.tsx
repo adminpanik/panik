@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import { Activity, WifiOff, SlidersHorizontal } from "lucide-react";
+import { Activity, WifiOff, SlidersHorizontal, AlertTriangle } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 
@@ -31,7 +31,9 @@ function statusCopy(p: LiveWalletPosition): { text: string; cls: string } {
   return { text: "Within your profile", cls: "text-emerald-400" };
 }
 
-const fmtUsd = (v: number) => `$${Math.round(v).toLocaleString()}`;
+/** Unknown dollar magnitudes render as a dash — never as "$0". */
+const fmtUsd = (v: number | null) =>
+  v === null || !Number.isFinite(v) ? "$—" : `$${Math.round(v).toLocaleString()}`;
 
 interface LivePositionsProps {
   positions: LiveWalletPosition[] | null;
@@ -116,6 +118,18 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                   <span>
                     {fmtUsd(p.collateralValueUsd)} supplied / {fmtUsd(p.borrowValueUsd)} borrowed
                   </span>
+                  {p.usdValuesUnavailable && (
+                    <>
+                      <span className="text-white/20">•</span>
+                      <span
+                        className="flex items-center gap-1 text-amber-400"
+                        title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score above are unaffected; only the dollar amounts are unknown."
+                      >
+                        <AlertTriangle className="w-3 h-3" />
+                        Prices degraded
+                      </span>
+                    </>
+                  )}
                   <span className="text-white/20">•</span>
                   <span className="truncate">{p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}</span>
                 </div>

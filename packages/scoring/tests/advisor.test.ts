@@ -27,6 +27,7 @@ function leg(overrides: Partial<ActiveScore> = {}): ActiveScore {
     healthFactor: 1.8,
     collateralValueUsd: 20_000,
     borrowValueUsd: 8_000,
+    usdValuesUnavailable: false,
     scoredCollateralSymbol: "WETH",
     assetRiskIsProxy: false,
     ...overrides,
