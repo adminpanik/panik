@@ -213,15 +213,6 @@ type WatchSource = "positions" | "recommendations";
 type RiskProfile = "conservative" | "moderate" | "aggressive";
 
 /**
- * The user-segment badge is a label, not a measurement. Five cool hues used to
- * distinguish five segments the user can only ever be ONE of at a time, so the
- * hue encoded nothing the word next to it did not already say — it just put a
- * saturated pill in the header competing with the risk chips below it. One
- * neutral style, distinguished by its text, same as the tier badge.
- */
-const SEGMENT_BADGE = "bg-white/5 text-text-secondary border-border-subtle";
-
-/**
  * The risk PROFILE badge is one style for all five tiers, distinguished by its
  * label alone. A profile is a preference the user stated, not a danger level the
  * engine measured, so it must not borrow the risk ramp: an "aggressive" profile
@@ -1207,23 +1198,39 @@ export function AppDemo() {
               <span className="font-sans font-extrabold text-sm text-text-primary leading-none">PANIK</span>
             </a>
 
-            {/* User segment badge (from onboarding profiling) */}
-            {userSegment && (
-              <span
-                title={`Your DeFi profile: ${SEGMENT_LABELS[userSegment]}`}
-                className={`hidden md:flex items-center px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${SEGMENT_BADGE}`}
-              >
-                {SEGMENT_LABELS[userSegment]}
-              </span>
-            )}
+            {/* The user-segment badge ("Risk Optimizer", "Yield Seeker", …)
+                used to sit here. It is gone.
 
-            {/* Risk-appetite tier badge (5-level) */}
+                It was the onboarding quiz's segment output, and it drove
+                nothing: no threshold, no recommendation, no filter, no copy.
+                Grepping it finds a localStorage write, a backfill into the
+                per-wallet profile store, and this badge — and a chip whose only
+                job is to be looked at is a chip that answers "what is this
+                supposed to be?" with "nothing you can act on". The value is
+                still computed and still persisted, so the day something
+                actually consumes a segment it is there; it just no longer
+                occupies the top-left of every screen claiming to matter.
+
+                The RISK TIER stays, because it does drive things — it is what
+                the alert thresholds and every position's `profileStatus` are
+                measured against. But it has to say so. A bare word in a box is
+                exactly as unexplained as the one above it was, so it now
+                carries an InfoTip naming what it changes, and it is a BUTTON:
+                the profile is set by the onboarding quiz, so the chip that
+                names it is the control that reopens it. */}
             {riskTier && (
-              <span
-                title={`Your risk appetite: ${RISK_TIER_LABELS[riskTier]}`}
-                className={`flex shrink-0 items-center px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}
-              >
-                {RISK_TIER_LABELS[riskTier]}
+              <span className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}>
+                <button
+                  type="button"
+                  onClick={() => setShowOnboarding(true)}
+                  title="Change your risk profile"
+                  className="cursor-pointer hover:text-text-primary transition-colors"
+                >
+                  {RISK_TIER_LABELS[riskTier]}
+                </button>
+                <InfoTip
+                  text={`Your risk profile, from the onboarding questions. It sets the limit each position is measured against, so it decides which positions read as "outside your profile" and when PANIK alerts you. Click it to retake the questions.`}
+                />
               </span>
             )}
           </div>
