@@ -42,8 +42,11 @@ const ACTION_CHIP: Record<string, string> = {
   OPEN: "bg-panik-orange/10 text-panik-orange border-panik-orange/25",
 };
 
-const fmtUsd = (n: number) =>
-  `$${Math.abs(n) >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(0)}`;
+/** null = the engine could not price this leg (degraded feed); never show $0. */
+const fmtUsd = (n: number | null) =>
+  n === null || !Number.isFinite(n)
+    ? "$—"
+    : `$${Math.abs(n) >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(0)}`;
 
 function SectionRow({ label, text }: { label: string; text: string }) {
   return (
@@ -115,6 +118,7 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
     ["Debt", fmtUsd(n.borrowValueUsd)],
     ["Asset", n.scoredCollateralSymbol],
   ];
+  if (n.usdValuesUnavailable) items.push(["Prices", "degraded - USD unverified"]);
   return (
     <div className="flex flex-wrap gap-x-6 gap-y-1 pt-3 border-t border-white/[0.05]">
       {items.map(([label, value]) => (

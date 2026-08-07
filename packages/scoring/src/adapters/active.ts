@@ -18,8 +18,16 @@ export interface ActiveScore extends ScoreResult {
   protocol: Protocol;
   wallet: string;
   healthFactor: number | null;
-  collateralValueUsd: number;
-  borrowValueUsd: number;
+  /** null when the reader could not establish a USD denomination. */
+  collateralValueUsd: number | null;
+  /** null when the reader could not establish a USD denomination. */
+  borrowValueUsd: number | null;
+  /**
+   * True when the dollar magnitudes are withheld because a price input was
+   * missing or stale. The composite score, band and HF are unaffected — see
+   * `ActiveReading.usdValuesUnavailable`.
+   */
+  usdValuesUnavailable: boolean;
   /** Asset whose market risk was scored (dominant collateral). */
   scoredCollateralSymbol: string;
   /** True when collateral discovery failed and WETH was used as proxy. */
@@ -77,6 +85,7 @@ export class ActiveAdapter {
         healthFactor: reading.positionHealth.healthFactor,
         collateralValueUsd: reading.collateralValueUsd,
         borrowValueUsd: reading.borrowValueUsd,
+        usdValuesUnavailable: reading.usdValuesUnavailable === true,
         scoredCollateralSymbol: assetRiskIsProxy ? "WETH (proxy)" : (symbol as string),
         assetRiskIsProxy,
       });

@@ -64,7 +64,9 @@ interface UserHf { liquidated: boolean; firstLiqIso: string | null; hf: Record<s
     const d = px.days.indexOf(date.slice(0, 10));
     const di = d < 0 ? px.days.length - 1 : d;
     const w90 = px.weth.slice(Math.max(0, di - 90), di + 1);
-    return { dailyReturns30d: ret(px.weth, Math.max(0, di - 30), di), btcReturns30d: ret(px.wbtc, Math.max(0, di - 30), di), maxPrice90d: Math.max(...w90), minPrice90d: Math.min(...w90) };
+    // prices90d (ordered), not the extremes: the extremes route to the
+    // deprecated order-blind fallback and reproduce pre-fix numbers.
+    return { dailyReturns30d: ret(px.weth, Math.max(0, di - 30), di), btcReturns30d: ret(px.wbtc, Math.max(0, di - 30), di), prices90d: w90 };
   };
   const arByLabel: Record<string, ReturnType<typeof arAt>> = {};
   const arScore: Record<string, number> = {};

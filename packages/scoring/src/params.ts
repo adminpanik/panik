@@ -55,10 +55,26 @@ export const LIQUIDATION_PROXIMITY_FLOORS = [
  * is silent in calm markets (asset risk low) and in stablecoin depegs (asset
  * risk ~0 — the HF floor handles those). Never lowers a score.
  *
- * Gate calibration (measured, not fitted): S_asset_risk on WETH was ~44–45 in
- * the calm Apr/early-May market and ~66–83 once the June crash began — a clean
- * regime gap. The 60 gate sits in that gap (~15pt margin each side), so it
- * separates "crash" from "merely volatile" without p-hacking the cohort.
+ * Gate calibration (measured, not fitted; RE-MEASURED 2026-08-06 after the
+ * drawdown term switched from the order-blind (max−min)/max to the true
+ * peak-to-trough max drawdown — `scripts/backtest/diagnose-assetrisk.ts`, which
+ * now feeds the engine `prices90d` like production does):
+ *
+ *   calm Apr 1 – May 5 2022 (WETH)   39.0–46.7  →  29.8–42.8   (margin 13.3 → 17.2pt)
+ *   June crash Jun 4–19 2022         66.4–82.7  →  66.4–82.7   (UNCHANGED)
+ *
+ * The new metric is ≤ the old one for every input, so the shift is one-sided —
+ * but it is confined to non-crash regimes. The two formulas coincide EXACTLY
+ * whenever the 90-day peak precedes the 90-day trough, i.e. whenever the market
+ * is in the sustained decline the gate exists to detect: over the 100-day
+ * Mar–Jun 2022 fixture, ZERO days crossed the 60 gate downward, the highest
+ * calm reading is still 58.08 (2022-05-19) and the lowest crash reading is
+ * still 66.40 (2022-06-09). The regime gap the gate sits in is therefore
+ * unchanged on the crash side and ~4pt WIDER on the calm side.
+ *
+ * The 60 gate is deliberately NOT retuned: retuning it to preserve an old
+ * conclusion would be fitting the parameter to the doc rather than the data,
+ * and the data says the separation improved.
  *
  * HF gate = 1.25 chosen by the survivor-control matrix (560 wallets, exact HF
  * via archive RPC): 1.25 gives recall 89% / false-alarm 23%, vs 1.35's 93%/33%

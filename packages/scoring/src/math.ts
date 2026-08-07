@@ -46,6 +46,26 @@ export function annualizedVol(dailyReturns: readonly number[]): number {
   return stdDev(dailyReturns) * Math.sqrt(365);
 }
 
+/**
+ * True maximum drawdown over an ORDERED price series (oldest → newest):
+ * max over i of (runningPeak_i − p_i) / runningPeak_i, as a 0–1 fraction.
+ *
+ * Order is the whole point: (max − min) / max is a *range*, so a monotonic
+ * rally reports the same "drawdown" as a crash of the same amplitude. The
+ * running peak only looks backwards, so a rally scores 0.
+ * Non-positive / non-finite points are skipped (degraded input, not an error).
+ */
+export function maxDrawdown(prices: readonly number[]): number {
+  let peak = 0;
+  let worst = 0;
+  for (const price of prices) {
+    if (!Number.isFinite(price) || price <= 0) continue;
+    if (price > peak) peak = price;
+    if (peak > 0) worst = Math.max(worst, (peak - price) / peak);
+  }
+  return worst;
+}
+
 /** Daily fractional returns from a price series (p[i] / p[i−1] − 1). */
 export function dailyReturns(prices: readonly number[]): number[] {
   const out: number[] = [];

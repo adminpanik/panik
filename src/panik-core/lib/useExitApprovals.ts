@@ -55,7 +55,10 @@ export function useExitApprovals(owner: `0x${string}` | undefined) {
           args: [step.spender, target],
         });
         const hash = await writeContractAsync(request as never);
-        await client.waitForTransactionReceipt({ hash });
+        const receipt = await client.waitForTransactionReceipt({ hash });
+        if (receipt.status !== "success") {
+          throw new Error(`${step.label} reverted on-chain`);
+        }
         sent += 1;
       }
       return sent;

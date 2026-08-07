@@ -19,12 +19,18 @@ server.js
 .vercel/
 Thumbs.db
 
-# Backtest runtime artifacts (mutable log / local query-id cache / scratch SQL)
-scripts/backtest/data/forward-test-log.jsonl
-scripts/backtest/data/cohort-query-id.json
+# Backtest runtime artifacts (fetch cache is regenerable via the pull scripts;
+# curated datasets/ stay tracked — they back docs/technical-docs/BACKTEST_RESULTS.md)
+scripts/backtest/data/
 scripts/backtest/.tmp-*.sql
 
 # Foundry (smart contract build artifacts)
+# contracts/lib/ is NOT ignored — forge deps are git submodules, and ignoring
+# them is what broke `forge build` on a fresh clone.
 contracts/out/
 contracts/cache/
-contracts/lib/
+# foundry.lock is not tracked: forge writes the dependency key with the host
+# OS's path separator ("lib\\forge-std" on Windows, "lib/forge-std" on Linux),
+# so a committed copy is dirty on whichever platform did not generate it. The
+# submodule gitlink in .gitmodules/.git is the real pin.
+contracts/foundry.lock

@@ -32,6 +32,7 @@ function numbersOf(score: ActiveScore): AdvisorRecommendation["numbers"] {
     healthFactor: score.healthFactor,
     collateralValueUsd: score.collateralValueUsd,
     borrowValueUsd: score.borrowValueUsd,
+    usdValuesUnavailable: score.usdValuesUnavailable,
     subScores: score.subScores,
     scoredCollateralSymbol: score.scoredCollateralSymbol,
   };
@@ -62,7 +63,15 @@ export function adviseLeg(
   const status = statusFor(profile, score.total);
   const triggers: string[] = [`band:${score.band}`, `profile:${status}`];
   const hf = score.healthFactor;
-  const hasDebt = hf !== null && score.borrowValueUsd >= ALERT_POLICY.minBorrowUsd;
+  // A non-null HF means there IS debt; the USD gate only filters dust. When the
+  // dollar magnitude is unknown (degraded price feed) the gate cannot be
+  // evaluated, and defaulting it to "immaterial" is how a real six-figure debt
+  // silently became an all-clear — so a degraded leg is exempt, never dropped.
+  const borrowUsd = score.borrowValueUsd;
+  const hasDebt =
+    hf !== null &&
+    (score.usdValuesUnavailable || (borrowUsd !== null && borrowUsd >= ALERT_POLICY.minBorrowUsd));
+  if (score.usdValuesUnavailable) triggers.push("prices:degraded");
 
   const base = {
     protocol: score.protocol,
@@ -131,7 +140,19 @@ export function adviseLeg(
   // Rule 3 - HIGH band or outside the user's profile: partial repay to target.
   if (score.band === "HIGH" || status === "outside") {
     const targetHf = TARGET_HF[profile];
-    const repayUsd = hf !== null ? repayToTargetHf(score.borrowValueUsd, hf, targetHf) : 0;
+    // Without a USD magnitude no dollar repay amount can be quoted — and
+    // quoting one from a stale/unknown price is exactly the failure mode that
+    // would tell a user to repay $200 against a $600k debt. Keep the REDUCE
+    // severity, drop the (unquotable) plan and prefill.
+    if (borrowUsd === null) {
+      if (hf !== null && hf < targetHf) {
+        triggers.push(`target:hf=${targetHf}`, "repay:amount_unavailable");
+        return finish("REDUCE", "warning");
+      }
+      triggers.push("hf:above_target");
+      return finish("MONITOR", "info");
+    }
+    const repayUsd = hf !== null ? repayToTargetHf(borrowUsd, hf, targetHf) : 0;
     if (repayUsd > 0) {
       const repayPlan = {
         repayUsd: Math.round(repayUsd),
@@ -141,7 +162,7 @@ export function adviseLeg(
         mode: "wallet_funded" as const,
       };
       // Repaying ~everything IS a full exit - promote.
-      if (repayUsd > REDUCE_TO_EXIT_RATIO * score.borrowValueUsd) {
+      if (repayUsd > REDUCE_TO_EXIT_RATIO * borrowUsd) {
         triggers.push("promoted:reduce_to_exit");
         return finish("EXIT", "warning", {
           repayPlan,
@@ -200,8 +221,12 @@ export function adviseWallet(
   );
   const action = worst?.action ?? "HOLD";
   const urgency = worst?.urgency ?? "info";
+  // A degraded leg must never be summarised as an all-clear: the engine did
+  // not verify those dollar magnitudes, so it cannot claim "all positions
+  // within your risk profile". The headline says so explicitly.
+  const degraded = scores.some((s) => s.usdValuesUnavailable);
   return {
-    overall: { action, urgency, headline: overallHeadline(action, recommendations) },
+    overall: { action, urgency, headline: overallHeadline(action, recommendations, degraded) },
     recommendations,
   };
 }

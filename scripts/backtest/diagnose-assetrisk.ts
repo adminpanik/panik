@@ -19,8 +19,10 @@ function assetRiskOnDay(label: string, d: number) {
   const s = scoreAssetRisk({
     dailyReturns30d: ret(WETH_DAILY, f30, d),
     btcReturns30d: ret(WBTC_DAILY, f30, d),
-    maxPrice90d: Math.max(...w90),
-    minPrice90d: Math.min(...w90),
+    // Ordered series, NOT the extremes: the engine scores a true
+    // peak-to-trough drawdown, and passing max/min here would route to the
+    // deprecated fallback and reproduce pre-fix numbers.
+    prices90d: w90,
   });
   const date = new Date(DAILY_START + d * DAY_MS).toISOString().slice(0, 10);
   console.log(`${label.padEnd(14)} ${date}  S_asset_risk = ${s.toFixed(1)}`);

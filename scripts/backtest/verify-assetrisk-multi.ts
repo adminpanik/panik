@@ -46,8 +46,9 @@ function ret(s: number[], a: number, b: number) {
     const s = scoreAssetRisk({
       dailyReturns30d: ret(weth, Math.max(0, d - 30), d),
       btcReturns30d: ret(wbtc, Math.max(0, d - 30), d),
-      maxPrice90d: Math.max(...w90),
-      minPrice90d: Math.min(...w90),
+      // Ordered series: the extremes route to the deprecated order-blind
+      // fallback and would re-verify a formula the engine no longer uses.
+      prices90d: w90,
     });
     return s.toFixed(1);
   };

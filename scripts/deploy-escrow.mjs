@@ -1,21 +1,43 @@
 /**
- * Compile and deploy PanikEscrow to Base Sepolia.
+ * Deploy PanikEscrow to Base Sepolia. **Testnet only** — this script refuses to
+ * run against any other chain. For Base Mainnet use the Foundry script:
+ *
+ *   cd contracts
+ *   forge script script/Deploy.s.sol:DeployPanikEscrow --rpc-url base --broadcast --verify -vvvv
  *
  * Usage:
  *   node --env-file=.env scripts/deploy-escrow.mjs
  *
  * Required env vars:
- *   DEPLOYER_PRIVATE_KEY   — private key of the deployer wallet (with Base Sepolia ETH for gas)
- *   ESCROW_OWNER_ADDRESS   — owner of the contract (can call release)
+ *   DEPLOYER_PRIVATE_KEY    — private key of the deployer wallet (with Base Sepolia ETH for gas)
+ *   ESCROW_OWNER_ADDRESS    — owner of the contract (can call ship())
  *   ESCROW_TREASURY_ADDRESS — where released funds go
+ *
+ * Requires Foundry on PATH: https://getfoundry.sh
  */
 
-import solc from 'solc';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { createWalletClient, createPublicClient, http, defineChain } from 'viem';
+import { fileURLToPath } from 'url';
+import { createWalletClient, createPublicClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
+
+// ── Chain guard ──────────────────────────────────────────────────────
+// The USDC address below and every explorer link in this file are Base
+// Sepolia. `usdc` is immutable on the escrow, so deploying this to mainnet
+// would permanently hardwire a mainnet escrow to a testnet token. Assert the
+// chain rather than trusting whoever edits the import above.
+const CHAIN = baseSepolia;
+const BASE_SEPOLIA_CHAIN_ID = 84532;
+
+if (CHAIN.id !== BASE_SEPOLIA_CHAIN_ID) {
+  throw new Error(
+    `deploy-escrow.mjs is Base Sepolia only (chain id ${BASE_SEPOLIA_CHAIN_ID}), got ${CHAIN.id}. ` +
+      'For Base Mainnet use: cd contracts && forge script script/Deploy.s.sol:DeployPanikEscrow --rpc-url base --broadcast --verify'
+  );
+}
 
 // ── Base Sepolia USDC (Circle-issued test USDC) ──────────────────────
 const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
@@ -29,183 +51,47 @@ if (!PRIVATE_KEY) { console.error('❌ Set DEPLOYER_PRIVATE_KEY in .env'); proce
 if (!OWNER) { console.error('❌ Set ESCROW_OWNER_ADDRESS in .env'); process.exit(1); }
 if (!TREASURY) { console.error('❌ Set ESCROW_TREASURY_ADDRESS in .env'); process.exit(1); }
 
-// ── Compile the contract ─────────────────────────────────────────────
-console.log('🔨 Compiling PanikEscrow.sol...');
+// ── Build with Foundry ───────────────────────────────────────────────
+// One source of truth for the compiler: contracts/foundry.toml. Hand-rolling a
+// solc standard-json here produced byte-identical *executable* code but a
+// different metadata hash (different evmVersion, source unit names and
+// remappings), so a contract deployed from here could not be verified against
+// the Foundry build — and any construct the two configs optimise differently
+// would silently ship untested bytecode. Shell out instead.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CONTRACTS_DIR = path.join(REPO_ROOT, 'contracts');
+const ARTIFACT = path.join(CONTRACTS_DIR, 'out', 'PanikEscrow.sol', 'PanikEscrow.json');
 
-// We use a flattened source that doesn't depend on forge-std imports
-const contractSource = `
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+console.log('🔨 Building PanikEscrow.sol with Foundry...');
 
-interface IERC20 {
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-    function transfer(address to, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-}
-
-contract PanikEscrow {
-    IERC20 public immutable usdc;
-    uint256 public constant DEPOSIT_AMOUNT = 5_000_000;
-    uint256 public constant REFUND_WINDOW = 90 days;
-
-    address public owner;
-    address public treasury;
-    uint256 public immutable refundDeadline;
-    bool public shipped;
-
-    mapping(address => uint256) public depositTime;
-    mapping(address => bool) public refunded;
-    uint256 public depositorCount;
-
-    event Deposited(address indexed depositor, uint256 timestamp);
-    event Shipped();
-    event Refunded(address indexed depositor);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
-
-    error NotOwner();
-    error AlreadyDeposited();
-    error NotDeposited();
-    error AlreadyShipped();
-    error AlreadyRefunded();
-    error RefundWindowNotPassed();
-    error RefundWindowPassed();
-    error ZeroAddress();
-    error TransferFailed();
-
-    constructor(address _usdc, address _owner, address _treasury) {
-        if (_usdc == address(0) || _owner == address(0) || _treasury == address(0)) {
-            revert ZeroAddress();
-        }
-        usdc = IERC20(_usdc);
-        owner = _owner;
-        treasury = _treasury;
-        refundDeadline = block.timestamp + REFUND_WINDOW;
-    }
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-
-    function deposit() external {
-        if (shipped) revert AlreadyShipped();
-        if (block.timestamp >= refundDeadline) revert RefundWindowPassed();
-        if (depositTime[msg.sender] != 0) revert AlreadyDeposited();
-
-        bool success = usdc.transferFrom(msg.sender, address(this), DEPOSIT_AMOUNT);
-        if (!success) revert TransferFailed();
-
-        depositTime[msg.sender] = block.timestamp;
-        depositorCount++;
-
-        emit Deposited(msg.sender, block.timestamp);
-    }
-
-    function ship() external onlyOwner {
-        if (shipped) revert AlreadyShipped();
-        if (block.timestamp >= refundDeadline) {
-            revert RefundWindowPassed();
-        }
-        shipped = true;
-
-        uint256 balance = usdc.balanceOf(address(this));
-        if (balance > 0) {
-            bool success = usdc.transfer(treasury, balance);
-            if (!success) revert TransferFailed();
-        }
-
-        emit Shipped();
-    }
-
-    function claimRefund() external {
-        if (shipped) revert AlreadyShipped();
-        if (depositTime[msg.sender] == 0) revert NotDeposited();
-        if (refunded[msg.sender]) revert AlreadyRefunded();
-
-        if (block.timestamp < refundDeadline) {
-            revert RefundWindowNotPassed();
-        }
-
-        refunded[msg.sender] = true;
-
-        bool success = usdc.transfer(msg.sender, DEPOSIT_AMOUNT);
-        if (!success) revert TransferFailed();
-
-        emit Refunded(msg.sender);
-    }
-
-    function hasPaid(address wallet) external view returns (bool) {
-        return depositTime[wallet] != 0;
-    }
-
-    function isRefundable(address wallet) external view returns (bool) {
-        return depositTime[wallet] != 0
-            && !shipped
-            && !refunded[wallet]
-            && block.timestamp >= refundDeadline;
-    }
-
-    function getDepositInfo(address wallet)
-        external view returns (uint256 _depositTime, bool _shipped, bool _refunded)
-    {
-        return (depositTime[wallet], shipped, refunded[wallet]);
-    }
-
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
-    }
-
-    function setTreasury(address newTreasury) external onlyOwner {
-        if (newTreasury == address(0)) revert ZeroAddress();
-        emit TreasuryUpdated(treasury, newTreasury);
-        treasury = newTreasury;
-    }
-}
-`;
-
-const input = {
-  language: 'Solidity',
-  sources: { 'PanikEscrow.sol': { content: contractSource } },
-  settings: {
-    optimizer: { enabled: true, runs: 200 },
-    outputSelection: { '*': { '*': ['abi', 'evm.bytecode.object'] } },
-  },
-};
-
-const output = JSON.parse(solc.compile(JSON.stringify(input)));
-
-if (output.errors) {
-  const fatal = output.errors.filter(e => e.severity === 'error');
-  if (fatal.length > 0) {
-    console.error('❌ Compilation errors:');
-    fatal.forEach(e => console.error(e.formattedMessage));
-    process.exit(1);
+try {
+  execFileSync('forge', ['build', '--root', CONTRACTS_DIR], { stdio: 'inherit' });
+} catch (err) {
+  if (err.code === 'ENOENT') {
+    console.error('❌ `forge` not found on PATH. Install Foundry: https://getfoundry.sh');
+  } else {
+    console.error('❌ `forge build` failed — fix the compile error before deploying.');
   }
-  // Warnings are OK
-  output.errors.filter(e => e.severity === 'warning').forEach(e => {
-    console.warn('⚠️', e.message);
-  });
+  process.exit(1);
 }
 
-const contract = output.contracts['PanikEscrow.sol']['PanikEscrow'];
-const abi = contract.abi;
-const bytecode = '0x' + contract.evm.bytecode.object;
+if (!fs.existsSync(ARTIFACT)) {
+  console.error(`❌ Build artifact missing: ${ARTIFACT}`);
+  process.exit(1);
+}
 
-console.log('✅ Compiled successfully');
+const artifact = JSON.parse(fs.readFileSync(ARTIFACT, 'utf8'));
+const abi = artifact.abi;
+const bytecode = artifact.bytecode.object;
+
+if (!abi || !bytecode || bytecode === '0x') {
+  console.error('❌ Build artifact has no ABI/bytecode — is the contract abstract?');
+  process.exit(1);
+}
+
+console.log('✅ Built from contracts/out/PanikEscrow.sol/PanikEscrow.json');
 console.log(`   ABI entries: ${abi.length}`);
 console.log(`   Bytecode: ${bytecode.length} chars`);
-
-// Save ABI to a file for the frontend to use
-const abiDir = path.resolve('contracts', 'out');
-fs.mkdirSync(abiDir, { recursive: true });
-fs.writeFileSync(path.join(abiDir, 'PanikEscrow.abi.json'), JSON.stringify(abi, null, 2));
-console.log('   ABI saved to contracts/out/PanikEscrow.abi.json');
 
 // ── Deploy ───────────────────────────────────────────────────────────
 console.log('\n🚀 Deploying to Base Sepolia...');
@@ -217,15 +103,25 @@ const account = privateKeyToAccount(PRIVATE_KEY.startsWith('0x') ? PRIVATE_KEY :
 console.log(`   Deployer: ${account.address}`);
 
 const publicClient = createPublicClient({
-  chain: baseSepolia,
+  chain: CHAIN,
   transport: http(),
 });
 
 const walletClient = createWalletClient({
   account,
-  chain: baseSepolia,
+  chain: CHAIN,
   transport: http(),
 });
+
+// The RPC gets the same treatment as the config: confirm what we are actually
+// talking to before a key signs anything.
+const liveChainId = await publicClient.getChainId();
+if (liveChainId !== BASE_SEPOLIA_CHAIN_ID) {
+  console.error(
+    `❌ RPC reports chain id ${liveChainId}, expected ${BASE_SEPOLIA_CHAIN_ID} (Base Sepolia). Refusing to deploy.`
+  );
+  process.exit(1);
+}
 
 // Check deployer balance
 const balance = await publicClient.getBalance({ address: account.address });

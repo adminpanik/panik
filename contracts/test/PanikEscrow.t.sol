@@ -111,6 +111,12 @@ contract PanikEscrowTest is Test {
     }
 
     function test_deposit_revertsIfShipped() public {
+        // `ship()` needs a non-zero balance, so bob funds the escrow first.
+        vm.prank(bob);
+        usdc.approve(address(escrow), DEPOSIT);
+        vm.prank(bob);
+        escrow.deposit();
+
         vm.prank(owner);
         escrow.ship();
 
@@ -157,12 +163,41 @@ contract PanikEscrowTest is Test {
     }
 
     function test_ship_revertsIfAlreadyShipped() public {
+        vm.prank(alice);
+        usdc.approve(address(escrow), DEPOSIT);
+        vm.prank(alice);
+        escrow.deposit();
+
         vm.prank(owner);
         escrow.ship();
 
         vm.prank(owner);
         vm.expectRevert(PanikEscrow.AlreadyShipped.selector);
         escrow.ship();
+    }
+
+    /// @dev `shipped` is one-way and closes both `deposit()` and
+    ///      `claimRefund()`. An accidental day-0 `ship()` on an empty escrow
+    ///      used to set it anyway, bricking the contract permanently.
+    function test_ship_revertsOnEmptyBalance() public {
+        vm.prank(owner);
+        vm.expectRevert(PanikEscrow.NothingToShip.selector);
+        escrow.ship();
+
+        // The contract is still fully usable: not shipped, deposits open,
+        // and the refund path still reachable after the deadline.
+        assertFalse(escrow.shipped());
+
+        vm.prank(alice);
+        usdc.approve(address(escrow), DEPOSIT);
+        vm.prank(alice);
+        escrow.deposit();
+        assertEq(escrow.depositorCount(), 1);
+
+        vm.warp(block.timestamp + WINDOW);
+        vm.prank(alice);
+        escrow.claimRefund();
+        assertTrue(escrow.refunded(alice));
     }
 
     // ─────────────── Refund ──────────────────────────────────────────────

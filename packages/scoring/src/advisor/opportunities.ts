@@ -148,6 +148,7 @@ export async function findOpportunities(
           healthFactor: scored.healthFactor,
           collateralValueUsd: collateralUsd,
           borrowValueUsd: borrowUsd,
+          usdValuesUnavailable: false, // hypothetical scenario: sized in USD by construction
           subScores: scored.subScores,
           scoredCollateralSymbol: symbol,
         },

@@ -4,14 +4,57 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { WagmiProvider } from "wagmi";
+import { WagmiProvider, useReadContract } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { wagmiConfig } from "./lib/contracts";
+import {
+  wagmiConfig,
+  ESCROW_ABI,
+  getEscrowAddress,
+  getEscrowChainId,
+} from "./lib/contracts";
 import { DepositFlow } from "./components/DepositFlow";
 import { RefundBanner } from "./components/RefundBanner";
 import { EscrowStats } from "./components/EscrowStats";
 
 const queryClient = new QueryClient();
+
+/**
+ * Reads the contract's single global `refundDeadline()` and formats it as an
+ * absolute date.
+ *
+ * The deadline is ONE timestamp fixed at deployment, shared by every
+ * depositor — it is NOT 90 days from your own deposit. Copy on this page must
+ * never imply otherwise: someone depositing on day 85 has 5 days left, not 90.
+ * Returns `null` until the read resolves (or if no contract is configured), in
+ * which case callers fall back to naming the deployment as the start date.
+ */
+function useGlobalDeadline(): string | null {
+  let escrowAddress: `0x${string}` | null = null;
+  try {
+    escrowAddress = getEscrowAddress();
+  } catch {
+    // Contract not deployed yet — callers fall back to generic copy.
+  }
+
+  const { data: refundDeadline } = useReadContract(
+    escrowAddress
+      ? {
+          address: escrowAddress,
+          abi: ESCROW_ABI,
+          functionName: "refundDeadline",
+          chainId: getEscrowChainId(),
+        }
+      : undefined
+  );
+
+  if (refundDeadline === undefined) return null;
+
+  return new Date(Number(refundDeadline) * 1000).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
 
 /** Benefits list for founding users */
 const BENEFITS = [
@@ -45,6 +88,8 @@ const BENEFITS = [
 function FoundingApp() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  const deadlineDate = useGlobalDeadline();
 
   return (
     <div className="relative min-h-screen bg-[#0A0A0B] text-[#F0F4FF] selection:bg-panik-orange/30 selection:text-white overflow-x-clip">
@@ -103,10 +148,12 @@ function FoundingApp() {
           <p
             className={`text-lg md:text-xl text-white/50 max-w-2xl mx-auto leading-relaxed mb-4 transition-all duration-700 delay-200 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
           >
-            If we don't ship PANIK within{" "}
-            <span className="text-white/80 font-medium">90 days</span> of your
-            deposit, you claim your money back directly from the smart contract.
-            No questions asked.
+            There is one deadline for everyone:{" "}
+            <span className="text-white/80 font-medium">
+              {deadlineDate ?? "90 days from contract deployment"}
+            </span>
+            . If we haven't shipped PANIK by then, you claim your money back
+            directly from the smart contract. No questions asked.
           </p>
 
           <p
@@ -172,7 +219,9 @@ function FoundingApp() {
               {
                 step: "02",
                 title: "We build PANIK",
-                desc: "Your funds are held by the smart contract — not by us. We have 90 days from your deposit to ship the product.",
+                desc: `Your deposit sits in the escrow contract. We have until ${
+                  deadlineDate ?? "the deadline"
+                } to ship — one date fixed when the contract was deployed, identical for every depositor whenever you deposit.`,
               },
               {
                 step: "03",
@@ -208,8 +257,12 @@ function FoundingApp() {
               <li className="flex items-start gap-3">
                 <span className="text-orange-400 mt-0.5">✓</span>
                 <span>
-                  <strong className="text-white/60">Non-custodial.</strong> Funds
-                  are held by the smart contract, not a team wallet.
+                  <strong className="text-white/60">Held by the contract.</strong>{" "}
+                  Funds sit in the escrow contract, not a team wallet. Until the
+                  deadline, we can sweep the balance to our treasury by calling{" "}
+                  <code className="text-white/50">ship()</code> — a team
+                  decision, taken on-chain and publicly visible. The contract
+                  cannot check that we actually launched.
                 </span>
               </li>
               <li className="flex items-start gap-3">
@@ -222,9 +275,14 @@ function FoundingApp() {
               <li className="flex items-start gap-3">
                 <span className="text-orange-400 mt-0.5">✓</span>
                 <span>
-                  <strong className="text-white/60">Deadline enforced.</strong> If
-                  90 days pass without release, the team can never touch your
-                  funds.
+                  <strong className="text-white/60">
+                    One deadline for everyone.
+                  </strong>{" "}
+                  {deadlineDate
+                    ? `It was fixed when the contract was deployed — ${deadlineDate} — not 90 days from your own deposit.`
+                    : "It is fixed when the contract is deployed — 90 days from deployment, not 90 days from your own deposit."}{" "}
+                  Once it passes without a release, the team is locked out of
+                  your funds permanently.
                 </span>
               </li>
               <li className="flex items-start gap-3">

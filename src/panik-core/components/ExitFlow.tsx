@@ -266,6 +266,11 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       const hash = await writeContractAsync(request as never);
       setStatus("Waiting for confirmation...");
       const txReceipt = await client.waitForTransactionReceipt({ hash });
+      // viem resolves on a reverted tx too - the receipt status is the only
+      // proof the exit actually executed.
+      if (txReceipt.status !== "success") {
+        throw new Error("Exit transaction reverted on-chain");
+      }
 
       let usdcReceived = 0n;
       try {

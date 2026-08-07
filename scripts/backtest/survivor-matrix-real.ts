@@ -66,8 +66,11 @@ interface UserHf { liquidated: boolean; firstLiqIso: string | null; hf: Record<s
     return {
       dailyReturns30d: ret(px.weth, Math.max(0, d - 30), d),
       btcReturns30d: ret(px.wbtc, Math.max(0, d - 30), d),
-      maxPrice90d: Math.max(...w90),
-      minPrice90d: Math.min(...w90),
+      // Ordered series: the extremes route to the deprecated order-blind
+      // fallback, which is byte-identical to the pre-fix formula - re-running
+      // this matrix with them would "confirm" a calibration the engine no
+      // longer uses.
+      prices90d: w90,
     };
   };
 
