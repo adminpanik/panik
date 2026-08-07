@@ -1268,7 +1268,7 @@ export function AppDemo() {
                                     risk-low told the user a high APY was safe,
                                     which is close to the opposite of true. */}
                                 <span className="text-xs text-text-primary font-sans font-semibold tabular-nums">
-                                  APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
+                                  APY rate: {(py?.apy ?? preset.apy).toFixed(1)}%
                                 </span>
                                 {py && (
                                   <span className="text-2xs font-sans text-text-secondary tabular-nums">
@@ -1315,7 +1315,7 @@ export function AppDemo() {
                               setActiveTab("watch");
                             }}
                           >
-                            Audit &amp; Simulate →
+                            Audit &amp; simulate →
                           </Button>
                         </div>
                       </div>
@@ -1370,7 +1370,7 @@ export function AppDemo() {
                             <>
                               <div className="mb-2 flex items-baseline justify-between">
                                 <span className="text-xs text-text-muted font-sans tabular-nums">
-                                  APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
+                                  APY rate: {(py?.apy ?? preset.apy).toFixed(1)}%
                                 </span>
                                 {py && (
                                   <span className="text-2xs font-sans text-text-muted tabular-nums">
@@ -1414,7 +1414,7 @@ export function AppDemo() {
                               setActiveTab("watch");
                             }}
                           >
-                            Force Audit →
+                            Force audit →
                           </Button>
                         </div>
                       </div>
@@ -1621,7 +1621,7 @@ export function AppDemo() {
                           onClick={() => setOpenPositionPreset(activeMarket)}
                           className="px-3 py-1.5 rounded-md font-sans text-2xs font-bold text-surface-base bg-text-primary hover:opacity-90 cursor-pointer transition-all"
                         >
-                          Open This Position
+                          Open this position
                         </button>
                         {!liveWatch && (
                           <span className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
@@ -1725,7 +1725,7 @@ export function AppDemo() {
                       {/* Right: Top Risk Drivers section */}
                       <div className="flex-1 border-t md:border-t-0 md:border-l border-border-subtle pt-4 md:pt-0 md:pl-6 space-y-4">
                         <span className="block text-2xs font-sans text-text-muted select-none">
-                          Top Risk Drivers
+                          Top risk drivers
                         </span>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
@@ -1733,7 +1733,7 @@ export function AppDemo() {
                           <div className="space-y-1.5">
                             <div className="flex justify-between items-center text-2xs font-sans">
                               <span className="text-text-secondary flex items-center gap-1">
-                                Health Factor
+                                Health factor
                                 <InfoTip text="Your distance to liquidation, scaled 0-100. The heaviest input to the composite score (40% weight)." />
                               </span>
                               <span className={`font-bold tabular-nums ${
@@ -1792,7 +1792,7 @@ export function AppDemo() {
                           <div className="space-y-1.5">
                             <div className="flex justify-between items-center text-2xs font-sans">
                               <span className="text-text-secondary flex items-center gap-1">
-                                Pool Conditions
+                                Pool conditions
                                 <InfoTip text="Market-wide stress: sector TVL flows and broad drawdowns that hit every position at once. 15% weight." />
                               </span>
                               <span className={`font-bold tabular-nums ${
@@ -1954,13 +1954,13 @@ export function AppDemo() {
                   {/* Advanced parameters (#4): direct inputs for amounts + prices */}
                   <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-4">
                     <span className="text-2xs font-sans text-text-primary block border-b border-border-subtle pb-2">
-                       Simulate Fluctuation Parameters
+                       Simulate fluctuation parameters
                     </span>
 
                     {/* Collateral amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex justify-between items-center text-xs font-sans text-text-secondary">
-                        <span>Collateral Deposited ({activeMarket.collateralAsset}):</span>
+                        <span>Collateral deposited ({activeMarket.collateralAsset}):</span>
                         <input
                           type="number"
                           min={0}
@@ -1990,7 +1990,7 @@ export function AppDemo() {
                     {/* Collateral price */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex justify-between items-center text-xs font-sans text-text-secondary">
-                        <span>Collateral Asset Price ({activeMarket.collateralAsset}):</span>
+                        <span>Collateral asset price ({activeMarket.collateralAsset}):</span>
                         <input
                           type="number"
                           min={0}
@@ -2028,7 +2028,7 @@ export function AppDemo() {
                     {/* Borrowed amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex justify-between items-center text-xs font-sans text-text-secondary">
-                        <span>Borrowed Amount ({activeMarket.debtAsset}):</span>
+                        <span>Borrowed amount ({activeMarket.debtAsset}):</span>
                         <input
                           type="number"
                           min={0}
@@ -2060,7 +2060,7 @@ export function AppDemo() {
                     {/* Borrowed asset price (depeg scenarios) */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex justify-between items-center text-xs font-sans text-text-secondary">
-                        <span>Borrowed Asset Price ({activeMarket.debtAsset}):</span>
+                        <span>Borrowed asset price ({activeMarket.debtAsset}):</span>
                         <input
                           type="number"
                           min={0}
@@ -2737,7 +2737,7 @@ export function AppDemo() {
                   {/* 10 Risk Dimensions Table/Cards Grid */}
                   <div className="space-y-3">
                     <span className="block text-2xs font-sans text-text-muted">
-                      Liquidation & Pool Metrics
+                      Liquidation & pool metrics
                     </span>
                     
                     <div className="grid grid-cols-2 gap-3">
@@ -2862,7 +2862,7 @@ export function AppDemo() {
                   {/* Dimension 8, 9, 10: Risk Signals */}
                   <div className="space-y-3.5">
                     <span className="block text-2xs font-sans text-text-muted">
-                      Risk Signals & Drivers
+                      Risk signals & drivers
                     </span>
 
                     <div className="space-y-2 text-xs font-sans">
@@ -2908,7 +2908,7 @@ export function AppDemo() {
                     onClick={() => setSelectedRiskBreakdownPreset(null)}
                     className="flex-1 py-3 text-center text-xs font-sans text-text-secondary bg-white/5 hover:bg-white/10 rounded-md cursor-pointer transition-colors border border-border-subtle"
                   >
-                    Close Panel
+                    Close panel
                   </button>
                   <button
                     onClick={() => {
@@ -2919,7 +2919,7 @@ export function AppDemo() {
                     }}
                     className="flex-1 py-3 text-center text-xs font-sans font-bold text-text-primary bg-white/[0.06] border border-border-subtle rounded-md cursor-pointer hover:bg-white/10 transition-all"
                   >
-                    Open Simulator
+                    Open simulator
                   </button>
                   <button
                     onClick={() => setOpenPositionPreset(selectedRiskBreakdownPreset)}
