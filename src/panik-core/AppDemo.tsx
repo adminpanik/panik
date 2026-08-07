@@ -2438,12 +2438,22 @@ export function AppDemo() {
                              subline underneath. The marks are the value now, so
                              the label matches what the figure shows - and the
                              icons name WHICH protocols, which no arrangement of
-                             that sentence ever did. Fixed height so the row of
-                             four stat cards keeps a single baseline: the value
-                             slot is otherwise 34px of text line-box. */
+                             that sentence ever did.
+
+                             32px, not 24px. These marks ARE this card's value,
+                             and at 24px they read as decoration sitting beside
+                             three siblings whose values are a 28px numeral —
+                             the smallest thing in the row was the only thing in
+                             the row carrying the answer. 32px fits inside the
+                             34px text line-box the other three values occupy,
+                             so the row keeps ONE baseline and the card heights
+                             do not move. */
                           value={
                             <span className="flex h-[34px] items-center">
-                              <ProtocolMarks protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]} />
+                              <ProtocolMarks
+                                protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]}
+                                size="w-8 h-8"
+                              />
                             </span>
                           }
                           sub={
