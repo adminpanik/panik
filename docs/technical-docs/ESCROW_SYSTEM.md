@@ -2,26 +2,28 @@
 
 ## Context
 As part of the PANIK waitlist and pre-launch program, we have established a hidden **Founding User program** accessible via `/founding` and `/early-access`. 
-To build trust with early adopters, we implement a non-custodial $5 USDC escrow contract on Base. If PANIK does not launch within 90 days of a user's deposit, they can claim their 5 USDC back directly from the contract.
+To build trust with early adopters, we implement a non-custodial $5 USDC escrow contract on Base. The contract has a **single global deadline** set at deployment (deploy time + 90 days), shared by every depositor — it is not a per-user clock. If the team has not called `ship()` by that deadline, every depositor can claim their 5 USDC back directly from the contract, permanently.
 
 ---
 
 ## 1. Smart Contract Architecture (`PanikEscrow.sol`)
 
-The smart contract is written in Solidity `^0.8.24` and compiled using standard EVM optimization. It relies on a trusted ERC-20 token interface (`IERC20`) to interact with USDC.
+The smart contract is written in Solidity `^0.8.24`. It interacts with USDC through a minimal ERC-20 interface vendored at `contracts/src/interfaces/IERC20.sol` (production sources do not depend on `forge-std`).
+
+**One compiler configuration:** `contracts/foundry.toml` — solc `0.8.24`, `evm_version = "cancun"`, optimizer on at 200 runs, no `via_ir`. `evm_version` is pinned explicitly because it is hashed into the contract metadata, so a solc default change would silently alter the deployed bytecode and break Basescan verification. Every deploy path builds through Foundry; nothing else compiles this contract.
 
 ### State & Parameters
-- **Accepted Token:** `usdc` (USDC on Base/Base Sepolia).
+- **Accepted Token:** `usdc` (USDC on Base/Base Sepolia). The constructor requires `decimals() == 6`, since the deposit size hardcodes that assumption.
 - **Deposit Size:** `5_000_000` (exactly 5 USDC, utilizing USDC's 6-decimal format).
-- **Refund Window:** Global `90 days` from the time of deployment.
+- **Refund Window:** A single global `90 days` from the time of deployment. Not per depositor.
 - **Roles:**
   - `owner`: Authorized to trigger `ship()`. Can transfer ownership or update the treasury wallet.
-  - `treasury`: Receives funds upon successful product shipping.
+  - `treasury`: Receives the balance when `ship()` is called.
 
 ### State Mapping & Auditing Tables
-- `refundDeadline`: Global timestamp (deployment time + 90 days). After this timestamp, deposits are closed and refunds become available.
-- `shipped`: Global status flag. If `true`, the team has launched and collected the funds.
-- `depositTime[address]`: Unix timestamp of the wallet's deposit. (Used to verify participation).
+- `refundDeadline`: Global immutable timestamp (deployment time + 90 days), **no arguments**. After this timestamp, deposits are closed, `ship()` is permanently blocked, and refunds become available.
+- `shipped`: Global status flag. If `true`, the owner has swept the funds to the treasury.
+- `depositTime[address]`: Unix timestamp of the wallet's deposit. Used as the "has deposited" flag and as an audit record **only** — no time math reads it. Refund eligibility depends solely on the global `refundDeadline`.
 - `refunded[address]`: Set to `true` when a depositor claims their refund.
 
 ---
@@ -35,9 +37,9 @@ function deposit() external;
 1. Reverts if `shipped` is true.
 2. Reverts if the global `refundDeadline` has passed (`block.timestamp >= refundDeadline`).
 3. Checks that the sender has not deposited before (`depositTime[msg.sender] == 0`).
-4. Performs `transferFrom` for exactly 5 USDC from the user's wallet to the contract.
-5. Records `depositTime[msg.sender] = block.timestamp`.
-6. Increments the `depositorCount` total.
+4. Records `depositTime[msg.sender] = block.timestamp`.
+5. Increments the `depositorCount` total.
+6. Performs `transferFrom` for exactly 5 USDC from the user's wallet to the contract. State is written *before* this external call (checks-effects-interactions), so a reentrant call from a hostile token hits `AlreadyDeposited`.
 7. Emits `Deposited(msg.sender, block.timestamp)`.
 
 ### B. Shipping Flow (`ship()`)
@@ -49,9 +51,15 @@ function ship() external onlyOwner;
 3. Enforces the strict global deadline:
    `block.timestamp < refundDeadline`.
    - If the global 90-day deadline has passed, the call reverts with `RefundWindowPassed` and the team forfeits all funds.
-4. Marks `shipped = true`.
-5. Transfers the entire contract balance of USDC to the `treasury` address.
-6. Emits `Shipped()`.
+4. Reverts with `NothingToShip` if the escrow balance is zero. `shipped` is one-way and closes `deposit()` and `claimRefund()` permanently, so an accidental empty-escrow call would brick the contract for nothing.
+5. Marks `shipped = true`.
+6. Transfers the entire contract balance of USDC to the `treasury` address.
+7. Emits `Shipped()`.
+
+> **No proof-of-shipping check.** Those are the only conditions. The contract
+> cannot observe whether the app actually launched, so before the deadline
+> `ship()` is a discretionary owner action, and `setTreasury()` can change the
+> destination first. The enforceable guarantee is the deadline, not the launch.
 
 ### C. Refund Flow (`claimRefund()`)
 ```solidity
@@ -79,6 +87,14 @@ The contract is compiled and deployed to **Base Sepolia** testnet:
 | **Owner Address** | `0xFE3EbAC628dCD84Ac87f75b12114B8D36cD47E62` |
 | **Default Treasury** | `0xFE3EbAC628dCD84Ac87f75b12114B8D36cD47E62` (Modifiable by owner) |
 | **Deployment Tx** | [`0xa69ed7807d5a5791bb31233d0cb275408337347b48cde76b05e80e7824eb2883`](https://sepolia.basescan.org/tx/0xa69ed7807d5a5791bb31233d0cb275408337347b48cde76b05e80e7824eb2883) |
+
+> **This deployment predates the current source.** The Sepolia instance above
+> runs the *previous* bytecode. It does not include the constructor
+> `decimals() == 6` check or the checks-effects-interactions ordering in
+> `deposit()`; those apply from the next deploy onward. Its externally visible
+> behaviour (global deadline, `ship()`, `claimRefund()`) is otherwise the same
+> as described here. Do not verify the current source against this address —
+> it will not match. Redeploy to pick the changes up.
 
 ---
 
@@ -132,12 +148,12 @@ The frontend React application lives in `src/panik-founding/` and is bundled sep
 
 ### Key Client Components
 1. **`App.tsx`:** The root layout which sets up `WagmiProvider` and `QueryClientProvider`, presenting the founding perks.
-2. **`EscrowStats.tsx`:** Dynamically queries the contract for the total number of unique depositors (`getDepositorCount`) and tracks user-specific details.
+2. **`EscrowStats.tsx`:** Dynamically queries the contract for the total number of unique depositors (`depositorCount()` — there is no `getDepositorCount`) and the global `refundDeadline()`, and tracks user-specific details.
 3. **`DepositFlow.tsx`:**
    - Renders a multi-step user experience: Connect Wallet ➔ Switch Chain (Base/Base Sepolia) ➔ Verify USDC Balance ➔ Approve/Permit USDC ➔ Deposit 5 USDC ➔ Transacting ➔ Confirmed Success.
 4. **`RefundBanner.tsx`:**
    - Evaluates if the connected wallet is eligible for a refund (`isRefundable`).
-   - If `true` (90 days elapsed since deposit, not released, not refunded), shows an immediate, single-click refund claim banner.
+   - If `true` (the global `refundDeadline` has passed, `ship()` was never called, and this wallet has not already refunded), shows an immediate, single-click refund claim banner.
 
 ---
 
@@ -145,18 +161,46 @@ The frontend React application lives in `src/panik-founding/` and is bundled sep
 
 When ready to publish the founding page to Base Mainnet:
 
-1. **Deploy the Mainnet Contract:**
-   Set the following variables in your `.env` or deployment terminal:
+> ⚠️ **Do not use `scripts/deploy-escrow.mjs` for mainnet.** It is Base Sepolia
+> only and now throws if pointed anywhere else. Mainnet deploys go through the
+> Foundry script below.
+
+1. **Deploy the Mainnet Contract (Foundry):**
+   Set the following variables in your `.env` or deployment terminal — note the
+   names differ from the testnet script's:
    ```env
-   DEPLOYER_PRIVATE_KEY=<your-mainnet-deployer-private-key>
-   ESCROW_OWNER_ADDRESS=<your-multisig-or-safe-address>
-   ESCROW_TREASURY_ADDRESS=<your-treasury-or-multisig-address>
+   PRIVATE_KEY=<your-mainnet-deployer-private-key>
+   OWNER_ADDRESS=<your-multisig-or-safe-address>
+   TREASURY_ADDRESS=<your-treasury-or-multisig-address>
    ```
-   Deploy using the migration script:
+   Deploy:
    ```bash
-   node --env-file=.env scripts/deploy-escrow.mjs
+   cd contracts
+   forge script script/Deploy.s.sol:DeployPanikEscrow --rpc-url base --broadcast --verify -vvvv
    ```
-   *Note:* The deploy script automatically switches variables based on target networks. For mainnet, it uses the official Base USDC contract: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
+
+   The **chain id** selects USDC: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+   on Base Mainnet (8453), the Circle test token on Base Sepolia (84532).
+   `USDC_ADDRESS` is ignored on both, so a stale export cannot hardwire the
+   immutable `usdc` field to the wrong token.
+
+   After the deployment tx the script asserts, aborting the run on failure:
+   the chain id is 8453 or 84532; `refundDeadline() == block.timestamp + 90 days`;
+   `DEPOSIT_AMOUNT() == 5_000_000`; `!shipped()`; the owner is not the deployer
+   key; and on mainnet, that the owner address has code (i.e. a Safe/multisig,
+   not an EOA). It does **not** re-read `usdc`/`owner`/`treasury` back out —
+   the constructor assigns those unconditionally, so such a check can only
+   fail if the compiler is broken.
+
+   *Testnet only:* `scripts/deploy-escrow.mjs` deploys to Base Sepolia using
+   `DEPLOYER_PRIVATE_KEY` / `ESCROW_OWNER_ADDRESS` / `ESCROW_TREASURY_ADDRESS`,
+   and throws if pointed at any chain other than 84532. It shells out to
+   `forge build` and deploys `contracts/out/PanikEscrow.sol/PanikEscrow.json`,
+   so both paths share one compiler configuration and emit byte-identical
+   creation code, metadata included:
+   ```bash
+   node --env-file=.env scripts/deploy-escrow.mjs   # requires Foundry on PATH
+   ```
 
 2. **Update Environment Variables:**
    Set the following on Vercel and in your production `.env`:

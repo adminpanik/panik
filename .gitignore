@@ -25,6 +25,12 @@ scripts/backtest/data/
 scripts/backtest/.tmp-*.sql
 
 # Foundry (smart contract build artifacts)
+# contracts/lib/ is NOT ignored — forge deps are git submodules, and ignoring
+# them is what broke `forge build` on a fresh clone.
 contracts/out/
 contracts/cache/
-contracts/lib/
+# foundry.lock is not tracked: forge writes the dependency key with the host
+# OS's path separator ("lib\\forge-std" on Windows, "lib/forge-std" on Linux),
+# so a committed copy is dirty on whichever platform did not generate it. The
+# submodule gitlink in .gitmodules/.git is the real pin.
+contracts/foundry.lock

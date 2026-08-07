@@ -11,14 +11,14 @@ To build trust with our earliest and most loyal supporters, we are offering an e
 Instead of sending the money directly to us, their deposit is held on the blockchain by a **Smart Contract** (a secure, automated digital vault). 
 
 ### The Trust Guarantee:
-* **If we ship PANIK within 90 days:** We unlock the $5 USDC to support development, and the user gets lifetime benefits (50% fee discount, early access, etc.).
-* **If we do NOT ship within 90 days:** The contract blocks us from touching the money. The user can click a button to retrieve their exact $5 USDC automatically.
+* **If we ship PANIK within 90 days:** We call `ship()` to unlock the $5 USDC to support development, and the user gets lifetime benefits (50% fee discount, early access, etc.). Calling `ship()` is our decision and our commitment—the contract records it publicly but cannot itself verify a launch.
+* **If we do NOT call `ship()` within 90 days:** The contract blocks us from touching the money, permanently. The user can click a button to retrieve their exact $5 USDC automatically, with no deadline on that right.
 
 ---
 
 ## 2. The Four Golden Rules of the Vault
 
-The smart contract is **immutable**, meaning once it is deployed on the blockchain, its rules cannot be changed or bypassed by anyone—not even the team.
+The smart contract's **code is immutable**: once deployed, the rules below cannot be rewritten, upgraded, or bypassed—not by the team, not by anyone. That is what the code guarantees. What the code does *not* do is judge whether we shipped: within the 90-day window, moving the funds to the treasury is a decision the team makes on-chain by calling `ship()`. Be precise about this when you talk to users—the enforceable promise is the deadline, not the launch.
 
 ```
        [ Users Deposit $5 USDC ]
@@ -41,8 +41,13 @@ The smart contract is **immutable**, meaning once it is deployed on the blockcha
 The 90-day countdown starts on a single global date: the moment the contract was deployed. All users share the exact same refund deadline.
 * *Example:* If the contract was deployed on June 19th, the launch target is September 17th. We must ship the app and claim the funds before this date.
 
-### Rule 2: Non-Custodial (We don't hold the money)
-The deposited funds sit inside the contract address, not in a team wallet. No one can spend or move this money until either the team ships the app or the global deadline passes.
+### Rule 2: The contract holds the money (but we can still release it early)
+The deposited funds sit inside the contract address, not in a team wallet. There are exactly two ways money ever leaves it:
+
+1. **Before the deadline**, the owner wallet calls `ship()`, which sends the whole balance to the Treasury. This is a team decision, taken on-chain and publicly visible. The contract has no way to check that the app really launched, and the owner can point the Treasury at a different address (see 3C) before calling. So during this window, users are trusting *us*—the code only makes the decision transparent and irreversible.
+2. **After the deadline**, if we never called `ship()`, the contract locks us out for good and each depositor withdraws their own 5 USDC.
+
+There is no third path: no admin withdrawal, no partial skim, no upgrade that could add one. The honest one-line version for users is: **your $5 is refundable after the deadline if we haven't shipped, and before that, any release is a team action recorded on the blockchain.**
 
 ### Rule 3: The "Claim" is a single global action (Shipping)
 When the app launches, the team calls a single function (`ship()`). This changes the state of the project to "Shipped" and pulls all deposited funds into our **Treasury** in one go. No need to release deposits address-by-address.
@@ -61,6 +66,8 @@ When the app launches, the contract owner triggers the release of all funds:
 1. The team uses the owner wallet to log into a simple admin interface (or directly on the Base block explorer).
 2. You call the `ship()` function.
 3. The contract marks the project as shipped, closes future deposits, and sends the entire USDC balance to our **Treasury**.
+
+`ship()` is one-way and can only be called once, so it refuses to run on an empty escrow (`NothingToShip`). Do not call it "to test" — with a balance, it is final.
 
 ### B. How do users get a refund?
 If we miss the global 90-day deadline, users go back to the hidden link (`/founding` or `/early-access`).
