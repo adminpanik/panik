@@ -174,6 +174,26 @@ npm run dev:api
 npm run worker:dev
 ```
 
+### Just want to see the dashboard?
+
+```bash
+npm run dev:mock    # then open http://localhost:3000/app.html
+```
+
+One terminal, no `.env`, no Supabase, no API keys, no wallet. A dev-only Vite
+plugin (`dev/mockApi.ts`, `apply: 'serve'`) answers `/api/*` from typed fixtures
+and seeds the onboarding keys in `localStorage`, so you land straight on a
+populated dashboard: five positions across all four protocols and every risk
+band, 30 days of history, alerts, and an advisor report. It only fills
+`localStorage` keys that are unset, so a real onboarding you are testing is left
+alone (clear them in devtools to replay the tour).
+
+The fixtures are static — the numbers are engine-*consistent*, not
+engine-*computed*, and the Watch USD sliders will not move the score. Run
+`npm run dev:api` when you need the real scoring engine. Anything the mock does
+not implement (e.g. `/api/health`) still falls through to the `:8787` proxy, and
+`npm run dev` is completely unaffected.
+
 ```bash
 # Tests
 npm test              # API + app
