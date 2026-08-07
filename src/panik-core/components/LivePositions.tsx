@@ -224,9 +224,18 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       question the old "$…" provoked: the score and the health
                       factor above it are exact, and it is only the dollars that
                       are missing. The icon moved up into the block on line 2 —
-                      it was the same warning twice, six pixels apart. */}
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="min-w-0 text-sm font-sans text-text-secondary">
+                      it was the same warning twice, six pixels apart.
+
+                      The Stress-test button drops to its own line rather than
+                      squeezing this sentence. On a 390px phone the row has
+                      ~242px and the button takes ~110 of it, which left the
+                      verdict reading four words to a line down a 130px gutter —
+                      raising the type would have bought nothing if the column
+                      it sits in stays that narrow. `basis` is the trigger: the
+                      sentence claims 12rem before the button is allowed to
+                      share the line, and above that width nothing moves. */}
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">
+                    <p className="min-w-0 flex-1 basis-48 text-sm font-sans text-text-secondary">
                       <span className="tabular-nums">{health}</span>, {status}
                       {p.usdValuesUnavailable && (
                         <span
