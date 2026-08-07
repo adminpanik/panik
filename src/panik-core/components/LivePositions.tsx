@@ -132,7 +132,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                     <RiskChip
                       className={showWallet ? "" : "ml-auto"}
                       band={p.band}
-                      title={`Sub-scores — position ${Math.round(p.subScores.positionHealth)}, asset ${Math.round(p.subScores.assetRisk)}, protocol ${Math.round(p.subScores.protocolSafety)}, systemic ${Math.round(p.subScores.systemicRisk)}`}
+                      title={`Sub-scores: position ${Math.round(p.subScores.positionHealth)}, asset ${Math.round(p.subScores.assetRisk)}, protocol ${Math.round(p.subScores.protocolSafety)}, systemic ${Math.round(p.subScores.systemicRisk)}`}
                     >
                       {p.total} {p.band}
                     </RiskChip>
