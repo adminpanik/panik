@@ -9,6 +9,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    // server/ is in here because it holds the auth boundaries: walletAuth
+    // decides who may redirect a wallet's liquidation alerts, and adminAuth
+    // gates the console. api/ carries the same middleware on the Vercel side.
     include: ["{src,server,api}/**/*.test.ts"],
   },
 });

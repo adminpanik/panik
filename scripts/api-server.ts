@@ -63,6 +63,8 @@ import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
 import { buildCreateInput, type RawCreateBody } from "../server/adminCampaigns";
 import { adminAuthGate } from "../server/adminAuth";
+import { verifyWalletOwnership } from "../server/walletAuth";
+import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -462,9 +464,36 @@ app.get("/api/version", (_req, res) => {
   });
 });
 
-// Watch registry — the UI's wallet selector source (so wallets with no
-// readable positions still get a pill instead of vanishing).
-app.get("/api/wallets", publicLimit, async (req, res) => {
+/**
+ * Admin gate for the whole-registry routes. Unauthenticated, these dumped every
+ * watched wallet (address + risk profile + operator label) — the enumeration
+ * list an attacker needs to target other users, and a de-facto customer roster.
+ * Only the ops/demo view consumes them; a user's OWN data comes from the
+ * per-wallet routes (/api/positions, /api/history), which stay open.
+ *
+ * The guessing brake is keyed on the PRESENTED credential, never the caller's
+ * IP — an IP-keyed lockout lets any stranger lock the real admin out. See
+ * server/adminAuth.ts.
+ */
+function requireAdmin(req: express.Request, res: express.Response): boolean {
+  const { auth, retryAfterSec } = adminAuthGate.authorize(req.header("x-admin-key") ?? undefined);
+  if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return false; }
+  if (auth === "locked") {
+    res.setHeader("Retry-After", String(retryAfterSec ?? 60));
+    res.status(429).json({ error: "too many failed admin auth attempts", retryAfterSec });
+    return false;
+  }
+  if (auth === "forbidden") {
+    res.status(401).json({ error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+// Watch registry — the ops wallet selector source (so wallets with no readable
+// positions still get a pill instead of vanishing). `label` never leaves here.
+app.get("/api/wallets", adminLimit, async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const { rows } = await db.query(
       "select wallet, risk_profile, label from public.watched_wallets where is_active order by created_at",
@@ -475,10 +504,64 @@ app.get("/api/wallets", publicLimit, async (req, res) => {
   }
 });
 
-app.get("/api/scores", publicLimit, async (req, res) => {
+app.get("/api/scores", adminLimit, async (req, res) => {
+  if (!requireAdmin(req, res)) return;
   try {
     const { at, positions } = await getScores();
     res.json({ updatedAt: at, positions });
+  } catch (err) {
+    serverError(req, res, 500, err);
+  }
+});
+
+/**
+ * Issue a single-use SIWE nonce. The browser fetches one immediately before
+ * prompting a signature; verification consumes it atomically, which is what
+ * makes an ownership proof unreplayable (and unmakeable by a hostile page that
+ * never talked to us). Unauthenticated on purpose — a nonce authorizes nothing
+ * on its own — but STRICT-tiered anyway: every call mints a row, so this is a
+ * write endpoint wearing a GET, and the cheap-GET budget does not apply. One
+ * nonce is fetched per signature prompt, so 10/min is far above real use.
+ */
+app.get("/api/auth/nonce", strictLimit, async (req, res) => {
+  let store: SupabaseNonceStore;
+  try {
+    store = SupabaseNonceStore.fromEnv();
+  } catch (err) {
+    res.status(503).json({ error: `sign-in unconfigured: ${(err as Error).message}` });
+    return;
+  }
+  try {
+    const { nonce } = await store.issue();
+    res.json({ nonce, expiresInSec: AUTH_NONCE_TTL_MS / 1000 });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * Register the caller's OWN wallet for monitoring (onboarding). Replaces the
+ * browser's direct rpc/register_watched_wallet call, which the publishable key
+ * let anyone aim at a victim's row: rewriting risk_profile to "aggressive"
+ * raises their alert threshold from 25 to 75 and mutes their liquidation
+ * warnings, and unbounded inserts add wallets the worker polls every 60s.
+ *
+ * Ownership signature bound to the "wallet-register" action + strict per-IP
+ * limit; the RPC runs over the service connection, which the migration's revoke
+ * does not (and must not) touch.
+ */
+app.post("/api/wallets/register", strictLimit, async (req, res) => {
+  const proof = await verifyWalletOwnership(req.body, "wallet-register");
+  if (!proof.ok) {
+    res.status(proof.status).json({ error: proof.error });
+    return;
+  }
+  // Normalized before it reaches SQL — the profile selects alert thresholds.
+  // (The function clamps unknown values too; this keeps the two ends honest.)
+  const profile = riskProfileParam(req.body?.profile);
+  try {
+    await db.query("select public.register_watched_wallet($1, $2)", [proof.wallet, profile]);
+    res.json({ ok: true });
   } catch (err) {
     serverError(req, res, 500, err);
   }
@@ -925,15 +1008,20 @@ app.post("/api/profile/result", profileResultLimit, async (req, res) => {
 
 // Telegram deep-link mint - dev parity with the Vercel function api/telegram/link.ts.
 // (The webhook itself needs a public URL; tunnel to this server or use Vercel.)
+// Ownership-gated: the code this mints redirects a wallet's liquidation alerts
+// to whoever opens the deep link, so the caller must PROVE the wallet is theirs
+// with a proof bound to THIS action — a "register my wallet" signature must not
+// double as authorization to redirect someone's alerts.
 const telegramConfigured = Boolean(
   process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY && process.env.VITE_TELEGRAM_BOT_USERNAME,
 );
 app.post("/api/telegram/link", strictLimit, async (req, res) => {
-  const wallet = String(req.body?.wallet ?? req.query.wallet ?? "").trim().toLowerCase();
-  if (!isEvmAddress(wallet)) {
-    res.status(400).json({ error: "invalid EVM wallet address" });
+  const proof = await verifyWalletOwnership(req.body, "telegram-link");
+  if (!proof.ok) {
+    res.status(proof.status).json({ error: proof.error });
     return;
   }
+  const wallet = proof.wallet;
   if (!telegramConfigured) {
     res.status(503).json({ error: "telegram unconfigured (SUPABASE_* / VITE_TELEGRAM_BOT_USERNAME)" });
     return;
@@ -950,14 +1038,19 @@ app.post("/api/telegram/link", strictLimit, async (req, res) => {
 
 // Telegram link status - the browser polls this after Connect to auto-confirm
 // (and on load to show an existing link). Reads via the service key (table is
-// deny-all to the browser); returns only linked + username.
+// deny-all to the browser).
+//
+// Returns ONLY {linked}. It used to return the @username too, which made this
+// an unauthenticated wallet -> Telegram handle oracle: walk the wallet list and
+// you deanonymize the whole user base. The one bit that remains ("does this
+// address have alerts on") is what the card needs and is not identifying.
 app.get("/api/telegram/status", telegramStatusLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   if (!isEvmAddress(wallet)) { res.status(400).json({ error: "invalid EVM wallet address" }); return; }
   if (!telegramConfigured) { res.status(503).json({ error: "telegram unconfigured" }); return; }
   try {
     const link = await TelegramStore.fromEnv().getLink(wallet);
-    res.json({ linked: Boolean(link?.enabled), username: link?.username ?? null });
+    res.json({ linked: Boolean(link?.enabled) });
   } catch (err) {
     serverError(req, res, 502, err);
   }
@@ -1050,20 +1143,7 @@ app.post("/api/try/access", strictLimit, async (req, res) => {
 });
 
 async function adminCampaigns(req: express.Request, res: express.Response): Promise<void> {
-  // The guessing brake is keyed on the PRESENTED credential, never the caller's
-  // IP — an IP-keyed lockout lets any stranger lock the real admin out. See
-  // server/adminAuth.ts.
-  const { auth, retryAfterSec } = adminAuthGate.authorize(req.header("x-admin-key") ?? undefined);
-  if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return; }
-  if (auth === "locked") {
-    res.setHeader("Retry-After", String(retryAfterSec ?? 60));
-    res.status(429).json({ error: "too many failed admin auth attempts", retryAfterSec });
-    return;
-  }
-  if (auth === "forbidden") {
-    res.status(401).json({ error: "unauthorized" });
-    return;
-  }
+  if (!requireAdmin(req, res)) return;
   if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
   try {
     const store = CampaignStore.fromEnv();

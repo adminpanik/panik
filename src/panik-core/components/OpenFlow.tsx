@@ -29,7 +29,12 @@ import {
   verifyOpenTargets,
   type MorphoMarketParams,
 } from "../lib/openProtocols";
-import { registerWatchedWallet } from "../lib/telegram";
+import {
+  registerWatchedWallet,
+  useWalletOwnership,
+  type RegisterResult,
+  type RiskProfile as WatchRiskProfile,
+} from "../lib/telegram";
 
 const PROTOCOL_LABEL: Record<string, string> = {
   aave_v3: "Aave V3",
@@ -87,16 +92,20 @@ export function OpenFlow({
   plan,
   riskProfile,
   onClose,
+  onMonitoring,
 }: {
   plan: AdvisorOpenPlan;
   riskProfile: string;
   onClose: () => void;
+  /** Result of watch-registering the freshly opened position (see below). */
+  onMonitoring?: (wallet: string, profile: WatchRiskProfile, result: RegisterResult) => void;
 }) {
   const { address, isConnected, chainId } = useAccount();
   const { connect } = useConnect();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient({ chainId: OPEN_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
+  const { getProof } = useWalletOwnership();
 
   const supported = isOpenSupported(plan.protocol, plan.collateralSymbol);
   const [collateralUsd, setCollateralUsd] = useState<number>(Math.round(plan.collateralUsd));
@@ -305,11 +314,19 @@ export function OpenFlow({
         });
       }
 
-      // Watch the new position immediately (fire-and-forget).
-      const profile3 = ["conservative", "moderate", "aggressive"].includes(riskProfile)
-        ? (riskProfile as "conservative" | "moderate" | "aggressive")
+      // Watch the new position immediately (fire-and-forget). Proofs are
+      // single-use now, so there is no signature to reuse; instead
+      // registerWatchedWallet skips outright when this wallet was already
+      // registered in this session (the usual case, since onboarding did it),
+      // which is what stops a second popup landing on the user the instant
+      // they finish confirming an on-chain open. A failure is reported up so
+      // it raises the "Alerts inactive" banner rather than vanishing.
+      const profile3: WatchRiskProfile = ["conservative", "moderate", "aggressive"].includes(riskProfile)
+        ? (riskProfile as WatchRiskProfile)
         : "moderate";
-      void registerWatchedWallet(address, profile3);
+      void registerWatchedWallet(address, profile3, getProof).then((result) =>
+        onMonitoring?.(address.toLowerCase(), profile3, result),
+      );
       // The open is finished; the resume record has nothing left to protect.
       saveProgress(progressKey, EMPTY_PROGRESS);
       if (mountedRef.current) setDoneHash(hashes[hashes.length - 1] ?? null);
@@ -333,6 +350,8 @@ export function OpenFlow({
     borrowCap,
     riskProfile,
     writeContractAsync,
+    getProof,
+    onMonitoring,
   ]);
 
   const inputCls =

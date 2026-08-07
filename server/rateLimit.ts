@@ -1,11 +1,20 @@
 /**
- * Tiny in-memory per-client sliding-window rate limiter for the Express API. No
- * dependency: the API runs as a SINGLE Railway container, so a process-local
- * window IS the whole picture (a shared store only matters once we scale
- * horizontally).
+ * Tiny in-memory per-client sliding-window rate limiter. No dependency: the
+ * Express API runs as a SINGLE Railway container, so a process-local window IS
+ * the whole picture (a shared store only matters once we scale horizontally).
  *
  * Keyed on ipBucket(clientIp(req)) — see server/clientIp.ts for how the client
  * address is established (TRUSTED_PROXY_HOPS) and why IPv6 is bucketed by /64.
+ *
+ * Two faces on one core, so both transports enforce the SAME rules:
+ *   - rateLimit()      Express middleware (scripts/api-server.ts, production).
+ *   - keyedRateLimit() transport-agnostic, for the api/ serverless fallbacks.
+ *     There each invocation may be its own isolate, so the window only holds
+ *     for a warm container — a brake on the obvious burst, NOT a guarantee.
+ *     It is still worth having: without it those handlers had no ceiling at all
+ *     while their Express twins were capped at 10/min.
+ *   Both go through denyRequest() for identity + refusal, so the serverless
+ *   fallback cannot drift into being weaker than the primary.
  *
  * ── EVICTION IS PART OF THE SECURITY BOUNDARY ─────────────────────────────
  * The key map is hard-capped, so something has to give when it is full. What
@@ -20,12 +29,14 @@
  * Sweeps are also throttled, so a unique-key flood cannot make us pay an O(n)
  * scan per request (measured ~100x self-amplification before this).
  *
- * Used by scripts/api-server.ts; the Vercel functions are rate-limited by the
- * platform instead (each invocation is its own isolate, so this wouldn't hold).
+ * NOTE: there is deliberately no failed-auth lockout here. It used to live in
+ * this module keyed on the client IP, which let a third party lock out the real
+ * admin; it now lives in server/adminAuth.ts keyed on a hash of the PRESENTED
+ * credential. Do not reintroduce fail()/maxFailures on an IP-keyed limiter.
  */
 
 import type { NextFunction, Request, Response } from "express";
-import { clientIp, ipBucket } from "./clientIp";
+import { clientIp, ipBucket, type IpRequest } from "./clientIp";
 
 /** Hard cap on tracked keys. Only EXPIRED entries are ever dropped. */
 const MAX_KEYS = 10_000;
@@ -46,25 +57,40 @@ export interface RateLimitOptions {
   maxKeys?: number;
 }
 
+/** Why a request was let through or turned away. */
+export type RateLimitOutcome = "ok" | "limited" | "at-capacity";
+
+/** Outcome of one `hit`. `retryAfterSec` is only meaningful when not ok. */
+export interface RateLimitDecision {
+  ok: boolean;
+  outcome: RateLimitOutcome;
+  retryAfterSec: number;
+}
+
+export interface KeyedRateLimiter {
+  /** Record + judge one request for `key`. */
+  hit(key: string): RateLimitDecision;
+  /** Tracked key count — for tests and diagnostics. */
+  size(): number;
+}
+
 export interface RateLimiter {
   (req: Request, res: Response, next: NextFunction): void;
   /** Tracked key count — for tests and diagnostics. */
   size(): number;
 }
 
-function reject(res: Response, retryMs: number): void {
-  const retryAfterSec = Math.max(1, Math.ceil(retryMs / 1000));
-  res.setHeader("Retry-After", String(retryAfterSec));
-  res.status(429).json({ error: "rate limit exceeded", retryAfterSec });
+/** A refusal, ready to be written to whichever response object the caller has. */
+export interface RateLimitDenial {
+  status: number;
+  error: string;
+  retryAfterSec: number;
 }
 
-function refuse(res: Response, error: string, retryAfterSec: number): void {
-  res.setHeader("Retry-After", String(retryAfterSec));
-  res.status(503).json({ error, retryAfterSec });
-}
+const retryAfterSec = (retryMs: number): number => Math.max(1, Math.ceil(retryMs / 1000));
 
-/** Express middleware enforcing `limit` requests per `windowMs` per client. */
-export function rateLimit(opts: RateLimitOptions): RateLimiter {
+/** Transport-agnostic sliding window. Callers supply their own key. */
+export function keyedRateLimit(opts: RateLimitOptions): KeyedRateLimiter {
   const windowMs = opts.windowMs ?? 60_000;
   const maxKeys = opts.maxKeys ?? MAX_KEYS;
   const entries = new Map<string, Entry>();
@@ -105,31 +131,63 @@ export function rateLimit(opts: RateLimitOptions): RateLimiter {
     return fresh;
   };
 
+  return {
+    hit(key: string): RateLimitDecision {
+      const now = Date.now();
+      const entry = entryOf(key, now);
+      if (entry === null) {
+        return {
+          ok: false,
+          outcome: "at-capacity",
+          retryAfterSec: Math.ceil(MIN_SWEEP_INTERVAL_MS / 1000),
+        };
+      }
+      while (entry.hits.length && now - entry.hits[0]! >= windowMs) entry.hits.shift();
+      if (entry.hits.length >= opts.limit) {
+        return { ok: false, outcome: "limited", retryAfterSec: retryAfterSec(windowMs - (now - entry.hits[0]!)) };
+      }
+      entry.hits.push(now);
+      return { ok: true, outcome: "ok", retryAfterSec: 0 };
+    },
+    size: (): number => entries.size,
+  };
+}
+
+/**
+ * Judge one request against `limiter`, establishing the client identity the
+ * same way for every transport. Returns null when the request may proceed.
+ *
+ * An unidentifiable client is REFUSED (503), never folded into a shared
+ * "unknown" bucket: that would either merge unrelated clients into one budget
+ * or — with a forgeable header — be an unlimited one. See server/clientIp.ts.
+ */
+export function denyRequest(limiter: KeyedRateLimiter, req: IpRequest): RateLimitDenial | null {
+  const ip = clientIp(req);
+  if (ip === null) return { status: 503, error: "client address unavailable", retryAfterSec: 60 };
+
+  const decision = limiter.hit(ipBucket(ip));
+  if (decision.ok) return null;
+  if (decision.outcome === "at-capacity") {
+    return { status: 503, error: "server at capacity, retry shortly", retryAfterSec: decision.retryAfterSec };
+  }
+  return { status: 429, error: "rate limit exceeded", retryAfterSec: decision.retryAfterSec };
+}
+
+/** Express middleware enforcing `limit` requests per `windowMs` per client. */
+export function rateLimit(opts: RateLimitOptions): RateLimiter {
+  const core = keyedRateLimit(opts);
+
   const middleware = (req: Request, res: Response, next: NextFunction): void => {
-    const now = Date.now();
-    const ip = clientIp(req);
-    if (ip === null) {
-      // No usable client identity. A shared "unknown" bucket would either merge
-      // unrelated clients into one budget or (with a forgeable header) be an
-      // unlimited one, so refuse instead. See server/clientIp.ts.
-      refuse(res, "client address unavailable", 60);
+    const denied = denyRequest(core, req);
+    if (denied) {
+      res.setHeader("Retry-After", String(denied.retryAfterSec));
+      res.status(denied.status).json({ error: denied.error, retryAfterSec: denied.retryAfterSec });
       return;
     }
-    const entry = entryOf(ipBucket(ip), now);
-    if (entry === null) {
-      refuse(res, "server at capacity, retry shortly", Math.ceil(MIN_SWEEP_INTERVAL_MS / 1000));
-      return;
-    }
-    while (entry.hits.length && now - entry.hits[0]! >= windowMs) entry.hits.shift();
-    if (entry.hits.length >= opts.limit) {
-      reject(res, windowMs - (now - entry.hits[0]!));
-      return;
-    }
-    entry.hits.push(now);
     next();
   };
 
-  middleware.size = (): number => entries.size;
+  middleware.size = (): number => core.size();
 
   return middleware;
 }

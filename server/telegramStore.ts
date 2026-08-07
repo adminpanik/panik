@@ -80,8 +80,34 @@ export class TelegramStore {
    * Link a wallet to a chat. Because chat_id is unique, first drop any prior
    * row for that chat (the user re-linking the same Telegram to a new wallet),
    * then upsert on the wallet PK.
+   *
+   * EVERY bind is logged, not just rebinds. Logging only `prior.chatId !==
+   * chatId` was blind to the likeliest attack: a victim who never linked has
+   * no prior row, so the hijack that captures their alerts first is exactly
+   * the one that left no trace. A failed lookup is logged as UNKNOWN rather
+   * than swallowed into "looks like a first link" — a silently-degraded audit
+   * signal is worse than none, because it reads as an all-clear.
    */
   async upsertLink(args: { wallet: string; chatId: number; username?: string }): Promise<void> {
+    const wallet = args.wallet.toLowerCase();
+    let prior: { chatId: number; username: string | null; enabled: boolean } | null = null;
+    let priorKnown = true;
+    try {
+      prior = await this.getLink(wallet);
+    } catch (err) {
+      priorKnown = false;
+      console.error(`telegram link precheck failed for wallet=${wallet}: ${(err as Error).message}`);
+    }
+    if (!priorKnown) {
+      console.warn(`telegram link bound (PRIOR STATE UNKNOWN): wallet=${wallet} chat=${args.chatId}`);
+    } else if (!prior) {
+      console.warn(`telegram link bound (first link): wallet=${wallet} chat=${args.chatId}`);
+    } else if (prior.chatId !== args.chatId) {
+      // The fingerprint of an alert takeover: the victim silently stops
+      // receiving liquidation warnings. Legitimate re-links hit it too — a
+      // signal to grep, not an error — so log it and continue.
+      console.warn(`telegram link rebound: wallet=${wallet} chat ${prior.chatId} -> ${args.chatId}`);
+    }
     await fetch(
       `${this.base}/rest/v1/telegram_links?chat_id=eq.${args.chatId}`,
       { method: "DELETE", headers: this.headers({ Prefer: "return=minimal" }) },
