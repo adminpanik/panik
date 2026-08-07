@@ -36,6 +36,7 @@ import { LivePositions } from "./components/LivePositions";
 import { Sparkline } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
+import { Button, Card, EmptyState, Stat } from "./ui";
 import {
   useAdvisor,
   useChainTelemetry,
@@ -2102,30 +2103,25 @@ export function AppDemo() {
                   </div>
                   {/* Primary action: opening positions lives in Compass; this is
                       the pointer Portfolio was missing (UX journey fix). */}
-                  <button
-                    onClick={() => setActiveTab("compass")}
-                    className="shrink-0 px-4 py-2.5 rounded-md font-mono text-xs font-bold text-surface-base bg-panik-orange hover:opacity-90 cursor-pointer transition-all shadow-lg"
-                  >
+                  <Button onClick={() => setActiveTab("compass")} className="shrink-0">
                     + Open Position
-                  </button>
+                  </Button>
                 </div>
 
-                {/* Empty-wallet path: don't leave a fresh wallet at a dead end */}
+                {/* Empty-wallet path: don't leave a fresh wallet at a dead end.
+                    "clear", not "problem" — we read the wallet successfully and
+                    there is genuinely nothing at risk on it. */}
                 {portfolioPositions !== null && portfolioPositions.length === 0 && (
-                  <div className="bg-panik-orange/[0.04] border border-panik-orange/20 rounded-lg p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                      <span className="block text-sm font-display font-bold text-text-primary mb-0.5">No positions yet</span>
-                      <span className="text-xs font-sans text-text-secondary">
-                        Browse risk-scored opportunities matched to your {selectedRiskProfile} profile and open your first position.
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("compass")}
-                      className="shrink-0 px-4 py-2 rounded-md font-mono text-xs font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/30 hover:bg-panik-orange/20 cursor-pointer transition-all"
-                    >
-                      Explore Compass →
-                    </button>
-                  </div>
+                  <EmptyState
+                    tone="clear"
+                    title="No positions yet"
+                    hint={`Browse risk-scored opportunities matched to your ${selectedRiskProfile} profile and open your first position.`}
+                    action={
+                      <Button variant="quiet" onClick={() => setActiveTab("compass")}>
+                        Explore Compass →
+                      </Button>
+                    }
+                  />
                 )}
 
                 {/* Wallet selector — a portfolio is ONE wallet; ALL = ops/registry view */}
@@ -2163,61 +2159,76 @@ export function AppDemo() {
                 )}
 
                 {/* Macro metrics columns — computed from LIVE positions when available */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4.5">
-                  <div className="bg-surface-raised/50 border border-border-subtle p-4.5 rounded-lg">
-                    <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase font-bold">
-                      Monitored Capital
-                      <InfoTip text="Total collateral value PANIK is watching for this wallet across all protocols." />
-                    </span>
-                    <span className="text-2xl font-mono font-bold text-text-primary mt-1 block tabular-nums">
-                      {liveMacro ? `$${Math.round(liveMacro.capital).toLocaleString()}` : "$18,450"}
-                    </span>
-                    <span className="text-2xs font-mono text-risk-low bg-risk-low/5 px-1.5 py-0.5 rounded-sm border border-risk-low/10 inline-block mt-1">● Guard active</span>
-                  </div>
+                {(() => {
+                  // Read once: the aggregate drives both the figure's colour and
+                  // its verdict, and they must never disagree.
+                  const aggregate = liveMacro?.aggregate ?? 22;
+                  const aggregateTone =
+                    aggregate >= 50 ? "critical" : aggregate >= 25 ? "elevated" : "low";
+                  // Spelled out rather than interpolated: Tailwind only emits a
+                  // utility it can see as a literal in the source.
+                  const AGGREGATE_VERDICT = {
+                    critical: { text: "Elevated portfolio risk", cls: "text-risk-critical" },
+                    elevated: { text: "Watch status", cls: "text-risk-elevated" },
+                    low: { text: "Secure health status", cls: "text-risk-low" },
+                  } as const;
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
+                      <Card tone="raised">
+                        <Stat
+                          label={
+                            <>
+                              Monitored Capital
+                              <InfoTip text="Total collateral value PANIK is watching for this wallet across all protocols." />
+                            </>
+                          }
+                          value={liveMacro ? `$${Math.round(liveMacro.capital).toLocaleString()}` : "$18,450"}
+                          sub={<span className="text-risk-low">Guard active</span>}
+                        />
+                      </Card>
 
-                  <div className="bg-surface-raised/50 border border-border-subtle p-4.5 rounded-lg">
-                    <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase font-bold">
-                      Monitored Liabilities
-                      <InfoTip text="Total borrowed across your positions. Net LTV is liabilities divided by capital - lower means safer." />
-                    </span>
-                    <span className="text-2xl font-mono font-bold text-text-primary mt-1 block tabular-nums">
-                      {liveMacro ? `$${Math.round(liveMacro.debt).toLocaleString()}` : "$9,310"}
-                    </span>
-                    <span className="text-2xs font-mono text-text-secondary mt-1 block tabular-nums">
-                      Net LTV ratio: {liveMacro ? `${Math.round(liveMacro.ltv * 100)}%` : "50%"}
-                    </span>
-                  </div>
+                      <Card tone="raised">
+                        <Stat
+                          label={
+                            <>
+                              Monitored Liabilities
+                              <InfoTip text="Total borrowed across your positions. Net LTV is liabilities divided by capital - lower means safer." />
+                            </>
+                          }
+                          value={liveMacro ? `$${Math.round(liveMacro.debt).toLocaleString()}` : "$9,310"}
+                          sub={`Net LTV ratio: ${liveMacro ? `${Math.round(liveMacro.ltv * 100)}%` : "50%"}`}
+                        />
+                      </Card>
 
-                  <div className="bg-surface-raised/50 border border-border-subtle p-4.5 rounded-lg">
-                    <span className="block text-2xs font-mono text-text-muted uppercase font-bold">Protocols Watched</span>
-                    <span className="text-2xl font-mono font-bold text-panik-orange mt-1 block tabular-nums">
-                      {liveMacro ? `${liveMacro.positions} Positions` : "4 Pools"}
-                    </span>
-                    <span className="text-2xs font-mono text-text-secondary mt-1 block">
-                      {liveMacro ? `Aave V3, Moonwell · ${liveMacro.protocols} protocols` : "Aave, Moonwell"}
-                    </span>
-                  </div>
+                      <Card tone="raised">
+                        <Stat
+                          label="Protocols Watched"
+                          value={liveMacro ? `${liveMacro.positions} Positions` : "4 Pools"}
+                          tone="brand"
+                          sub={liveMacro ? `Aave V3, Moonwell · ${liveMacro.protocols} protocols` : "Aave, Moonwell"}
+                        />
+                      </Card>
 
-                  <div className="bg-surface-raised/50 border border-border-subtle p-4.5 rounded-lg">
-                    <span className="flex items-center gap-1 text-2xs font-mono text-text-muted uppercase font-bold">
-                      Aggregate Risk Index
-                      <InfoTip text="Collateral-weighted average PANIK score across this wallet's positions. Bigger positions move it more." />
-                    </span>
-                    <span className={`text-2xl font-mono font-bold mt-1 block tabular-nums ${
-                      (liveMacro?.aggregate ?? 22) >= 50 ? "text-risk-critical" :
-                      (liveMacro?.aggregate ?? 22) >= 25 ? "text-risk-elevated" : "text-risk-low"
-                    }`}>
-                      {liveMacro ? liveMacro.aggregate : 22} / 100
-                    </span>
-                    <span className={`text-2xs font-mono font-bold block mt-1 ${
-                      (liveMacro?.aggregate ?? 22) >= 50 ? "text-risk-critical" :
-                      (liveMacro?.aggregate ?? 22) >= 25 ? "text-risk-elevated" : "text-risk-low"
-                    }`}>
-                      {(liveMacro?.aggregate ?? 22) >= 50 ? "ELEVATED PORTFOLIO RISK" :
-                       (liveMacro?.aggregate ?? 22) >= 25 ? "WATCH STATUS" : "SECURE HEALTH STATUS"}
-                    </span>
-                  </div>
-                </div>
+                      <Card tone="raised">
+                        <Stat
+                          label={
+                            <>
+                              Aggregate Risk Index
+                              <InfoTip text="Collateral-weighted average PANIK score across this wallet's positions. Bigger positions move it more." />
+                            </>
+                          }
+                          value={`${aggregate} / 100`}
+                          tone={aggregateTone}
+                          sub={
+                            <span className={`font-bold ${AGGREGATE_VERDICT[aggregateTone].cls}`}>
+                              {AGGREGATE_VERDICT[aggregateTone].text}
+                            </span>
+                          }
+                        />
+                      </Card>
+                    </div>
+                  );
+                })()}
 
                 {/* Dual Column: LIVE positions (left) + live allocation (right).
                     Portfolio is 100% live — hypothetical scenarios live in
@@ -2239,62 +2250,58 @@ export function AppDemo() {
                   </div>
 
                   {/* Right Column: Asset Allocation visual breakdown (lg:col-span-5) */}
-                  <div className="lg:col-span-5 bg-white/[0.01] border border-border-subtle rounded-lg p-5.5 flex flex-col justify-between">
+                  <Card className="lg:col-span-5 space-y-6">
                     <div>
-                      <h3 className="text-sm font-mono tracking-widest text-text-muted font-bold uppercase mb-4">
+                      <h3 className="text-sm font-mono tracking-widest text-text-muted font-bold uppercase mb-2">
                         Asset Allocation Weight
                       </h3>
-                      <p className="text-xs text-text-secondary leading-normal mb-5 font-sans">
+                      <p className="text-xs text-text-secondary leading-relaxed font-sans">
                         Breakdown of collateral asset distributions backing the protected portfolio vault lines.
                       </p>
-
-                      <div className="space-y-5">
-                        {/* Beautiful segmented bar visual indicator representing asset weight allocation */}
-                        <div className="h-4.5 w-full bg-white/[0.03] rounded-full overflow-hidden flex border border-border-subtle shadow-lg">
-                          {allocation.map((a) => (
-                            <div
-                              key={a.symbol}
-                              className={`h-full ${a.color} transition-all duration-300 hover:opacity-90`}
-                              style={{ width: `${a.pct.toFixed(1)}%` }}
-                              title={`${a.symbol}: ${a.pct.toFixed(1)}%`}
-                            ></div>
-                          ))}
-                        </div>
-
-                        {/* Asset distribution — computed from LIVE positions (mock when offline) */}
-                        <div className="space-y-2.5">
-                          {allocation.map((a) => (
-                            <div
-                              key={a.symbol}
-                              className="flex justify-between items-center bg-white/[0.02] border border-border-subtle p-3 rounded-md hover:bg-white/[0.04] transition-all"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <span className={`w-2.5 h-2.5 rounded-full ${a.color}`}></span>
-                                <span className="font-mono text-xs font-bold text-text-primary">
-                                  {a.symbol}
-                                </span>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-mono text-xs font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
-                                <span className="block text-2xs font-mono text-text-secondary tabular-nums">{a.pct.toFixed(1)}% weight</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
                     </div>
 
-                    <div className="mt-4 p-3 bg-panik-orange/5 border border-panik-orange/15 rounded-md text-2xs font-mono text-text-secondary leading-relaxed">
+                    {/* Segmented bar; the swatch on each row below is its legend,
+                        which is why those dots stay while decorative ones went. */}
+                    <div className="h-4 w-full bg-white/[0.03] rounded-full overflow-hidden flex border border-border-subtle">
+                      {allocation.map((a) => (
+                        <div
+                          key={a.symbol}
+                          className={`h-full ${a.color}`}
+                          style={{ width: `${a.pct.toFixed(1)}%` }}
+                          title={`${a.symbol}: ${a.pct.toFixed(1)}%`}
+                        ></div>
+                      ))}
+                    </div>
+
+                    {/* Asset distribution — computed from LIVE positions (mock when offline) */}
+                    <div className="space-y-3">
+                      {allocation.map((a) => (
+                        <div key={a.symbol} className="flex justify-between items-center gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${a.color}`}></span>
+                            <span className="font-mono text-xs font-bold text-text-primary truncate">
+                              {a.symbol}
+                            </span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="font-mono text-xs font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
+                            <span className="block text-2xs font-mono text-text-secondary tabular-nums">{a.pct.toFixed(1)}% weight</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="text-2xs font-mono text-text-muted leading-relaxed">
                       All positions undergo continuous drift analysis against current collateral price benchmarks.
-                    </div>
-                  </div>
+                    </p>
+                  </Card>
                 </div>
 
                 {/* History row: risk-index chart + alert feed (DeBank/Zerion-style
                     net-worth-chart + activity-feed layout, adapted to risk). */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Risk index over time (score_snapshots via /api/history) */}
-                  <div className="lg:col-span-7 bg-white/[0.01] border border-border-subtle rounded-lg p-5.5">
+                  <Card className="lg:col-span-7">
                     <div className="flex items-baseline justify-between mb-1">
                       <h3 className="text-sm font-mono tracking-widest text-text-muted font-bold uppercase">
                         Risk Index History
@@ -2327,10 +2334,10 @@ export function AppDemo() {
                         <br />Check back after a few scoring cycles.
                       </div>
                     )}
-                  </div>
+                  </Card>
 
                   {/* Alert history (watch_transitions IS the alert log) */}
-                  <div className="lg:col-span-5 bg-white/[0.01] border border-border-subtle rounded-lg p-5.5">
+                  <Card className="lg:col-span-5">
                     <h3 className="text-sm font-mono tracking-widest text-text-muted font-bold uppercase mb-1">
                       Alert History
                     </h3>
@@ -2375,7 +2382,7 @@ export function AppDemo() {
                         <br />crosses your profile's risk limit.
                       </div>
                     )}
-                  </div>
+                  </Card>
                 </div>
 
               </motion.div>
