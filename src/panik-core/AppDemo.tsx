@@ -76,6 +76,18 @@ import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
 
+/**
+ * One measure for every tab panel, centred. The five panels had drifted to four
+ * different caps (4xl through 6xl) and none was centred, so on a wide monitor
+ * each tab settled at a different width and dumped all the slack on the right.
+ *
+ * 1600px is chosen for the widest thing on the page: Portfolio's 7/5 split. At
+ * that cap the left column is ~930px, which is a table row a person can still
+ * read across, and the right column is ~660px, which is enough for the
+ * allocation legend to stop wrapping. Going wider only lengthens the rows.
+ */
+const PANEL = "mx-auto w-full max-w-[1600px]";
+
 /** Source of truth for the sidebar: order here is the arrow-key order. */
 const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
   { id: "portfolio", label: "Portfolio", icon: Wallet },
@@ -1162,7 +1174,7 @@ export function AppDemo() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.18 }}
-                className="space-y-8 max-w-5xl"
+                className={`${PANEL} space-y-8`}
               >
                 {/* Title Section */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle pb-5">
@@ -1426,7 +1438,7 @@ export function AppDemo() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.18 }}
-                className="max-w-6xl space-y-6"
+                className={`${PANEL} space-y-6`}
               >
                 {/* Source toggle. Business requirement: Watch mirrors the
                     positions this wallet actually holds on-chain (Current
@@ -2099,7 +2111,7 @@ export function AppDemo() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.18 }}
-                className="space-y-6 max-w-4xl"
+                className={`${PANEL} space-y-6`}
               >
                 <div className="border-b border-border-subtle pb-5">
                   <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">AI Advisor</h1>
@@ -2155,7 +2167,7 @@ export function AppDemo() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.18 }}
-                className="space-y-6 max-w-5xl"
+                className={`${PANEL} space-y-6`}
               >
                 <div className="border-b border-border-subtle pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
@@ -2454,7 +2466,7 @@ export function AppDemo() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.18 }}
-                className="max-w-5xl space-y-6"
+                className={`${PANEL} space-y-6`}
               >
                 <div className="border-b border-border-subtle pb-3">
                   <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide">Settings</h2>
