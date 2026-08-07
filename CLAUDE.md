@@ -48,9 +48,10 @@ lines, ever.** `/simpcommit` enforces this.
 
 ## Repo facts that bite
 
-- Remote is `panik-fi/panik_fi`; the old `panik-landing_page_waitlist` is read-only
-  `upstream`. `gh repo set-default panik-fi/panik_fi` is required or `gh pr create` resolves
-  to upstream and fails.
+- Canonical remote is `panik-fi/panik-landing_page_waitlist` (`origin`). `panik_fi` was a
+  temporary staging repo during the Aug-2026 audit and is kept only as the `forktest`
+  remote — do not open PRs there. If `gh pr create` targets the wrong repo, run
+  `gh repo set-default panik-fi/panik-landing_page_waitlist`.
 - `api/` is **vercelignored on purpose** — all `/api/*` rewrite to Railway. It is a
   fallback mirror of the Express routes; keep it compiling and consistent, but it does
   not serve traffic. Shared logic lives in `server/`.
