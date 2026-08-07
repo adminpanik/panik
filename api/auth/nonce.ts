@@ -15,9 +15,8 @@
  * see the note in api/telegram/link.ts about which one actually serves prod.
  */
 
-import { clientIp } from "../../server/clientIp";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../../server/nonceStore";
-import { keyedRateLimit } from "../../server/rateLimit";
+import { denyRequest, keyedRateLimit } from "../../server/rateLimit";
 
 interface Req {
   method?: string;
@@ -32,8 +31,9 @@ interface Res {
 }
 
 // Isolate-local (see server/rateLimit.ts): a brake on the obvious burst, not a
-// guarantee. Generous — the browser fetches one per signature prompt.
-const limit = keyedRateLimit({ limit: 30 });
+// guarantee. Matches `strictLimit` in scripts/api-server.ts — every call mints
+// a nonce row, and a fallback looser than the primary is just a slower way in.
+const limit = keyedRateLimit({ limit: 10 });
 
 export default async function handler(req: Req, res: Res): Promise<void> {
   if (req.method && req.method !== "GET") {
@@ -41,10 +41,10 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     return;
   }
 
-  const decision = limit.hit(clientIp(req.headers ?? {}) ?? "unknown");
-  if (!decision.ok) {
-    res.setHeader?.("Retry-After", String(decision.retryAfterSec));
-    res.status(429).json({ error: "rate limit exceeded", retryAfterSec: decision.retryAfterSec });
+  const denied = denyRequest(limit, req);
+  if (denied) {
+    res.setHeader?.("Retry-After", String(denied.retryAfterSec));
+    res.status(denied.status).json({ error: denied.error, retryAfterSec: denied.retryAfterSec });
     return;
   }
 

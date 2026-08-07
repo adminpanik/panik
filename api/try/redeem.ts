@@ -53,7 +53,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   }
 
   try {
-    const result = await store.redeem(code, email, clientIp(req.headers), userAgent(req.headers));
+    const result = await store.redeem(code, email, clientIp(req), userAgent(req.headers));
     if (result.outcome === "success" && result.token) {
       res.status(200).json({ ok: true, outcome: "success", trialUrl: `/app?trial=${result.token}` });
       return;

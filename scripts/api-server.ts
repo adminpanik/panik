@@ -61,7 +61,8 @@ import { CampaignStore } from "../server/campaignStore";
 import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
-import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../server/adminCampaigns";
+import { buildCreateInput, type RawCreateBody } from "../server/adminCampaigns";
+import { adminAuthGate } from "../server/adminAuth";
 import { verifyWalletOwnership } from "../server/walletAuth";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
 import { randomUUID } from "node:crypto";
@@ -316,22 +317,74 @@ async function getChain(): Promise<typeof chainCache> {
 const app = express();
 
 app.disable("x-powered-by"); // don't advertise the stack
-app.use(express.json()); // every POST route below reads req.body
+
+// Body parsing runs BEFORE the per-route limiters (every POST route reads
+// req.body), so a 429'd client still costs us a parse — bound it explicitly.
+// express.json()'s default is 100kb; nothing this API accepts is close (the
+// largest real body is a Telegram update), so the cap is both a memory bound
+// and a cheap first filter.
+const JSON_BODY_LIMIT = "32kb";
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+
+// Without this, a malformed or oversized body surfaces as express's default
+// HTML error page with a stack trace, and 413/400 look like 500s to the client.
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const e = err as { type?: string; status?: number } | null;
+  if (e?.type === "entity.too.large") {
+    res.status(413).json({ error: `request body exceeds ${JSON_BODY_LIMIT}` });
+    return;
+  }
+  if (err instanceof SyntaxError && e?.status === 400) {
+    res.status(400).json({ error: "invalid JSON body" });
+    return;
+  }
+  next(err);
+});
 
 // CORS - lets a separately-hosted SPA (e.g. the Vercel static frontend) call
 // this backend cross-origin. CORS_ORIGINS is a comma-separated allowlist and is
 // REQUIRED in production (a missing value must never silently widen to "*");
 // local dev falls back to "*". (If the SPA is served same-origin via a Vercel
 // rewrite, CORS is moot but harmless.)
-if (process.env.NODE_ENV === "production" && !process.env.CORS_ORIGINS) {
-  console.error("Missing env (CORS_ORIGINS) - refusing to boot with a wildcard CORS policy");
-  process.exit(1);
+//
+// The guard checks the VALUE, not just presence: "*" would restore wildcard CORS
+// in production and " " would boot but match nothing, failing every cross-origin
+// call silently. Both are refused, loudly - Dockerfile hard-sets
+// NODE_ENV=production and railway.toml retries 10 times, so a boot failure here
+// takes the API down and must therefore be unmistakable in the logs.
+const isProduction = process.env.NODE_ENV === "production";
+const corsOrigins = (process.env.CORS_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+if (isProduction) {
+  const CORS_HELP =
+    'set CORS_ORIGINS to a comma-separated list of exact frontend origins, e.g. CORS_ORIGINS="https://panik.xyz,https://www.panik.xyz" (see .env.example)';
+  if (corsOrigins.length === 0) {
+    console.error(`CORS_ORIGINS is missing or blank - refusing to boot with a wildcard CORS policy. Fix: ${CORS_HELP}`);
+    process.exit(1);
+  }
+  if (corsOrigins.includes("*")) {
+    console.error(`CORS_ORIGINS contains "*" - a wildcard is not an allowlist and is refused in production. Fix: ${CORS_HELP}`);
+    process.exit(1);
+  }
 }
-const corsOrigins = (process.env.CORS_ORIGINS ?? "*").split(",").map((s) => s.trim());
+const allowAnyOrigin = !isProduction && (corsOrigins.length === 0 || corsOrigins.includes("*"));
+console.log(
+  allowAnyOrigin ? "CORS: allowing any origin (non-production)" : `CORS: allowlist ${corsOrigins.join(", ")}`,
+);
+
+// Log each DENIED origin once, so a mis-set allowlist shows up as a log line
+// instead of a browser-side mystery. Bounded: only the first 20 distinct ones.
+const deniedOrigins = new Set<string>();
+function logDeniedOrigin(origin: string): void {
+  if (deniedOrigins.has(origin) || deniedOrigins.size >= 20) return;
+  deniedOrigins.add(origin);
+  console.error(`CORS: denied origin ${origin} (not in CORS_ORIGINS)`);
+}
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (corsOrigins.includes("*")) res.setHeader("Access-Control-Allow-Origin", "*");
+  if (allowAnyOrigin) res.setHeader("Access-Control-Allow-Origin", "*");
   else if (origin && corsOrigins.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
+  else if (origin) logDeniedOrigin(origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Bot-Api-Secret-Token, X-Admin-Key");
@@ -339,14 +392,30 @@ app.use((req, res, next) => {
   next();
 });
 
-// Per-IP rate limits (in-memory; single Railway container — see server/rateLimit.ts).
-// Budgets are sized against the real client cadences: the profile reveal polls
-// /result every 3s for ~70s and the Telegram card polls /status every 3s.
-const publicLimit = rateLimit({ limit: 120 });            // generous: 60s-cached GETs
+// Per-client rate limits (in-memory; single Railway container — see
+// server/rateLimit.ts). Budgets are sized against BOTH the real client cadence
+// and what one request actually costs us, in that order:
+//
+//   cheap     a process-wide cache the caller cannot miss (60s/1h TTL) — the
+//             marginal request is a JSON serialize
+//   walleted  keyed on a caller-supplied wallet, so every new address is a
+//             guaranteed cache miss: an RPC scan or a 2000-row DB read, and it
+//             also evicts a real user's entry from the 2000-entry LRU
+//   advisor   the most expensive route in the app: RPC position scan + N
+//             DefiLlama lookups + findOpportunities + several OpenRouter
+//             completions + Postgres inserts. The UI polls it once a minute.
+//   strict    spends third-party quota or mints state (Dune, Telegram, trials)
+const publicLimit = rateLimit({ limit: 120 });            // 60s-cached GETs, no caller-supplied key
+const walletLimit = rateLimit({ limit: 30 });             // /positions, /history — wallet-keyed
+const advisorLimit = rateLimit({ limit: 10 });            // RPC + LLM + DB per miss; UI polls 1/min
 const telegramStatusLimit = rateLimit({ limit: 60 });     // 3s poll during linking
 const profileResultLimit = rateLimit({ limit: 40 });      // 3s poll during the reveal
 const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
-const adminLimit = rateLimit({ limit: 10, maxFailures: 5, lockoutMs: 15 * 60_000 });
+const adminLimit = rateLimit({ limit: 10 });              // failed-auth brake lives in server/adminAuth.ts
+// Telegram's own delivery rate for one bot is far below this; the limiter is
+// here so the webhook is not the one unmetered POST in the app (its secret is
+// only checked AFTER the body is parsed).
+const webhookLimit = rateLimit({ limit: 60 });
 
 /** ?profile → a known RiskProfile, defaulting to moderate. Never trust the raw
  * string: it selects the scoring thresholds and rides into the advisor prompt. */
@@ -355,6 +424,15 @@ function riskProfileParam(raw: unknown): RiskProfile {
   return value === "conservative" || value === "moderate" || value === "aggressive"
     ? value
     : "moderate";
+}
+
+/** ?protocol → a supported Protocol, or null. Same allowlist shape as
+ * riskProfileParam: indexing MARKETS with the raw string lets "__proto__" and
+ * "constructor" return a truthy inherited value that passes the market guard. */
+const SUPPORTED_PROTOCOLS = Object.keys(MARKETS) as Protocol[];
+function protocolParam(raw: unknown): Protocol | null {
+  const value = String(raw ?? "");
+  return SUPPORTED_PROTOCOLS.includes(value as Protocol) ? (value as Protocol) : null;
 }
 
 /**
@@ -390,12 +468,20 @@ app.get("/api/version", (_req, res) => {
  * list an attacker needs to target other users, and a de-facto customer roster.
  * Only the ops/demo view consumes them; a user's OWN data comes from the
  * per-wallet routes (/api/positions, /api/history), which stay open.
+ *
+ * The guessing brake is keyed on the PRESENTED credential, never the caller's
+ * IP — an IP-keyed lockout lets any stranger lock the real admin out. See
+ * server/adminAuth.ts.
  */
 function requireAdmin(req: express.Request, res: express.Response): boolean {
-  const auth = checkAdminKey(req.header("x-admin-key") ?? undefined);
+  const { auth, retryAfterSec } = adminAuthGate.authorize(req.header("x-admin-key") ?? undefined);
   if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return false; }
+  if (auth === "locked") {
+    res.setHeader("Retry-After", String(retryAfterSec ?? 60));
+    res.status(429).json({ error: "too many failed admin auth attempts", retryAfterSec });
+    return false;
+  }
   if (auth === "forbidden") {
-    adminLimit.fail(req); // repeated bad keys lock the IP out (key-guessing brake)
     res.status(401).json({ error: "unauthorized" });
     return false;
   }
@@ -431,9 +517,11 @@ app.get("/api/scores", adminLimit, async (req, res) => {
  * prompting a signature; verification consumes it atomically, which is what
  * makes an ownership proof unreplayable (and unmakeable by a hostile page that
  * never talked to us). Unauthenticated on purpose — a nonce authorizes nothing
- * on its own — but rate-limited so it cannot be used to bulk-insert rows.
+ * on its own — but STRICT-tiered anyway: every call mints a row, so this is a
+ * write endpoint wearing a GET, and the cheap-GET budget does not apply. One
+ * nonce is fetched per signature prompt, so 10/min is far above real use.
  */
-app.get("/api/auth/nonce", publicLimit, async (req, res) => {
+app.get("/api/auth/nonce", strictLimit, async (req, res) => {
   let store: SupabaseNonceStore;
   try {
     store = SupabaseNonceStore.fromEnv();
@@ -485,7 +573,7 @@ app.post("/api/wallets/register", strictLimit, async (req, res) => {
 // unbounded Map would let anyone grow the heap one address at a time.
 const CACHE_MAX_WALLETS = 2_000;
 const ownPosCache = new LruCache<{ at: number; positions: LivePosition[] }>(CACHE_MAX_WALLETS);
-app.get("/api/positions", publicLimit, async (req, res) => {
+app.get("/api/positions", walletLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   const profile = riskProfileParam(req.query.profile);
   if (!isEvmAddress(wallet)) {
@@ -526,7 +614,7 @@ app.get("/api/compass", publicLimit, async (req, res) => {
 // score_snapshots the score/position time series - no new tables needed.
 const walletHistoryCache = new LruCache<{ at: number; body: unknown }>(CACHE_MAX_WALLETS);
 
-app.get("/api/history", publicLimit, async (req, res) => {
+app.get("/api/history", walletLimit, async (req, res) => {
   try {
     const wallet = String(req.query.wallet ?? "").toLowerCase();
     if (!/^0x[0-9a-f]{40}$/.test(wallet)) {
@@ -576,13 +664,13 @@ app.get("/api/poolhistory", publicLimit, async (req, res) => {
 
 app.get("/api/prospective", publicLimit, async (req, res) => {
   try {
-    const protocol = String(req.query.protocol) as Protocol;
-    const collateralSymbol = String(req.query.symbol);
+    const protocol = protocolParam(req.query.protocol);
+    const collateralSymbol = String(req.query.symbol ?? "");
     const collateralValueUsd = Number(req.query.collateralUsd);
     const borrowValueUsd = Number(req.query.borrowUsd);
 
-    if (!MARKETS[protocol]?.[collateralSymbol]) {
-      res.status(400).json({ error: `unknown market ${protocol}/${collateralSymbol}` });
+    if (!protocol || !Object.prototype.hasOwnProperty.call(MARKETS[protocol], collateralSymbol)) {
+      res.status(400).json({ error: `unknown market ${String(req.query.protocol)}/${collateralSymbol}` });
       return;
     }
     if (!Number.isFinite(collateralValueUsd) || !Number.isFinite(borrowValueUsd) ||
@@ -730,7 +818,7 @@ function advisorYields(pools: Record<string, PoolYield>): YieldTable {
   return table;
 }
 
-app.get("/api/advisor", publicLimit, async (req, res) => {
+app.get("/api/advisor", advisorLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   const profile = riskProfileParam(req.query.profile);
   if (!isEvmAddress(wallet)) {
@@ -886,7 +974,9 @@ app.post("/api/profile/start", strictLimit, async (req, res) => {
 
 app.post("/api/profile/result", profileResultLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? req.body?.wallet ?? "").trim();
-  const executionId: string | undefined = req.body?.executionId ?? (req.query.executionId as string | undefined);
+  // Query-then-body, matching api/profile/result.ts exactly — two handlers for
+  // one route must not disagree about which value wins.
+  const executionId: string | undefined = (req.query.executionId as string | undefined) ?? req.body?.executionId;
   if (!isEvmAddress(wallet)) {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
@@ -966,7 +1056,7 @@ app.get("/api/telegram/status", telegramStatusLimit, async (req, res) => {
 
 // Telegram webhook - the production handler (Railway), mirroring api/telegram/webhook.ts.
 // Telegram echoes the secret_token we registered; that header is the auth boundary.
-app.post("/api/telegram/webhook", async (req, res) => {
+app.post("/api/telegram/webhook", webhookLimit, async (req, res) => {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!secret || !botToken) { res.status(503).json({ error: "telegram unconfigured" }); return; }
@@ -1025,7 +1115,7 @@ app.post("/api/try/redeem", strictLimit, async (req, res) => {
   if (!TRY_EMAIL_RE.test(email)) { res.status(400).json({ ok: false, error: "invalid email" }); return; }
   if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
   try {
-    const result = await CampaignStore.fromEnv().redeem(code, email, clientIp(req.headers), userAgent(req.headers));
+    const result = await CampaignStore.fromEnv().redeem(code, email, clientIp(req), userAgent(req.headers));
     if (result.outcome === "success" && result.token) {
       res.json({ ok: true, outcome: "success", trialUrl: `/app?trial=${result.token}` });
     } else {
@@ -1042,7 +1132,7 @@ app.post("/api/try/access", strictLimit, async (req, res) => {
   if (!token) { res.status(400).json({ ok: false, error: "missing token" }); return; }
   if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
   try {
-    const result = await CampaignStore.fromEnv().openTrial(token, clientIp(req.headers), userAgent(req.headers));
+    const result = await CampaignStore.fromEnv().openTrial(token, clientIp(req), userAgent(req.headers));
     res.json({ ok: result.outcome === "active", outcome: result.outcome, expiresAt: result.expiresAt ?? null });
   } catch (err) {
     console.error(`POST /api/try/access -> 502: ${(err as Error).message}`);

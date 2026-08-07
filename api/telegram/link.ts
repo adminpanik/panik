@@ -25,8 +25,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { clientIp } from "../../server/clientIp";
-import { keyedRateLimit } from "../../server/rateLimit";
+import { denyRequest, keyedRateLimit } from "../../server/rateLimit";
 import { TelegramStore } from "../../server/telegramStore";
 import { verifyWalletOwnership } from "../../server/walletAuth";
 
@@ -56,10 +55,10 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     return;
   }
 
-  const decision = limit.hit(clientIp(req.headers ?? {}) ?? "unknown");
-  if (!decision.ok) {
-    res.setHeader?.("Retry-After", String(decision.retryAfterSec));
-    res.status(429).json({ error: "rate limit exceeded", retryAfterSec: decision.retryAfterSec });
+  const denied = denyRequest(limit, req);
+  if (denied) {
+    res.setHeader?.("Retry-After", String(denied.retryAfterSec));
+    res.status(denied.status).json({ error: denied.error, retryAfterSec: denied.retryAfterSec });
     return;
   }
 
