@@ -2470,6 +2470,7 @@ export function AppDemo() {
                               <ProtocolMarks
                                 protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]}
                                 size="w-8 h-8"
+                                pad="p-1"
                               />
                             </span>
                           }
