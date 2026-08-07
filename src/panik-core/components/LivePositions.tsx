@@ -144,21 +144,29 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                     >
                       {fmtUsd(p.collateralValueUsd)} collateral / {fmtUsd(p.borrowValueUsd)} debt
                     </span>
-                    {p.usdValuesUnavailable && (
-                      <RiskChip
-                        band="UNKNOWN"
-                        title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score are unaffected; only the dollar amounts are unknown."
-                      >
-                        <AlertTriangle className="h-3 w-3" />
-                        Prices degraded
-                      </RiskChip>
-                    )}
                   </div>
 
-                  {/* Line 3 — verdict, as one sentence. */}
+                  {/* Line 3 — verdict, as one sentence.
+                      The degraded-price marker used to be a bordered chip
+                      wedged into the value row, which put a box in the middle
+                      of the only line whose job is to be scanned. It reads as
+                      the tail of the sentence instead, but it still says so in
+                      three independent ways — the amounts render as "$…" and
+                      not "$0", the icon is there, and the words are there — so
+                      a position we could not price can never be mistaken for a
+                      healthy one. */}
                   <div className="flex items-baseline justify-between gap-3">
-                    <p className="text-xs font-sans text-text-secondary">
+                    <p className="min-w-0 text-xs font-sans text-text-secondary">
                       <span className="tabular-nums">{health}</span>, {status}
+                      {p.usdValuesUnavailable && (
+                        <span
+                          className="mt-1 flex items-center gap-1 text-text-muted"
+                          title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score are unaffected; only the dollar amounts are unknown."
+                        >
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          Prices degraded
+                        </span>
+                      )}
                     </p>
                     {onStressTest && (
                       <Button
