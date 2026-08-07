@@ -30,7 +30,8 @@ const SIDEBAR_TABS = [
 
 const LOOP_TABS = ["portfolio", "compass", "watch", "advisor"] as const;
 
-type TabId = typeof SIDEBAR_TABS[number]["id"];
+// "settings" has no sidebar entry yet, but the panel below is already built for it.
+type TabId = typeof SIDEBAR_TABS[number]["id"] | "settings";
 
 export function DashboardScrollPreview() {
   const containerRef = useRef<HTMLDivElement>(null);
