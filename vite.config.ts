@@ -2,12 +2,19 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import {mockApi} from './dev/mockApi';
 
-export default defineConfig(() => {
+export default defineConfig(({mode}) => {
   return {
     plugins: [
       react(),
       tailwindcss(),
+      // `npm run dev:mock` (vite --mode mock) only — returns [] otherwise, and
+      // the plugin itself is apply:'serve', so it cannot reach a build. Must be
+      // registered here rather than after the proxy config: configureServer
+      // hooks run before Vite installs its own middlewares, which is how the
+      // fixture handler gets ahead of the /api -> :8787 proxy below.
+      ...mockApi(mode),
       {
         name: 'html-rewrite',
         configureServer(server) {
