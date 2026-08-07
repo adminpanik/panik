@@ -110,10 +110,10 @@ function FoundingApp() {
             className="flex items-center gap-2.5 group"
             id="founding-logo-link"
           >
-            <div className="w-8 h-8 rounded-md bg-panik-orange flex items-center justify-center font-display font-bold text-sm text-surface-base shadow-lg shadow-panik-orange/20 group-hover:shadow-panik-orange/40 transition-shadow">
+            <div className="w-8 h-8 rounded-md bg-panik-orange flex items-center justify-center font-sans font-bold text-sm text-surface-base shadow-lg shadow-panik-orange/20 group-hover:shadow-panik-orange/40 transition-shadow">
               P
             </div>
-            <span className="font-display font-semibold text-lg tracking-tight text-text-primary group-hover:text-text-primary transition-colors">
+            <span className="font-sans font-semibold text-lg tracking-tight text-text-primary group-hover:text-text-primary transition-colors">
               PANIK
             </span>
           </a>
@@ -136,7 +136,7 @@ function FoundingApp() {
           </div>
 
           <h1
-            className={`font-display text-4xl lg:text-display font-bold tracking-tight leading-[1.1] mb-6 transition-all duration-700 delay-100 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
+            className={`font-sans text-4xl lg:text-display font-bold tracking-tight leading-[1.1] mb-6 transition-all duration-700 delay-100 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
           >
             <span className="text-text-primary">Back PANIK with </span>
             <span className="text-panik-orange">
@@ -168,7 +168,7 @@ function FoundingApp() {
           <div
             className={`transition-all duration-700 delay-300 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"}`}
           >
-            <h2 className="font-display text-lg font-semibold mb-6 text-text-primary">
+            <h2 className="font-sans text-lg font-semibold mb-6 text-text-primary">
               What founding users get
             </h2>
             <div className="space-y-4">
@@ -205,7 +205,7 @@ function FoundingApp() {
         <section
           className={`mb-16 transition-all duration-700 delay-500 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"}`}
         >
-          <h2 className="font-display text-lg font-semibold mb-8 text-center text-text-primary">
+          <h2 className="font-sans text-lg font-semibold mb-8 text-center text-text-primary">
             How the escrow works
           </h2>
           <div className="grid md:grid-cols-3 gap-6">
@@ -235,7 +235,7 @@ function FoundingApp() {
                 <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-panik-orange/10 text-panik-orange font-mono font-bold text-sm mb-4 group-hover:bg-panik-orange/20 transition-colors">
                   {s.step}
                 </div>
-                <h3 className="font-display font-semibold text-text-primary mb-2">
+                <h3 className="font-sans font-semibold text-text-primary mb-2">
                   {s.title}
                 </h3>
                 <p className="text-sm text-text-muted leading-relaxed">
@@ -249,7 +249,7 @@ function FoundingApp() {
         {/* Trust section */}
         <section className="text-center mb-16">
           <div className="panik-glass rounded-lg p-8 md:p-10 max-w-2xl mx-auto">
-            <h2 className="font-display text-lg font-semibold mb-4 text-text-primary">
+            <h2 className="font-sans text-lg font-semibold mb-4 text-text-primary">
               🔒 Trust by design
             </h2>
             <ul className="text-sm text-text-muted space-y-3 text-left">

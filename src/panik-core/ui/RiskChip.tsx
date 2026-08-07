@@ -20,7 +20,7 @@ export function RiskChip({
   return (
     <span
       title={title}
-      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-sm border px-2 py-0.5 text-2xs font-mono font-bold tabular-nums ${RISK_CHIP[band]} ${className}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-sm border px-2 py-0.5 text-2xs font-sans font-bold tabular-nums ${RISK_CHIP[band]} ${className}`}
     >
       {children}
     </span>

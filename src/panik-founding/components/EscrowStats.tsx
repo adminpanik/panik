@@ -88,14 +88,14 @@ export function EscrowStats() {
 
   return (
     <div className="panik-glass rounded-md p-6">
-      <h3 className="font-display font-semibold text-sm text-text-secondary mb-4 uppercase tracking-wider">
+      <h3 className="font-sans font-semibold text-sm text-text-secondary mb-4 uppercase tracking-wider">
         Escrow Status
       </h3>
 
       <div className="grid grid-cols-2 gap-4 mb-4">
         {/* Founding users count */}
         <div className="bg-white/[0.03] rounded-md p-4 text-center">
-          <div className="font-display text-2xl font-bold text-panik-orange mb-1 tabular-nums">
+          <div className="font-sans text-2xl font-bold text-panik-orange mb-1 tabular-nums">
             {count !== null ? count : "…"}
           </div>
           <div className="text-2xs text-text-muted uppercase tracking-wide">
@@ -105,7 +105,7 @@ export function EscrowStats() {
 
         {/* Deposit amount */}
         <div className="bg-white/[0.03] rounded-md p-4 text-center">
-          <div className="font-display text-2xl font-bold text-text-secondary mb-1 tabular-nums">
+          <div className="font-sans text-2xl font-bold text-text-secondary mb-1 tabular-nums">
             {DEPOSIT_DISPLAY}
             <span className="text-sm text-text-muted ml-1">USDC</span>
           </div>

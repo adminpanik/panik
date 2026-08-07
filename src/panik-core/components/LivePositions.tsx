@@ -85,7 +85,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
               </div>
             </div>
           ))}
-          <p className="text-2xs font-mono text-text-muted">Reading positions from chain…</p>
+          <p className="text-2xs font-sans text-text-muted">Reading positions from chain…</p>
         </div>
       )}
 
@@ -114,14 +114,14 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       asset symbol may truncate, because "Aave V3" truncated to
                       "Aav…" is unreadable while "wstE…" is still placeable. */}
                   <div className="flex items-baseline gap-2">
-                    <h4 className="shrink-0 text-sm font-mono font-bold text-text-primary">
+                    <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
                       {PROTOCOL_NAME[p.protocol]}
                     </h4>
-                    <span className="truncate text-xs font-mono text-text-secondary">
+                    <span className="truncate text-xs font-sans text-text-secondary">
                       {p.scoredCollateralSymbol}
                     </span>
                     {showWallet && (
-                      <span className="ml-auto shrink-0 text-2xs font-mono tabular-nums text-text-muted">
+                      <span className="ml-auto shrink-0 text-2xs font-mono text-text-muted">
                         {p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}
                       </span>
                     )}
@@ -138,7 +138,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       unit or not at all. */}
                   <div className="flex items-center gap-2">
                     <span
-                      className={`whitespace-nowrap text-xs font-mono tabular-nums ${
+                      className={`whitespace-nowrap text-xs font-sans tabular-nums ${
                         p.usdValuesUnavailable ? "text-risk-unknown" : "text-text-secondary"
                       }`}
                     >
@@ -180,7 +180,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
       )}
 
       {positions !== null && positions.length > 0 && (
-        <p className="text-2xs font-mono text-text-muted">
+        <p className="text-xs font-sans text-text-muted">
           Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF)
           + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s.
         </p>

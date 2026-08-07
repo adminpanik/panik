@@ -81,7 +81,7 @@ export function TrialBanner() {
         <Clock className="w-4 h-4 text-text-primary" />
         <span className="text-xs text-text-secondary">
           Trial active
-          {state.expiresAt && <span className="text-text-primary font-mono tabular-nums"> · {formatRemaining(remainingMs)} left</span>}
+          {state.expiresAt && <span className="text-text-primary font-sans tabular-nums"> · {formatRemaining(remainingMs)} left</span>}
         </span>
         <button onClick={() => setDismissed(true)} className="text-text-muted hover:text-text-secondary transition-colors" aria-label="Dismiss">
           <X className="w-3.5 h-3.5" />

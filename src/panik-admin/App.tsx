@@ -65,7 +65,7 @@ function KeyGate({ onUnlock }: { onUnlock: (key: string) => void }) {
       <div className="panik-glass rounded-lg p-7 w-full max-w-sm">
         <div className="flex items-center gap-2 mb-5">
           <Lock className="w-4 h-4 text-panik-orange" />
-          <h1 className="font-display text-lg font-bold text-text-primary">PANIK admin</h1>
+          <h1 className="font-sans text-lg font-bold text-text-primary">PANIK admin</h1>
         </div>
         <input
           type="password"
@@ -172,7 +172,7 @@ function CreateForm({ apiKey, onCreated }: { apiKey: string; onCreated: (c: Camp
 
   return (
     <div className="panik-glass rounded-lg p-6 mb-8">
-      <h2 className="font-display text-base font-semibold text-text-primary mb-4 flex items-center gap-2">
+      <h2 className="font-sans text-base font-semibold text-text-primary mb-4 flex items-center gap-2">
         <Plus className="w-4 h-4 text-panik-orange" /> New campaign
       </h2>
       <div className="grid sm:grid-cols-2 gap-3 mb-4">
@@ -298,7 +298,7 @@ function RedeemedUsers({ apiKey }: { apiKey: string }) {
   return (
     <div className="panik-glass rounded-lg p-6 mb-8">
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <h2 className="font-display text-base font-semibold text-text-primary flex items-center gap-2">
+        <h2 className="font-sans text-base font-semibold text-text-primary flex items-center gap-2">
           <Users className="w-4 h-4 text-panik-orange" /> Redeemed users
         </h2>
         <span className="font-mono text-sm text-panik-orange/90 rounded-full border border-panik-orange/25 bg-panik-orange/[0.06] px-2.5 py-0.5">
@@ -401,7 +401,7 @@ function Dashboard({ apiKey, onLock }: { apiKey: string; onLock: () => void }) {
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-2.5">
           <img src="/panik-logo.png" alt="PANIK" width={32} height={32} className="rounded-md object-contain" />
-          <span className="font-display font-semibold text-lg text-text-primary">Admin</span>
+          <span className="font-sans font-semibold text-lg text-text-primary">Admin</span>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={refresh} className="flex items-center gap-1.5 rounded-md border border-border-subtle px-2.5 py-1.5 text-xs text-text-secondary hover:bg-white/[0.06] transition-colors">
@@ -417,7 +417,7 @@ function Dashboard({ apiKey, onLock }: { apiKey: string; onLock: () => void }) {
 
       <RedeemedUsers apiKey={apiKey} />
 
-      <h2 className="font-display text-base font-semibold text-text-primary mb-4">Campaigns</h2>
+      <h2 className="font-sans text-base font-semibold text-text-primary mb-4">Campaigns</h2>
       {error && <p className="text-sm text-risk-critical/90 mb-4">{error}</p>}
       {loading && campaigns.length === 0 ? (
         <div className="flex items-center gap-2 text-text-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>

@@ -63,7 +63,7 @@ export function FAQ() {
         {/* Header Section */}
         <ScrollReveal duration={0.6}>
           <div className="text-center mb-16">
-            <h2 className="font-display font-medium text-4xl tracking-tight leading-tight text-text-primary mt-4 mb-5">
+            <h2 className="font-sans font-medium text-4xl tracking-tight leading-tight text-text-primary mt-4 mb-5">
               Frequently Asked Questions
             </h2>
             <p className="text-text-secondary text-sm max-w-xl mx-auto leading-relaxed">

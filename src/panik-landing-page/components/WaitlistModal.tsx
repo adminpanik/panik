@@ -346,7 +346,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
           {step === 1 && (
             <motion.div key="s1" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }} className="space-y-6">
               <div>
-                <h2 className="font-display font-medium text-2xl text-text-primary tracking-tight leading-snug">Join the Panik Early Access Program</h2>
+                <h2 className="font-sans font-medium text-2xl text-text-primary tracking-tight leading-snug">Join the Panik Early Access Program</h2>
                 <p className="text-text-secondary text-sm font-sans mt-2.5 leading-relaxed">
                   Help us build the future of DeFi risk intelligence. Answer a few quick profiling questions to secure early access and reserve your queue slot.
                 </p>
@@ -393,7 +393,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
               </div>
 
               <div className="flex-1">
-                <h3 id={`q-heading-${q.id}`} className="font-display font-medium text-lg text-text-primary tracking-tight leading-snug mb-1">{q.text}</h3>
+                <h3 id={`q-heading-${q.id}`} className="font-sans font-medium text-lg text-text-primary tracking-tight leading-snug mb-1">{q.text}</h3>
                 {q.hint && <p className="text-2xs font-mono text-text-muted uppercase tracking-wider mb-4">{q.hint}</p>}
                 {!q.hint && <div className="mb-4" />}
 
@@ -434,7 +434,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                 {/* optional notes appear on the last question */}
                 {qIndex === QUESTIONS.length - 1 && (
                   <div className="mt-5 space-y-2">
-                    <label className="font-display font-medium text-sm text-text-secondary leading-snug block">
+                    <label className="font-sans font-medium text-sm text-text-secondary leading-snug block">
                       Anything else about how you manage DeFi positions? <span className="text-text-muted">(Optional)</span>
                     </label>
                     <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Protocols you use, alerting strategies, features you want…"
@@ -459,7 +459,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
           {step === 3 && (
             <motion.div key="s3" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }} className="space-y-6">
               <div>
-                <h2 className="font-display font-medium text-2xl text-text-primary tracking-tight">Onboarding Profile Summary</h2>
+                <h2 className="font-sans font-medium text-2xl text-text-primary tracking-tight">Onboarding Profile Summary</h2>
                 <p className="text-text-secondary text-sm mt-1">Review your answers before reserving your slot.</p>
               </div>
 
@@ -513,7 +513,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
           {step === 4 && (
             <motion.div key="s4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.3 }} className="space-y-6">
               <div>
-                <h2 className="font-display font-medium text-2xl text-text-primary tracking-tight leading-snug">Reserve Your Beta Access</h2>
+                <h2 className="font-sans font-medium text-2xl text-text-primary tracking-tight leading-snug">Reserve Your Beta Access</h2>
                 <p className="text-text-secondary text-sm font-sans mt-2 leading-relaxed">
                   Connect your wallet to verify on-chain DeFi activity and tailor your early access. No transaction or signing required.
                 </p>
@@ -592,7 +592,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
                 <img src="/panik-shield.png" alt="" aria-hidden="true" className="w-40 h-40 object-contain relative z-10 drop-shadow-[0_0_32px_rgb(from var(--color-panik-orange) r g b / 0.5)]" />
               </div>
               <div className="space-y-2">
-                <h2 className="font-display font-medium text-2xl text-text-primary tracking-tight">You're on the list.</h2>
+                <h2 className="font-sans font-medium text-2xl text-text-primary tracking-tight">You're on the list.</h2>
                 <p className="text-text-secondary text-sm max-w-sm mx-auto leading-relaxed">
                   {position ? <>Your position is <span className="text-text-primary font-semibold">#{position}</span>.</> : <>Your slot is confirmed.</>}{" "}
                   We'll contact you when Panik enters beta and new testing opportunities open.

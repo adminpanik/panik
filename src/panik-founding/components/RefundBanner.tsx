@@ -124,7 +124,7 @@ export function RefundBanner() {
         <div className="flex items-start gap-3">
           <span className="text-2xl">✅</span>
           <div>
-            <h4 className="font-display font-semibold text-risk-low text-sm mb-1">
+            <h4 className="font-sans font-semibold text-risk-low text-sm mb-1">
               Refund claimed
             </h4>
             <p className="text-xs text-text-muted mb-2">
@@ -157,7 +157,7 @@ export function RefundBanner() {
         <div className="flex items-start gap-3">
           <span className="text-2xl">⚠️</span>
           <div>
-            <h4 className="font-display font-semibold text-risk-critical text-sm mb-1">
+            <h4 className="font-sans font-semibold text-risk-critical text-sm mb-1">
               Can't reach the escrow contract
             </h4>
             <p className="text-xs text-text-muted">
@@ -188,7 +188,7 @@ export function RefundBanner() {
         <div className="flex items-start gap-3">
           <span className="text-2xl">⛓️</span>
           <div className="flex-1">
-            <h4 className="font-display font-semibold text-risk-elevated text-sm mb-1">
+            <h4 className="font-sans font-semibold text-risk-elevated text-sm mb-1">
               Refund available
             </h4>
             <p className="text-xs text-text-muted mb-1">
@@ -213,7 +213,7 @@ export function RefundBanner() {
       <div className="flex items-start gap-3">
         <span className="text-2xl">⏰</span>
         <div className="flex-1">
-          <h4 className="font-display font-semibold text-risk-elevated text-sm mb-1">
+          <h4 className="font-sans font-semibold text-risk-elevated text-sm mb-1">
             Refund available
           </h4>
           <p className="text-xs text-text-muted mb-1">

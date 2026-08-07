@@ -45,7 +45,7 @@ export function EmptyState({ tone, title, hint, action }: EmptyStateProps) {
       <div className="flex items-start gap-3">
         <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${mark}`} />
         <div>
-          <span className="block text-sm font-display font-bold text-text-primary">{title}</span>
+          <span className="block text-sm font-sans font-bold text-text-primary">{title}</span>
           {hint && (
             <span className="mt-1 block text-xs font-sans leading-relaxed text-text-secondary">
               {hint}

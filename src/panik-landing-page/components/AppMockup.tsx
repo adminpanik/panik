@@ -392,7 +392,7 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
           <div className="flex items-center gap-2.5">
             <img src="/panik-logo.png" alt="PANIK" width={32} height={32} style={{ objectFit: "contain" }} />
             <div className="flex flex-col">
-              <span className="font-display font-extrabold text-lg tracking-widest text-text-primary leading-none">PANIK</span>
+              <span className="font-sans font-extrabold text-lg tracking-widest text-text-primary leading-none">PANIK</span>
               <span className="text-2xs font-mono tracking-widest text-text-muted uppercase mt-0.5">SENTRY PROTECTION</span>
             </div>
           </div>
@@ -499,7 +499,7 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
                 {/* Title Section */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle pb-5">
                   <div>
-                    <h1 className="text-2xl font-display font-extrabold tracking-tight text-text-primary mb-1">Compass</h1>
+                    <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary mb-1">Compass</h1>
                     <p className="text-text-secondary font-mono text-xs">Find positions matching your risk profile</p>
                   </div>
 
@@ -719,7 +719,7 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
                     <div className="flex justify-between items-center mb-4.5 border-b border-border-subtle pb-3">
                       <div>
                         <span className="block text-2xs font-mono tracking-widest text-panik-orange uppercase">ACTIVE PROTECTOR</span>
-                        <h2 className="text-lg font-display font-extrabold text-text-primary tracking-wide">
+                        <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide">
                           {activePreset.protocol} Detail Sandbox
                         </h2>
                       </div>
@@ -1022,7 +1022,7 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
                 className="space-y-6 max-w-4xl"
               >
                 <div className="border-b border-border-subtle pb-5">
-                  <h1 className="text-2xl font-display font-extrabold tracking-tight text-text-primary mb-1">AI Advisor</h1>
+                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary mb-1">AI Advisor</h1>
                   <p className="text-text-secondary font-mono text-xs">Intelligent decentralized risk modeling and real-time execution guidance</p>
                 </div>
 
@@ -1035,7 +1035,7 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
                     Coming Soon
                   </span>
                   
-                  <h3 className="text-lg font-display font-bold text-text-primary tracking-tight mb-3">
+                  <h3 className="text-lg font-sans font-bold text-text-primary tracking-tight mb-3">
                     Adaptive Intelligence at Your Service
                   </h3>
                   
@@ -1057,7 +1057,7 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
                 className="space-y-6 max-w-5xl"
               >
                 <div className="border-b border-border-subtle pb-5">
-                  <h1 className="text-2xl font-display font-extrabold tracking-tight text-text-primary mb-1">DeFi Portfolio</h1>
+                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary mb-1">DeFi Portfolio</h1>
                   <p className="text-text-secondary font-mono text-xs">Insured capital backing and automated flash hedges across monitored vaults</p>
                 </div>
 

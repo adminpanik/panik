@@ -114,7 +114,7 @@ export function HowItWorks() {
         
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-12 select-none shrink-0 border-b border-border-subtle pb-6">
-          <h2 className="font-display font-medium text-2xl sm:text-4xl tracking-tight text-text-primary mt-4 mb-3 leading-tight">
+          <h2 className="font-sans font-medium text-2xl sm:text-4xl tracking-tight text-text-primary mt-4 mb-3 leading-tight">
             From entry to exit. <br />
             <span className="text-text-secondary font-semibold">Every step covered.</span>
           </h2>
@@ -204,7 +204,7 @@ export function HowItWorks() {
                       </div>
 
                       {/* Header values */}
-                      <h3 className="font-display font-medium text-2xl text-text-primary tracking-tight">
+                      <h3 className="font-sans font-medium text-2xl text-text-primary tracking-tight">
                         {item.title}
                       </h3>
                       
@@ -257,7 +257,7 @@ export function HowItWorks() {
                     {/* Sideways Vertical cybernetic Title block */}
                     <div className="flex-1 flex items-center justify-center py-4">
                       <span 
-                        className="block font-display font-extrabold text-xs tracking-[0.25em] text-text-muted select-none uppercase"
+                        className="block font-sans font-extrabold text-xs tracking-[0.25em] text-text-muted select-none uppercase"
                         style={{ writingMode: "vertical-rl" }}
                       >
                         {item.title}

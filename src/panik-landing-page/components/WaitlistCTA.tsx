@@ -95,7 +95,7 @@ export function WaitlistCTA({ subscribersList, hasSubscribed, onOpenWaitlistModa
           {/* Accent lighting in background */}
           <div className="absolute -bottom-24 left-1/2 -translate-x-1/2 w-80 h-80 bg-panik-orange/15 rounded-full blur-3xl pointer-events-none"></div>
 
-          <h2 className="font-display font-bold text-2xl sm:text-4xl tracking-tight leading-tight text-text-primary mb-5">
+          <h2 className="font-sans font-bold text-2xl sm:text-4xl tracking-tight leading-tight text-text-primary mb-5">
             Apply for Early Access
           </h2>
 

@@ -26,7 +26,7 @@ export function Footer({ onScrollTo }: FooterProps) {
             id="footer-brand-container"
           >
             <PanikLogoMark size={24} />
-            <span className="font-display font-bold text-lg tracking-wider text-text-primary group-hover:text-text-primary transition-colors">
+            <span className="font-sans font-bold text-lg tracking-wider text-text-primary group-hover:text-text-primary transition-colors">
               PANIK
             </span>
           </div>

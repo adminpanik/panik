@@ -23,7 +23,7 @@ export function ProtocolCoverage() {
             <span className="text-2xs sm:text-xs font-mono font-bold text-panik-orange tracking-widest uppercase bg-panik-orange/10 px-3 py-1 rounded-full border border-panik-orange/20 inline-block">
               ECOSYSTEM INTEGRATIONS
             </span>
-            <h2 className="font-display font-bold text-4xl tracking-tight leading-tight text-text-primary mt-4 mb-4">
+            <h2 className="font-sans font-bold text-4xl tracking-tight leading-tight text-text-primary mt-4 mb-4">
               Built for Base.<br />
               <span className="font-semibold text-text-secondary">Starting with the two protocols that matter.</span>
             </h2>
@@ -58,7 +58,7 @@ export function ProtocolCoverage() {
                     <span className="text-2xs font-mono text-text-secondary tracking-widest uppercase block">
                       DEFI STANDARD
                     </span>
-                    <h3 className="font-display font-bold text-2xl text-text-primary mt-1">
+                    <h3 className="font-sans font-bold text-2xl text-text-primary mt-1">
                       {proto.name}
                     </h3>
                   </div>

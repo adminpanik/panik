@@ -296,7 +296,7 @@ export function DashboardScrollPreview() {
                 <div className="flex items-center gap-2">
                   <img src="/panik-logo.png" alt="PANIK" width={24} height={24} style={{ objectFit: "contain" }} />
                   <div className="flex flex-col text-left">
-                    <span className="font-display font-black text-2xs tracking-wider text-text-primary leading-none">PANIK</span>
+                    <span className="font-sans font-black text-2xs tracking-wider text-text-primary leading-none">PANIK</span>
                   </div>
                 </div>
 
@@ -361,7 +361,7 @@ export function DashboardScrollPreview() {
                       className="flex flex-col gap-3.5 h-full text-left font-sans"
                     >
                       <div className="space-y-0.5">
-                        <h2 className="text-sm sm:text-base font-display font-medium text-text-primary tracking-tight">DeFi Portfolio</h2>
+                        <h2 className="text-sm sm:text-base font-sans font-medium text-text-primary tracking-tight">DeFi Portfolio</h2>
                         <p className="text-2xs text-text-secondary">
                           Insured capital backing and automated flash hedges across monitored vaults
                         </p>
@@ -575,7 +575,7 @@ export function DashboardScrollPreview() {
                       {/* Compass Header with Profile Level Controls */}
                       <div className="flex justify-between items-center shrink-0">
                         <div>
-                          <h2 className="text-sm sm:text-base font-display font-medium text-text-primary tracking-tight leading-none">Compass</h2>
+                          <h2 className="text-sm sm:text-base font-sans font-medium text-text-primary tracking-tight leading-none">Compass</h2>
                           <p className="text-2xs text-text-secondary font-mono mt-1">
                             Find positions matching your risk profile
                           </p>
@@ -1079,7 +1079,7 @@ export function DashboardScrollPreview() {
                           Coming Soon
                         </span>
                         
-                        <h3 className="text-base font-display font-bold text-text-primary tracking-tight mb-2">
+                        <h3 className="text-base font-sans font-bold text-text-primary tracking-tight mb-2">
                           Adaptive Intelligence at Your Service
                         </h3>
                         

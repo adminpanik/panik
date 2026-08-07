@@ -84,14 +84,14 @@ export function Sparkline(props: {
           style={{ height }}
           aria-hidden="true"
         >
-          <span className="text-2xs font-mono tabular-nums text-text-muted leading-none">{axes.yFormat(max)}</span>
-          <span className="text-2xs font-mono tabular-nums text-text-muted leading-none">{axes.yFormat(min)}</span>
+          <span className="text-2xs font-sans tabular-nums text-text-muted leading-none">{axes.yFormat(max)}</span>
+          <span className="text-2xs font-sans tabular-nums text-text-muted leading-none">{axes.yFormat(min)}</span>
         </div>
         <div className="flex-1 min-w-0">{svg}</div>
       </div>
       <div className="flex justify-between pl-9 mt-0.5" aria-hidden="true">
-        <span className="text-2xs font-mono text-text-muted uppercase">{axes.xStart}</span>
-        <span className="text-2xs font-mono text-text-muted uppercase">{axes.xEnd}</span>
+        <span className="text-2xs font-sans text-text-muted">{axes.xStart}</span>
+        <span className="text-2xs font-sans text-text-muted">{axes.xEnd}</span>
       </div>
     </div>
   );

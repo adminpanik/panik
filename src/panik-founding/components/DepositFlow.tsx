@@ -333,7 +333,7 @@ export function DepositFlow() {
 
   return (
     <div className="panik-glass rounded-md p-6">
-      <h3 className="font-display font-semibold text-sm text-text-secondary mb-5 uppercase tracking-wider">
+      <h3 className="font-sans font-semibold text-sm text-text-secondary mb-5 uppercase tracking-wider">
         Deposit
       </h3>
 
@@ -354,7 +354,7 @@ export function DepositFlow() {
       {step === "shipped-ended" && (
         <div className="text-center py-8">
           <div className="text-2xl mb-3">🚀</div>
-          <h4 className="font-display font-semibold text-text-primary mb-2">
+          <h4 className="font-sans font-semibold text-text-primary mb-2">
             PANIK has launched!
           </h4>
           <p className="text-sm text-text-muted">
@@ -367,7 +367,7 @@ export function DepositFlow() {
       {step === "deadline-passed" && (
         <div className="text-center py-8">
           <div className="text-2xl mb-3">⏳</div>
-          <h4 className="font-display font-semibold text-text-primary mb-2">
+          <h4 className="font-sans font-semibold text-text-primary mb-2">
             Deposits Closed
           </h4>
           <p className="text-sm text-text-muted">
@@ -550,7 +550,7 @@ export function DepositFlow() {
       {step === "success" && (
         <div className="text-center py-6">
           <div className="text-4xl mb-3">🎉</div>
-          <h4 className="font-display font-bold text-lg text-text-primary mb-2">
+          <h4 className="font-sans font-bold text-lg text-text-primary mb-2">
             You're a founding user!
           </h4>
           <p className="text-sm text-text-muted mb-4">
@@ -576,7 +576,7 @@ export function DepositFlow() {
       {step === "already-paid" && (
         <div className="text-center py-6">
           <div className="text-2xl mb-3">✅</div>
-          <h4 className="font-display font-semibold text-text-primary mb-2">
+          <h4 className="font-sans font-semibold text-text-primary mb-2">
             Already deposited
           </h4>
           <p className="text-sm text-text-muted">

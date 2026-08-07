@@ -17,7 +17,7 @@ export const PROTOCOL_BRAND_HEX = {
 } as const;
 
 const TILE =
-  "rounded-md overflow-hidden shrink-0 flex items-center justify-center bg-surface-sunken border border-border-subtle text-text-muted p-1.5";
+  "rounded-md overflow-hidden shrink-0 flex items-center justify-center bg-surface-sunken border border-border-subtle text-text-secondary p-1.5";
 
 /** Protocol brand mark — matches by name substring ("aave" / "moonwell"). */
 export function ProtocolLogo({ protocol, size = "w-6 h-6" }: { protocol: string; size?: string }) {

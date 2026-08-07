@@ -57,7 +57,7 @@ export function Navigation({ onScrollTo, subscriberCount, onOpenWaitlistModal, h
             id="nav-logo-container"
           >
             <PanikLogoMark size={32} />
-            <span className="font-display font-medium text-lg tracking-[0.1em] text-text-primary group-hover:text-text-primary transition-colors uppercase">
+            <span className="font-sans font-medium text-lg tracking-[0.1em] text-text-primary group-hover:text-text-primary transition-colors uppercase">
               PANIK
             </span>
           </div>

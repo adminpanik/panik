@@ -50,7 +50,7 @@ export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWai
             className="flex flex-col items-center pointer-events-none w-full"
           >
             {/* Heading - centered display style */}
-            <h1 className="font-display font-medium text-4xl md:text-display tracking-tight leading-[1.05] text-text-primary max-w-3xl mb-6 select-none">
+            <h1 className="font-sans font-medium text-4xl md:text-display tracking-tight leading-[1.05] text-text-primary max-w-3xl mb-6 select-none">
               Institutional-grade risk intelligence. Built for your <span className="text-panik-orange font-semibold">DeFi positions.</span>
             </h1>
 

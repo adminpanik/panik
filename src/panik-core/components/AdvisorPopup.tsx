@@ -219,7 +219,7 @@ export function AdvisorPopup({
               />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-2xs font-mono tracking-widest uppercase text-text-muted mb-1">
+              <p className="text-2xs font-sans text-text-muted mb-1">
                 AI Advisor
               </p>
               <p className="text-sm text-text-primary font-sans leading-relaxed">{notification.headline}</p>
@@ -227,7 +227,7 @@ export function AdvisorPopup({
                 {notification.actionLabel ? (
                   <button
                     onClick={act}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-2xs font-mono font-bold tracking-wide transition-colors ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-2xs font-sans font-bold tracking-wide transition-colors ${
                       notification.kind === "exit"
                         ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25"
                         : notification.kind === "reduce"
@@ -243,7 +243,7 @@ export function AdvisorPopup({
                     onView();
                     setNotification(null);
                   }}
-                  className="px-3 py-1.5 rounded-md text-2xs font-mono text-text-secondary border border-border-subtle hover:text-text-primary hover:bg-white/[0.06] transition-colors"
+                  className="px-3 py-1.5 rounded-md text-2xs font-sans text-text-secondary border border-border-subtle hover:text-text-primary hover:bg-white/[0.06] transition-colors"
                 >
                   View in Advisor
                 </button>

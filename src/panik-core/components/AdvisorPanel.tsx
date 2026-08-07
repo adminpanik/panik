@@ -51,7 +51,7 @@ const fmtUsd = (n: number | null) =>
 function SectionRow({ label, text }: { label: string; text: string }) {
   return (
     <div className="flex flex-col sm:flex-row sm:gap-4">
-      <span className="w-36 shrink-0 text-2xs font-mono tracking-widest uppercase text-text-muted pt-0.5">
+      <span className="w-36 shrink-0 text-2xs font-sans text-text-muted pt-0.5">
         {label}
       </span>
       <p className="text-sm text-text-secondary leading-relaxed font-sans flex-1">{text}</p>
@@ -74,7 +74,7 @@ function ActionButton({
     return (
       <span className="inline-flex items-center gap-2">
         {EXIT_ENV === "testnet" ? (
-          <span className="px-1.5 py-0.5 rounded-sm border border-risk-elevated/40 bg-risk-elevated/10 text-risk-elevated text-2xs font-mono font-bold tracking-widest">
+          <span className="px-1.5 py-0.5 rounded-sm border border-risk-elevated/40 bg-risk-elevated/10 text-risk-elevated text-2xs font-sans font-bold">
             TESTNET
           </span>
         ) : null}
@@ -82,7 +82,7 @@ function ActionButton({
           onClick={onExit ? () => onExit(prefill) : undefined}
           disabled={!onExit}
           title={onExit ? undefined : "Transaction flow ships with the Atomic Exit integration"}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-mono font-bold tracking-wide transition-colors ${
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-sans font-bold tracking-wide transition-colors ${
             rec.action === "EXIT"
               ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25"
               : "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25"
@@ -100,7 +100,7 @@ function ActionButton({
         onClick={onOpen ? () => onOpen(plan) : undefined}
         disabled={!onOpen}
         title={onOpen ? undefined : "In-app opening ships with the position flows"}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-mono font-bold tracking-wide bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-sans font-bold tracking-wide bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Open position <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -123,8 +123,8 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
     <div className="flex flex-wrap gap-x-6 gap-y-1 pt-3 border-t border-border-subtle">
       {items.map(([label, value]) => (
         <div className="flex items-baseline gap-2" key={label}>
-          <span className="text-2xs font-mono tracking-widest uppercase text-text-muted">{label}</span>
-          <span className="text-xs font-mono tabular-nums text-text-secondary">{value}</span>
+          <span className="text-2xs font-sans text-text-muted">{label}</span>
+          <span className="text-xs font-sans tabular-nums text-text-secondary">{value}</span>
         </div>
       ))}
     </div>
@@ -153,15 +153,15 @@ function RecommendationCard({
       <div className="flex items-center gap-3 flex-wrap">
         <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-display font-bold text-text-primary">
+          <div className="text-sm font-sans font-bold text-text-primary">
             {PROTOCOL_LABEL[rec.protocol]}
           </div>
-          <div className="text-2xs font-mono text-text-muted tracking-wider uppercase">
+          <div className="text-2xs font-sans text-text-muted">
             {rec.numbers.scoredCollateralSymbol} position
           </div>
         </div>
         <span
-          className={`px-2.5 py-1 rounded-md border text-2xs font-mono font-bold tracking-widest ${ACTION_CHIP[rec.action] ?? URGENCY_CHIP[rec.urgency]}`}
+          className={`px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${ACTION_CHIP[rec.action] ?? URGENCY_CHIP[rec.urgency]}`}
         >
           {rec.action}
         </span>
@@ -197,10 +197,10 @@ function OpportunityCard({
       <div className="flex items-center gap-3">
         <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-7 h-7" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-display font-bold text-text-primary truncate">
+          <div className="text-sm font-sans font-bold text-text-primary truncate">
             {plan.collateralSymbol} on {PROTOCOL_LABEL[rec.protocol]}
           </div>
-          <div className="text-2xs font-mono tabular-nums text-text-muted tracking-wider">
+          <div className="text-2xs font-sans tabular-nums text-text-muted">
             Projected score {plan.projectedScore}
             {plan.apy !== null ? ` · ${(plan.apy * 100).toFixed(1)}% APY` : ""}
           </div>
@@ -211,7 +211,7 @@ function OpportunityCard({
         {rec.sections.recommendation}
       </p>
       <div className="flex items-center justify-between pt-1">
-        <span className="text-2xs font-mono tabular-nums text-text-muted">
+        <span className="text-2xs font-sans tabular-nums text-text-muted">
           ~{fmtUsd(plan.collateralUsd)} collateral
           {plan.borrowUsd > 0 ? ` / ${fmtUsd(plan.borrowUsd)} borrow` : ""}
         </span>
@@ -251,7 +251,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
         <div className="min-w-0">
           <p className="text-sm text-text-primary font-sans leading-relaxed">{overall.headline}</p>
           {walletInsights ? (
-            <p className="text-2xs font-mono text-text-muted mt-1">
+            <p className="text-2xs font-sans text-text-muted mt-1">
               Based on your history: {walletInsights.archetype}
               {walletInsights.lendingAgeDays > 0
                 ? ` · ${Math.round(walletInsights.lendingAgeDays / 30)}mo lending tenure`
@@ -263,7 +263,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
             </p>
           ) : null}
           {report.narrated ? (
-            <p className="text-2xs font-mono text-text-muted mt-1 flex items-center gap-1">
+            <p className="text-2xs font-sans text-text-muted mt-1 flex items-center gap-1">
               <Sparkles className="w-3 h-3" /> AI-narrated · engine-decided
             </p>
           ) : null}
@@ -273,7 +273,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
       {/* Position legs */}
       {recommendations.length > 0 ? (
         <div className="space-y-4">
-          <h3 className="text-2xs font-mono tracking-widest uppercase text-text-muted">
+          <h3 className="text-2xs font-sans text-text-muted">
             Your positions
           </h3>
           {recommendations.map((rec) => (
@@ -294,7 +294,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
       {/* Opportunities */}
       {opportunities.length > 0 ? (
         <div className="space-y-4">
-          <h3 className="text-2xs font-mono tracking-widest uppercase text-text-muted">
+          <h3 className="text-2xs font-sans text-text-muted">
             Opportunities within your profile
           </h3>
           <div className="grid md:grid-cols-3 gap-4">

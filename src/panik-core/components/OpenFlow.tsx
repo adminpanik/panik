@@ -355,7 +355,7 @@ export function OpenFlow({
   ]);
 
   const inputCls =
-    "w-full bg-surface-raised border border-border-strong rounded-md px-3 py-2 text-sm font-mono tabular-nums text-text-primary focus:border-border-strong";
+    "w-full bg-surface-raised border border-border-strong rounded-md px-3 py-2 text-sm font-sans tabular-nums text-text-primary focus:border-border-strong";
 
   const summary = useMemo(
     () =>
@@ -381,8 +381,8 @@ export function OpenFlow({
       >
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-display font-bold text-text-primary">Open Position</h2>
-            <p className="text-2xs font-mono text-text-muted mt-0.5">{summary}</p>
+            <h2 className="text-lg font-sans font-bold text-text-primary">Open Position</h2>
+            <p className="text-2xs font-sans text-text-muted mt-0.5">{summary}</p>
           </div>
           <button
             onClick={requestClose}
@@ -409,7 +409,7 @@ export function OpenFlow({
             </p>
             <button
               onClick={onClose}
-              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-mono text-text-primary hover:bg-white/[0.1] transition-colors"
+              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
             >
               Close
             </button>
@@ -419,7 +419,7 @@ export function OpenFlow({
         {step === "connect" ? (
           <button
             onClick={() => connect({ connector: injected() })}
-            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-mono font-bold text-sm hover:bg-white/15 transition-colors"
+            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-sans font-bold text-sm hover:bg-white/15 transition-colors"
           >
             Connect wallet
           </button>
@@ -428,7 +428,7 @@ export function OpenFlow({
         {step === "chain" ? (
           <button
             onClick={() => void switchChainAsync({ chainId: OPEN_CHAIN_ID })}
-            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-mono font-bold text-sm hover:bg-white/15 transition-colors"
+            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-sans font-bold text-sm hover:bg-white/15 transition-colors"
           >
             Switch to Base
           </button>
@@ -448,7 +448,7 @@ export function OpenFlow({
             ) : null}
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1">
-                <span className="text-2xs font-mono tracking-widest uppercase text-text-muted">
+                <span className="text-2xs font-sans text-text-muted">
                   Collateral (USD)
                 </span>
                 <input
@@ -466,7 +466,7 @@ export function OpenFlow({
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-2xs font-mono tracking-widest uppercase text-text-muted">
+                <span className="text-2xs font-sans text-text-muted">
                   Borrow USDC (max {borrowCap})
                 </span>
                 <input
@@ -484,21 +484,21 @@ export function OpenFlow({
             </div>
 
             <div className="flex items-center justify-between rounded-md border border-border-subtle bg-white/[0.02] p-3">
-              <span className="text-2xs font-mono tracking-widest uppercase text-text-muted">
+              <span className="text-2xs font-sans text-text-muted">
                 Projected PANIK score
               </span>
-              <span className="text-sm font-mono tabular-nums text-text-primary">
+              <span className="text-sm font-sans tabular-nums text-text-primary">
                 {projectedScore}
                 {projectedHf !== null ? ` · HF ${projectedHf?.toFixed(2)}` : ""}
               </span>
             </div>
-            <p className="text-2xs font-mono text-text-muted">
+            <p className="text-2xs font-sans text-text-muted">
               Borrow is capped at your {riskProfile} profile's target health factor - the advisor
               sized this plan to stay within your risk band.
             </p>
 
             {error ? (
-              <div className="rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-mono break-words">
+              <div className="rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-sans break-words">
                 {error}
               </div>
             ) : null}
@@ -506,7 +506,7 @@ export function OpenFlow({
             <button
               onClick={() => void execute()}
               disabled={executing || collateralUsd <= 0}
-              className="w-full py-3 rounded-md bg-text-primary text-black font-mono font-bold text-sm hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-md bg-text-primary text-black font-sans font-bold text-sm hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {executing ? (
                 <>
@@ -520,7 +520,7 @@ export function OpenFlow({
               )}
             </button>
             {txHashes.length > 0 && !doneHash ? (
-              <p className="text-2xs font-mono text-text-muted text-center">
+              <p className="text-2xs font-sans text-text-muted text-center">
                 {txHashes.length} transaction{txHashes.length > 1 ? "s" : ""} confirmed
                 {executing ? "..." : " - retrying continues from the next step"}
               </p>
@@ -532,8 +532,8 @@ export function OpenFlow({
           <div className="space-y-4 text-center py-4">
             <CheckCircle2 className="w-10 h-10 text-risk-low mx-auto" />
             <div>
-              <p className="text-text-primary font-display font-bold">Position opened</p>
-              <p className="text-sm text-text-secondary font-mono mt-1">
+              <p className="text-text-primary font-sans font-bold">Position opened</p>
+              <p className="text-sm text-text-secondary font-sans mt-1">
                 Your wallet is now watched - scoring picks the position up within a minute.
               </p>
             </div>
@@ -541,13 +541,13 @@ export function OpenFlow({
               href={`https://basescan.org/tx/${doneHash}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-mono text-text-primary hover:underline"
+              className="inline-flex items-center gap-1.5 text-xs font-sans text-text-primary hover:underline"
             >
               View on Basescan <ExternalLink className="w-3 h-3" />
             </a>
             <button
               onClick={onClose}
-              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-mono text-text-primary hover:bg-white/[0.1] transition-colors"
+              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
             >
               Done
             </button>
@@ -555,7 +555,7 @@ export function OpenFlow({
         ) : null}
 
         {step !== "unsupported" && step !== "done" && !executing && error === null ? (
-          <p className="text-2xs font-mono text-text-muted text-center flex items-center justify-center gap-1">
+          <p className="text-2xs font-sans text-text-muted text-center flex items-center justify-center gap-1">
             <AlertTriangle className="w-3 h-3" /> Real funds. Review every wallet prompt before
             signing.
           </p>

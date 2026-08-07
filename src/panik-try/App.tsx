@@ -123,7 +123,7 @@ export default function App() {
         {/* Brand mark */}
         <div className={`flex items-center gap-2.5 justify-center ${fade("delay-0")}`}>
           <img src="/panik-logo.png" alt="PANIK" width={36} height={36} className="rounded-md object-contain" />
-          <span className="font-display font-semibold text-lg tracking-tight text-text-primary">PANIK</span>
+          <span className="font-sans font-semibold text-lg tracking-tight text-text-primary">PANIK</span>
         </div>
 
         {/* ── Redemption panel (the interactive half) ── */}
@@ -144,7 +144,7 @@ export default function App() {
               <div className="mx-auto w-12 h-12 rounded-full bg-panik-orange/15 flex items-center justify-center mb-4">
                 <Check className="w-6 h-6 text-panik-orange" />
               </div>
-              <h1 className="font-display text-lg font-bold text-text-primary mb-1.5">You're in.</h1>
+              <h1 className="font-sans text-lg font-bold text-text-primary mb-1.5">You're in.</h1>
               <p className="text-sm text-text-muted leading-relaxed mb-5">
                 Here's your personal access link. It's unique to you and the trial
                 clock starts the moment you open the app.
@@ -172,7 +172,7 @@ export default function App() {
               <div className="mx-auto w-12 h-12 rounded-full bg-risk-critical/15 flex items-center justify-center mb-4">
                 <AlertCircle className="w-6 h-6 text-risk-critical" />
               </div>
-              <h1 className="font-display text-lg font-bold text-text-primary mb-1.5">{INVALID_COPY[invalidOutcome].title}</h1>
+              <h1 className="font-sans text-lg font-bold text-text-primary mb-1.5">{INVALID_COPY[invalidOutcome].title}</h1>
               <p className="text-sm text-text-muted leading-relaxed mb-5">{INVALID_COPY[invalidOutcome].sub}</p>
               <button
                 onClick={resetToIdle}
@@ -185,7 +185,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2 mb-1.5">
                 <Ticket className="w-4 h-4 text-panik-orange" />
-                <h1 className="font-display text-lg font-bold text-text-primary">Try PANIK free</h1>
+                <h1 className="font-sans text-lg font-bold text-text-primary">Try PANIK free</h1>
               </div>
               <p className="text-sm text-text-muted leading-relaxed mb-5">
                 {detectedCode
@@ -267,7 +267,7 @@ export default function App() {
         {/* ── Business card (ALWAYS visible, every code state) ── */}
         <section className={`panik-glass rounded-lg p-6 ${fade("delay-200")}`}>
           <p className="text-2xs font-mono uppercase tracking-widest text-text-muted mb-3">Business card</p>
-          <h2 className="font-display text-lg font-semibold text-text-primary">{BUSINESS_CARD.name}</h2>
+          <h2 className="font-sans text-lg font-semibold text-text-primary">{BUSINESS_CARD.name}</h2>
           <p className="text-sm text-text-muted mb-4">{BUSINESS_CARD.tagline}</p>
           <div className="flex flex-col gap-2.5">
             <a

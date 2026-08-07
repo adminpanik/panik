@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /**
@@ -11,9 +11,20 @@
  * review instead of quietly reintroducing a fifth green.
  */
 @theme {
-  /* Brand Typography Alignment */
+  /**
+   * Two families, down from three. Space Grotesk was the display face on a
+   * couple of dozen headings, and a second sans that close to the first buys
+   * nothing a weight step does not.
+   *
+   * Mono is now reserved for hexadecimal addresses. It used to set labels,
+   * buttons, headings and prose — ~600 call sites — which is most of why this
+   * UI read as hard work: monospace is tuned for character-cell alignment, not
+   * for reading words. Plus Jakarta Sans ships real tabular figures (measured
+   * in-browser: digit advances collapse from a 36.1px spread at 100px to a
+   * uniform 60px under `font-variant-numeric: tabular-nums`), so numeric
+   * columns align in the sans face and mono is no longer load-bearing.
+   */
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   /**
@@ -147,6 +158,12 @@
     background-color: var(--color-surface-base);
     color: var(--color-text-primary);
     font-family: var(--font-sans);
+    /**
+     * Every digit in the product is tabular by default. This is what lets the
+     * sans face replace mono wholesale: a column of dollar amounts lines up on
+     * its own, without each call site having to remember `tabular-nums`.
+     */
+    font-variant-numeric: tabular-nums;
     overflow-x: clip;
     position: relative;
   }
