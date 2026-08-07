@@ -4,6 +4,11 @@
 /**
  * Design tokens. Tailwind v4 is CSS-first: only `@theme` generates utilities,
  * so every value the UI is allowed to use lives here and nowhere else.
+ *
+ * The set is deliberately small. Anything not listed below has been reset to
+ * `initial` further down, which deletes the utility entirely — a stray
+ * `text-red-400` or `rounded-2xl` then renders as nothing and is caught in
+ * review instead of quietly reintroducing a fifth green.
  */
 @theme {
   /* Brand Typography Alignment */
@@ -13,8 +18,8 @@
 
   /**
    * Surfaces — four depths, in stacking order. Depth is the only thing that
-   * varies; nothing tints a surface by state. Seventeen near-blacks collapse
-   * onto these four, so "which grey is this card" stops being a decision.
+   * varies; nothing tints a surface by state. Seventeen near-blacks collapsed
+   * onto these four, so "which grey is this card" stopped being a decision.
    */
   --color-surface-base: #09090B;
   --color-surface-sunken: #0C0D11;
@@ -34,7 +39,7 @@
   /**
    * Borders — two families, because they do two unrelated jobs. Collapsing
    * them into one alpha is the standard dark-UI mistake: a card divider wants
-   * to disappear, an input edge has to be findable. `strong` holds 3.27-3.34:1
+   * to disappear, an input edge has to be findable. `strong` holds 3.27–3.34:1
    * across all four surfaces (WCAG 1.4.11); `subtle` is decorative and makes
    * no contrast claim.
    */
@@ -53,9 +58,6 @@
    * a tint (`bg-risk-x/10 text-risk-x border-risk-x/25`), never a solid fill.
    * risk-high shares the brand hue on purpose: one hue, two treatments, so an
    * orange chip is never mistaken for a button and vice versa.
-   *
-   * The five greens the UI had collapse to one. HIGH moves off red, which it
-   * shared with CRITICAL at a distance nobody could see.
    *
    * risk-unknown is not cosmetic. A position we could not price and a position
    * that is genuinely safe used to render the same neutral grey, which in a
@@ -94,17 +96,49 @@
   --text-display: 64px;
   --text-display--line-height: 64px;
 
+  --text-xl: initial;
+  --text-3xl: initial;
+  --text-5xl: initial;
+  --text-6xl: initial;
+  --text-7xl: initial;
+  --text-8xl: initial;
+  --text-9xl: initial;
+
   /* Radii — chips/inputs, cards, modals. `rounded-full` stays for avatars and dots. */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
 
-  /* Legacy aliases. Retired once the migration onto the tokens above lands. */
-  --color-panik-text-primary: #F8FAFC;
-  --color-panik-text-secondary: #94A3B8;
-  --color-panik-green: #22C55E;
-  --color-panik-amber: #F59E0B;
-  --color-panik-red: #EF4444;
+  --radius-xs: initial;
+  --radius-xl: initial;
+  --radius-2xl: initial;
+  --radius-3xl: initial;
+  --radius-4xl: initial;
+
+  /**
+   * Every warm and neutral family is deleted. Greys must come from the text /
+   * surface / border tokens above, and anything red, amber, orange or green is
+   * a risk statement that has to name its band. The cool families (sky, cyan,
+   * blue, indigo, violet) survive as the chart palette — charts must never
+   * borrow red or green, or a series gets read as a risk state.
+   */
+  --color-red-*: initial;
+  --color-orange-*: initial;
+  --color-amber-*: initial;
+  --color-yellow-*: initial;
+  --color-lime-*: initial;
+  --color-green-*: initial;
+  --color-emerald-*: initial;
+  --color-teal-*: initial;
+  --color-rose-*: initial;
+  --color-pink-*: initial;
+  --color-fuchsia-*: initial;
+  --color-purple-*: initial;
+  --color-slate-*: initial;
+  --color-gray-*: initial;
+  --color-zinc-*: initial;
+  --color-neutral-*: initial;
+  --color-stone-*: initial;
 }
 
 /* Custom structural styles for financial style aesthetics */
@@ -150,7 +184,7 @@
   }
   ::-webkit-scrollbar-thumb {
     background: rgb(from var(--color-panik-orange) r g b / 0.2);
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
   }
   ::-webkit-scrollbar-thumb:hover {
     background: rgb(from var(--color-panik-orange) r g b / 0.4);
@@ -160,18 +194,6 @@
 /* Elegant Utilities */
 .panik-glow-orange {
   box-shadow: 0 0 25px -3px rgb(from var(--color-panik-orange) r g b / 0.45), 0 0 10px -2px rgb(from var(--color-panik-orange) r g b / 0.2);
-}
-
-.panik-glow-orange-text {
-  text-shadow: 0 0 15px rgb(from var(--color-panik-orange) r g b / 0.6);
-}
-
-.panik-glow-red {
-  box-shadow: 0 0 25px -3px rgba(239, 68, 68, 0.5), 0 0 10px -2px rgba(239, 68, 68, 0.35);
-}
-
-.panik-glow-green {
-  box-shadow: 0 0 25px -3px rgba(34, 197, 94, 0.4), 0 0 10px -2px rgba(34, 197, 94, 0.2);
 }
 
 /* Glassmorphism treatment */
@@ -206,35 +228,4 @@
 /* Soft orange gradient background glow */
 .panik-radial-ambient {
   background: radial-gradient(circle at 60% 40%, rgb(from var(--color-panik-orange) r g b / 0.06) 0%, transparent 60%);
-}
-
-.panik-radial-subtle {
-  background: radial-gradient(circle at center, rgb(from var(--color-panik-orange) r g b / 0.03) 0%, transparent 70%);
-}
-
-@keyframes slow-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.03); }
-}
-
-.animate-slow-pulse {
-  animation: slow-pulse 4s infinite ease-in-out;
-}
-
-@keyframes float-subtle {
-  0%, 100% { transform: translateY(0px) rotate(0.5deg); }
-  50% { transform: translateY(-6px) rotate(-0.5deg); }
-}
-
-.animate-float-subtle {
-  animation: float-subtle 6s infinite ease-in-out;
-}
-
-@keyframes float-delayed {
-  0%, 100% { transform: translateY(-3px) rotate(-1.5deg) scale(0.98); }
-  50% { transform: translateY(3px) rotate(-0.5deg) scale(1); }
-}
-
-.animate-float-delayed {
-  animation: float-delayed 8s infinite ease-in-out;
 }
