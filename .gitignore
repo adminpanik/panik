@@ -39,3 +39,6 @@ contracts/foundry.lock
 .playwright-mcp/
 phase*.png
 baseline.png
+/*.png
+/*.jpeg
+/*.jpg
