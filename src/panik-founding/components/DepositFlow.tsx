@@ -40,13 +40,20 @@ type FlowStep =
   | "deadline-passed";
 
 export function DepositFlow() {
-  const { address, isConnected, chain } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const { connect, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
 
   const [step, setStep] = useState<FlowStep>("connect");
   const [errorMsg, setErrorMsg] = useState("");
+  /**
+   * Wallet-level failures (user rejection) never produce a receipt, so nothing
+   * in the step effect's dependency list remembers them. Held here so a
+   * background refetch of the balance/allowance reads cannot silently erase
+   * the message — as sticky as the revert-derived errors, cleared by Retry.
+   */
+  const [walletErrorMsg, setWalletErrorMsg] = useState<string | null>(null);
 
   // Contract config
   let escrowAddress: `0x${string}` | null = null;
@@ -106,6 +113,15 @@ export function DepositFlow() {
     ? BigInt(Math.floor(Date.now() / 1000)) >= refundDeadline
     : false;
 
+  // The contract has ONE global refund deadline, not a per-depositor window.
+  const refundDeadlineDate = refundDeadline
+    ? new Date(Number(refundDeadline) * 1000).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
+
   // Read: USDC balance
   const { data: usdcBalance } = useReadContract(
     usdcAddress && address
@@ -138,6 +154,7 @@ export function DepositFlow() {
     data: approveTxHash,
     isPending: isApproving,
     error: approveError,
+    reset: resetApprove,
   } = useWriteContract();
 
   // Write: deposit
@@ -146,17 +163,23 @@ export function DepositFlow() {
     data: depositTxHash,
     isPending: isDepositing,
     error: depositError,
+    reset: resetDeposit,
   } = useWriteContract();
 
-  // Wait for approve tx
-  const { isSuccess: approveConfirmed } = useWaitForTransactionReceipt({
+  // Wait for approve tx. `isSuccess` only means the receipt was fetched — a
+  // reverted tx still resolves, so the on-chain status has to be checked.
+  const { data: approveReceipt } = useWaitForTransactionReceipt({
     hash: approveTxHash,
   });
+  const approveConfirmed = approveReceipt?.status === "success";
+  const approveReverted = approveReceipt?.status === "reverted";
 
   // Wait for deposit tx
-  const { isSuccess: depositConfirmed } = useWaitForTransactionReceipt({
+  const { data: depositReceipt } = useWaitForTransactionReceipt({
     hash: depositTxHash,
   });
+  const depositConfirmed = depositReceipt?.status === "success";
+  const depositReverted = depositReceipt?.status === "reverted";
 
   // Determine flow step based on state
   useEffect(() => {
@@ -180,16 +203,35 @@ export function DepositFlow() {
       setStep("already-paid");
       return;
     }
-    if (chain && chain.id !== targetChainId) {
-      setStep("wrong-chain");
-      return;
-    }
+    // A confirmed deposit outranks the network check: switching networks after
+    // a successful deposit must not replace the receipt with "wrong network".
     if (depositConfirmed) {
       setStep("success");
       return;
     }
+    // `chain` is undefined when the wallet sits on a chain missing from the
+    // wagmi config, so guard on `chainId` (which is always reported) instead.
+    if (chainId !== undefined && chainId !== targetChainId) {
+      setStep("wrong-chain");
+      return;
+    }
+    if (walletErrorMsg) {
+      setErrorMsg(walletErrorMsg);
+      setStep("error");
+      return;
+    }
+    if (depositReverted) {
+      setErrorMsg("Deposit transaction reverted on-chain. Please try again.");
+      setStep("error");
+      return;
+    }
     if (depositTxHash || isDepositing) {
       setStep("pending");
+      return;
+    }
+    if (approveReverted) {
+      setErrorMsg("Approval transaction reverted on-chain. Please try again.");
+      setStep("error");
       return;
     }
     if (approveConfirmed || (usdcAllowance !== undefined && usdcAllowance >= DEPOSIT_AMOUNT)) {
@@ -209,37 +251,39 @@ export function DepositFlow() {
     escrowAddress,
     isConnected,
     hasPaid,
-    chain,
+    chainId,
     targetChainId,
     usdcBalance,
     usdcAllowance,
     approveTxHash,
     approveConfirmed,
+    approveReverted,
     isApproving,
     depositTxHash,
     depositConfirmed,
+    depositReverted,
     isDepositing,
     shipped,
     hasDeadlinePassed,
+    walletErrorMsg,
   ]);
 
-  // Handle errors
+  // Latch wallet errors. The step effect above owns the transition to "error"
+  // so a refetch cannot re-derive its way past a rejection.
   useEffect(() => {
     if (approveError) {
-      setErrorMsg(
+      setWalletErrorMsg(
         approveError.message.includes("User rejected")
           ? "Transaction rejected by wallet."
           : "Approval failed. Please try again."
       );
-      setStep("error");
     }
     if (depositError) {
-      setErrorMsg(
+      setWalletErrorMsg(
         depositError.message.includes("User rejected")
           ? "Transaction rejected by wallet."
           : "Deposit failed. Please try again."
       );
-      setStep("error");
     }
   }, [approveError, depositError]);
 
@@ -274,6 +318,11 @@ export function DepositFlow() {
 
   const handleRetry = () => {
     setErrorMsg("");
+    // Clear the failed tx hashes AND the latched wallet error so the step
+    // effect doesn't re-enter "error".
+    setWalletErrorMsg(null);
+    resetApprove();
+    resetDeposit();
     setStep("approve");
   };
 
@@ -505,7 +554,9 @@ export function DepositFlow() {
             You're a founding user!
           </h4>
           <p className="text-sm text-white/40 mb-4">
-            Your {DEPOSIT_DISPLAY} USDC is held in escrow. If we don't ship within 90 days, come back to claim your refund.
+            Your {DEPOSIT_DISPLAY} USDC is held in escrow. The escrow has a single
+            global deadline{refundDeadlineDate ? ` of ${refundDeadlineDate}` : ""} —
+            if we haven't shipped by then, come back to claim your refund.
           </p>
           {depositTxHash && (
             <a

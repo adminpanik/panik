@@ -7,6 +7,7 @@ import React from "react";
 import {
   useAccount,
   useReadContract,
+  useSwitchChain,
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
@@ -14,28 +15,31 @@ import {
   ESCROW_ABI,
   getEscrowAddress,
   getEscrowChainId,
+  getTargetChain,
   DEPOSIT_DISPLAY,
 } from "../lib/contracts";
 
 /**
- * Conditional refund banner. Only shows when the connected wallet's 90-day
- * window has passed without release. Lets the user claim their refund
- * directly from the contract.
+ * Conditional refund banner. Only shows when the escrow's global refund
+ * deadline has passed without release and the connected wallet is owed a
+ * refund. Lets the user claim their refund directly from the contract.
  */
 export function RefundBanner() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId: walletChainId } = useAccount();
+  const { switchChain } = useSwitchChain();
 
   let escrowAddress: `0x${string}` | null = null;
   try {
     escrowAddress = getEscrowAddress();
   } catch {
-    return null;
+    // not deployed — hooks still run below, the render guard handles it
   }
 
   const chainId = getEscrowChainId();
+  const targetChain = getTargetChain();
 
   // Check if the connected wallet is refundable
-  const { data: isRefundable } = useReadContract(
+  const { data: isRefundable, isError: isRefundableError } = useReadContract(
     escrowAddress && address
       ? {
           address: escrowAddress,
@@ -67,13 +71,28 @@ export function RefundBanner() {
     error: claimError,
   } = useWriteContract();
 
-  // Wait for claim tx
-  const { isSuccess: claimConfirmed } = useWaitForTransactionReceipt({
+  // Wait for claim tx. A reverted tx still produces a receipt, so the
+  // on-chain status decides whether the claim actually went through.
+  const { data: claimReceipt } = useWaitForTransactionReceipt({
     hash: claimTxHash,
   });
+  const claimConfirmed = claimReceipt?.status === "success";
+  const claimReverted = claimReceipt?.status === "reverted";
 
-  // Don't render if not connected, no deposit, or not refundable
-  if (!isConnected || !isRefundable) return null;
+  // TanStack Query keeps the last successful `data` while `status` flips to
+  // "error", so isError and a usable isRefundable routinely co-exist on a
+  // background refetch failure (refocus + rate-limited public RPC). Only treat
+  // it as an error when there is genuinely nothing to go on — otherwise the
+  // error card would replace a working claim button.
+  const readFailed = isRefundableError && isRefundable === undefined;
+
+  // Contract not deployed / address invalid — nothing to claim against.
+  if (!escrowAddress) return null;
+  // Don't render if not connected, or the read says the wallet isn't refundable.
+  // A FAILED read leaves `isRefundable` undefined; hiding the banner there
+  // would silently block withdrawals, so surface an error card instead.
+  if (!isConnected) return null;
+  if (!isRefundable && !readFailed) return null;
 
   const handleClaim = () => {
     if (!escrowAddress) return;
@@ -85,10 +104,10 @@ export function RefundBanner() {
     });
   };
 
-  const basescanTxUrl =
-    chainId === 8453
-      ? `https://basescan.org/tx/${claimTxHash}`
-      : `https://sepolia.basescan.org/tx/${claimTxHash}`;
+  const basescanHost =
+    chainId === 8453 ? "https://basescan.org" : "https://sepolia.basescan.org";
+  const basescanTxUrl = `${basescanHost}/tx/${claimTxHash}`;
+  const basescanAddressUrl = `${basescanHost}/address/${escrowAddress}#writeContract`;
 
   const deadlineDate = deadline
     ? new Date(Number(deadline) * 1000).toLocaleDateString("en-US", {
@@ -128,6 +147,67 @@ export function RefundBanner() {
     );
   }
 
+  // Refund status could not be read AND no cached answer exists — never hide
+  // the refund path on a failed read, or depositors past the deadline see
+  // nothing at all. `readFailed` implies isRefundable === undefined, so this
+  // can never pre-empt the claim button below.
+  if (readFailed) {
+    return (
+      <div className="rounded-xl p-6 bg-panik-red/[0.06] border border-panik-red/20">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl">⚠️</span>
+          <div>
+            <h4 className="font-display font-semibold text-panik-red text-sm mb-1">
+              Can't reach the escrow contract
+            </h4>
+            <p className="text-xs text-white/40">
+              Refunds still exist on-chain and remain claimable after the global
+              escrow deadline{deadlineDate ? ` (${deadlineDate})` : ""} — this app
+              just can't read your refund status right now. Retry shortly, or call{" "}
+              <code className="text-orange-400/60">claimRefund()</code> directly on{" "}
+              <a
+                href={basescanAddressUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-orange-400 hover:text-orange-300 underline underline-offset-2 transition-colors"
+              >
+                Basescan ↗
+              </a>
+              .
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Wrong network — the claim would never reach the escrow chain.
+  if (walletChainId !== undefined && walletChainId !== chainId) {
+    return (
+      <div className="rounded-xl p-6 bg-panik-amber/[0.06] border border-panik-amber/20">
+        <div className="flex items-start gap-3">
+          <span className="text-2xl">⛓️</span>
+          <div className="flex-1">
+            <h4 className="font-display font-semibold text-panik-amber text-sm mb-1">
+              Refund available
+            </h4>
+            <p className="text-xs text-white/40 mb-1">
+              Switch to <strong className="text-white/60">{targetChain.name}</strong>{" "}
+              to claim your {DEPOSIT_DISPLAY} USDC back.
+            </p>
+            <button
+              onClick={() => switchChain({ chainId })}
+              className="mt-3 w-full py-3 px-5 rounded-xl font-semibold text-sm bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 active:scale-[0.98] transition-all shadow-lg shadow-amber-500/20"
+              id="refund-switch-chain-btn"
+            >
+              Switch to {targetChain.name}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl p-6 bg-panik-amber/[0.06] border border-panik-amber/20">
       <div className="flex items-start gap-3">
@@ -137,15 +217,17 @@ export function RefundBanner() {
             Refund available
           </h4>
           <p className="text-xs text-white/40 mb-1">
-            Your 90-day window passed{deadlineDate ? ` on ${deadlineDate}` : ""} without release. 
+            The global escrow deadline passed{deadlineDate ? ` on ${deadlineDate}` : ""} without release.
             You can claim your {DEPOSIT_DISPLAY} USDC back.
           </p>
 
-          {claimError && (
+          {(claimError || claimReverted) && (
             <p className="text-xs text-panik-red mt-2 mb-2">
-              {claimError.message.includes("User rejected")
+              {claimError?.message.includes("User rejected")
                 ? "Transaction rejected."
-                : "Claim failed. Please try again."}
+                : claimReverted
+                  ? "Claim reverted on-chain. Please try again."
+                  : "Claim failed. Please try again."}
             </p>
           )}
 
