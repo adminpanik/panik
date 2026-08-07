@@ -58,7 +58,7 @@ export function BacktestResults() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-white/[0.06] mb-16">
             {METRICS.map((m) => (
               <div key={m.label} className="px-0 sm:px-8 py-8 sm:py-0 first:pl-0 last:pr-0">
-                <p className="text-[10px] font-mono tracking-widest text-[#475569] uppercase mb-3">
+                <p className="text-[10px] font-mono tracking-widest text-[#7A8699] uppercase mb-3">
                   {m.label}
                 </p>
                 <p className={`font-mono font-black text-3xl leading-none mb-3 ${m.valueClass}`}>
@@ -85,7 +85,7 @@ export function BacktestResults() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs font-sans">
                   <thead>
-                    <tr className="border-b border-white/[0.06] text-[#475569] font-mono text-[10px] uppercase tracking-wider">
+                    <tr className="border-b border-white/[0.06] text-[#7A8699] font-mono text-[10px] uppercase tracking-wider">
                       <th className="pb-3 font-medium">Metric</th>
                       <th className="pb-3 text-center font-medium">Static Floors</th>
                       <th className="pb-3 text-right font-medium text-[#F97316]">Panik Engine</th>
@@ -127,7 +127,7 @@ export function BacktestResults() {
               </p>
               <table className="w-full text-left text-xs font-sans">
                 <thead>
-                  <tr className="border-b border-white/[0.06] text-[#475569] font-mono text-[10px] uppercase tracking-wider">
+                  <tr className="border-b border-white/[0.06] text-[#7A8699] font-mono text-[10px] uppercase tracking-wider">
                     <th className="pb-3 font-medium">Event</th>
                     <th className="pb-3 text-right font-medium">Recall</th>
                   </tr>
@@ -136,28 +136,28 @@ export function BacktestResults() {
                   <tr>
                     <td className="py-3.5">
                       <p className="text-white font-medium">June 2022 (ETH/stETH)</p>
-                      <p className="text-[#475569] text-[10px] mt-0.5">Asset-led liquidation cascade</p>
+                      <p className="text-[#7A8699] text-[10px] mt-0.5">Asset-led liquidation cascade</p>
                     </td>
                     <td className="py-3.5 text-right font-mono font-bold text-[#10B981]">88%</td>
                   </tr>
                   <tr>
                     <td className="py-3.5">
                       <p className="text-white font-medium">UST/LUNA Depeg (May 2022)</p>
-                      <p className="text-[#475569] text-[10px] mt-0.5">Algorithm run &amp; depeg</p>
+                      <p className="text-[#7A8699] text-[10px] mt-0.5">Algorithm run &amp; depeg</p>
                     </td>
                     <td className="py-3.5 text-right font-mono font-bold text-[#10B981]">94%</td>
                   </tr>
                   <tr>
                     <td className="py-3.5">
                       <p className="text-white font-medium">FTX Collapse (Nov 2022)</p>
-                      <p className="text-[#475569] text-[10px] mt-0.5">Acute solvency shock</p>
+                      <p className="text-[#7A8699] text-[10px] mt-0.5">Acute solvency shock</p>
                     </td>
                     <td className="py-3.5 text-right font-mono font-bold text-[#10B981]">53%</td>
                   </tr>
                   <tr>
                     <td className="py-3.5">
                       <p className="text-white font-medium">USDC Depeg (Mar 2023)</p>
-                      <p className="text-[#475569] text-[10px] mt-0.5">Frictional peg deviation</p>
+                      <p className="text-[#7A8699] text-[10px] mt-0.5">Frictional peg deviation</p>
                     </td>
                     <td className="py-3.5 text-right font-mono font-bold text-[#10B981]">97%</td>
                   </tr>
@@ -170,7 +170,7 @@ export function BacktestResults() {
 
         {/* Footnote */}
         <ScrollReveal duration={0.6} delay={0.25}>
-          <p className="mt-12 pt-6 border-t border-white/[0.04] text-[11px] text-[#475569] font-sans leading-relaxed max-w-2xl">
+          <p className="mt-12 pt-6 border-t border-white/[0.04] text-[11px] text-[#7A8699] font-sans leading-relaxed max-w-2xl">
             A 27% pooled false-alarm rate is expected and accepted. To achieve early warnings, the engine flags positions that ultimately recover through repayment or market stabilization. Earlier warnings require broader capture — this tradeoff is intentional and disclosed.
           </p>
         </ScrollReveal>

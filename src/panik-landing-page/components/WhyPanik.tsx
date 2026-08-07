@@ -249,7 +249,7 @@ export function WhyPanik() {
             </span>
             <h2 className="font-sans font-extrabold text-4xl sm:text-5xl tracking-tight leading-tight text-[#F8FAFC] mt-3 mb-4">
               Every DeFi tool sees <br />
-              <span className="text-[#475569]">part of </span>
+              <span className="text-[#7A8699]">part of </span>
               <span className="text-[#F8FAFC]">the picture.</span>
             </h2>
             <p className="text-[#94A3B8] text-sm sm:text-base max-w-xl leading-relaxed">
@@ -281,7 +281,7 @@ export function WhyPanik() {
                 </div>
                 
                 <div className="flex items-center gap-3">
-                  <span className="text-[9px] font-mono text-[#475569] uppercase font-medium">COVERAGE PATH</span>
+                  <span className="text-[9px] font-mono text-[#7A8699] uppercase font-medium">COVERAGE PATH</span>
                   
                   {/* Circular Arc Donut Progress */}
                   <div 
@@ -568,7 +568,7 @@ export function WhyPanik() {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 10px;
                 font-weight: 500;
-                color: #475569;
+                color: #7A8699;
                 letter-spacing: 0.09em;
                 margin-bottom: 16px;
                 text-transform: uppercase;
@@ -585,7 +585,7 @@ export function WhyPanik() {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 9px;
                 font-weight: 500;
-                color: #475569;
+                color: #7A8699;
                 text-transform: uppercase;
                 letter-spacing: 0.07em;
                 text-align: center;
@@ -999,7 +999,7 @@ export function WhyPanik() {
                 font-family: 'Inter', sans-serif;
                 font-size: 12px;
                 font-weight: 400;
-                color: #475569;
+                color: #7A8699;
                 line-height: 1.6;
                 max-width: 230px;
               }
@@ -1412,7 +1412,7 @@ function TerminalLog() {
 
   return (
     <div className="bg-[#060810] border-t border-white/[0.08] p-3 rounded-none font-mono text-[9px] relative overflow-hidden h-[72px] flex flex-col justify-between shrink-0">
-      <div className="flex items-center justify-between mb-1.5 text-[8px] text-[#475569] uppercase tracking-widest leading-none shrink-0 select-none">
+      <div className="flex items-center justify-between mb-1.5 text-[8px] text-[#7A8699] uppercase tracking-widest leading-none shrink-0 select-none">
         <span>SYSTEM REGULAR TELEMETRY</span>
         <span className="flex items-center gap-1.5 font-bold text-[#22C55E]">
           <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse"></span>
@@ -1435,7 +1435,7 @@ function TerminalLog() {
 
             const colorClass = isLatest
               ? isRedColor ? "text-[#EF4444]" : isAmberColor ? "text-[#F59E0B]" : "text-[#14B8A6]/80"
-              : "text-[#475569]/50";
+              : "text-[#7A8699]/50";
 
             return (
               <motion.div

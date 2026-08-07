@@ -156,7 +156,7 @@ export function RiskVisualization() {
           background: transparent;
           border: none;
           border-radius: 7px;
-          color: #475569;
+          color: #7A8699;
           font-family: 'JetBrains Mono', monospace;
           font-size: 11px;
           font-weight: 500;
@@ -432,7 +432,7 @@ export function RiskVisualization() {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
           font-size: 14px;
           font-weight: 400;
-          color: #475569;
+          color: #7A8699;
           text-align: center;
           margin-top: 32px;
           max-width: 520px;
