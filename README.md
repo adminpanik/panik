@@ -183,8 +183,9 @@ npm run dev:mock    # then open http://localhost:3000/app.html
 One terminal, no `.env`, no Supabase, no API keys, no wallet. A dev-only Vite
 plugin (`dev/mockApi.ts`, `apply: 'serve'`) answers `/api/*` from typed fixtures
 and seeds the onboarding keys in `localStorage`, so you land straight on a
-populated dashboard: five positions across all four protocols and every risk
-band, 30 days of history, alerts, and an advisor report. It only fills
+populated dashboard: four positions — one per protocol, which is the most the
+engine can emit for a wallet — covering every risk band, 30 days of history,
+alerts, and an advisor report. It only fills
 `localStorage` keys that are unset, so a real onboarding you are testing is left
 alone (clear them in devtools to replay the tour).
 

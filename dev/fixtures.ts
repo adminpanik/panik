@@ -63,8 +63,17 @@ const ASSET_RISK: Record<string, number> = {
 };
 
 // ── /api/positions and /api/scores ─────────────────────────────────────────
-// Five positions, one per render path the dashboard has code for. Dropping any
-// of them silently stops exercising a branch nobody then looks at again.
+// FOUR positions — at most one per protocol, because that is the most the
+// engine can emit. scripts/api-server.ts registers exactly one reader per
+// protocol and ActiveAdapter.scoreWallet returns at most one ActiveReading per
+// reader, so a wallet has at most four legs. LivePositions.tsx keys its rows on
+// `${wallet}:${protocol}`, which a second leg on the same protocol would
+// collide with; dev/fixtures.test.ts asserts the pair is unique.
+//
+// Five render paths still fit across the four legs — the asset-risk proxy is
+// only a string in `scoredCollateralSymbol`, orthogonal to band and debt, so it
+// rides on the levered Moonwell leg. Dropping any of the five silently stops
+// exercising a branch nobody then looks at again.
 
 export const MOCK_POSITIONS: LiveWalletPosition[] = [
   {
@@ -92,20 +101,25 @@ export const MOCK_POSITIONS: LiveWalletPosition[] = [
     // 2. HF 1.20 — inside the second liquidation-proximity floor (<= 1.25 -> 50).
     //    The composite already clears it here, so the floor is a no-op; that is
     //    the realistic case and keeps the sub-scores reconcilable.
+    //
+    //    Also the asset-risk proxy path: the collateral has no own risk series,
+    //    so the engine scored it against WETH and says so in the symbol. The UI
+    //    has to carry that "(proxy)" suffix through instead of pretending it is
+    //    WETH. The suffix is orthogonal to band and debt, so it costs no leg.
     protocol: "moonwell",
     wallet: MOCK_WALLET,
     total: 52,
     band: "HIGH",
     subScores: {
       positionHealth: 80,
-      assetRisk: ASSET_RISK.WETH,
+      assetRisk: ASSET_RISK.WETH, // the proxy: no own series, scored against WETH
       protocolSafety: PROTOCOL_SAFETY.moonwell,
       systemicRisk: SYSTEMIC,
     },
     healthFactor: 1.2,
     collateralValueUsd: 84_200,
     borrowValueUsd: 56_800,
-    scoredCollateralSymbol: "WETH",
+    scoredCollateralSymbol: "WETH (proxy)",
     label: null,
     riskProfile: "moderate",
     profileStatus: "outside",
@@ -156,28 +170,6 @@ export const MOCK_POSITIONS: LiveWalletPosition[] = [
     label: null,
     riskProfile: "moderate",
     profileStatus: "approaching",
-  },
-  {
-    // 5. Asset-risk proxy: the collateral has no own risk series, so the engine
-    //    scored it against WETH and says so in the symbol. The UI has to carry
-    //    that "(proxy)" suffix through instead of pretending it is WETH.
-    protocol: "aave_v3",
-    wallet: MOCK_WALLET,
-    total: 26,
-    band: "ELEVATED",
-    subScores: {
-      positionHealth: 22,
-      assetRisk: ASSET_RISK.WETH, // the proxy: no own series, scored against WETH
-      protocolSafety: PROTOCOL_SAFETY.aave_v3,
-      systemicRisk: SYSTEMIC,
-    },
-    healthFactor: 1.78,
-    collateralValueUsd: 26_400,
-    borrowValueUsd: 12_000,
-    scoredCollateralSymbol: "WETH (proxy)",
-    label: null,
-    riskProfile: "moderate",
-    profileStatus: "within",
   },
 ];
 
@@ -412,10 +404,11 @@ export function mockChain(now = Date.now()): { blockNumber: number; gasGwei: num
 }
 
 // ── /api/advisor ───────────────────────────────────────────────────────────
-// One recommendation per leg, following packages/scoring/src/advisor/rules.ts:
-// no-debt -> HOLD, CRITICAL -> EXIT, HIGH+outside -> REDUCE with a sized repay,
-// approaching -> MONITOR, within -> HOLD. Prose mirrors the deterministic
-// templates in advisor/fallback.ts (narrated: false — no LLM in the loop).
+// One recommendation per leg — four legs, four recommendations — following
+// packages/scoring/src/advisor/rules.ts: CRITICAL -> EXIT, HIGH+outside ->
+// REDUCE with a sized repay, approaching -> MONITOR, no-debt/within -> HOLD.
+// Prose mirrors the deterministic templates in advisor/fallback.ts
+// (narrated: false — no LLM in the loop).
 //
 // The degraded leg is the one with real invariants attached (see
 // packages/scoring/tests/active.test.ts): it must NOT carry "debt:none", must
@@ -433,7 +426,7 @@ const numbersOf = (p: LiveWalletPosition): AdvisorRecommendation["numbers"] => (
   scoredCollateralSymbol: p.scoredCollateralSymbol,
 });
 
-const [SUPPLY_ONLY, LEVERED_WETH, CRITICAL_BTC, DEGRADED, PROXY_WETH] = MOCK_POSITIONS;
+const [SUPPLY_ONLY, LEVERED_WETH, CRITICAL_BTC, DEGRADED] = MOCK_POSITIONS;
 
 /** repayToTargetHf(56800, 1.20, 1.75) — moderate targets HF 1.75. */
 const MOONWELL_REPAY_USD = 17_851.43;
@@ -472,7 +465,7 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
     },
     sections: {
       position:
-        "Your Moonwell position holds $84,200 collateral against $56,800 debt (health factor 1.20, PANIK score 52 - HIGH). A 16.7% WETH price drop would trigger liquidation.",
+        "Your Moonwell position holds $84,200 collateral against $56,800 debt (health factor 1.20, PANIK score 52 - HIGH). A 16.7% WETH (proxy) price drop would trigger liquidation.",
       market: "The score is being driven by position health (80/100).",
       recommendation:
         "Repay ~$17,851 of USDC debt on Moonwell to lift your health factor from 1.20 to 1.75.",
@@ -499,21 +492,6 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
       execution: "No transaction needed. Watch alerts will fire if it crosses your threshold.",
     },
     numbers: numbersOf(DEGRADED),
-  },
-  {
-    protocol: "aave_v3",
-    wallet: MOCK_WALLET,
-    action: "HOLD",
-    urgency: "info",
-    triggers: ["band:ELEVATED", "profile:within"],
-    sections: {
-      position:
-        "Your Aave V3 position holds $26,400 collateral against $12,000 debt (health factor 1.78, PANIK score 26 - ELEVATED). A 43.8% WETH (proxy) price drop would trigger liquidation.",
-      market: "The score is being driven by position health (22/100).",
-      recommendation: "Hold. This Aave V3 position sits comfortably within your risk profile.",
-      execution: "No transaction needed.",
-    },
-    numbers: numbersOf(PROXY_WETH),
   },
   {
     protocol: "aave_v3",

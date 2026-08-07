@@ -72,6 +72,19 @@ describe("dev:mock fixtures — render paths", () => {
     for (const p of MOCK_POSITIONS) expect(p.wallet).toBe(MOCK_WALLET);
   });
 
+  // The engine cannot emit two legs on one protocol for one wallet:
+  // scripts/api-server.ts registers exactly ONE reader per protocol, and
+  // ActiveAdapter.scoreWallet (packages/scoring/src/adapters/active.ts) returns
+  // at most one ActiveReading per reader. So (wallet, protocol) is the natural
+  // key — and it is literally the React key LivePositions.tsx renders rows with
+  // (`${p.wallet}:${p.protocol}`). A duplicate here is impossible data that
+  // shows up in the browser as "Encountered two children with the same key"
+  // and a dropped row, which is exactly how it was found. Guard it.
+  it("emits at most one leg per (wallet, protocol) — the LivePositions row key", () => {
+    const keys = MOCK_POSITIONS.map((p) => `${p.wallet}:${p.protocol}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   it("has a no-debt position: null health factor, zero borrow", () => {
     const p = MOCK_POSITIONS.find((x) => x.healthFactor === null);
     expect(p).toBeDefined();

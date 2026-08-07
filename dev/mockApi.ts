@@ -83,6 +83,14 @@ function handle(url: URL): unknown {
       return { updatedAt, pools: MOCK_POOLS };
     case "/api/advisor":
       return mockAdvisor(profile);
+    case "/api/telegram/status":
+      // Shape mirrors the real endpoint exactly: `{ linked }` and nothing else.
+      // It deliberately does NOT return the @username — that was a
+      // deanonymisation fix (scripts/api-server.ts ~:1040). Without this case
+      // the alerts card falls through to the dead :8787 proxy and throws a 500
+      // into the console on every load; false is the honest answer, since mock
+      // mode has no Telegram bot to link against.
+      return { linked: false };
     case "/api/prospective":
       return mockProspective(
         url.searchParams.get("protocol") ?? "",
