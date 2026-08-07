@@ -655,30 +655,19 @@ export function AppDemo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboardedWallet, telegramEligible]);
 
-  // ── Alert coverage: what the Monitored capital card is ALLOWED to claim ────
-  // This line used to be the hardcoded string "Guard active". It rendered
-  // identically whether or not a single channel could reach the user, which in
-  // a liquidation product is the worst sentence this UI can emit - the same
-  // class of bug as printing an unknown price as $0.
+  // ── Alert coverage ────────────────────────────────────────────────────────
+  // This used to be the subline of the "Monitored capital" stat card, reading
+  // "Connect Telegram for alerts". Two things were wrong with that. It is a
+  // call to action, and a stat card is a place you READ a number, not a place
+  // you action anything — there is nothing to click, so the one sentence on
+  // the dashboard telling a user they are unprotected was also the one
+  // sentence they could do nothing about. And it made a card titled
+  // "Monitored capital" spend half its area on a fact about Telegram.
   //
-  // It now deliberately UNDER-claims. The strongest fact we hold is
-  // /api/telegram/status reporting `linked`, and a Telegram bot cannot open a
-  // conversation on its own, so a link is a link: the user can /stop the bot or
-  // block it and we would not know. The copy therefore says "linked", never
-  // "active", "protected" or "guarded".
-  //
-  // Outside boundMode the wallet is a registry/ops wallet that is not the
-  // viewer's to be alerted about, and no per-wallet channel state is fetched
-  // for it at all. The line is dropped entirely there: a blank is strictly
-  // better than a reassurance nothing supports.
-  const alertCoverage = useMemo<string | undefined>(() => {
-    if (!boundMode) return undefined;
-    if (monitoringBusy) return "Verifying wallet for alerts";
-    if (monitoringError) return "Alerts off. Verify wallet";
-    if (!telegramEligible) return "Alerts need an EVM wallet";
-    if (telegramLink.status === "connected") return "Telegram alerts linked";
-    return "Connect Telegram for alerts";
-  }, [boundMode, monitoringBusy, monitoringError, telegramEligible, telegramLink.status]);
+  // Coverage now states itself in Settings, next to the Connect button that
+  // fixes it. The registration-failure case (a pasted address that cannot
+  // produce an ownership signature, so no alert will ever fire) already has a
+  // persistent app-wide banner with a Retry, so it is not repeated here.
 
   // A user portfolio is ONE wallet. In boundMode that's the onboarded wallet;
   // otherwise (ops view) the registry holds the validation cohort with a selector.
@@ -2400,8 +2389,10 @@ export function AppDemo() {
                               <InfoTip text="Total collateral value PANIK is watching for this wallet across all protocols." />
                             </>
                           }
+                          /* No subline. The figure and the label already say
+                             everything this card knows; anything else here is
+                             text for the sake of text. */
                           value={liveMacro ? `$${Math.round(liveMacro.capital).toLocaleString()}` : "$18,450"}
-                          sub={alertCoverage}
                         />
                       </Card>
 
@@ -2673,8 +2664,17 @@ export function AppDemo() {
                               Connected
                             </span>
                           ) : (
-                            <span className="text-text-muted">
-                              {telegramEligible ? `Linking ${onboardedWallet?.slice(0, 6)}...${onboardedWallet?.slice(-4)}` : "No EVM wallet onboarded"}
+                            /* States COVERAGE, not progress. This used to read
+                               "Linking 0x1234...abcd", which describes a
+                               handshake that has not been started and reads as
+                               "something is happening" on the one screen where
+                               the honest answer is "nothing is". The wallet is
+                               already named in the top bar, so the words are
+                               spent on the fact that matters. */
+                            <span className="text-text-secondary">
+                              {telegramEligible
+                                ? "Not connected. No alerts are being sent"
+                                : "No EVM wallet onboarded, so no alerts can be sent"}
                             </span>
                           )}
                         </div>
