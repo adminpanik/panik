@@ -106,7 +106,7 @@ export class TelegramStore {
   ): Promise<{ chatId: number; username: string | null; enabled: boolean } | null> {
     const url =
       `${this.base}/rest/v1/telegram_links` +
-      `?wallet=eq.${wallet.toLowerCase()}&select=chat_id,username,enabled&limit=1`;
+      `?wallet=eq.${encodeURIComponent(wallet.toLowerCase())}&select=chat_id,username,enabled&limit=1`;
     const res = await fetch(url, { headers: this.headers() });
     if (!res.ok) throw new Error(`getLink: HTTP ${res.status}`);
     const rows = (await res.json()) as { chat_id: number; username: string | null; enabled: boolean }[];

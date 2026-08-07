@@ -206,7 +206,7 @@ export default function App() {
                   value={manualCode}
                   onChange={(e) => setManualCode(e.target.value.toUpperCase())}
                   onKeyDown={(e) => e.key === "Enter" && emailInputRef.current?.focus()}
-                  placeholder="PANIK-TRY-XXXX"
+                  placeholder="PANIK-TRY-XXXXXXXX"
                   spellCheck={false}
                   autoCapitalize="characters"
                   className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition-colors"

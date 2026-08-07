@@ -13,16 +13,35 @@
  * mirrored routes in scripts/api-server.ts.
  */
 
+import { randomInt } from "node:crypto";
+
 /** Unambiguous alphabet (no 0/1/I/O) - matches gen_panik_suffix in SQL. */
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
-/** Random N-char suffix from the unambiguous alphabet. */
+/**
+ * Suffix length. Codes are a bearer secret for a free trial, so the keyspace
+ * has to survive guessing: 8 chars over 32 symbols is 2^40, vs the ~1M of the
+ * original 4.
+ */
+const CODE_SUFFIX_LEN = 8;
+
+/** Random N-char suffix from the unambiguous alphabet (CSPRNG, unbiased). */
 function randomSuffix(n: number): string {
   let out = "";
   for (let i = 0; i < n; i++) {
-    out += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+    out += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
   }
   return out;
+}
+
+/**
+ * PostgREST error bodies quote the failing SQL and, on an auth failure, the
+ * project ref — they belong in the server log, never in a thrown message that
+ * an unauthenticated route might echo back (e.g. /api/try/redeem).
+ */
+async function logErrorBody(scope: string, res: { status: number; text(): Promise<string> }): Promise<void> {
+  const body = await res.text().catch(() => "");
+  console.error(`${scope}: HTTP ${res.status} ${body.slice(0, 300)}`);
 }
 
 export type RedeemOutcome = "success" | "not_found" | "disabled" | "expired" | "exhausted";
@@ -108,7 +127,10 @@ export class CampaignStore {
       headers: this.headers(),
       body: JSON.stringify(clean),
     });
-    if (!res.ok) throw new Error(`${fn}: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+    if (!res.ok) {
+      await logErrorBody(fn, res);
+      throw new Error(`${fn}: HTTP ${res.status}`);
+    }
     return res.json();
   }
 
@@ -145,12 +167,13 @@ export class CampaignStore {
   // ── admin CRUD ────────────────────────────────────────────────────────────
 
   /**
-   * Create a campaign with a freshly generated PANIK-TRY-XXXX code. Retries on
+   * Create a campaign with a freshly generated PANIK-TRY-XXXXXXXX code (the SQL
+   * CHECK accepts 4-8 suffix chars, so widening needs no migration). Retries on
    * the unique-code collision (409) a few times before giving up.
    */
   async createCampaign(input: CreateCampaignInput): Promise<Campaign> {
     for (let attempt = 1; attempt <= 5; attempt++) {
-      const campaign_code = `PANIK-TRY-${randomSuffix(4)}`;
+      const campaign_code = `PANIK-TRY-${randomSuffix(CODE_SUFFIX_LEN)}`;
       const res = await fetch(`${this.base}/rest/v1/product_campaigns`, {
         method: "POST",
         headers: this.headers({ Prefer: "return=representation" }),
@@ -163,7 +186,10 @@ export class CampaignStore {
         }),
       });
       if (res.status === 409) continue; // code collision - regenerate
-      if (!res.ok) throw new Error(`createCampaign: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+      if (!res.ok) {
+        await logErrorBody("createCampaign", res);
+        throw new Error(`createCampaign: HTTP ${res.status}`);
+      }
       const rows = (await res.json()) as Campaign[];
       return rows[0]!;
     }
@@ -182,7 +208,10 @@ export class CampaignStore {
       `${this.base}/rest/v1/trial_grants?select=${encodeURIComponent(select)}&order=created_at.desc`,
       { headers: this.headers() },
     );
-    if (!res.ok) throw new Error(`listGrants: HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+    if (!res.ok) {
+      await logErrorBody("listGrants", res);
+      throw new Error(`listGrants: HTTP ${res.status}`);
+    }
     type Row = {
       email: string | null;
       first_opened_at: string | null;

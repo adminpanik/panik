@@ -10,7 +10,8 @@
  */
 
 import { CampaignStore } from "../../server/campaignStore";
-import { buildCreateInput, checkAdminKey, type RawCreateBody } from "../../server/adminCampaigns";
+import { buildCreateInput, type RawCreateBody } from "../../server/adminCampaigns";
+import { adminAuthGate } from "../../server/adminAuth";
 
 interface Req {
   method?: string;
@@ -25,8 +26,12 @@ function pick(v: string | string[] | undefined): string | undefined {
 }
 
 export default async function handler(req: Req, res: Res): Promise<void> {
-  const auth = checkAdminKey(pick(req.headers["x-admin-key"]));
+  // Guessing brake keyed on the PRESENTED credential (server/adminAuth.ts), so
+  // no stranger can lock the real admin out. State is per-isolate here, which
+  // only ever makes the brake more lenient — never the admin less available.
+  const { auth, retryAfterSec } = adminAuthGate.authorize(pick(req.headers["x-admin-key"]));
   if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return; }
+  if (auth === "locked") { res.status(429).json({ error: "too many failed admin auth attempts", retryAfterSec }); return; }
   if (auth === "forbidden") { res.status(401).json({ error: "unauthorized" }); return; }
 
   let store: CampaignStore;
@@ -37,8 +42,14 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     return;
   }
 
+  const method = (req.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "POST") {
+    res.status(405).json({ error: "method not allowed" });
+    return;
+  }
+
   try {
-    if ((req.method ?? "GET").toUpperCase() === "GET") {
+    if (method === "GET") {
       // ?view=emails → the redeemed-user roster (count + emails); default → campaigns.
       if (pick(req.query.view) === "emails") {
         res.status(200).json({ grants: await store.listGrants() });

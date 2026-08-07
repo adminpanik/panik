@@ -35,7 +35,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   }
 
   try {
-    const result = await store.openTrial(token, clientIp(req.headers), userAgent(req.headers));
+    const result = await store.openTrial(token, clientIp(req), userAgent(req.headers));
     res.status(200).json({ ok: result.outcome === "active", outcome: result.outcome, expiresAt: result.expiresAt ?? null });
   } catch (err) {
     res.status(502).json({ ok: false, error: (err as Error).message });

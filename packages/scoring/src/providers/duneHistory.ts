@@ -137,7 +137,9 @@ export class DuneHistoryProvider {
   async pollFeatures(
     executionId: string,
   ): Promise<{ status: "pending" } | { status: "done"; features: WalletFeatures }> {
-    const res = await this.fetchFn(`${this.baseUrl}/execution/${executionId}/results`, {
+    // Encoded even though the API layer validates the id — this is the last
+    // point before the URL is built, so a future caller can't inject a path.
+    const res = await this.fetchFn(`${this.baseUrl}/execution/${encodeURIComponent(executionId)}/results`, {
       headers: this.headers(),
     });
     // Transient — rate-limited (429) or a Dune hiccup (5xx). Don't fail the

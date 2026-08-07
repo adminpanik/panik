@@ -14,6 +14,7 @@
 import { DuneHistoryProvider } from "../packages/scoring/src/providers/duneHistory";
 import { OpenRouterNarrator } from "../packages/scoring/src/providers/narrator";
 import type { SessionDeps } from "../packages/scoring/src/classify/profileSession";
+import type { StatedProfile } from "../packages/scoring/src/classify/types";
 import { RestProfileCache } from "./profileCache";
 
 let deps: SessionDeps | null = null;
@@ -64,4 +65,53 @@ export function transactionPoolerUrl(): string {
 /** Validate an EVM address (the only addresses the lending spells cover). */
 export function isEvmAddress(wallet: unknown): wallet is string {
   return typeof wallet === "string" && /^0x[0-9a-fA-F]{40}$/.test(wallet.trim());
+}
+
+/**
+ * Validate a Dune execution id before it reaches the results URL. Client-
+ * supplied ids are interpolated into `/execution/{id}/results`, so anything
+ * outside this alphabet ("../", slashes) would traverse to other Dune
+ * endpoints with our API key.
+ */
+export function isDuneExecutionId(id: unknown): id is string {
+  return typeof id === "string" && /^[0-9A-Za-z_-]{1,64}$/.test(id);
+}
+
+/** Longest accepted free-text field on the stated profile (quiz values are ~30). */
+const STATED_TEXT_MAX = 64;
+/** Raw quiz score range — see StatedProfile.riskScore (0–18). */
+const RISK_SCORE_MIN = 0;
+const RISK_SCORE_MAX = 18;
+const STATED_TEXT_KEYS = ["riskTier", "segment", "segmentLabel"] as const;
+const STATED_KEYS = new Set<string>(["riskProfile3", "riskScore", ...STATED_TEXT_KEYS]);
+
+/**
+ * Validate the onboarding quiz's stated profile before it reaches the reveal.
+ *
+ * This is a VALUE guard, not just a shape guard, because the object is
+ * JSON.stringify'd straight into the LLM user message (see
+ * packages/scoring/src/providers/narrator.ts) and the completion is rendered
+ * back to the user as their persona. So an unbounded string here is both a
+ * prompt injection into a prompt whose output the user reads, and a token bill:
+ * ~100 kB of "segmentLabel" is ~25k tokens per request. Hence: only known keys,
+ * every string capped, and riskScore clamped to its real range rather than
+ * merely finite. Rejects (400) instead of truncating — a value this far outside
+ * the quiz's own outputs is not a user typo.
+ */
+export function isStatedProfile(value: unknown): value is StatedProfile {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  for (const key of Object.keys(v)) {
+    if (!STATED_KEYS.has(key)) return false; // unknown keys ride into the prompt too
+  }
+  if (v.riskProfile3 !== "conservative" && v.riskProfile3 !== "moderate" && v.riskProfile3 !== "aggressive") {
+    return false;
+  }
+  for (const key of STATED_TEXT_KEYS) {
+    const field = v[key];
+    if (field === undefined) continue;
+    if (typeof field !== "string" || field.length > STATED_TEXT_MAX) return false;
+  }
+  if (v.riskScore === undefined) return true;
+  return typeof v.riskScore === "number" && v.riskScore >= RISK_SCORE_MIN && v.riskScore <= RISK_SCORE_MAX;
 }
