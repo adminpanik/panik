@@ -12,6 +12,9 @@ export default defineConfig({
     // server/ is in here because it holds the auth boundaries: walletAuth
     // decides who may redirect a wallet's liquidation alerts, and adminAuth
     // gates the console. api/ carries the same middleware on the Vercel side.
-    include: ["{src,server,api}/**/*.test.ts"],
+    // dev/ is in here too: the dev:mock fixtures assert scoring invariants
+    // (band vs total, the degraded-price contract) that would otherwise drift
+    // unnoticed into a demo dashboard everyone trusts.
+    include: ["{src,server,api,dev}/**/*.test.ts"],
   },
 });
