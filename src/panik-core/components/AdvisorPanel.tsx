@@ -297,7 +297,10 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
           <h3 className="text-2xs font-sans text-text-muted">
             Opportunities within your profile
           </h3>
-          <div className="grid md:grid-cols-3 gap-4">
+          {/* Three across only once the window can actually spare it: at `md`
+              the sidebar has already taken 256px, so three of these cards got
+              ~137px each and every title ellipsised to a couple of letters. */}
+          <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
             {opportunities.map((rec) => (
               <div key={`${rec.protocol}-${rec.openPlan?.collateralSymbol}`} className="h-full">
                 <OpportunityCard rec={rec} onOpen={onOpen} />

@@ -124,8 +124,12 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                 <div className="min-w-0 flex-1 space-y-1.5">
                   {/* Line 1 — identity. The protocol never shrinks; only the
                       asset symbol may truncate, because "Aave V3" truncated to
-                      "Aav…" is unreadable while "wstE…" is still placeable. */}
-                  <div className="flex items-baseline gap-2">
+                      "Aav…" is unreadable while "wstE…" is still placeable.
+                      It wraps rather than truncates first: on a phone this row
+                      is ~210px, and with the chip holding its width the symbol
+                      was being squeezed to a single pixel, so "cbBTC" rendered
+                      as nothing at all. The chip drops to its own line instead. */}
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
                       {PROTOCOL_NAME[p.protocol]}
                     </h4>

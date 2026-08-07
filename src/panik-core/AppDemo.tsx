@@ -1232,7 +1232,7 @@ export function AppDemo() {
         </header>
 
         {/* PAGE VIEWS SWITCH */}
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <AnimatePresence mode="wait">
             
             {/* VIEW A: COMPASS TAB (Fully interactive and identical to the requested design layout!) */}
@@ -1575,9 +1575,15 @@ export function AppDemo() {
                     </div>
                   </div>
                 ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                {/* Simulator Area (lg:col-span-8) */}
-                <div className="col-span-1 lg:col-span-8 space-y-6">
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                {/* Splits at `xl`, not `lg`. At a 1024px window this grid has
+                    704px to work with once the sidebar and page padding are
+                    paid for, so a 4/12 rail came out 224px, narrower than its
+                    own parameter labels, which then clipped. The rail wants
+                    ~300px to hold "Collateral deposited (wstETH):" beside its
+                    input. */}
+                {/* Simulator Area (xl:col-span-8) */}
+                <div className="col-span-1 xl:col-span-8 space-y-6">
                   
                   {/* Active Simulator Header widget */}
                   <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg relative overflow-hidden backdrop-blur-xl">
@@ -1705,12 +1711,22 @@ export function AppDemo() {
                       </div>
                     </div>
 
-                    {/* REDESIGNED PANIK RISK INDEX CARD (Primary intelligence focal point) */}
-                    <div className="mb-6 p-5 bg-surface-sunken border border-border-subtle rounded-md flex flex-col md:flex-row gap-6 relative overflow-hidden text-left">
+                    {/* REDESIGNED PANIK RISK INDEX CARD (Primary intelligence focal point)
+
+                        The split is `xl`, not `md`, because a Tailwind
+                        breakpoint measures the WINDOW and this card lives at
+                        the bottom of window minus a 256px sidebar, minus page
+                        padding, minus the 8/12 simulator column. At a 768px
+                        window that chain leaves the card ~408px, so splitting
+                        it in two there gave each half ~190px and the drivers
+                        below crushed to 62px. Everything inside this card is
+                        stepped one or two breakpoints late for the same
+                        reason. */}
+                    <div className="mb-6 p-5 bg-surface-sunken border border-border-subtle rounded-md flex flex-col xl:flex-row gap-6 relative overflow-hidden text-left">
                       <div className="absolute top-0 left-0 w-24 h-24 bg-white/[0.01] rounded-full blur-xl pointer-events-none"></div>
                       
                       {/* Left: Score display & interpretation */}
-                      <div className="flex-1 md:max-w-[280px] flex flex-col justify-between">
+                      <div className="flex-1 xl:max-w-[280px] flex flex-col justify-between">
                         <div>
                           <div className="flex items-center gap-1.5 text-text-muted font-sans text-2xs mb-2">
                             <Activity className="w-3.5 h-3.5 text-text-primary shrink-0" />
@@ -1797,12 +1813,12 @@ export function AppDemo() {
                       </div>
 
                       {/* Right: Top Risk Drivers section */}
-                      <div className="flex-1 border-t md:border-t-0 md:border-l border-border-subtle pt-4 md:pt-0 md:pl-6 space-y-4">
+                      <div className="flex-1 min-w-0 border-t xl:border-t-0 xl:border-l border-border-subtle pt-4 xl:pt-0 xl:pl-6 space-y-4">
                         <span className="block text-2xs font-sans text-text-muted select-none">
                           Top risk drivers
                         </span>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                        <div className="grid grid-cols-1 2xl:grid-cols-2 gap-x-6 gap-y-4">
                           {/* Driver 1: Health Factor */}
                           <div className="space-y-1.5">
                             <div className="flex justify-between items-center text-2xs font-sans">
@@ -1976,8 +1992,8 @@ export function AppDemo() {
 
                 </div>
 
-                {/* Automation triggers & Telemetry feed column (lg:col-span-4) */}
-                <div className="col-span-1 lg:col-span-4 space-y-6">
+                {/* Automation triggers & Telemetry feed column (xl:col-span-4) */}
+                <div className="col-span-1 xl:col-span-4 space-y-6">
                   
                   {/* Scenario presets (#3): the answer first, sliders second */}
                   <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
@@ -2033,7 +2049,7 @@ export function AppDemo() {
 
                     {/* Collateral amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
-                      <div className="flex justify-between items-center text-xs font-sans text-text-secondary">
+                      <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
                         <span>Collateral deposited ({activeMarket.collateralAsset}):</span>
                         <input
                           type="number"
@@ -2041,7 +2057,7 @@ export function AppDemo() {
                           step={activeMarket.defaultCollateral < 10 ? 0.1 : 100}
                           value={collateralAmount}
                           onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-text-primary text-xs font-sans focus:border-border-strong tabular-nums"
+                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-text-primary text-xs font-sans focus:border-border-strong tabular-nums"
                           aria-label="Collateral amount"
                         />
                       </div>
@@ -2063,7 +2079,7 @@ export function AppDemo() {
 
                     {/* Collateral price */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
-                      <div className="flex justify-between items-center text-xs font-sans text-text-secondary">
+                      <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
                         <span>Collateral asset price ({activeMarket.collateralAsset}):</span>
                         <input
                           type="number"
@@ -2101,7 +2117,7 @@ export function AppDemo() {
 
                     {/* Borrowed amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
-                      <div className="flex justify-between items-center text-xs font-sans text-text-secondary">
+                      <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
                         <span>Borrowed amount ({activeMarket.debtAsset}):</span>
                         <input
                           type="number"
@@ -2133,7 +2149,7 @@ export function AppDemo() {
 
                     {/* Borrowed asset price (depeg scenarios) */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
-                      <div className="flex justify-between items-center text-xs font-sans text-text-secondary">
+                      <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
                         <span>Borrowed asset price ({activeMarket.debtAsset}):</span>
                         <input
                           type="number"
@@ -2319,8 +2335,13 @@ export function AppDemo() {
                       : aggregate >= 25
                         ? "Watch status"
                         : "Secure health status";
+                  // 1 -> 2 -> 4. The old jump straight from 1 to 4 at `sm` gave
+                  // each card ~150px at 640px wide, which is narrower than
+                  // "Monitored liabilities" and narrower than the figure under
+                  // it, so every card in the row ellipsised at once. Four
+                  // across is only earned at `xl`.
                   return (
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
                       <Card tone="raised">
                         <Stat
                           label={
@@ -2500,7 +2521,14 @@ export function AppDemo() {
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline justify-between gap-2">
-                                  <span className="text-2xs font-sans font-bold text-text-primary truncate">
+                                  {/* Wraps rather than truncates: this line is
+                                      "which protocol" plus "which way it
+                                      moved", and clipping it kept the protocol
+                                      while eating the direction, which is the
+                                      half that says whether things got worse.
+                                      In a 5/12 column at 1024px there is not
+                                      room for both on one line. */}
+                                  <span className="min-w-0 text-2xs font-sans font-bold text-text-primary">
                                     {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
                                     <span className="text-text-muted font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
                                   </span>
