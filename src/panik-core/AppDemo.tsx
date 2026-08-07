@@ -674,6 +674,12 @@ export function AppDemo() {
       ltv: capital > 0 ? debt / capital : 0,
       positions: portfolioPositions.length,
       protocols: new Set(portfolioPositions.map((p) => p.protocol)).size,
+      // The card used to name "Aave V3, Moonwell" from a string literal no
+      // matter which protocols the wallet was actually in, and that literal is
+      // also what pushed the subtitle onto a second line.
+      protocolNames: [
+        ...new Set(portfolioPositions.map((p) => LIVE_PROTOCOL_LABEL[p.protocol] ?? p.protocol)),
+      ],
       aggregate,
       pricesDegraded: portfolioPositions.some((p) => p.usdValuesUnavailable),
     };
@@ -2233,9 +2239,20 @@ export function AppDemo() {
 
                       <Card tone="raised">
                         <Stat
-                          label="Protocols watched"
-                          value={liveMacro ? `${liveMacro.positions} Positions` : "4 Pools"}
-                          sub={liveMacro ? `Aave V3, Moonwell · ${liveMacro.protocols} protocols` : "Aave, Moonwell"}
+                          label={
+                            <>
+                              Protocols watched
+                              <InfoTip
+                                text={
+                                  liveMacro
+                                    ? `PANIK is reading this wallet on ${liveMacro.protocolNames.join(", ")}.`
+                                    : "PANIK is reading this wallet on Aave and Moonwell."
+                                }
+                              />
+                            </>
+                          }
+                          value={liveMacro ? `${liveMacro.positions} positions` : "4 pools"}
+                          sub={liveMacro ? `Across ${liveMacro.protocols} protocols` : "Across 2 protocols"}
                         />
                       </Card>
 

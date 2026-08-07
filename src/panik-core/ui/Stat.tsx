@@ -19,13 +19,17 @@ interface StatProps {
 export function Stat({ label, value, sub }: StatProps) {
   return (
     <div>
-      <span className="flex items-center gap-1 text-xs font-sans font-medium text-text-muted">
+      <span className="flex items-center gap-1 truncate text-xs font-sans font-medium text-text-muted">
         {label}
       </span>
-      <span className="mt-2 block text-2xl font-sans font-bold tabular-nums text-text-primary">
+      <span className="mt-2 block truncate text-2xl font-sans font-bold tabular-nums text-text-primary">
         {value}
       </span>
-      {sub && <span className="mt-2 block text-xs font-sans text-text-secondary">{sub}</span>}
+      {/* Every line is exactly one line. A row of stat cards where one subtitle
+          wraps leaves the other three with a ragged block of dead space under
+          the figure, and the eye reads that raggedness as disorder rather than
+          as "this card had more to say". */}
+      {sub && <span className="mt-2 block truncate text-xs font-sans text-text-secondary">{sub}</span>}
     </div>
   );
 }
