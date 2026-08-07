@@ -2323,8 +2323,17 @@ export function AppDemo() {
                   />
                 )}
 
-                {/* Wallet selector — a portfolio is ONE wallet; ALL = ops/registry view */}
-                {wallets.length > 0 && (
+                {/* Wallet SELECTOR — a control, and only rendered when there is
+                    something to select. In boundMode the list is exactly one
+                    wallet with no "All wallets" option beside it, so the row
+                    was a label and a single unclickable-in-practice pill
+                    printing the same address the top bar prints two inches
+                    above it. One address, stated once, in the chip that also
+                    lets you change it.
+
+                    The registry/ops view keeps the selector: there the pills
+                    are a real choice between wallets and the ALL aggregate. */}
+                {!boundMode && wallets.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-sans text-text-muted">Wallet</span>
                     {wallets.map((w) => (
@@ -2344,19 +2353,17 @@ export function AppDemo() {
                         {w.wallet.slice(0, 6)}…{w.wallet.slice(-4)}
                       </button>
                     ))}
-                    {/* Registry/ops view — hidden once the user is bound to their own wallet. */}
-                    {!boundMode && (
-                      <button
-                        onClick={() => setSelectedWallet("all")}
-                        className={`px-3 py-1.5 rounded-md text-xs font-sans border transition-all cursor-pointer ${
-                          selectedWallet === "all"
-                            ? "bg-white/10 text-text-primary border-border-strong font-bold"
-                            : "bg-white/[0.02] text-text-secondary border-border-subtle hover:text-text-primary"
-                        }`}
-                      >
-                        All wallets
-                      </button>
-                    )}
+                    {/* The ALL aggregate. Its guard now lives on the wrapper. */}
+                    <button
+                      onClick={() => setSelectedWallet("all")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-sans border transition-all cursor-pointer ${
+                        selectedWallet === "all"
+                          ? "bg-white/10 text-text-primary border-border-strong font-bold"
+                          : "bg-white/[0.02] text-text-secondary border-border-subtle hover:text-text-primary"
+                      }`}
+                    >
+                      All wallets
+                    </button>
                   </div>
                 )}
 
