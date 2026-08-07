@@ -58,9 +58,16 @@
   --color-border-strong: rgba(255, 255, 255, 0.36);
 
   /**
-   * Brand accent. INTERACTIVE ONLY — primary buttons, links, focus. Always a
-   * solid fill with near-black text on top (7.10:1); white on orange is
-   * 2.80:1 and fails. Never used to communicate a state.
+   * Brand accent, and in the product it now has exactly two jobs: the logo
+   * mark and the `:focus-visible` ring below. Nothing else.
+   *
+   * It used to fill primary buttons, tint selected chips, paint sidebar icons
+   * and set the wallet pill, which meant a saturated hue appeared eight or ten
+   * times on a screen whose actual job is to make FOUR risk chips findable.
+   * A neutral near-white fill is louder by contrast (18.1:1) and quieter by
+   * hue, so the only saturated pixels left on a dashboard are the ones stating
+   * a risk band. If a new control feels like it wants orange, it wants
+   * `bg-text-primary`.
    */
   --color-panik-orange: #F97316;
 
@@ -208,7 +215,7 @@
   }
 }
 
-/* Elegant Utilities */
+/* Marketing only — the two landing-page CTAs. The product UI has no glow. */
 .panik-glow-orange {
   box-shadow: 0 0 25px -3px rgb(from var(--color-panik-orange) r g b / 0.45), 0 0 10px -2px rgb(from var(--color-panik-orange) r g b / 0.2);
 }
@@ -240,9 +247,4 @@
 .panik-dot-bg {
   background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   background-size: 24px 24px;
-}
-
-/* Soft orange gradient background glow */
-.panik-radial-ambient {
-  background: radial-gradient(circle at 60% 40%, rgb(from var(--color-panik-orange) r g b / 0.06) 0%, transparent 60%);
 }

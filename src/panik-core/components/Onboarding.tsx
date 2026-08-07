@@ -126,7 +126,6 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
           transition={{ duration: 0.3 }}
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md"
         >
-          <div className="absolute inset-0 panik-radial-ambient pointer-events-none" />
 
           <motion.div
             initial={{ scale: 0.96, y: 12, opacity: 0 }}
