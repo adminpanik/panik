@@ -1345,7 +1345,7 @@ export function AppDemo() {
                               <h3 className="text-sm font-sans font-bold text-text-primary tracking-wide group-hover:text-text-primary transition-colors">
                                 {preset.protocol}
                               </h3>
-                              <span className="text-2xs font-sans text-text-muted block">
+                              <span className="text-xs font-sans text-text-secondary block">
                                 {preset.assetPair}
                               </span>
                             </div>
@@ -1454,7 +1454,7 @@ export function AppDemo() {
                               <h3 className="text-sm font-sans font-bold text-text-muted group-hover:text-text-primary transition-colors">
                                 {preset.protocol}
                               </h3>
-                              <span className="text-2xs font-sans text-text-muted block">
+                              <span className="text-xs font-sans text-text-secondary block">
                                 {preset.assetPair}
                               </span>
                             </div>
@@ -1504,7 +1504,7 @@ export function AppDemo() {
                                     </span>
                                   </>
                                 ) : (
-                                  <span className="block text-2xs font-sans text-white/20 py-3">
+                                  <span className="block text-xs font-sans text-text-secondary py-3">
                                     30d yield history unavailable
                                   </span>
                                 )}
@@ -2112,7 +2112,7 @@ export function AppDemo() {
                         className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-collateral-slider"
                       />
-                      <div className="flex justify-between text-2xs font-sans text-white/20">
+                      <div className="flex justify-between text-xs font-sans text-text-muted">
                         <span>Withdrawn (0)</span>
                         <span>Topped up (2.5x) - worth {formatCurrency(collateralAmount * assetPrice)}</span>
                       </div>
@@ -2150,7 +2150,7 @@ export function AppDemo() {
                         className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-price-slider"
                       />
-                      <div className="flex justify-between text-2xs font-sans text-white/20">
+                      <div className="flex justify-between text-xs font-sans text-text-muted">
                         <span>Minus -60% Downside ({formatCurrency(activeMarket.defaultPrice * 0.4)})</span>
                         <span>Plus +30% Upside ({formatCurrency(activeMarket.defaultPrice * 1.3)})</span>
                       </div>
@@ -2182,7 +2182,7 @@ export function AppDemo() {
                         className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-borrow-slider"
                       />
-                      <div className="flex justify-between text-2xs font-sans text-white/20">
+                      <div className="flex justify-between text-xs font-sans text-text-muted">
                         <span>Fully repaid (0)</span>
                         <span>Leveraged (+60% debt)</span>
                       </div>
@@ -2214,7 +2214,7 @@ export function AppDemo() {
                         className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-debt-price-slider"
                       />
-                      <div className="flex justify-between text-2xs font-sans text-white/20">
+                      <div className="flex justify-between text-xs font-sans text-text-muted">
                         <span>Depeg ($0.85 - USDC hit $0.87 in Mar 2023)</span>
                         <span>Premium ($1.05)</span>
                       </div>
@@ -2534,12 +2534,15 @@ export function AppDemo() {
                         <div key={a.symbol} className="flex justify-between items-center gap-3">
                           <div className="flex items-center gap-2.5 min-w-0">
                             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${a.color}`}></span>
-                            <span className="font-sans text-xs font-medium text-text-primary truncate">
+                            {/* Row content, so 14px. An allocation legend where
+                                the symbol and the dollar amount are both 12px
+                                is a table nobody reads across. */}
+                            <span className="font-sans text-sm font-medium text-text-primary truncate">
                               {a.symbol}
                             </span>
                           </div>
                           <div className="text-right shrink-0">
-                            <span className="font-sans text-xs font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
+                            <span className="font-sans text-sm font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
                             <span className="block text-xs font-sans text-text-secondary tabular-nums">{a.pct.toFixed(1)}%</span>
                           </div>
                         </div>
@@ -2575,7 +2578,7 @@ export function AppDemo() {
                         axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
                       />
                     ) : (
-                      <div className="py-8 text-center text-2xs font-sans text-text-muted leading-relaxed">
+                      <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
                         History builds as the watch worker scores this wallet every 60s.
                       </div>
                     )}
@@ -2615,14 +2618,23 @@ export function AppDemo() {
                                       half that says whether things got worse.
                                       In a 5/12 column at 1024px there is not
                                       room for both on one line. */}
-                                  <span className="min-w-0 text-2xs font-sans font-bold text-text-primary">
+                                  {/* The transition — "approaching → outside" —
+                                      is the whole content of an alert row, and
+                                      it was the muted half of an 11px line. It
+                                      is secondary now, at 12px: still quieter
+                                      than the protocol it belongs to, no longer
+                                      the thing you have to lean in for. */}
+                                  <span className="min-w-0 text-xs font-sans font-bold text-text-primary">
                                     {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
-                                    <span className="text-text-muted font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
+                                    <span className="text-text-secondary font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
                                   </span>
-                                  <span className="text-2xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
+                                  {/* Timestamps stay muted. This is what
+                                      text-muted is FOR — you glance at it, you
+                                      do not read it. */}
+                                  <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
                                 </div>
                                 <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-2xs font-sans text-text-muted tabular-nums">score {a.score} ({a.band})</span>
+                                  <span className="text-xs font-sans text-text-secondary tabular-nums">score {a.score} ({a.band})</span>
                                   <span className={`text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>{chip.label}</span>
                                 </div>
                               </div>
@@ -2631,7 +2643,7 @@ export function AppDemo() {
                         })}
                       </div>
                     ) : (
-                      <div className="py-8 text-center text-2xs font-sans text-text-muted leading-relaxed">
+                      <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
                         No alerts yet - PANIK messages you the moment a position
                         <br />crosses your profile's risk limit.
                       </div>
@@ -2676,7 +2688,7 @@ export function AppDemo() {
                         Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit.
                       </p>
                       <div className="flex flex-col sm:flex-row gap-3 pt-1">
-                        <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-2xs truncate">
+                        <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-xs truncate">
                           {telegramLink.status === "connected" ? (
                             <span className="text-risk-low flex items-center gap-1.5">
                               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
@@ -2710,33 +2722,33 @@ export function AppDemo() {
                         </button>
                       </div>
                       {telegramEligible && telegramLink.status !== "connected" && (
-                        <p className="text-2xs font-sans text-text-muted">
+                        <p className="text-xs font-sans text-text-secondary">
                           Sign to prove wallet ownership - free, no transaction, no gas.
                         </p>
                       )}
                       {!telegramEligible && (
-                        <p className="text-2xs font-sans text-text-muted">Onboard with an EVM wallet (0x...) to enable alerts.</p>
+                        <p className="text-xs font-sans text-text-secondary">Onboard with an EVM wallet (0x...) to enable alerts.</p>
                       )}
                       {telegramLink.status === "connected" && (
-                        <p className="text-2xs font-sans text-risk-low">
+                        <p className="text-xs font-sans text-risk-low">
                           Alerts are on. Send /stop in the bot anytime to pause them.
                         </p>
                       )}
                       {telegramLink.status === "opened" && (
                         <div className="space-y-1.5 pt-1.5 border-t border-border-subtle">
-                          <p className="text-2xs font-sans text-risk-low flex items-center">
+                          <p className="text-xs font-sans text-risk-low flex items-center">
                             Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
                           </p>
-                          <p className="text-2xs font-sans text-text-secondary leading-relaxed">
+                          <p className="text-xs font-sans text-text-secondary leading-relaxed">
                             If the link didn't open automatically, copy this command, open <strong className="text-text-primary">@{telegramBotUsername}</strong> in Telegram, and send it:
                           </p>
-                          <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-sans text-2xs text-risk-low select-all break-all">
+                          <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-sans text-xs text-risk-low select-all break-all">
                             /start {telegramLink.code}
                           </div>
                         </div>
                       )}
                       {telegramLink.status === "error" && telegramLink.error && (
-                        <p className="text-2xs font-sans text-risk-critical">{telegramLink.error}</p>
+                        <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
                       )}
                     </div>
 
@@ -2792,7 +2804,7 @@ export function AppDemo() {
                       note below. The privacy note stays — it is a data-handling
                       commitment and the only place /stop is documented. */}
                   <div className="lg:col-span-4 space-y-4">
-                    <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-2xs text-text-secondary leading-relaxed">
+                    <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
                       We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
                     </div>
                   </div>

@@ -152,7 +152,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                   className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                   aria-label="Borrow percent of deposit"
                 />
-                <div className="flex justify-between text-2xs font-sans text-white/20 mt-1">
+                <div className="flex justify-between text-xs font-sans text-text-muted mt-1">
                   <span>No debt (0%)</span>
                   <span>Near max LTV ({Math.round(maxLTV * 100) - 4}%)</span>
                 </div>
@@ -161,7 +161,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
               {/* Projection */}
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
-                  <span className="block text-2xs font-sans text-text-muted mb-0.5">Est. health</span>
+                  <span className="block text-xs font-sans text-text-muted mb-0.5">Est. health</span>
                   <strong className={`text-sm font-sans tabular-nums ${
                     !Number.isFinite(estHf) ? "text-risk-low" : estHf < 1.3 ? "text-risk-critical" : estHf < 1.7 ? "text-risk-elevated" : "text-risk-low"
                   }`}>
@@ -169,11 +169,11 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                   </strong>
                 </div>
                 <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
-                  <span className="block text-2xs font-sans text-text-muted mb-0.5">Liq. buffer</span>
+                  <span className="block text-xs font-sans text-text-muted mb-0.5">Liq. buffer</span>
                   <strong className="text-sm font-sans tabular-nums text-text-primary">{liqBufferPct}%</strong>
                 </div>
                 <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
-                  <span className="block text-2xs font-sans text-text-muted mb-0.5">Supply APY</span>
+                  <span className="block text-xs font-sans text-text-muted mb-0.5">Supply APY</span>
                   <strong className="text-sm font-sans tabular-nums text-risk-low">{target.apy.toFixed(1)}%</strong>
                 </div>
               </div>
@@ -186,7 +186,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                 <span>Open position (demo)</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
-              <p className="text-2xs font-sans text-text-muted text-center leading-relaxed">
+              <p className="text-xs font-sans text-text-secondary text-center leading-relaxed">
                 Demo flow - nothing is signed and no funds move.
               </p>
             </div>
@@ -196,7 +196,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
             <div className="p-10 flex flex-col items-center text-center gap-3">
               <Loader2 className="w-8 h-8 text-text-primary animate-spin" />
               <span className="text-sm font-sans text-text-primary">Simulating transaction…</span>
-              <span className="text-2xs font-sans text-text-muted">
+              <span className="text-xs font-sans text-text-secondary">
                 approve {target.collateralAsset} → supply → borrow {target.debtAsset}
               </span>
             </div>
@@ -206,7 +206,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
             <div className="p-7 flex flex-col items-center text-center gap-3">
               <CheckCircle2 className="w-10 h-10 text-risk-low" />
               <h4 className="text-base font-sans font-bold text-text-primary">Position opened (simulated)</h4>
-              <p className="text-2xs font-sans text-text-secondary leading-relaxed">
+              <p className="text-xs font-sans text-text-secondary leading-relaxed">
                 {formatCurrency(depositUsd)} of {target.collateralAsset} supplied
                 {borrowUsd > 0 && <> / {formatCurrency(borrowUsd)} {target.debtAsset} borrowed</>} on {target.protocol}.
                 PANIK is now watching it.

@@ -97,7 +97,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
               </div>
             </div>
           ))}
-          <p className="text-2xs font-sans text-text-muted">Reading positions from chain…</p>
+          <p className="text-xs font-sans text-text-secondary">Reading positions from chain…</p>
         </div>
       )}
 
@@ -137,7 +137,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       {p.scoredCollateralSymbol}
                     </span>
                     {showWallet && (
-                      <span className="ml-auto shrink-0 text-2xs font-mono text-text-muted">
+                      <span className="ml-auto shrink-0 text-xs font-mono text-text-muted">
                         {p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}
                       </span>
                     )}
@@ -150,15 +150,40 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                     </RiskChip>
                   </div>
 
-                  {/* Line 2 — magnitudes. One nowrap span: the pair moves as a
-                      unit or not at all. */}
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`whitespace-nowrap text-xs font-sans tabular-nums ${
-                        p.usdValuesUnavailable ? "text-risk-unknown" : "text-text-secondary"
-                      }`}
-                    >
-                      {fmtUsd(p.collateralValueUsd)} collateral / {fmtUsd(p.borrowValueUsd)} debt
+                  {/* Line 2 — magnitudes, and the reason this row exists.
+                      It used to render at 12px in text-secondary: the dimmest,
+                      smallest thing in a row whose entire point is two dollar
+                      figures. The protocol name above it — which the brand mark
+                      to the left already states — was the loudest. That is
+                      backwards, so the money is now 14px and the figures
+                      themselves are text-primary.
+
+                      The words stay secondary. "collateral" and "debt" are
+                      units; giving them the same weight as the numbers turns
+                      the line into an undifferentiated bar of near-white and
+                      costs the scanning advantage the size bought.
+
+                      Two nowrap chunks rather than one. The pair still never
+                      breaks in half — half a pair reads as a whole number — but
+                      at 14px the single span was ~230px against ~240px of row
+                      on a 390px phone, so the pair now wraps BETWEEN its halves
+                      instead of overflowing. */}
+                  <div
+                    className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums ${
+                      p.usdValuesUnavailable ? "text-risk-unknown" : "text-text-secondary"
+                    }`}
+                  >
+                    <span className="whitespace-nowrap">
+                      <span className={p.usdValuesUnavailable ? "font-semibold" : "font-semibold text-text-primary"}>
+                        {fmtUsd(p.collateralValueUsd)}
+                      </span>{" "}
+                      collateral
+                    </span>
+                    <span className="whitespace-nowrap">
+                      <span className={p.usdValuesUnavailable ? "font-semibold" : "font-semibold text-text-primary"}>
+                        {fmtUsd(p.borrowValueUsd)}
+                      </span>{" "}
+                      debt
                     </span>
                   </div>
 
@@ -171,8 +196,14 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       not "$0", the icon is there, and the words are there — so
                       a position we could not price can never be mistaken for a
                       healthy one. */}
+                  {/* 14px, not 12px. This sentence is the row's verdict — "your
+                      health factor is X and that is outside the profile you
+                      chose" — and it was set smaller than the protocol label
+                      above it. Secondary is the right COLOUR (it is prose, and
+                      prose does not compete with figures); 12px was the wrong
+                      size for it. */}
                   <div className="flex items-baseline justify-between gap-3">
-                    <p className="min-w-0 text-xs font-sans text-text-secondary">
+                    <p className="min-w-0 text-sm font-sans text-text-secondary">
                       <span className="tabular-nums">{health}</span>, {status}
                       {p.usdValuesUnavailable && (
                         <span

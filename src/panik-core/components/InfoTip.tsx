@@ -45,7 +45,13 @@ export function InfoTip(props: { text: string; className?: string }) {
             className={`fixed z-[300] w-60 -translate-x-1/2 pointer-events-none ${pos.below ? "" : "-translate-y-full"}`}
             style={{ left: pos.x, top: pos.below ? pos.y + 6 : pos.y - 6 }}
           >
-            <span className="block p-2.5 rounded-md bg-surface-overlay border border-border-subtle text-2xs font-sans normal-case tracking-normal font-normal text-text-secondary leading-relaxed shadow-2xl text-left">
+            {/* 12px, not 11px. A tooltip is a paragraph a user opened on
+                purpose because they did not understand something; setting the
+                explanation smaller than the thing it explains is the wrong way
+                round. `surface-overlay` is the lightest surface in the system,
+                which is exactly the case text-secondary (#94A3B8, 6.68:1) is
+                specified against. */}
+            <span className="block p-2.5 rounded-md bg-surface-overlay border border-border-subtle text-xs font-sans normal-case tracking-normal font-normal text-text-secondary leading-relaxed shadow-2xl text-left">
               {props.text}
             </span>
           </span>,
