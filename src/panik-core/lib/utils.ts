@@ -4,6 +4,7 @@
  */
 
 import { PositionState } from "./types";
+import type { Band } from "./live";
 
 /**
  * Calculates a DeFi position health factor and PANIK risk score.
@@ -118,7 +119,7 @@ export function calculateDynamicPosition(
  * not a safe position, and rendering it in the same neutral grey as chrome was
  * a silent safety claim.
  */
-export const RISK_CHIP: Record<"LOW" | "ELEVATED" | "HIGH" | "CRITICAL" | "UNKNOWN", string> = {
+export const RISK_CHIP: Record<Band | "UNKNOWN", string> = {
   LOW: "bg-risk-low/10 text-risk-low border-risk-low/25",
   ELEVATED: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
   HIGH: "bg-risk-high/10 text-risk-high border-risk-high/25",
@@ -129,12 +130,90 @@ export const RISK_CHIP: Record<"LOW" | "ELEVATED" | "HIGH" | "CRITICAL" | "UNKNO
   UNKNOWN: "text-risk-unknown border-risk-unknown/40 border-dashed",
 };
 
+/**
+ * The two halves of `RISK_CHIP` a chip does not use: a bare label colour and a
+ * bare bar fill. Both existed as hand-written `x < 25 ? … : x < 50 ? …` chains
+ * at nine call sites, and every one of those chains was missing its HIGH
+ * branch — so a 50-74 score was painted CRITICAL red next to a chip reading
+ * HIGH. Keeping the mapping in one table beside RISK_CHIP is what makes that
+ * impossible to reintroduce: `Record<Band, …>` will not compile with a band
+ * left out.
+ *
+ * A fill is a solid, so it is only ever used for a PROGRESS BAR, never for a
+ * surface behind text. The "risk is always a tint" rule in index.css is about
+ * chips and containers; a 6px bar has no text on it to fail contrast against.
+ */
+export const RISK_TEXT: Record<Band, string> = {
+  LOW: "text-risk-low",
+  ELEVATED: "text-risk-elevated",
+  HIGH: "text-risk-high",
+  CRITICAL: "text-risk-critical",
+};
+
+export const RISK_FILL: Record<Band, string> = {
+  LOW: "bg-risk-low",
+  ELEVATED: "bg-risk-elevated",
+  HIGH: "bg-risk-high",
+  CRITICAL: "bg-risk-critical",
+};
+
+/**
+ * Composite score -> band, using the engine's cut points (arch §Bands, and
+ * `bandFor` in packages/scoring/src/computeScore.ts).
+ *
+ * Deliberately NOT an import of `bandFor`: that module also pulls the four
+ * sub-score scorers and the parameter tables, which would drag the scoring
+ * engine into a browser bundle whose only question is which of four class
+ * strings to emit. The `Band` TYPE is imported (see lib/live), so a band added
+ * to the engine still breaks this file at compile time.
+ */
+export function bandOfScore(score: number): Band {
+  if (score >= 75) return "CRITICAL";
+  if (score >= 50) return "HIGH";
+  if (score >= 25) return "ELEVATED";
+  return "LOW";
+}
+
+/**
+ * Health factor -> band. A DIFFERENT ramp from `bandOfScore` on purpose: a
+ * health factor is a distance to liquidation (1.00 is the wall), not a 0-100
+ * score, and the product has always cut it at 1.3 / 1.7. It never returns
+ * HIGH, because these two cut points describe three states, not four.
+ */
+export function bandOfHealthFactor(healthFactor: number): Band {
+  if (healthFactor < 1.3) return "CRITICAL";
+  if (healthFactor < 1.7) return "ELEVATED";
+  return "LOW";
+}
+
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0
   }).format(value);
+}
+
+/**
+ * Whole-dollar USD, and the one place the "never render an unknown value as
+ * $0" rule is enforced.
+ *
+ * That rule is a SAFETY requirement in a liquidation product — a position we
+ * could not price is not a position worth nothing — and it was living as three
+ * separate `fmtUsd` consts in three components that disagreed about it: one
+ * returned the ellipsis, one took `number` and so could not express the case
+ * at all, and three more call sites interpolated the arithmetic inline with no
+ * null branch whatsoever. A rule enforced in three unconnected copies is a
+ * rule that will be missing from the fourth.
+ *
+ * `en-US` is pinned rather than left to the host locale: the figures sit in
+ * tabular columns beside `formatCurrency`, which is already pinned, and a
+ * German browser rendering "1.234" next to "$1,234" is the kind of drift that
+ * only shows up in a screenshot from a user.
+ */
+export function formatUsd(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "$…";
+  return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
 /** $36.27m / $609.9k style compact USD (TVL figures). */

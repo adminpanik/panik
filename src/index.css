@@ -83,9 +83,33 @@
    */
   --color-risk-low: #10B981;
   --color-risk-elevated: #F59E0B;
-  --color-risk-high: #F97316;
+  /**
+   * Not a second literal. The brand hue and the HIGH band are the same colour
+   * BY DESIGN (see the accent note above, and the sidebar comment in AppDemo),
+   * and writing #F97316 twice made that a coincidence two independent edits
+   * could break — at which point the "one hue, two treatments" argument the
+   * whole accent policy rests on is quietly false and nothing fails.
+   *
+   * Brand is the source and risk-high is the borrower, not the other way
+   * round: the accent has two jobs (the logo mark and the focus ring) that
+   * exist whether or not there is a risk ramp, whereas risk-high is documented
+   * above as *sharing* the brand hue.
+   */
+  --color-risk-high: var(--color-panik-orange);
   --color-risk-critical: #F87171;
   --color-risk-unknown: #7A8699;
+
+  /**
+   * Chart series. Identical to sky-400, and named because a chart cannot
+   * depend on sky-400 being EMITTED: Tailwind v4 only writes a theme variable
+   * to :root when it finds a utility that uses it somewhere in source, so
+   * `--color-sky-400` resolves today only because unrelated files happen to
+   * contain `bg-sky-400` and `text-sky-400`. Change those strings and every
+   * sparkline stroke silently becomes no colour at all — the failure is a
+   * blank chart, with nothing to grep for. A token declared here is the
+   * dependency stated out loud.
+   */
+  --color-chart-series: oklch(74.6% 0.16 232.661);
 
   /**
    * Type scale — seven steps plus one display size, each with its line-height
