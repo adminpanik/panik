@@ -493,8 +493,7 @@ export function OpenFlow({
               </span>
             </div>
             <p className="text-2xs font-sans text-text-muted">
-              Borrow is capped at your {riskProfile} profile's target health factor - the advisor
-              sized this plan to stay within your risk band.
+              Borrow is capped at your {riskProfile} profile's target health factor.
             </p>
 
             {error ? (

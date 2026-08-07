@@ -1476,9 +1476,8 @@ export function AppDemo() {
                       </div>
                     </div>
                     <p className="text-xs font-sans text-text-secondary max-w-lg leading-relaxed">
-                      Once you open a position it appears here automatically - live-scored by the
-                      PANIK engine, with the stress-test simulator preloaded to your real collateral
-                      and debt. In the meantime, browse risk-scored markets under Recommendations.
+                      Open a position and it appears here automatically, preloaded into the
+                      stress-test simulator with your real collateral and debt.
                     </p>
                     <div className="flex flex-wrap gap-2.5">
                       <button
@@ -1674,10 +1673,17 @@ export function AppDemo() {
                           </div>
                           
                           <p className="text-2xs text-text-secondary leading-relaxed font-sans">
-                            {positionState.status === "CRITICAL" && "Extreme liquidation danger. Spot price is dangerously close to your liquidation benchmark."}
-                            {positionState.status === "HIGH" && "Liquidation threat is high due to current leverage ratios. Repayment or buffer injection strongly advised."}
-                            {positionState.status === "ELEVATED" && "Moderate leverage risk. Position is stable but vulnerable to short-term market volatile swings."}
-                            {positionState.status === "LOW" && "Safe operating range. Robust collateral buffer easily withstands active market swings."}
+                            {/* One clause each. These are verdicts, and a verdict
+                                that needs two sentences is not a verdict. The
+                                warnings survive intact — what went is the
+                                brochure language wrapped around them ("robust
+                                collateral buffer easily withstands active market
+                                swings" for LOW), which read as reassurance we
+                                had not measured. */}
+                            {positionState.status === "CRITICAL" && "Spot price is close to your liquidation benchmark."}
+                            {positionState.status === "HIGH" && "Leverage is high. Repay or add collateral."}
+                            {positionState.status === "ELEVATED" && "Stable, but exposed to short-term volatility."}
+                            {positionState.status === "LOW" && "Collateral buffer is comfortable."}
                           </p>
 
                           {/* Dollar-framed verdict: what this scenario means in money, not percentages */}
@@ -2103,8 +2109,7 @@ export function AppDemo() {
                 className="space-y-6 max-w-4xl"
               >
                 <div className="border-b border-border-subtle pb-5">
-                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary mb-1">AI Advisor</h1>
-                  <p className="text-text-secondary font-sans text-xs">Intelligent decentralized risk modeling and real-time execution guidance</p>
+                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">AI Advisor</h1>
                 </div>
 
                 {advisorLive.report ? (
@@ -2119,16 +2124,12 @@ export function AppDemo() {
                     <Sparkles className="w-5 h-5 text-text-primary" />
                   </div>
                   
-                  <span className="text-2xs font-sans text-text-primary font-bold mb-2">
-                    Coming Soon
-                  </span>
-                  
                   <h3 className="text-lg font-sans font-bold text-text-primary tracking-tight mb-3">
-                    Adaptive Intelligence at Your Service
+                    Advisor is not live yet
                   </h3>
-                  
+
                   <p className="text-sm text-text-secondary leading-relaxed font-sans max-w-md">
-                    Our AI-powered guardrail recommendations, automated health rating models, and simulated action guides are currently undergoing extensive parameter audits on Base. Joining the waitlist guarantees early access to this feature upon release.
+                    Guardrail recommendations and sized action plans are still in parameter audit on Base.
                   </p>
 
                   <label className="mt-6 flex items-center gap-3 cursor-pointer select-none group">
@@ -2165,8 +2166,7 @@ export function AppDemo() {
               >
                 <div className="border-b border-border-subtle pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary mb-1">DeFi Portfolio</h1>
-                    <p className="text-text-secondary font-sans text-sm">Real-time risk monitoring across your connected DeFi positions</p>
+                    <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">DeFi Portfolio</h1>
                   </div>
                   {/* Primary action: opening positions lives in Compass; this is
                       the pointer Portfolio was missing (UX journey fix). */}
@@ -2326,14 +2326,9 @@ export function AppDemo() {
 
                   {/* Right Column: Asset Allocation visual breakdown (lg:col-span-5) */}
                   <Card className="lg:col-span-5 space-y-6">
-                    <div>
-                      <h3 className="text-sm font-sans font-semibold text-text-primary mb-2">
-                        Asset allocation weight
-                      </h3>
-                      <p className="text-xs text-text-secondary leading-relaxed font-sans">
-                        Breakdown of collateral asset distributions backing the protected portfolio vault lines.
-                      </p>
-                    </div>
+                    <h3 className="text-sm font-sans font-semibold text-text-primary">
+                      Asset allocation
+                    </h3>
 
                     {/* Segmented bar; the swatch on each row below is its legend,
                         which is why those dots stay while decorative ones went. */}
@@ -2360,15 +2355,11 @@ export function AppDemo() {
                           </div>
                           <div className="text-right shrink-0">
                             <span className="font-sans text-xs font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
-                            <span className="block text-xs font-sans text-text-secondary tabular-nums">{a.pct.toFixed(1)}% weight</span>
+                            <span className="block text-xs font-sans text-text-secondary tabular-nums">{a.pct.toFixed(1)}%</span>
                           </div>
                         </div>
                       ))}
                     </div>
-
-                    <p className="text-xs font-sans text-text-muted leading-relaxed">
-                      All positions undergo continuous drift analysis against current collateral price benchmarks.
-                    </p>
                   </Card>
                 </div>
 
@@ -2402,8 +2393,7 @@ export function AppDemo() {
                       />
                     ) : (
                       <div className="py-8 text-center text-2xs font-sans text-text-muted leading-relaxed">
-                        Score history builds as the watch worker monitors this wallet (every 60s).
-                        <br />Check back after a few scoring cycles.
+                        History builds as the watch worker scores this wallet every 60s.
                       </div>
                     )}
                   </Card>
@@ -2478,8 +2468,7 @@ export function AppDemo() {
                 className="max-w-5xl space-y-6"
               >
                 <div className="border-b border-border-subtle pb-3">
-                  <span className="block text-2xs font-sans text-text-primary">Sentry System Preferences</span>
-                  <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide">Settings &amp; Endpoints</h2>
+                  <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide">Settings</h2>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -2598,17 +2587,14 @@ export function AppDemo() {
                     )}
                   </div>
 
-                  {/* Integration sidebar */}
+                  {/* Integration sidebar. The four-step "How to connect alerts"
+                      list that used to sit above the privacy note is gone: step
+                      1 described what pressing the Connect button already does,
+                      step 2 is the instruction Telegram itself shows, step 3
+                      restated the paragraph beside it, and step 4 restated the
+                      note below. The privacy note stays — it is a data-handling
+                      commitment and the only place /stop is documented. */}
                   <div className="lg:col-span-4 space-y-4">
-                    <div className="bg-white/[0.01] border border-border-subtle p-5 rounded-lg space-y-2">
-                      <h4 className="text-2xs font-sans font-bold text-text-primary">How to connect alerts</h4>
-                      <ol className="text-2xs text-text-secondary space-y-1.5 list-decimal pl-4 font-sans leading-relaxed">
-                        <li>Click <span className="text-text-primary font-semibold">Connect Telegram</span> - it opens <span className="text-text-primary font-semibold">@{telegramBotUsername}</span>.</li>
-                        <li>Press <span className="text-text-primary">Start</span> in the chat to confirm.</li>
-                        <li>Alerts fire when your wallet nears its risk limit.</li>
-                        <li>Send <span className="text-text-primary">/stop</span> any time to mute them.</li>
-                      </ol>
-                    </div>
                     <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-2xs text-text-secondary leading-relaxed">
                       We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
                     </div>
@@ -2745,9 +2731,6 @@ export function AppDemo() {
                             <strong className="text-text-primary tabular-nums">{breakdownData.subs.systemicRisk}</strong>
                           </div>
                         </div>
-                        <p className="text-2xs font-sans text-text-muted leading-relaxed">
-                          The headline score is the weighted sum of these four components.
-                        </p>
                       </>
                     )}
                   </div>

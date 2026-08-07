@@ -93,7 +93,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
         <EmptyState
           tone="clear"
           title="No open positions"
-          hint="Nothing to monitor on this wallet right now. New positions are picked up within a minute of opening."
+          hint="New positions are picked up within a minute of opening."
         />
       )}
 

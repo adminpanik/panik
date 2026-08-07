@@ -187,7 +187,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                 <ArrowRight className="w-4 h-4" />
               </button>
               <p className="text-2xs font-sans text-text-muted text-center leading-relaxed">
-                Demo flow - nothing is signed and no funds move. Live execution ships with the PANIK router.
+                Demo flow - nothing is signed and no funds move.
               </p>
             </div>
           )}

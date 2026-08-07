@@ -227,8 +227,7 @@ function WalletStep(props: {
         Start with your wallet
       </h2>
       <p className="text-text-secondary text-sm font-sans mb-6 leading-relaxed">
-        Paste your wallet address. While you answer a few quick questions, Panik reads your on-chain
-        history to profile what kind of DeFi user you are.
+        Paste your wallet address. Panik reads its public history while you answer a few questions.
       </p>
 
       <div className="relative">
@@ -270,7 +269,7 @@ function WalletStep(props: {
         <ArrowRight className="w-4 h-4" />
       </button>
       <p className="mt-3 text-center text-2xs font-sans text-text-muted">
-        Read-only. Panik never moves funds. It only reads public on-chain data.
+        Read-only. Panik never moves funds.
       </p>
     </>
   );
@@ -360,9 +359,6 @@ function RevealStep(props: {
         <h2 className="font-sans font-extrabold text-lg text-text-primary tracking-tight mb-1.5">
           Reading your on-chain history…
         </h2>
-        <p className="text-text-secondary text-sm font-sans max-w-xs leading-relaxed">
-          Scanning your lifetime lending activity across every chain to profile your DeFi persona.
-        </p>
       </div>
     );
   }
