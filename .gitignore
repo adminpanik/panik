@@ -34,3 +34,8 @@ contracts/cache/
 # so a committed copy is dirty on whichever platform did not generate it. The
 # submodule gitlink in .gitmodules/.git is the real pin.
 contracts/foundry.lock
+
+# Playwright MCP snapshots and local screenshots
+.playwright-mcp/
+phase*.png
+baseline.png

@@ -1062,24 +1062,14 @@ export function AppDemo() {
                       : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
                   }`}
                 >
-                  {/* The ONE place brand orange appears in the product, and the
-                      sidebar earns it on three counts. It is chrome, not data:
-                      it sits outside the panel entirely, so the hue is never
-                      adjacent to a risk chip and cannot be read as a band. It
-                      is answering "where am I", the only persistent question on
-                      screen that is not a risk judgement. And exactly one rail
-                      is lit at a time, which is what keeps the accent a signal
-                      instead of decoration — the failure mode of the old build
-                      was orange appearing eight times per screen.
-
-                      Rail, not fill: a solid-orange nav item is the same
-                      mistake as a solid-orange button. */}
-                  {selected && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-panik-orange"
-                    />
-                  )}
+                  {/* No accent rail here on purpose. `--color-panik-orange` and
+                      `--color-risk-high` are the same hex, so any orange in the
+                      shell is the same colour a user has just been taught means
+                      HIGH. The raised surface and the brighter, heavier label
+                      already answer "where am I" on their own, so the rail was
+                      buying nothing and costing that ambiguity. Colour in this
+                      product is either a risk band or a chart category; being
+                      brand is not a third job it does. */}
                   <Icon className={`w-4 h-4 ${selected ? "text-text-primary" : "text-text-secondary"}`} />
                   <span>{label}</span>
                 </button>
