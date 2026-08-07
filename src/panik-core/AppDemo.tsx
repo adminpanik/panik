@@ -54,7 +54,7 @@ import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
 import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
-import { ProtocolLogo } from "./components/ProtocolLogo";
+import { ProtocolLogo, ProtocolMarks } from "./components/ProtocolLogo";
 import { Onboarding } from "./components/Onboarding";
 import {
   forgetRegistration,
@@ -2432,8 +2432,25 @@ export function AppDemo() {
                               />
                             </>
                           }
-                          value={liveMacro ? `${liveMacro.positions} positions` : "4 pools"}
-                          sub={liveMacro ? `Across ${liveMacro.protocols} protocols` : "Across 2 protocols"}
+                          /* The card used to contradict its own label: it was
+                             titled "Protocols watched", showed a POSITION
+                             count, and then put the protocol count in the grey
+                             subline underneath. The marks are the value now, so
+                             the label matches what the figure shows - and the
+                             icons name WHICH protocols, which no arrangement of
+                             that sentence ever did. Fixed height so the row of
+                             four stat cards keeps a single baseline: the value
+                             slot is otherwise 34px of text line-box. */
+                          value={
+                            <span className="flex h-[34px] items-center">
+                              <ProtocolMarks protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]} />
+                            </span>
+                          }
+                          sub={
+                            liveMacro
+                              ? `${liveMacro.positions} ${liveMacro.positions === 1 ? "position" : "positions"}`
+                              : "4 positions"
+                          }
                         />
                       </Card>
 

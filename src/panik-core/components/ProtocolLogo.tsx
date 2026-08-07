@@ -170,23 +170,75 @@ const MARKS: { key: string; body: React.ReactNode }[] = [
   },
 ];
 
+interface ProtocolLogoProps {
+  protocol: string;
+  size?: string;
+  /**
+   * Accessible name. Omit where the protocol is already named in adjacent text
+   * (the mark is then decorative and correctly announces nothing). Pass it
+   * where the mark IS the content - the "Protocols watched" card, where the
+   * icons are the only thing saying which protocols a wallet is in.
+   */
+  label?: string;
+}
+
 /** Protocol brand mark - matches by name substring ("aave" / "moonwell"). */
-export function ProtocolLogo({ protocol, size = "w-6 h-6" }: { protocol: string; size?: string }) {
+export function ProtocolLogo({ protocol, size = "w-6 h-6", label }: ProtocolLogoProps) {
   const name = protocol.toLowerCase();
   const mark = MARKS.find((m) => name.includes(m.key));
+  const a11y = label ? ({ role: "img", "aria-label": label } as const) : {};
 
   if (!mark) {
     // Unrecognised protocol: a neutral lettermark, never a guessed logo.
     return (
-      <div title={protocol} className={`${TILE} ${size} font-sans font-bold text-xs`}>
+      <div {...a11y} title={protocol} className={`${TILE} ${size} font-sans font-bold text-xs`}>
         {protocol[0]}
       </div>
     );
   }
 
   return (
-    <div title={protocol} className={`${TILE} ${size}`} style={tint(mark.key)}>
+    <div {...a11y} title={protocol} className={`${TILE} ${size}`} style={tint(mark.key)}>
       {mark.body}
     </div>
+  );
+}
+
+/**
+ * A row of brand marks naming the protocols a wallet is actually in.
+ *
+ * This is CONTENT, not decoration - it is the VALUE of the "Protocols watched"
+ * card, which previously showed a position count under a label promising
+ * protocols. So every mark carries an accessible name, and the overflow chip
+ * names the protocols it stands in for rather than reducing them to a number a
+ * screen reader cannot expand.
+ */
+export function ProtocolMarks({
+  protocols,
+  max = 4,
+  size = "w-6 h-6",
+}: {
+  protocols: string[];
+  max?: number;
+  size?: string;
+}) {
+  const shown = protocols.slice(0, max);
+  const rest = protocols.slice(max);
+  return (
+    <span className="flex items-center gap-1.5">
+      {shown.map((p) => (
+        <ProtocolLogo key={p} protocol={p} size={size} label={p} />
+      ))}
+      {rest.length > 0 && (
+        <span
+          role="img"
+          aria-label={`and ${rest.length} more: ${rest.join(", ")}`}
+          title={rest.join(", ")}
+          className={`${TILE} ${size} font-sans font-bold text-xs`}
+        >
+          +{rest.length}
+        </span>
+      )}
+    </span>
   );
 }
