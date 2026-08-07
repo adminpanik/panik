@@ -712,16 +712,22 @@ export function AppDemo() {
     //
     // Drawn from the reserved cool chart palette in index.css, which contains
     // no red, amber or green precisely so a series can never be misread as a
-    // risk band. Neighbouring entries are separated on BOTH axes (hue and
-    // lightness), because four hues squeezed into the cool arc alone are too
-    // close to tell apart at 16px of bar:
-    //   sky-400    h 233 / L 75
-    //   violet-400 h 294 / L 70
-    //   cyan-300   h 207 / L 87
-    //   blue-500   h 260 / L 62
+    // risk band.
+    //
+    // Cool-only leaves ~90 degrees of hue for four series, which is not enough
+    // on hue alone — measured against a 10px legend dot, sky-400 and cyan-300
+    // are the same colour. So each step moves in BOTH lightness and hue, and
+    // the one genuinely weak pair is pushed to opposite ends of the list:
+    //   0 sky-400    h 233 / L 75   bright blue
+    //   1 violet-400 h 294 / L 70   lavender
+    //   2 indigo-500 h 277 / L 59   deep indigo
+    //   3 cyan-300   h 207 / L 87   pale cyan
+    // Adjacent pairs are 61, 16 (but 12 of lightness) and 70 degrees apart;
+    // the close pair, sky and cyan, sits at slots 0 and 3.
+    //
     // The same class drives the bar segment and its legend dot, so the two are
     // matched by construction rather than by two lists kept in sync by hand.
-    const shades = ["bg-sky-400", "bg-violet-400", "bg-cyan-300", "bg-blue-500"];
+    const shades = ["bg-sky-400", "bg-violet-400", "bg-indigo-500", "bg-cyan-300"];
     return src.map((a, i) => ({ ...a, pct: (a.usd / total) * 100, color: shades[i % 4] as string }));
   }, [portfolioPositions]);
 
