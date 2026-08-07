@@ -2490,12 +2490,32 @@ export function AppDemo() {
                   );
                 })()}
 
-                {/* Dual Column: LIVE positions (left) + live allocation (right).
-                    Portfolio is 100% live — hypothetical scenarios live in
-                    Compass (discovery) and Watch (sandbox), not here. */}
+                {/* Two COLUMNS, each stacking its own cards — not two rows of
+                    two cards each.
+
+                    Portfolio has one tall card (Positions, which grows with the
+                    wallet) and three short ones. Laid out as rows, the tall card
+                    set the height of row 1 and Asset allocation beside it left
+                    ~300px of void underneath, while Risk index history and Alert
+                    history sat in a separate row below the whole thing. The void
+                    was structural: a grid row is as tall as its tallest cell, so
+                    nothing could ever fill it.
+
+                    Columns let each side pack independently. Left takes the two
+                    wide cards (Positions, Risk index history — a chart wants the
+                    horizontal room); right takes the two narrow ones (Asset
+                    allocation, Alert history — a legend and a feed are lists,
+                    and lists read better narrow). The columns end at different
+                    heights, which is fine and invisible; what is not fine is a
+                    hole in the MIDDLE of the page.
+
+                    Below `lg` the grid is one column and all four stack in DOM
+                    order: positions, history, allocation, alerts.
+
+                    Layout only. Not one card's contents changed. */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4">
-                  {/* Left Column: the selected wallet's REAL positions */}
-                  <div className="lg:col-span-7">
+                  {/* Left column: the wide pair. */}
+                  <div className="lg:col-span-7 space-y-6">
                     <LivePositions
                       positions={portfolioPositions}
                       updatedAt={boundMode ? ownLive.updatedAt : liveUpdatedAt}
@@ -2507,148 +2527,148 @@ export function AppDemo() {
                         setActiveTab("watch");
                       }}
                     />
+
+                    {/* Risk index over time (score_snapshots via /api/history) */}
+                    <Card>
+                      <div className="flex items-baseline justify-between mb-4">
+                        <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
+                          Risk index history
+                          <InfoTip text="Aggregate PANIK score of this wallet over time, protocols weighted by collateral." />
+                        </h3>
+                        {riskHistory && (
+                          <span className="text-lg font-sans font-bold tabular-nums text-text-primary">
+                            {riskHistory.series[riskHistory.series.length - 1]} / 100
+                          </span>
+                        )}
+                      </div>
+                      {riskHistory ? (
+                        // Series colour is cool and fixed: repainting 30 days of history in
+                        // today's band colour claims the whole series was that band. The
+                        // current band is already stated in the chip above.
+                        <Sparkline
+                          data={riskHistory.series}
+                          height={110}
+                          stroke="var(--color-sky-400)"
+                          axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
+                        />
+                      ) : (
+                        <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
+                          History builds as the watch worker scores this wallet every 60s.
+                        </div>
+                      )}
+                    </Card>
                   </div>
 
-                  {/* Right Column: Asset Allocation visual breakdown (lg:col-span-5) */}
-                  <Card className="lg:col-span-5 space-y-6">
-                    <h3 className="text-sm font-sans font-semibold text-text-primary">
-                      Asset allocation
-                    </h3>
-
-                    {/* Segmented bar; the swatch on each row below is its legend,
-                        which is why those dots stay while decorative ones went. */}
-                    <div className="h-4 w-full bg-white/[0.03] rounded-full overflow-hidden flex border border-border-subtle">
-                      {allocation.map((a) => (
-                        <div
-                          key={a.symbol}
-                          className={`h-full ${a.color}`}
-                          style={{ width: `${a.pct.toFixed(1)}%` }}
-                          title={`${a.symbol}: ${a.pct.toFixed(1)}%`}
-                        ></div>
-                      ))}
-                    </div>
-
-                    {/* Asset distribution — computed from LIVE positions (mock when offline) */}
-                    <div className="space-y-3">
-                      {allocation.map((a) => (
-                        <div key={a.symbol} className="flex justify-between items-center gap-3">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${a.color}`}></span>
-                            {/* Row content, so 14px. An allocation legend where
-                                the symbol and the dollar amount are both 12px
-                                is a table nobody reads across. */}
-                            <span className="font-sans text-sm font-medium text-text-primary truncate">
-                              {a.symbol}
-                            </span>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <span className="font-sans text-sm font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
-                            <span className="block text-xs font-sans text-text-secondary tabular-nums">{a.pct.toFixed(1)}%</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                </div>
-
-                {/* History row: risk-index chart + alert feed (DeBank/Zerion-style
-                    net-worth-chart + activity-feed layout, adapted to risk). */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Risk index over time (score_snapshots via /api/history) */}
-                  <Card className="lg:col-span-7">
-                    <div className="flex items-baseline justify-between mb-4">
-                      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
-                        Risk index history
-                        <InfoTip text="Aggregate PANIK score of this wallet over time, protocols weighted by collateral." />
+                  {/* Right column: the narrow pair. A legend and a feed are
+                      both lists; lists read better narrow than wide. */}
+                  <div className="lg:col-span-5 space-y-6">
+                    {/* Asset allocation: the visual collateral breakdown. */}
+                    <Card className="space-y-6">
+                      <h3 className="text-sm font-sans font-semibold text-text-primary">
+                        Asset allocation
                       </h3>
-                      {riskHistory && (
-                        <span className="text-lg font-sans font-bold tabular-nums text-text-primary">
-                          {riskHistory.series[riskHistory.series.length - 1]} / 100
-                        </span>
-                      )}
-                    </div>
-                    {riskHistory ? (
-                      // Series colour is cool and fixed: repainting 30 days of history in
-                      // today's band colour claims the whole series was that band. The
-                      // current band is already stated in the chip above.
-                      <Sparkline
-                        data={riskHistory.series}
-                        height={110}
-                        stroke="var(--color-sky-400)"
-                        axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
-                      />
-                    ) : (
-                      <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
-                        History builds as the watch worker scores this wallet every 60s.
-                      </div>
-                    )}
-                  </Card>
 
-                  {/* Alert history (watch_transitions IS the alert log) */}
-                  <Card className="lg:col-span-5">
-                    <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4">
-                      Alert history
-                      <InfoTip text="Every risk-status change PANIK detected, and what was sent. The chip on each row is the delivery outcome." />
-                    </h3>
-                    {walletHistory?.alerts?.length ? (
-                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                        {walletHistory.alerts.slice(0, 12).map((a, i) => {
-                          const chip = a.notify_channel
-                            ? NOTIFY_CHANNEL_CHIP[a.notify_channel] ?? { label: a.notify_channel, cls: "text-text-muted border-border-subtle bg-white/[0.03]" }
-                            : { label: "Queued", cls: "text-text-muted border-border-subtle bg-white/[0.03]" };
-                          return (
-                            <div key={`${a.created_at}-${i}`} className="flex items-start gap-2.5 bg-white/[0.02] border border-border-subtle p-3 rounded-md">
-                              {/* The glyph carries the transition; the words next
-                                  to it name the band. Painting the icon too gave
-                                  this log twelve coloured marks for a history the
-                                  user is skimming, not acting on. */}
-                              {a.to_status === "outside" ? (
-                                <Flame className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
-                              ) : a.to_status === "approaching" ? (
-                                <ShieldAlert className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
-                              ) : (
-                                <CheckCircle2 className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-baseline justify-between gap-2">
-                                  {/* Wraps rather than truncates: this line is
-                                      "which protocol" plus "which way it
-                                      moved", and clipping it kept the protocol
-                                      while eating the direction, which is the
-                                      half that says whether things got worse.
-                                      In a 5/12 column at 1024px there is not
-                                      room for both on one line. */}
-                                  {/* The transition — "approaching → outside" —
-                                      is the whole content of an alert row, and
-                                      it was the muted half of an 11px line. It
-                                      is secondary now, at 12px: still quieter
-                                      than the protocol it belongs to, no longer
-                                      the thing you have to lean in for. */}
-                                  <span className="min-w-0 text-xs font-sans font-bold text-text-primary">
-                                    {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
-                                    <span className="text-text-secondary font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
-                                  </span>
-                                  {/* Timestamps stay muted. This is what
-                                      text-muted is FOR — you glance at it, you
-                                      do not read it. */}
-                                  <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-xs font-sans text-text-secondary tabular-nums">score {a.score} ({a.band})</span>
-                                  <span className={`text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>{chip.label}</span>
+                      {/* Segmented bar; the swatch on each row below is its legend,
+                          which is why those dots stay while decorative ones went. */}
+                      <div className="h-4 w-full bg-white/[0.03] rounded-full overflow-hidden flex border border-border-subtle">
+                        {allocation.map((a) => (
+                          <div
+                            key={a.symbol}
+                            className={`h-full ${a.color}`}
+                            style={{ width: `${a.pct.toFixed(1)}%` }}
+                            title={`${a.symbol}: ${a.pct.toFixed(1)}%`}
+                          ></div>
+                        ))}
+                      </div>
+
+                      {/* Asset distribution — computed from LIVE positions (mock when offline) */}
+                      <div className="space-y-3">
+                        {allocation.map((a) => (
+                          <div key={a.symbol} className="flex justify-between items-center gap-3">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${a.color}`}></span>
+                              {/* Row content, so 14px. An allocation legend where
+                                  the symbol and the dollar amount are both 12px
+                                  is a table nobody reads across. */}
+                              <span className="font-sans text-sm font-medium text-text-primary truncate">
+                                {a.symbol}
+                              </span>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="font-sans text-sm font-bold text-text-primary tabular-nums">${Math.round(a.usd).toLocaleString()}</span>
+                              <span className="block text-xs font-sans text-text-secondary tabular-nums">{a.pct.toFixed(1)}%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+
+                    {/* Alert history (watch_transitions IS the alert log) */}
+                    <Card>
+                      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4">
+                        Alert history
+                        <InfoTip text="Every risk-status change PANIK detected, and what was sent. The chip on each row is the delivery outcome." />
+                      </h3>
+                      {walletHistory?.alerts?.length ? (
+                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                          {walletHistory.alerts.slice(0, 12).map((a, i) => {
+                            const chip = a.notify_channel
+                              ? NOTIFY_CHANNEL_CHIP[a.notify_channel] ?? { label: a.notify_channel, cls: "text-text-muted border-border-subtle bg-white/[0.03]" }
+                              : { label: "Queued", cls: "text-text-muted border-border-subtle bg-white/[0.03]" };
+                            return (
+                              <div key={`${a.created_at}-${i}`} className="flex items-start gap-2.5 bg-white/[0.02] border border-border-subtle p-3 rounded-md">
+                                {/* The glyph carries the transition; the words next
+                                    to it name the band. Painting the icon too gave
+                                    this log twelve coloured marks for a history the
+                                    user is skimming, not acting on. */}
+                                {a.to_status === "outside" ? (
+                                  <Flame className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
+                                ) : a.to_status === "approaching" ? (
+                                  <ShieldAlert className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
+                                ) : (
+                                  <CheckCircle2 className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    {/* Wraps rather than truncates: this line is
+                                        "which protocol" plus "which way it
+                                        moved", and clipping it kept the protocol
+                                        while eating the direction, which is the
+                                        half that says whether things got worse.
+                                        In a 5/12 column at 1024px there is not
+                                        room for both on one line. */}
+                                    {/* The transition — "approaching → outside" —
+                                        is the whole content of an alert row, and
+                                        it was the muted half of an 11px line. It
+                                        is secondary now, at 12px: still quieter
+                                        than the protocol it belongs to, no longer
+                                        the thing you have to lean in for. */}
+                                    <span className="min-w-0 text-xs font-sans font-bold text-text-primary">
+                                      {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
+                                      <span className="text-text-secondary font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
+                                    </span>
+                                    {/* Timestamps stay muted. This is what
+                                        text-muted is FOR — you glance at it, you
+                                        do not read it. */}
+                                    <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-xs font-sans text-text-secondary tabular-nums">score {a.score} ({a.band})</span>
+                                    <span className={`text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>{chip.label}</span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
-                        No alerts yet - PANIK messages you the moment a position
-                        <br />crosses your profile's risk limit.
-                      </div>
-                    )}
-                  </Card>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
+                          No alerts yet - PANIK messages you the moment a position
+                          <br />crosses your profile's risk limit.
+                        </div>
+                      )}
+                    </Card>
+                  </div>
                 </div>
 
               </motion.div>
