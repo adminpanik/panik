@@ -78,6 +78,17 @@ jobs:
         with:
           fetch-depth: 0 # gitleaks needs history to scan the diff
 
-      - uses: gitleaks/gitleaks-action@v2
+      # The gitleaks BINARY is free; only the v2 Action wrapper requires a paid
+      # licence for organisation accounts ("[org] is an organization. License
+      # key is required."). Run the binary directly instead.
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      # --redact so a hit never prints the secret into a public build log.
+      - name: Scan history for secrets
+        run: gitleaks detect --source . --redact --no-banner
