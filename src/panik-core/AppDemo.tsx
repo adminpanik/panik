@@ -705,11 +705,23 @@ export function AppDemo() {
             { symbol: "USDT Pool", usd: 1500 },
           ];
     const total = src.reduce((a, b) => a + b.usd, 0) || 1;
-    // One hue, stepped. `src` is sorted largest-first, so opacity falls with
-    // weight and the bar reads as a single distribution. Four unrelated hues
-    // (indigo / sky / orange / green) read as four unrelated things, and two of
-    // them were on loan from the risk ramp and the brand.
-    const shades = ["bg-white/70", "bg-white/45", "bg-white/28", "bg-white/16"];
+    // CATEGORICAL, not sequential. Telling cbBTC from WETH from wstETH is data
+    // encoding, and a single stepped grey destroys it: four opacities of white
+    // say "more of this than that", which the percentages already say, while
+    // saying nothing about WHICH asset a segment is.
+    //
+    // Drawn from the reserved cool chart palette in index.css, which contains
+    // no red, amber or green precisely so a series can never be misread as a
+    // risk band. Neighbouring entries are separated on BOTH axes (hue and
+    // lightness), because four hues squeezed into the cool arc alone are too
+    // close to tell apart at 16px of bar:
+    //   sky-400    h 233 / L 75
+    //   violet-400 h 294 / L 70
+    //   cyan-300   h 207 / L 87
+    //   blue-500   h 260 / L 62
+    // The same class drives the bar segment and its legend dot, so the two are
+    // matched by construction rather than by two lists kept in sync by hand.
+    const shades = ["bg-sky-400", "bg-violet-400", "bg-cyan-300", "bg-blue-500"];
     return src.map((a, i) => ({ ...a, pct: (a.usd / total) * 100, color: shades[i % 4] as string }));
   }, [portfolioPositions]);
 
