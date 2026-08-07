@@ -9,6 +9,7 @@ import React from "react";
 import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
+import { InfoTip } from "./InfoTip";
 import { Button, Card, EmptyState, RiskChip, Skeleton } from "../ui";
 
 const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
@@ -68,6 +69,17 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
 
   return (
     <Card className="space-y-4">
+      {/* The provenance that used to sit as a permanent 24-word footer under
+          the list. It is real and worth keeping — which RPC calls, which price
+          and TVL sources, which refresh interval — but it is an answer to a
+          question asked once, not a caption you need on every glance. It also
+          gives this card the same titled header its three siblings on the
+          Portfolio grid already have. */}
+      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
+        Positions
+        <InfoTip text="Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF) + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s." />
+      </h3>
+
       {/* Three fixed lines instead of a wrapping chain of bullet-separated
           fragments. The old row let any fragment reflow, which stranded a "•"
           at the start of a line and split a "$X supplied / $Y borrowed" pair
@@ -187,12 +199,6 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
         </ul>
       )}
 
-      {positions !== null && positions.length > 0 && (
-        <p className="text-xs font-sans text-text-muted">
-          Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF)
-          + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s.
-        </p>
-      )}
     </Card>
   );
 }

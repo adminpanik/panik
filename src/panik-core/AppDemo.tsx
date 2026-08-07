@@ -1901,8 +1901,9 @@ export function AppDemo() {
                   
                   {/* Scenario presets (#3): the answer first, sliders second */}
                   <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
-                    <span className="text-2xs font-sans text-text-primary block border-b border-border-subtle pb-2">
-                      Price Scenarios
+                    <span className="flex items-center gap-1.5 text-2xs font-sans text-text-primary border-b border-border-subtle pb-2">
+                      Price scenarios
+                      <InfoTip text="Crash and black-swan magnitudes mirror the backtest event set. The HF preview on each card is an estimate; the headline score uses the live engine." />
                     </span>
                     <div className="grid grid-cols-2 gap-2">
                       {PRICE_SCENARIOS.map((s) => {
@@ -1942,10 +1943,6 @@ export function AppDemo() {
                         );
                       })}
                     </div>
-                    <p className="text-2xs font-sans text-text-muted leading-relaxed">
-                      Crash and black-swan magnitudes mirror the backtest event set. HF preview is an
-                      estimate; the headline score uses the live engine.
-                    </p>
                   </div>
 
                   {/* Advanced parameters (#4): direct inputs for amounts + prices */}
@@ -2368,9 +2365,10 @@ export function AppDemo() {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Risk index over time (score_snapshots via /api/history) */}
                   <Card className="lg:col-span-7">
-                    <div className="flex items-baseline justify-between mb-1">
-                      <h3 className="text-sm font-sans font-semibold text-text-primary">
+                    <div className="flex items-baseline justify-between mb-4">
+                      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
                         Risk index history
+                        <InfoTip text="Aggregate PANIK score of this wallet over time, protocols weighted by collateral." />
                       </h3>
                       {riskHistory && (
                         <span className="text-lg font-sans font-bold tabular-nums text-text-primary">
@@ -2378,9 +2376,6 @@ export function AppDemo() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-text-secondary leading-normal mb-4 font-sans">
-                      Aggregate PANIK score of this wallet over time, protocols weighted by collateral.
-                    </p>
                     {riskHistory ? (
                       // Series colour is cool and fixed: repainting 30 days of history in
                       // today's band colour claims the whole series was that band. The
@@ -2400,12 +2395,10 @@ export function AppDemo() {
 
                   {/* Alert history (watch_transitions IS the alert log) */}
                   <Card className="lg:col-span-5">
-                    <h3 className="text-sm font-sans font-semibold text-text-primary mb-1">
+                    <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4">
                       Alert history
+                      <InfoTip text="Every risk-status change PANIK detected, and what was sent. The chip on each row is the delivery outcome." />
                     </h3>
-                    <p className="text-xs text-text-secondary leading-normal mb-4 font-sans">
-                      Every risk-status change PANIK detected, and what was sent.
-                    </p>
                     {walletHistory?.alerts?.length ? (
                       <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                         {walletHistory.alerts.slice(0, 12).map((a, i) => {
@@ -2479,13 +2472,13 @@ export function AppDemo() {
                     <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
                       <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
                         <Bell className="w-4 h-4 text-text-primary" />
-                        <h3 className="text-2xs font-sans text-text-primary font-bold">
-                          Web3 Telegram Alerts Dispatcher
+                        <h3 className="flex items-center gap-1.5 text-2xs font-sans text-text-primary font-bold">
+                          Telegram alerts
+                          <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
                         </h3>
                       </div>
                       <p className="text-xs text-text-secondary leading-relaxed font-sans">
-                        Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit. PANIK only
-                        pings you on a real transition toward liquidation - debounced, deduped, and rate-limited, never on noise.
+                        Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit.
                       </p>
                       <div className="flex flex-col sm:flex-row gap-3 pt-1">
                         <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-2xs truncate">
