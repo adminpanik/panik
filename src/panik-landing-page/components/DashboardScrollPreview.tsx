@@ -590,8 +590,7 @@ export function DashboardScrollPreview() {
 
                       {/* --- Section 1: Recommended For Profile --- */}
                       <div className="space-y-2">
-                        <div className="flex items-center gap-1.5 text-[7.5px] font-mono font-bold text-white uppercase tracking-wider">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse" />
+                        <div className="flex items-center text-[7.5px] font-mono font-bold text-white uppercase tracking-wider">
                           <span>RECOMMENDED FOR YOUR MODERATE PROFILE</span>
                         </div>
 
@@ -830,8 +829,7 @@ export function DashboardScrollPreview() {
                               </div>
                               <div className="flex flex-col items-end leading-none">
                                 <span className="text-[6.5px] font-mono text-[#748BAA] uppercase tracking-widest mb-1 font-bold">DAEMON SENTINEL</span>
-                                <span className="text-[7.5px] sm:text-[8px] font-mono text-[#10B981] bg-[#10B981]/5 px-2 py-1 rounded-sm border border-[#10B981]/30 flex items-center gap-1 font-bold">
-                                  <span className="w-1 h-1 rounded-full bg-[#10B981] animate-pulse"></span>
+                                <span className="text-[7.5px] sm:text-[8px] font-mono text-[#10B981] bg-[#10B981]/5 px-2 py-1 rounded-sm border border-[#10B981]/30 flex items-center font-bold">
                                   SECURE WATCH
                                 </span>
                               </div>
@@ -844,7 +842,7 @@ export function DashboardScrollPreview() {
                               <div className="flex-1 flex flex-col justify-between pr-0 sm:pr-4 sm:border-r border-white/[0.04]">
                                 <div>
                                   <div className="flex items-center gap-1 text-white/40 font-mono text-[7.5px] uppercase tracking-wider mb-2 font-bold">
-                                    <Activity className="w-3.5 h-3.5 text-panik-orange shrink-0 animate-pulse" />
+                                    <Activity className="w-3.5 h-3.5 text-panik-orange shrink-0" />
                                     <span>Panik Risk Index</span>
                                   </div>
  
@@ -1075,7 +1073,7 @@ export function DashboardScrollPreview() {
                     >
                       <div className="bg-[#111318]/50 border border-white/[0.06] p-6 rounded-xl flex flex-col items-center text-center max-w-md my-auto">
                         <div className="w-10 h-10 rounded-full bg-panik-orange/10 border border-panik-orange/30 flex items-center justify-center mb-4">
-                          <Sparkles className="w-4.5 h-4.5 text-panik-orange animate-pulse" />
+                          <Sparkles className="w-4.5 h-4.5 text-panik-orange" />
                         </div>
                         
                         <span className="text-[9px] font-mono tracking-widest text-[#F97316] uppercase font-bold mb-1.5">

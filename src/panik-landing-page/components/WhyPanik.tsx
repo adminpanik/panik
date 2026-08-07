@@ -390,7 +390,6 @@ export function WhyPanik() {
                   {/* 3. Center origin monitoring dot */}
                   <div className="absolute left-[170px] top-[170px] -translate-x-1/2 -translate-y-1/2 z-30">
                     <div className="w-2.5 h-2.5 rounded-full bg-[#F97316] relative flex items-center justify-center">
-                      <div className="absolute inset-0 rounded-full animate-ping bg-[#F97316] opacity-75" />
                       <div className="absolute inset-[-14px] rounded-full border border-[#F97316]/20" />
                     </div>
                   </div>
@@ -1414,8 +1413,7 @@ function TerminalLog() {
     <div className="bg-[#060810] border-t border-white/[0.08] p-3 rounded-none font-mono text-[9px] relative overflow-hidden h-[72px] flex flex-col justify-between shrink-0">
       <div className="flex items-center justify-between mb-1.5 text-[8px] text-[#7A8699] uppercase tracking-widest leading-none shrink-0 select-none">
         <span>SYSTEM REGULAR TELEMETRY</span>
-        <span className="flex items-center gap-1.5 font-bold text-[#22C55E]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse"></span>
+        <span className="flex items-center font-bold text-[#22C55E]">
           ● LIVE FEED
         </span>
       </div>
@@ -1485,7 +1483,6 @@ function TypewriterText({ label, text, colorClass }: { label: string; text: stri
       <span className="font-bold shrink-0">{label}</span>
       <span className="truncate">
         {displayed}
-        <span className="inline-block w-1 h-3 bg-current animate-pulse ml-0.5 align-middle" />
       </span>
     </span>
   );

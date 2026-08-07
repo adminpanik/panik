@@ -1562,8 +1562,7 @@ export function AppDemo() {
                         >
                           Open This Position
                         </button>
-                        <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/25 flex items-center gap-1 font-bold">
-                          <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/25 flex items-center font-bold">
                           {liveWatch ? "Live" : "Demo"}
                         </span>
                       </div>
@@ -1577,7 +1576,7 @@ export function AppDemo() {
                       <div className="flex-1 md:max-w-[280px] flex flex-col justify-between">
                         <div>
                           <div className="flex items-center gap-1.5 text-white/40 font-mono text-[9px] uppercase tracking-wider mb-2">
-                            <Activity className="w-3.5 h-3.5 text-panik-orange shrink-0 animate-pulse" />
+                            <Activity className="w-3.5 h-3.5 text-panik-orange shrink-0" />
                             <span>Panik Risk Index</span>
                             <InfoTip text="0-100 composite of position health, asset risk, protocol safety, and market stress. Higher means closer to liquidation; your risk profile sets where alerts fire." />
                           </div>
@@ -2061,7 +2060,7 @@ export function AppDemo() {
                 ) : (
                 <div className="bg-[#111318]/50 border border-white/[0.06] p-12 rounded-2xl flex flex-col items-center text-center max-w-2xl mx-auto my-8">
                   <div className="w-12 h-12 rounded-full bg-panik-orange/10 border border-panik-orange/30 flex items-center justify-center mb-6">
-                    <Sparkles className="w-5 h-5 text-panik-orange animate-pulse" />
+                    <Sparkles className="w-5 h-5 text-panik-orange" />
                   </div>
                   
                   <span className="text-[10px] font-mono tracking-widest text-panik-orange uppercase font-bold mb-2">
@@ -2463,8 +2462,7 @@ export function AppDemo() {
                       )}
                       {telegramLink.status === "opened" && (
                         <div className="space-y-1.5 pt-1.5 border-t border-white/[0.05]">
-                          <p className="text-[10px] font-mono text-emerald-400 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <p className="text-[10px] font-mono text-emerald-400 flex items-center">
                             Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
                           </p>
                           <p className="text-[11px] font-sans text-[#A0AEC0] leading-relaxed">

@@ -78,7 +78,7 @@ export function HowItWorks() {
       step: "03",
       title: "ADVISOR",
       subtitle: "KNOW EXACTLY WHAT TO DO AND WHY.",
-      icon: <Zap className="w-5 h-5 text-panik-orange shrink-0 animate-pulse" />,
+      icon: <Zap className="w-5 h-5 text-panik-orange shrink-0" />,
       description: "When a position needs attention, Panik surfaces one specific recommendation with full reasoning, backed by live on-chain data."
     }
   ];

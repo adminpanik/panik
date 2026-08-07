@@ -117,8 +117,7 @@ function FoundingApp() {
               PANIK
             </span>
           </a>
-          <div className="flex items-center gap-2 text-xs font-mono text-white/30">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange-500/60 animate-pulse" />
+          <div className="flex items-center text-xs font-mono text-white/30">
             Invite Only
           </div>
         </div>

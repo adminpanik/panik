@@ -313,8 +313,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
 
         {/* Header */}
         <div className="flex justify-between items-center mb-6 relative z-10">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-panik-orange animate-pulse" />
+          <div className="flex items-center">
             <span className="text-[10px] font-mono tracking-widest text-[#94A3B8] uppercase">Early Access</span>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-md hover:bg-white/5 text-white/50 hover:text-white transition-all duration-200" aria-label="Close modal">

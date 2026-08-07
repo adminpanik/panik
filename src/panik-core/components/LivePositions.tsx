@@ -56,8 +56,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
   return (
     <div className="bg-white/[0.01] border border-panik-orange/20 rounded-2xl p-5.5">
       <h3 className="text-sm font-mono tracking-widest text-[#748BAA] font-bold uppercase mb-4 flex items-center justify-end">
-        <span className="text-[10px] text-panik-orange font-normal flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span className="text-[10px] text-panik-orange font-normal flex items-center">
           {positions === null ? "CONNECTING…" : "LIVE"}
         </span>
       </h3>
