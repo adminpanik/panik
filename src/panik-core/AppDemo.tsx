@@ -655,6 +655,31 @@ export function AppDemo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboardedWallet, telegramEligible]);
 
+  // ── Alert coverage: what the Monitored capital card is ALLOWED to claim ────
+  // This line used to be the hardcoded string "Guard active". It rendered
+  // identically whether or not a single channel could reach the user, which in
+  // a liquidation product is the worst sentence this UI can emit - the same
+  // class of bug as printing an unknown price as $0.
+  //
+  // It now deliberately UNDER-claims. The strongest fact we hold is
+  // /api/telegram/status reporting `linked`, and a Telegram bot cannot open a
+  // conversation on its own, so a link is a link: the user can /stop the bot or
+  // block it and we would not know. The copy therefore says "linked", never
+  // "active", "protected" or "guarded".
+  //
+  // Outside boundMode the wallet is a registry/ops wallet that is not the
+  // viewer's to be alerted about, and no per-wallet channel state is fetched
+  // for it at all. The line is dropped entirely there: a blank is strictly
+  // better than a reassurance nothing supports.
+  const alertCoverage = useMemo<string | undefined>(() => {
+    if (!boundMode) return undefined;
+    if (monitoringBusy) return "Verifying wallet for alerts";
+    if (monitoringError) return "Alerts off. Verify wallet";
+    if (!telegramEligible) return "Alerts need an EVM wallet";
+    if (telegramLink.status === "connected") return "Telegram alerts linked";
+    return "Connect Telegram for alerts";
+  }, [boundMode, monitoringBusy, monitoringError, telegramEligible, telegramLink.status]);
+
   // A user portfolio is ONE wallet. In boundMode that's the onboarded wallet;
   // otherwise (ops view) the registry holds the validation cohort with a selector.
   const [selectedWallet, setSelectedWallet] = useState<string | "all" | null>(null); // null = not yet initialised
@@ -2376,7 +2401,7 @@ export function AppDemo() {
                             </>
                           }
                           value={liveMacro ? `$${Math.round(liveMacro.capital).toLocaleString()}` : "$18,450"}
-                          sub="Guard active"
+                          sub={alertCoverage}
                         />
                       </Card>
 
