@@ -1178,8 +1178,20 @@ export function AppDemo() {
       <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-surface-base relative">
         
         {/* TOP STATUS BAR (Gas feeds, Block Number precisely simulating real active smart contracts) */}
-        <header className="h-16 shrink-0 border-b border-border-subtle px-8 flex items-center justify-between bg-surface-raised/40 backdrop-blur-md">
-          <div className="flex items-center gap-2.5">
+        <header className="h-16 shrink-0 border-b border-border-subtle px-4 md:px-8 flex items-center justify-between gap-3 bg-surface-raised/40 backdrop-blur-md">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* Brand, phone only. The sidebar carries it on desktop, and with
+                the sidebar gone the app had neither a mark nor any way back to
+                the landing page. One element does both jobs. */}
+            <a
+              href="/"
+              title="Back to landing"
+              className="md:hidden flex items-center gap-2 shrink-0"
+            >
+              <img src="/panik-logo.png" alt="" width={24} height={24} style={{ objectFit: "contain" }} />
+              <span className="font-sans font-extrabold text-sm text-text-primary leading-none">PANIK</span>
+            </a>
+
             {/* User segment badge (from onboarding profiling) */}
             {userSegment && (
               <span
@@ -1194,14 +1206,14 @@ export function AppDemo() {
             {riskTier && (
               <span
                 title={`Your risk appetite: ${RISK_TIER_LABELS[riskTier]}`}
-                className={`flex items-center px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}
+                className={`flex shrink-0 items-center px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}
               >
                 {RISK_TIER_LABELS[riskTier]}
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-6 text-2xs font-sans text-text-muted">
+          <div className="flex items-center gap-3 md:gap-6 min-w-0 text-2xs font-sans text-text-muted">
             <div className="hidden md:flex items-center gap-1.5">
               <span>Est. gas</span>
               {/* Gas is a market reading, not a verdict on this wallet. It was
@@ -1214,19 +1226,22 @@ export function AppDemo() {
               type="button"
               onClick={() => setShowOnboarding(true)}
               title="Change wallet - a previously onboarded address restores its saved profile instantly"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer group"
+              className="flex min-w-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer group"
             >
               {/* Identifier, not an action and not a status: the whole chip
                   stays neutral so the eye skips it on the way to the data. */}
-              <Wallet className="w-3.5 h-3.5 text-text-muted" />
-              <span>
+              <Wallet className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+              {/* The label is the only elastic thing in the header, so it is
+                  the only thing allowed to give: "Registry (12 wallets)" must
+                  not be able to push the refresh glyph off a 390px screen. */}
+              <span className="truncate">
                 {selectedWallet && selectedWallet !== "all"
                   ? truncateAddress(selectedWallet)
                   : selectedWallet === "all"
                     ? `Registry (${wallets.length} wallets)`
                     : "Connect wallet"}
               </span>
-              <RefreshCw className="w-3 h-3 text-text-muted group-hover:text-text-primary transition-colors" />
+              <RefreshCw className="w-3 h-3 shrink-0 text-text-muted group-hover:text-text-primary transition-colors" />
             </button>
           </div>
         </header>
@@ -1588,7 +1603,11 @@ export function AppDemo() {
                   {/* Active Simulator Header widget */}
                   <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg relative overflow-hidden backdrop-blur-xl">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/[0.03] rounded-full blur-2xl pointer-events-none"></div>
-                    <div className="flex justify-between items-center mb-4.5 border-b border-border-subtle pb-3">
+                    {/* Wraps on a phone: side by side, the market name took
+                        three lines while the action next to it took three of
+                        its own, and neither was readable. Stacked, each gets
+                        the full width for one line. */}
+                    <div className="flex flex-wrap justify-between items-center gap-3 mb-4.5 border-b border-border-subtle pb-3">
                       {/* Market selector - mode-aware. Positions mode lists the
                           wallet's real on-chain positions; Recommendations lists
                           the Compass preset catalog. */}
