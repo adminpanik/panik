@@ -1228,7 +1228,10 @@ export function AppDemo() {
                           return (
                             <>
                               <div className="mb-2 flex items-baseline justify-between">
-                                <span className="text-xs text-risk-low font-sans font-bold tabular-nums">
+                                {/* Yield is not a risk band. Painting it with
+                                    risk-low told the user a high APY was safe,
+                                    which is close to the opposite of true. */}
+                                <span className="text-xs text-text-primary font-sans font-semibold tabular-nums">
                                   APY Rate: {(py?.apy ?? preset.apy).toFixed(1)}%
                                 </span>
                                 {py && (
