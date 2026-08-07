@@ -29,6 +29,7 @@ import {
   FileText,
   X,
   ChevronDown,
+  Plus,
 } from "lucide-react";
 import { calculateDynamicPosition, formatCompactUsd, formatCurrency, RISK_CHIP } from "./lib/utils";
 import { PositionState } from "./lib/types";
@@ -1411,6 +1412,7 @@ export function AppDemo() {
                             secondary path, so it reads as a link. */}
                         <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
                           <Button onClick={() => setOpenPositionPreset(preset)}>
+                            <Plus className="h-3.5 w-3.5" />
                             Open position
                           </Button>
                           <Button
@@ -2301,8 +2303,18 @@ export function AppDemo() {
                     <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">DeFi Portfolio</h1>
                   </div>
                   {/* Primary action: opening positions lives in Compass; this is
-                      the pointer Portfolio was missing (UX journey fix). */}
+                      the pointer Portfolio was missing (UX journey fix).
+
+                      `Plus`, from Lucide, verbatim. Every destination in the
+                      sidebar pairs a glyph with its label, so the one control
+                      on the page that is not a destination was also the only
+                      bare word — it read as a heading rather than a button.
+                      Plus is the honest glyph here because the outcome really
+                      is "a position that did not exist now does"; an arrow
+                      would have promised navigation and a sparkle would have
+                      promised nothing at all. */}
                   <Button onClick={() => setActiveTab("compass")} className="shrink-0">
+                    <Plus className="h-3.5 w-3.5" />
                     Open position
                   </Button>
                 </div>
@@ -3109,8 +3121,9 @@ export function AppDemo() {
                   </button>
                   <button
                     onClick={() => setOpenPositionPreset(selectedRiskBreakdownPreset)}
-                    className="flex-1 py-3 text-center text-xs font-sans font-bold text-surface-base bg-text-primary rounded-md cursor-pointer hover:opacity-90 transition-all shadow-lg"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 text-center text-xs font-sans font-bold text-surface-base bg-text-primary rounded-md cursor-pointer hover:opacity-90 transition-all shadow-lg"
                   >
+                    <Plus className="h-3.5 w-3.5" />
                     Open position
                   </button>
                 </div>
