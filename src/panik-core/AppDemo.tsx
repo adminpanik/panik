@@ -76,6 +76,15 @@ import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
 
+/** Source of truth for the sidebar: order here is the arrow-key order. */
+const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
+  { id: "portfolio", label: "Portfolio", icon: Wallet },
+  { id: "compass", label: "Compass", icon: CompassIcon },
+  { id: "watch", label: "Watch", icon: Eye },
+  { id: "advisor", label: "Advisor", icon: Sparkles },
+  { id: "settings", label: "Settings", icon: SettingsIcon },
+];
+
 /**
  * Watch tab data source. "positions" = the user's REAL on-chain positions
  * (the business requirement: Watch mirrors what you actually hold), seeded
@@ -348,6 +357,25 @@ const VAULT_PRESETS: VaultPreset[] = [
 export function AppDemo() {
   // Navigation tabs exactly reflecting the Figma screenshot
   const [activeTab, setActiveTab] = useState<SidebarTab>("portfolio");
+
+  // Arrow / Home / End navigation for the tablist. Focus has to be moved
+  // explicitly: the roving tabindex means the newly selected tab is the only
+  // one focusable, and without this the browser would leave focus on a button
+  // that just became tabindex="-1".
+  const tabRefs = useRef<Partial<Record<SidebarTab, HTMLButtonElement | null>>>({});
+  const onTabKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    const i = TABS.findIndex((t) => t.id === activeTab);
+    let next = -1;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (i + 1) % TABS.length;
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") next = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    if (next === -1) return;
+    e.preventDefault();
+    const id = TABS[next].id;
+    setActiveTab(id);
+    tabRefs.current[id]?.focus();
+  };
   const [tooltipStep, setTooltipStep] = useState<number | null>(() => {
     const onboarded = localStorage.getItem("panik_onboarded") === "true";
     const tourSeen = localStorage.getItem("panik_tour_seen") === "true";
@@ -971,67 +999,44 @@ export function AppDemo() {
             </div>
           </div>
 
-          {/* Nav List Link Items */}
-          <nav className="space-y-1">
-            <button
-              onClick={() => setActiveTab("portfolio")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
-                activeTab === "portfolio"
-                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
-                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
-              }`}
-            >
-              <Wallet className={`w-4 h-4 ${activeTab === "portfolio" ? "text-panik-orange" : "text-text-secondary"}`} />
-              <span>Portfolio</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab("compass")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
-                activeTab === "compass"
-                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
-                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
-              }`}
-            >
-              <CompassIcon className={`w-4 h-4 ${activeTab === "compass" ? "text-panik-orange" : "text-text-secondary"}`} />
-              <span>Compass</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab("watch")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
-                activeTab === "watch"
-                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
-                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
-              }`}
-            >
-              <Eye className={`w-4 h-4 ${activeTab === "watch" ? "text-panik-orange" : "text-text-secondary"}`} />
-              <span>Watch</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab("advisor")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
-                activeTab === "advisor"
-                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
-                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
-              }`}
-            >
-              <Sparkles className={`w-4 h-4 ${activeTab === "advisor" ? "text-panik-orange" : "text-text-secondary"}`} />
-              <span>Advisor</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab("settings")}
-              className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
-                activeTab === "settings"
-                  ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
-                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
-              }`}
-            >
-              <SettingsIcon className={`w-4 h-4 ${activeTab === "settings" ? "text-panik-orange" : "text-text-secondary"}`} />
-              <span>Settings</span>
-            </button>
+          {/* Nav List Link Items — ARIA APG tabs, vertical orientation.
+              Roving tabindex: only the selected tab is in the page tab order,
+              so Tab reaches the sidebar once and the arrows move within it
+              instead of forcing five stops past it. Activation follows focus
+              because each panel is already mounted on demand and switching is
+              free. */}
+          <nav
+            role="tablist"
+            aria-orientation="vertical"
+            aria-label="Application sections"
+            className="space-y-1"
+            onKeyDown={onTabKeyDown}
+          >
+            {TABS.map(({ id, label, icon: Icon }) => {
+              const selected = activeTab === id;
+              return (
+                <button
+                  key={id}
+                  role="tab"
+                  id={`tab-${id}`}
+                  aria-selected={selected}
+                  aria-controls={`panel-${id}`}
+                  tabIndex={selected ? 0 : -1}
+                  ref={(el) => {
+                    tabRefs.current[id] = el;
+                  }}
+                  onClick={() => setActiveTab(id)}
+                  className={`w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-xs font-mono uppercase tracking-wider text-left transition-all cursor-pointer ${
+                    selected
+                      ? "bg-white/[0.06] border border-border-subtle text-text-primary font-bold"
+                      : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${selected ? "text-panik-orange" : "text-text-secondary"}`} />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
 
@@ -1107,6 +1112,9 @@ export function AppDemo() {
             {activeTab === "compass" && (
               <motion.div
                 key="compass"
+                role="tabpanel"
+                id="panel-compass"
+                aria-labelledby="tab-compass"
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
@@ -1365,6 +1373,9 @@ export function AppDemo() {
             {activeTab === "watch" && (
               <motion.div
                 key="watch"
+                role="tabpanel"
+                id="panel-watch"
+                aria-labelledby="tab-watch"
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
@@ -2032,6 +2043,9 @@ export function AppDemo() {
             {activeTab === "advisor" && (
               <motion.div
                 key="advisor"
+                role="tabpanel"
+                id="panel-advisor"
+                aria-labelledby="tab-advisor"
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
@@ -2090,6 +2104,9 @@ export function AppDemo() {
             {activeTab === "portfolio" && (
               <motion.div
                 key="portfolio"
+                role="tabpanel"
+                id="panel-portfolio"
+                aria-labelledby="tab-portfolio"
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
@@ -2392,6 +2409,9 @@ export function AppDemo() {
             {activeTab === "settings" && (
               <motion.div
                 key="settings"
+                role="tabpanel"
+                id="panel-settings"
+                aria-labelledby="tab-settings"
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
