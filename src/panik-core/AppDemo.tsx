@@ -97,6 +97,111 @@ const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
+/** Tailwind's `md`. The nav swaps here, so the JS query and the CSS agree. */
+const DESKTOP_MQ = "(min-width: 48rem)";
+
+/**
+ * Which nav to mount. This is a media QUERY rather than a `hidden md:flex` pair
+ * because two tablists cannot both be in the document: they would duplicate
+ * every `tab-*` id that the panels point at with `aria-labelledby`, and they
+ * would both write into the same `tabRefs` map, so the roving tabindex would
+ * try to focus whichever copy mounted last — which on a phone is the one that
+ * is `display: none`, and a `focus()` on that is silently a no-op.
+ */
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia(DESKTOP_MQ).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP_MQ);
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", onChange);
+    setIsDesktop(mq.matches);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return isDesktop;
+}
+
+interface NavTabsProps {
+  /** "sidebar" = vertical rail (desktop), "bar" = bottom tab bar (phone). */
+  variant: "sidebar" | "bar";
+  activeTab: SidebarTab;
+  onSelect: (id: SidebarTab) => void;
+  tabRefs: React.MutableRefObject<Partial<Record<SidebarTab, HTMLButtonElement | null>>>;
+  onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void;
+}
+
+/**
+ * The application tablist — ARIA APG tabs, one instance mounted at a time.
+ * Roving tabindex: only the selected tab is in the page tab order, so Tab
+ * reaches the nav once and the arrows move within it instead of forcing five
+ * stops past it. Activation follows focus because each panel is mounted on
+ * demand and switching is free.
+ *
+ * `aria-orientation` tracks the variant, which is the contract for which arrow
+ * keys a screen reader announces. The handler accepts both axes either way, so
+ * a horizontal bar still responds to Up/Down and nothing regresses on the swap.
+ */
+function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsProps) {
+  const vertical = variant === "sidebar";
+  return (
+    <nav
+      role="tablist"
+      aria-orientation={vertical ? "vertical" : "horizontal"}
+      aria-label="Application sections"
+      className={vertical ? "space-y-1" : "flex items-stretch"}
+      onKeyDown={onKeyDown}
+    >
+      {TABS.map(({ id, label, icon: Icon }) => {
+        const selected = activeTab === id;
+        return (
+          <button
+            key={id}
+            role="tab"
+            id={`tab-${id}`}
+            aria-selected={selected}
+            aria-controls={`panel-${id}`}
+            tabIndex={selected ? 0 : -1}
+            ref={(el) => {
+              tabRefs.current[id] = el;
+            }}
+            onClick={() => onSelect(id)}
+            className={
+              vertical
+                ? `relative w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-sm font-sans text-left transition-all cursor-pointer ${
+                    selected
+                      ? "bg-white/[0.06] border border-border-subtle text-text-primary font-semibold"
+                      : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
+                  }`
+                : /* 56px tall and a fifth of the viewport wide: comfortably past
+                     the 24px WCAG 2.5.8 floor and past the 44px that a thumb
+                     actually wants for primary navigation. */
+                  `flex-1 min-w-0 flex flex-col items-center justify-center gap-1 min-h-14 px-1 text-2xs font-sans transition-colors cursor-pointer ${
+                    selected
+                      ? "bg-white/[0.06] text-text-primary font-bold"
+                      : "text-text-secondary"
+                  }`
+            }
+          >
+            {/* No accent rail here on purpose. `--color-panik-orange` and
+                `--color-risk-high` are the same hex, so any orange in the
+                shell is the same colour a user has just been taught means
+                HIGH. The raised surface and the brighter, heavier label
+                already answer "where am I" on their own, so the rail was
+                buying nothing and costing that ambiguity. Colour in this
+                product is either a risk band or a chart category; being
+                brand is not a third job it does. */}
+            <Icon
+              className={`${vertical ? "w-4 h-4" : "w-4.5 h-4.5 shrink-0"} ${
+                selected ? "text-text-primary" : "text-text-secondary"
+              }`}
+            />
+            <span className={vertical ? "" : "truncate max-w-full"}>{label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 /**
  * Watch tab data source. "positions" = the user's REAL on-chain positions
  * (the business requirement: Watch mirrors what you actually hold), seeded
@@ -371,6 +476,7 @@ const VAULT_PRESETS: VaultPreset[] = [
 export function AppDemo() {
   // Navigation tabs exactly reflecting the Figma screenshot
   const [activeTab, setActiveTab] = useState<SidebarTab>("portfolio");
+  const isDesktop = useIsDesktop();
 
   // Arrow / Home / End navigation for the tablist. Focus has to be moved
   // explicitly: the roving tabindex means the newly selected tab is the only
@@ -1026,11 +1132,16 @@ export function AppDemo() {
       />
     )}
 
-    <div className="flex h-screen w-screen overflow-hidden bg-surface-base text-text-primary font-sans antialiased text-sm">
+    {/* `w-full`, not `w-screen`: `100vw` includes the classic scrollbar gutter,
+        so `w-screen` is itself a source of the horizontal overflow this shell
+        then has to hide. Column on a phone so the tab bar can sit at the
+        bottom; row on desktop so the sidebar sits alongside. */}
+    <div className="flex flex-col md:flex-row h-screen w-full overflow-hidden bg-surface-base text-text-primary font-sans antialiased text-sm">
 
       {/* 1. LEFT SIDEBAR PANEL (exactly modeled after the Figma UI) */}
+      {isDesktop && (
       <aside className="w-64 h-full shrink-0 flex flex-col justify-between border-r border-border-subtle bg-surface-base p-6 z-30">
-        
+
         {/* Sidebar Header Brand block */}
         <div className="space-y-8">
           <div className="flex items-center gap-2.5">
@@ -1041,53 +1152,13 @@ export function AppDemo() {
             </div>
           </div>
 
-          {/* Nav List Link Items — ARIA APG tabs, vertical orientation.
-              Roving tabindex: only the selected tab is in the page tab order,
-              so Tab reaches the sidebar once and the arrows move within it
-              instead of forcing five stops past it. Activation follows focus
-              because each panel is already mounted on demand and switching is
-              free. */}
-          <nav
-            role="tablist"
-            aria-orientation="vertical"
-            aria-label="Application sections"
-            className="space-y-1"
+          <NavTabs
+            variant="sidebar"
+            activeTab={activeTab}
+            onSelect={setActiveTab}
+            tabRefs={tabRefs}
             onKeyDown={onTabKeyDown}
-          >
-            {TABS.map(({ id, label, icon: Icon }) => {
-              const selected = activeTab === id;
-              return (
-                <button
-                  key={id}
-                  role="tab"
-                  id={`tab-${id}`}
-                  aria-selected={selected}
-                  aria-controls={`panel-${id}`}
-                  tabIndex={selected ? 0 : -1}
-                  ref={(el) => {
-                    tabRefs.current[id] = el;
-                  }}
-                  onClick={() => setActiveTab(id)}
-                  className={`relative w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-sm font-sans text-left transition-all cursor-pointer ${
-                    selected
-                      ? "bg-white/[0.06] border border-border-subtle text-text-primary font-semibold"
-                      : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
-                  }`}
-                >
-                  {/* No accent rail here on purpose. `--color-panik-orange` and
-                      `--color-risk-high` are the same hex, so any orange in the
-                      shell is the same colour a user has just been taught means
-                      HIGH. The raised surface and the brighter, heavier label
-                      already answer "where am I" on their own, so the rail was
-                      buying nothing and costing that ambiguity. Colour in this
-                      product is either a risk band or a chart category; being
-                      brand is not a third job it does. */}
-                  <Icon className={`w-4 h-4 ${selected ? "text-text-primary" : "text-text-secondary"}`} />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          />
         </div>
 
         {/* Sidebar Footer Bottom exit button */}
@@ -1101,9 +1172,10 @@ export function AppDemo() {
           </a>
         </div>
       </aside>
+      )}
 
       {/* 2. MAIN APPLICATION CONTENT AREA */}
-      <div className="flex-1 h-full flex flex-col overflow-hidden bg-surface-base relative">
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-surface-base relative">
         
         {/* TOP STATUS BAR (Gas feeds, Block Number precisely simulating real active smart contracts) */}
         <header className="h-16 shrink-0 border-b border-border-subtle px-8 flex items-center justify-between bg-surface-raised/40 backdrop-blur-md">
@@ -2936,6 +3008,31 @@ export function AppDemo() {
         </AnimatePresence>
 
       </div>
+
+      {/* 3. MOBILE NAV — a bottom tab bar, not a drawer.
+          Five flat, equal-weight sections that a user switches between
+          constantly is the exact shape a tab bar is for: every destination
+          stays one thumb-tap away and visibly labelled, and there is no
+          open/close state, no focus trap and no scroll lock to get wrong. A
+          hamburger drawer would hide five items behind a sixth control, cost
+          two taps per switch, and hide which section you are in — which is the
+          one thing the nav exists to answer. It also sits last in the DOM,
+          matching its position on screen, so focus order tracks reading order.
+          `env(safe-area-inset-bottom)` keeps it clear of the home indicator. */}
+      {!isDesktop && (
+        <div
+          className="shrink-0 border-t border-border-subtle bg-surface-base z-30"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        >
+          <NavTabs
+            variant="bar"
+            activeTab={activeTab}
+            onSelect={setActiveTab}
+            tabRefs={tabRefs}
+            onKeyDown={onTabKeyDown}
+          />
+        </div>
+      )}
 
       {/* Demo-only open-position flow (no signing, no funds - see component) */}
       {openPositionPreset && (() => {
