@@ -77,5 +77,5 @@ export const SYMBOL_TO_COINGECKO: Record<string, string> = {
   tBTC: "tbtc",
   LBTC: "lombard-staked-btc",
   AERO: "aerodrome-finance",
-  WELL: "moonwell",
+  WELL: "moonwell-artemis",
 };
