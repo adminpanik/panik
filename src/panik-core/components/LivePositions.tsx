@@ -18,28 +18,24 @@ const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
   compound_v3: "Compound V3",
 };
 
-/** Lower-case: this is a clause inside a sentence, not a label. */
-function statusCopy(p: LiveWalletPosition): { text: string; cls: string } {
-  if (p.profileStatus === "outside")
-    return { text: "outside your profile", cls: "text-risk-critical" };
-  if (p.profileStatus === "approaching")
-    return { text: "approaching your limit", cls: "text-risk-elevated" };
-  return { text: "within your profile", cls: "text-risk-low" };
+/**
+ * Line 3 is a sentence, and a sentence does not get painted. Both halves used
+ * to carry the risk ramp, so a single row could show red prose, a red chip and
+ * a red numeral for one fact stated once. The chip on line 1 is the band; this
+ * line is the reason, and reasons read better in muted grey.
+ *
+ * Lower-case: this is a clause inside a sentence, not a label.
+ */
+function statusCopy(p: LiveWalletPosition): string {
+  if (p.profileStatus === "outside") return "outside your profile";
+  if (p.profileStatus === "approaching") return "approaching your limit";
+  return "within your profile";
 }
 
-/**
- * No debt is not the same as a healthy ratio: there is no ratio to report, so
- * it must not borrow the safe colour.
- */
-function healthCopy(p: LiveWalletPosition): { text: string; cls: string } {
-  if (p.healthFactor === null) return { text: "No debt", cls: "text-risk-unknown" };
-  const cls =
-    p.healthFactor < 1.25
-      ? "text-risk-critical"
-      : p.healthFactor < 1.7
-        ? "text-risk-elevated"
-        : "text-risk-low";
-  return { text: `Health factor ${p.healthFactor.toFixed(2)}`, cls };
+/** No debt is not the same as a healthy ratio: there is no ratio to report. */
+function healthCopy(p: LiveWalletPosition): string {
+  if (p.healthFactor === null) return "No debt";
+  return `Health factor ${p.healthFactor.toFixed(2)}`;
 }
 
 /** Unknown dollar magnitudes render as an ellipsis — never as "$0". */
@@ -162,8 +158,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                   {/* Line 3 — verdict, as one sentence. */}
                   <div className="flex items-baseline justify-between gap-3">
                     <p className="text-xs font-sans text-text-secondary">
-                      <span className={`tabular-nums ${health.cls}`}>{health.text}</span>,{" "}
-                      <span className={status.cls}>{status.text}</span>
+                      <span className="tabular-nums">{health}</span>, {status}
                     </p>
                     {onStressTest && (
                       <Button

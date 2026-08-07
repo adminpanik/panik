@@ -50,7 +50,7 @@ export function ProtocolLogo({ protocol, size = "w-6 h-6" }: { protocol: string;
     );
   }
   return (
-    <div className={`rounded-md bg-panik-orange/15 border border-panik-orange/30 flex items-center justify-center font-mono font-bold text-xs text-panik-orange shrink-0 ${size}`}>
+    <div className={`rounded-md bg-white/10 border border-border-subtle flex items-center justify-center font-mono font-bold text-xs text-text-primary shrink-0 ${size}`}>
       {protocol[0]}
     </div>
   );

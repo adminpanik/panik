@@ -78,7 +78,7 @@ export function TrialBanner() {
     const remainingMs = state.expiresAt ? new Date(state.expiresAt).getTime() - Date.now() : 0;
     return (
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9998] panik-glass rounded-full pl-4 pr-3 py-2 flex items-center gap-2.5 shadow-lg">
-        <Clock className="w-4 h-4 text-panik-orange" />
+        <Clock className="w-4 h-4 text-text-primary" />
         <span className="text-xs text-text-secondary">
           Trial active
           {state.expiresAt && <span className="text-text-primary font-mono tabular-nums"> · {formatRemaining(remainingMs)} left</span>}
@@ -97,7 +97,7 @@ export function TrialBanner() {
       <span className="text-xs text-text-secondary">
         {state.kind === "expired" ? "Your trial has expired." : "Trial link isn't valid."}
       </span>
-      <a href="/try" className="text-xs font-medium text-panik-orange hover:text-panik-orange transition-colors">Get access</a>
+      <a href="/try" className="text-xs font-medium text-text-primary hover:text-text-primary transition-colors">Get access</a>
       <button onClick={() => setDismissed(true)} className="text-text-muted hover:text-text-secondary transition-colors" aria-label="Dismiss">
         <X className="w-3.5 h-3.5" />
       </button>

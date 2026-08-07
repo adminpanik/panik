@@ -37,7 +37,7 @@ export function InfoTip(props: { text: string; className?: string }) {
       onFocus={show}
       onBlur={hide}
     >
-      <HelpCircle className="w-3 h-3 text-text-muted hover:text-panik-orange transition-colors cursor-help shrink-0" />
+      <HelpCircle className="w-3 h-3 text-text-muted hover:text-text-primary transition-colors cursor-help shrink-0" />
       {pos &&
         createPortal(
           <span

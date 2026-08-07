@@ -134,7 +134,7 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
             transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
             className="relative w-full max-w-lg panik-glass rounded-lg border border-border-subtle bg-surface-raised/95 shadow-2xl overflow-hidden"
           >
-            <div className="h-1 w-full bg-gradient-to-r from-panik-orange/0 via-panik-orange to-panik-orange/0" />
+            <div className="h-1 w-full bg-gradient-to-r from-white/0 via-white/20 to-white/0" />
 
             <div className="p-7 sm:p-9">
               {/* Header: brand + step indicator */}
@@ -249,7 +249,7 @@ function WalletStep(props: {
           aria-invalid={Boolean(props.walletError)}
           aria-describedby={props.walletError ? "wallet-error" : undefined}
           className={`w-full h-12 pl-10 pr-4 rounded-md bg-surface-sunken border text-sm font-mono text-text-primary placeholder:text-text-muted transition-all ${
-            props.walletError ? "border-risk-critical/50 focus:border-risk-critical/70" : "border-border-strong focus:border-panik-orange/60"
+            props.walletError ? "border-risk-critical/50 focus:border-risk-critical/70" : "border-border-strong focus:border-border-strong"
           }`}
         />
       </div>
@@ -306,14 +306,14 @@ function QuestionStep(props: {
               onClick={() => props.onSelect(q.id, o.key)}
               className={`w-full text-left flex items-start gap-3 p-3.5 rounded-md border transition-all cursor-pointer ${
                 selected
-                  ? "border-panik-orange/60 bg-panik-orange/[0.07] ring-2 ring-panik-orange/30"
+                  ? "border-border-strong bg-white/[0.05] ring-2 ring-border-strong"
                   : "border-border-subtle bg-white/[0.02] hover:bg-white/[0.04] hover:border-border-strong"
               }`}
             >
               <span
                 aria-hidden="true"
                 className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
-                  selected ? "border-panik-orange text-panik-orange" : "border-border-subtle"
+                  selected ? "border-text-primary text-text-primary" : "border-border-subtle"
                 }`}
               >
                 {selected && <Check className="w-3 h-3 stroke-[3.5]" />}
@@ -341,7 +341,7 @@ function QuestionStep(props: {
 // ── Reveal step (AI analyzer) ───────────────────────────────────────────────
 const ALIGN_COPY: Record<string, { label: string; cls: string }> = {
   aligned: { label: "Matches your answers", cls: "text-risk-low border-risk-low/30 bg-risk-low/10" },
-  understated: { label: "Riskier than you said", cls: "text-panik-orange border-panik-orange/30 bg-panik-orange/10" },
+  understated: { label: "Riskier than you said", cls: "text-text-primary border-border-subtle bg-white/[0.06]" },
   overstated: { label: "Tamer than you said", cls: "text-sky-400 border-sky-400/30 bg-sky-400/10" },
 };
 
@@ -357,7 +357,7 @@ function RevealStep(props: {
   if (phase === "scanning" || phase === "revealing" || phase === "idle") {
     return (
       <div className="py-8 flex flex-col items-center text-center">
-        <Loader2 className="w-7 h-7 text-panik-orange animate-spin mb-4" />
+        <Loader2 className="w-7 h-7 text-text-primary animate-spin mb-4" />
         <h2 className="font-display font-extrabold text-lg text-text-primary tracking-tight mb-1.5">
           Reading your on-chain history…
         </h2>
@@ -440,9 +440,9 @@ function RevealShell(props: {
 }) {
   return (
     <>
-      <div className="inline-flex items-center gap-1.5 mb-3 px-2.5 py-1 rounded-full border border-panik-orange/30 bg-panik-orange/10">
-        <Sparkles className="w-3 h-3 text-panik-orange" />
-        <span className="text-2xs font-mono uppercase tracking-widest text-panik-orange font-bold">{props.badge}</span>
+      <div className="inline-flex items-center gap-1.5 mb-3 px-2.5 py-1 rounded-full border border-border-subtle bg-white/[0.06]">
+        <Sparkles className="w-3 h-3 text-text-primary" />
+        <span className="text-2xs font-mono uppercase tracking-widest text-text-primary font-bold">{props.badge}</span>
       </div>
       <h2 className="font-display font-extrabold text-lg sm:text-2xl text-text-primary tracking-tight leading-snug mb-3">
         {props.headline}

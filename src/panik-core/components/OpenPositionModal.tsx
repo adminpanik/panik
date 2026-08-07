@@ -71,7 +71,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
           onClick={(e) => e.stopPropagation()}
           className="relative w-full max-w-md bg-surface-raised/98 border border-border-subtle rounded-lg shadow-2xl overflow-hidden"
         >
-          <div className="h-1 w-full bg-gradient-to-r from-panik-orange/0 via-panik-orange to-panik-orange/0" />
+          <div className="h-1 w-full bg-gradient-to-r from-white/0 via-white/20 to-white/0" />
 
           {/* Header */}
           <div className="p-5 border-b border-border-subtle flex items-center justify-between">
@@ -115,7 +115,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                       onClick={() => setDepositUsd(v)}
                       className={`py-1.5 rounded-md border text-2xs font-mono tabular-nums transition-all cursor-pointer ${
                         depositUsd === v
-                          ? "bg-panik-orange/15 text-panik-orange border-panik-orange/40 font-bold"
+                          ? "bg-white/10 text-text-primary border-border-strong font-bold"
                           : "bg-white/[0.02] text-text-secondary border-border-subtle hover:bg-white/[0.05]"
                       }`}
                     >
@@ -129,7 +129,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                   step={100}
                   value={depositUsd}
                   onChange={(e) => setDepositUsd(Math.max(0, Number(e.target.value)))}
-                  className="w-full bg-black/40 border border-border-strong rounded-md px-3 py-2 text-text-primary text-sm font-mono tabular-nums focus:border-panik-orange/60"
+                  className="w-full bg-black/40 border border-border-strong rounded-md px-3 py-2 text-text-primary text-sm font-mono tabular-nums focus:border-border-strong"
                   aria-label="Deposit amount in USD"
                 />
               </div>
@@ -149,7 +149,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
                   step={5}
                   value={borrowPct}
                   onChange={(e) => setBorrowPct(Number(e.target.value))}
-                  className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
+                  className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                   aria-label="Borrow percent of deposit"
                 />
                 <div className="flex justify-between text-2xs font-mono text-white/20 mt-1">
@@ -194,7 +194,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
 
           {phase === "submitting" && (
             <div className="p-10 flex flex-col items-center text-center gap-3">
-              <Loader2 className="w-8 h-8 text-panik-orange animate-spin" />
+              <Loader2 className="w-8 h-8 text-text-primary animate-spin" />
               <span className="text-sm font-mono text-text-primary">Simulating transaction…</span>
               <span className="text-2xs font-mono text-text-muted">
                 approve {target.collateralAsset} → supply → borrow {target.debtAsset}

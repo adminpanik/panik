@@ -343,7 +343,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         {step === "connect" ? (
           <button
             onClick={() => connect({ connector: injected() })}
-            className="w-full py-3 rounded-md bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
+            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-mono font-bold text-sm hover:bg-white/15 transition-colors"
           >
             Connect wallet
           </button>
@@ -352,7 +352,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         {step === "chain" ? (
           <button
             onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })}
-            className="w-full py-3 rounded-md bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
+            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-mono font-bold text-sm hover:bg-white/15 transition-colors"
           >
             Switch to {getExitChain().name}
           </button>
@@ -449,7 +449,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
               href={exitExplorerTxUrl(receipt.hash)}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-mono text-panik-orange hover:underline"
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-text-primary hover:underline"
             >
               View on Basescan <ExternalLink className="w-3 h-3" />
             </a>

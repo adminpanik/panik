@@ -183,11 +183,11 @@
     background: var(--color-surface-base);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgb(from var(--color-panik-orange) r g b / 0.2);
+    background: rgba(255, 255, 255, 0.14);
     border-radius: var(--radius-sm);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgb(from var(--color-panik-orange) r g b / 0.4);
+    background: rgba(255, 255, 255, 0.24);
   }
 }
 

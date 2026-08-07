@@ -205,12 +205,12 @@ export function AdvisorPopup({
               ? "bg-surface-overlay/95 border-risk-critical/40"
               : notification.urgency === "warning"
                 ? "bg-surface-overlay/95 border-risk-elevated/30"
-                : "bg-surface-raised/95 border-panik-orange/25"
+                : "bg-surface-raised/95 border-border-subtle"
           }`}
         >
           <div className="flex items-start gap-3">
             {notification.urgency === "info" ? (
-              <Sparkles className="w-4 h-4 mt-0.5 text-panik-orange shrink-0" />
+              <Sparkles className="w-4 h-4 mt-0.5 text-text-primary shrink-0" />
             ) : (
               <AlertTriangle
                 className={`w-4 h-4 mt-0.5 shrink-0 ${
@@ -232,7 +232,7 @@ export function AdvisorPopup({
                         ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25"
                         : notification.kind === "reduce"
                           ? "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25"
-                          : "bg-panik-orange/15 text-panik-orange border border-panik-orange/30 hover:bg-panik-orange/25"
+                          : "bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15"
                     }`}
                   >
                     {notification.actionLabel} <ArrowRight className="w-3 h-3" />

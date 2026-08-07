@@ -95,17 +95,13 @@ type WatchSource = "positions" | "recommendations";
 type RiskProfile = "conservative" | "moderate" | "aggressive";
 
 /**
- * Colour for the user-segment badge in the dashboard header. Segments are
- * categorical, not ordinal, so the palette is entirely cool: borrowing green or
- * amber here would tell the user their segment is safe or dangerous.
+ * The user-segment badge is a label, not a measurement. Five cool hues used to
+ * distinguish five segments the user can only ever be ONE of at a time, so the
+ * hue encoded nothing the word next to it did not already say — it just put a
+ * saturated pill in the header competing with the risk chips below it. One
+ * neutral style, distinguished by its text, same as the tier badge.
  */
-const SEGMENT_BADGE: Record<Segment, string> = {
-  explorer: "bg-sky-500/10 text-sky-400 border-sky-500/25",
-  yield_seeker: "bg-blue-500/10 text-blue-400 border-blue-500/25",
-  liquidity_provider: "bg-cyan-500/10 text-cyan-400 border-cyan-500/25",
-  active_trader: "bg-indigo-500/10 text-indigo-400 border-indigo-500/25",
-  risk_optimizer: "bg-violet-500/10 text-violet-400 border-violet-500/25",
-};
+const SEGMENT_BADGE = "bg-white/5 text-text-secondary border-border-subtle";
 
 /**
  * The risk PROFILE badge is one style for all five tiers, distinguished by its
@@ -133,8 +129,14 @@ const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho
 };
 
 /** Alert-outcome chip copy for the Portfolio history feed. */
+/**
+ * Delivery outcome, not risk. "Sent" was green and "queued" amber, which put
+ * the risk ramp on a fact about our own plumbing. Only `blocked` keeps a hue:
+ * it is the one state where PANIK is failing to reach the user, and that is
+ * worth interrupting for.
+ */
 const NOTIFY_CHANNEL_CHIP: Record<string, { label: string; cls: string }> = {
-  telegram: { label: "SENT · TELEGRAM", cls: "text-risk-low border-risk-low/25 bg-risk-low/10" },
+  telegram: { label: "SENT · TELEGRAM", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
   skipped: { label: "RECOVERY", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
   suppressed_cooldown: { label: "MUTED · COOLDOWN", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
   suppressed_immaterial: { label: "MUTED · NO DEBT", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
@@ -1032,7 +1034,7 @@ export function AppDemo() {
                       : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${selected ? "text-panik-orange" : "text-text-secondary"}`} />
+                  <Icon className={`w-4 h-4 ${selected ? "text-text-primary" : "text-text-secondary"}`} />
                   <span>{label}</span>
                 </button>
               );
@@ -1046,7 +1048,7 @@ export function AppDemo() {
             href="/"
             className="flex items-center gap-2 text-xs font-mono text-text-secondary hover:text-text-primary transition-colors cursor-pointer pt-2 group"
           >
-            <ArrowLeft className="w-3.5 h-3.5 text-panik-orange group-hover:-translate-x-0.5 transition-transform" />
+            <ArrowLeft className="w-3.5 h-3.5 text-text-muted group-hover:-translate-x-0.5 transition-transform" />
             <span>Back to Landing</span>
           </a>
         </div>
@@ -1062,7 +1064,7 @@ export function AppDemo() {
             {userSegment && (
               <span
                 title={`Your DeFi profile: ${SEGMENT_LABELS[userSegment]}`}
-                className={`hidden md:flex items-center px-2.5 py-1 rounded-md border text-2xs font-mono font-bold ${SEGMENT_BADGE[userSegment]}`}
+                className={`hidden md:flex items-center px-2.5 py-1 rounded-md border text-2xs font-mono font-bold ${SEGMENT_BADGE}`}
               >
                 {SEGMENT_LABELS[userSegment]}
               </span>
@@ -1082,16 +1084,21 @@ export function AppDemo() {
           <div className="flex items-center gap-6 text-2xs font-mono text-text-muted">
             <div className="hidden md:flex items-center gap-1.5">
               <span>EST GAS:</span>
-              <strong className="text-risk-low bg-risk-low/5 px-2 py-0.5 rounded-sm border border-risk-low/10 tabular-nums">{gasPrice} GWEI</strong>
+              {/* Gas is a market reading, not a verdict on this wallet. It was
+                  painted with the safe-risk green, which put a risk colour on a
+                  number that carries no risk statement at all. */}
+              <strong className="text-text-secondary bg-white/[0.03] px-2 py-0.5 rounded-sm border border-border-subtle tabular-nums">{gasPrice} GWEI</strong>
             </div>
             <div className="h-4 w-px bg-white/10 hidden md:block"></div>
             <button
               type="button"
               onClick={() => setShowOnboarding(true)}
               title="Change wallet - a previously onboarded address restores its saved profile instantly"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle hover:border-panik-orange/30 text-2xs font-semibold text-text-secondary transition-colors cursor-pointer group"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer group"
             >
-              <Wallet className="w-3.5 h-3.5 text-panik-orange" />
+              {/* Identifier, not an action and not a status: the whole chip
+                  stays neutral so the eye skips it on the way to the data. */}
+              <Wallet className="w-3.5 h-3.5 text-text-muted" />
               <span>
                 {selectedWallet && selectedWallet !== "all"
                   ? truncateAddress(selectedWallet)
@@ -1099,7 +1106,7 @@ export function AppDemo() {
                     ? `Registry (${wallets.length} wallets)`
                     : "Connect wallet"}
               </span>
-              <RefreshCw className="w-3 h-3 text-text-muted group-hover:text-panik-orange transition-colors" />
+              <RefreshCw className="w-3 h-3 text-text-muted group-hover:text-text-primary transition-colors" />
             </button>
           </div>
         </header>
@@ -1136,7 +1143,7 @@ export function AppDemo() {
                       onClick={() => setSelectedRiskProfile("conservative")}
                       className={`px-3 py-1.5 text-2xs font-mono uppercase tracking-wider rounded-md transition-all cursor-pointer ${
                         selectedRiskProfile === "conservative"
-                          ? "bg-panik-orange/15 text-panik-orange font-bold border border-panik-orange/30"
+                          ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
                           : "text-text-secondary hover:text-text-primary"
                       }`}
                     >
@@ -1146,7 +1153,7 @@ export function AppDemo() {
                       onClick={() => setSelectedRiskProfile("moderate")}
                       className={`px-3 py-1.5 text-2xs font-mono uppercase tracking-wider rounded-md transition-all cursor-pointer ${
                         selectedRiskProfile === "moderate"
-                          ? "bg-panik-orange/15 text-panik-orange font-bold border border-panik-orange/30"
+                          ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
                           : "text-text-secondary hover:text-text-primary"
                       }`}
                     >
@@ -1156,7 +1163,7 @@ export function AppDemo() {
                       onClick={() => setSelectedRiskProfile("aggressive")}
                       className={`px-3 py-1.5 text-2xs font-mono uppercase tracking-wider rounded-md transition-all cursor-pointer ${
                         selectedRiskProfile === "aggressive"
-                          ? "bg-panik-orange/15 text-panik-orange font-bold border border-panik-orange/30"
+                          ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
                           : "text-text-secondary hover:text-text-primary"
                       }`}
                     >
@@ -1176,13 +1183,13 @@ export function AppDemo() {
                       <div
                         key={preset.id}
                         onClick={() => setSelectedRiskBreakdownPreset(preset)}
-                        className="bg-surface-raised/60 hover:bg-surface-overlay/70 border border-border-subtle rounded-lg p-5 relative overflow-hidden transition-all hover:border-panik-orange/35 shadow-xl group cursor-pointer"
+                        className="bg-surface-raised/60 hover:bg-surface-overlay/70 border border-border-subtle rounded-lg p-5 relative overflow-hidden transition-all hover:border-border-strong shadow-xl group cursor-pointer"
                       >
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex items-center gap-3">
                             <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
                             <div>
-                              <h3 className="text-sm font-mono font-bold text-text-primary tracking-wide group-hover:text-panik-orange transition-colors">
+                              <h3 className="text-sm font-mono font-bold text-text-primary tracking-wide group-hover:text-text-primary transition-colors">
                                 {preset.protocol}
                               </h3>
                               <span className="text-2xs font-mono text-text-muted uppercase block">
@@ -1398,13 +1405,13 @@ export function AppDemo() {
                         onClick={() => setWatchSource(opt.key)}
                         aria-pressed={active}
                         className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-2xs font-mono font-bold transition-all cursor-pointer ${
-                          active ? "bg-panik-orange/15 text-panik-orange" : "text-text-muted hover:text-text-secondary"
+                          active ? "bg-white/10 text-text-primary" : "text-text-muted hover:text-text-secondary"
                         }`}
                       >
                         {opt.key === "positions" ? <Eye className="w-3.5 h-3.5" /> : <CompassIcon className="w-3.5 h-3.5" />}
                         <span>{opt.label}</span>
                         {opt.count !== null && opt.count > 0 && (
-                          <span className={`text-2xs px-1.5 py-0.5 rounded-full tabular-nums ${active ? "bg-panik-orange/25" : "bg-white/10 text-text-muted"}`}>
+                          <span className={`text-2xs px-1.5 py-0.5 rounded-full tabular-nums ${active ? "bg-white/15" : "bg-white/10 text-text-muted"}`}>
                             {opt.count}
                           </span>
                         )}
@@ -1417,8 +1424,8 @@ export function AppDemo() {
                   /* Positions mode with nothing on-chain: honest empty state */
                   <div className="bg-surface-raised/50 border border-border-subtle rounded-lg p-8 flex flex-col items-start gap-4">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-md bg-panik-orange/10 border border-panik-orange/25 flex items-center justify-center shrink-0">
-                        <Eye className="w-4.5 h-4.5 text-panik-orange" />
+                      <div className="w-9 h-9 rounded-md bg-white/[0.06] border border-border-subtle flex items-center justify-center shrink-0">
+                        <Eye className="w-4.5 h-4.5 text-text-primary" />
                       </div>
                       <div>
                         <h2 className="text-lg font-display font-extrabold text-text-primary">No open positions to watch yet</h2>
@@ -1433,7 +1440,7 @@ export function AppDemo() {
                     <div className="flex flex-wrap gap-2.5">
                       <button
                         onClick={() => setWatchSource("recommendations")}
-                        className="px-4 py-2 rounded-md font-mono text-xs font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/30 hover:bg-panik-orange/20 cursor-pointer transition-all"
+                        className="px-4 py-2 rounded-md font-mono text-xs font-bold text-text-primary bg-white/[0.06] border border-border-subtle hover:bg-white/10 cursor-pointer transition-all"
                       >
                         Browse Recommendations →
                       </button>
@@ -1452,13 +1459,13 @@ export function AppDemo() {
                   
                   {/* Active Simulator Header widget */}
                   <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg relative overflow-hidden backdrop-blur-xl">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-panik-orange/5 rounded-full blur-2xl pointer-events-none"></div>
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/[0.03] rounded-full blur-2xl pointer-events-none"></div>
                     <div className="flex justify-between items-center mb-4.5 border-b border-border-subtle pb-3">
                       {/* Market selector - mode-aware. Positions mode lists the
                           wallet's real on-chain positions; Recommendations lists
                           the Compass preset catalog. */}
                       <div className="relative" ref={watchDropRef}>
-                        <span className="block text-2xs font-mono tracking-widest text-panik-orange uppercase mb-1">
+                        <span className="block text-2xs font-mono tracking-widest text-text-primary uppercase mb-1">
                           {watchingOwnPosition ? "YOUR POSITION · SCORED ON-CHAIN" : "POSITION SIMULATOR · MARKET"}
                         </span>
                         <button
@@ -1468,11 +1475,11 @@ export function AppDemo() {
                           aria-haspopup="listbox"
                           aria-expanded={watchDropOpen}
                         >
-                          <h2 className="text-lg font-display font-extrabold text-text-primary tracking-wide group-hover:text-panik-orange/90 transition-colors">
+                          <h2 className="text-lg font-display font-extrabold text-text-primary tracking-wide group-hover:text-text-muted transition-colors">
                             {activeMarket.protocol} · {activeMarket.assetPair}
                           </h2>
                           <ChevronDown
-                            className={`w-4 h-4 text-text-muted group-hover:text-panik-orange/70 transition-all duration-200 ${watchDropOpen ? "rotate-180" : ""}`}
+                            className={`w-4 h-4 text-text-muted group-hover:text-text-muted transition-all duration-200 ${watchDropOpen ? "rotate-180" : ""}`}
                           />
                         </button>
 
@@ -1503,7 +1510,7 @@ export function AppDemo() {
                                         }}
                                         className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
                                           isActive
-                                            ? "bg-panik-orange/10 border-l-2 border-l-panik-orange"
+                                            ? "bg-white/[0.06] border-l-2 border-l-border-strong"
                                             : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
                                         }`}
                                       >
@@ -1536,7 +1543,7 @@ export function AppDemo() {
                                         }}
                                         className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
                                           isActive
-                                            ? "bg-panik-orange/10 border-l-2 border-l-panik-orange"
+                                            ? "bg-white/[0.06] border-l-2 border-l-border-strong"
                                             : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
                                         }`}
                                       >
@@ -1584,7 +1591,7 @@ export function AppDemo() {
                       <div className="flex-1 md:max-w-[280px] flex flex-col justify-between">
                         <div>
                           <div className="flex items-center gap-1.5 text-text-muted font-mono text-2xs uppercase tracking-wider mb-2">
-                            <Activity className="w-3.5 h-3.5 text-panik-orange shrink-0" />
+                            <Activity className="w-3.5 h-3.5 text-text-primary shrink-0" />
                             <span>Panik Risk Index</span>
                             <InfoTip text="0-100 composite of position health, asset risk, protocol safety, and market stress. Higher means closer to liquidation; your risk profile sets where alerts fire." />
                           </div>
@@ -1647,9 +1654,9 @@ export function AppDemo() {
                               const dropPct = Math.round((1 - lp / positionState.currentPrice) * 100);
                               return (
                                 <p className="text-2xs font-sans leading-relaxed text-text-secondary">
-                                  A further <span className="text-panik-orange font-semibold tabular-nums">-{dropPct}%</span>{" "}
+                                  A further <span className="text-text-primary font-semibold tabular-nums">-{dropPct}%</span>{" "}
                                   {activeMarket.collateralAsset} move (to{" "}
-                                  <span className="text-panik-orange font-semibold tabular-nums">{formatCurrency(lp)}</span>) puts
+                                  <span className="text-text-primary font-semibold tabular-nums">{formatCurrency(lp)}</span>) puts
                                   your <span className="text-text-primary font-semibold tabular-nums">{formatCurrency(cv)}</span> collateral
                                   up for liquidation.
                                 </p>
@@ -1861,12 +1868,12 @@ export function AppDemo() {
                             onClick={() => applyScenario(s.key, s.pct)}
                             className={`text-left p-2.5 rounded-md border transition-all cursor-pointer ${
                               active
-                                ? "bg-panik-orange/10 border-panik-orange/40"
+                                ? "bg-white/[0.06] border-border-strong"
                                 : "bg-white/[0.01] border-border-subtle hover:bg-white/[0.04]"
                             }`}
                           >
                             <div className="flex items-baseline justify-between">
-                              <span className={`text-2xs font-mono font-bold uppercase tracking-wider ${active ? "text-panik-orange" : "text-text-secondary"}`}>
+                              <span className={`text-2xs font-mono font-bold uppercase tracking-wider ${active ? "text-text-primary" : "text-text-secondary"}`}>
                                 {s.label}
                               </span>
                               {s.pct !== 0 && (
@@ -1908,7 +1915,7 @@ export function AppDemo() {
                           step={activeMarket.defaultCollateral < 10 ? 0.1 : 100}
                           value={collateralAmount}
                           onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-text-primary text-xs font-mono focus:border-panik-orange/60 tabular-nums"
+                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-text-primary text-xs font-mono focus:border-border-strong tabular-nums"
                           aria-label="Collateral amount"
                         />
                       </div>
@@ -1919,7 +1926,7 @@ export function AppDemo() {
                         step={activeMarket.defaultCollateral < 10 ? 0.05 : 50}
                         value={Math.min(collateralAmount, activeMarket.defaultCollateral * 2.5)}
                         onChange={(e) => setCollateralAmount(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
+                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-collateral-slider"
                       />
                       <div className="flex justify-between text-2xs font-mono text-white/20">
@@ -1941,7 +1948,7 @@ export function AppDemo() {
                             setAssetPrice(Math.max(0, Number(e.target.value)));
                             setActiveScenario("custom");
                           }}
-                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-panik-orange/60 tabular-nums ${
+                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-border-strong tabular-nums ${
                             assetPrice < activeMarket.defaultPrice * 0.8 ? "text-risk-critical font-bold" : "text-text-primary"
                           }`}
                           aria-label="Collateral asset price in USD"
@@ -1957,7 +1964,7 @@ export function AppDemo() {
                           setAssetPrice(Number(e.target.value));
                           setActiveScenario("custom");
                         }}
-                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
+                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-price-slider"
                       />
                       <div className="flex justify-between text-2xs font-mono text-white/20">
@@ -1976,7 +1983,7 @@ export function AppDemo() {
                           step={activeMarket.defaultBorrow < 10 ? 0.1 : 50}
                           value={borrowAmount}
                           onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-panik-orange/60 tabular-nums ${
+                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-border-strong tabular-nums ${
                             borrowAmount > activeMarket.defaultBorrow * 1.2 ? "text-risk-critical font-bold" : "text-text-primary"
                           }`}
                           aria-label="Borrowed amount"
@@ -1989,7 +1996,7 @@ export function AppDemo() {
                         step={activeMarket.defaultBorrow < 10 ? "0.1" : "50"}
                         value={Math.min(borrowAmount, activeMarket.defaultBorrow * 1.6)}
                         onChange={(e) => setBorrowAmount(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
+                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-borrow-slider"
                       />
                       <div className="flex justify-between text-2xs font-mono text-white/20">
@@ -2008,7 +2015,7 @@ export function AppDemo() {
                           step={0.005}
                           value={debtPrice}
                           onChange={(e) => setDebtPrice(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-panik-orange/60 tabular-nums ${
+                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-mono focus:border-border-strong tabular-nums ${
                             Math.abs(debtPrice - 1) > 0.02 ? "text-risk-elevated font-bold" : "text-text-primary"
                           }`}
                           aria-label="Borrowed asset price in USD"
@@ -2021,7 +2028,7 @@ export function AppDemo() {
                         step={0.005}
                         value={Math.min(Math.max(debtPrice, 0.85), 1.05)}
                         onChange={(e) => setDebtPrice(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
+                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-debt-price-slider"
                       />
                       <div className="flex justify-between text-2xs font-mono text-white/20">
@@ -2065,11 +2072,11 @@ export function AppDemo() {
                   />
                 ) : (
                 <div className="bg-surface-raised/50 border border-border-subtle p-12 rounded-lg flex flex-col items-center text-center max-w-2xl mx-auto my-8">
-                  <div className="w-12 h-12 rounded-full bg-panik-orange/10 border border-panik-orange/30 flex items-center justify-center mb-6">
-                    <Sparkles className="w-5 h-5 text-panik-orange" />
+                  <div className="w-12 h-12 rounded-full bg-white/[0.06] border border-border-subtle flex items-center justify-center mb-6">
+                    <Sparkles className="w-5 h-5 text-text-primary" />
                   </div>
                   
-                  <span className="text-2xs font-mono tracking-widest text-panik-orange uppercase font-bold mb-2">
+                  <span className="text-2xs font-mono tracking-widest text-text-primary uppercase font-bold mb-2">
                     Coming Soon
                   </span>
                   
@@ -2089,7 +2096,7 @@ export function AppDemo() {
                         setAdvisorNotifyChecked(e.target.checked);
                         localStorage.setItem("panik_advisor_notify", String(e.target.checked));
                       }}
-                      className="w-4 h-4 rounded-sm border border-border-subtle bg-surface-raised accent-panik-orange cursor-pointer"
+                      className="w-4 h-4 rounded-sm border border-border-subtle bg-surface-raised accent-text-primary cursor-pointer"
                     />
                     <span className="text-xs font-mono text-text-secondary group-hover:text-text-primary transition-colors">
                       Notify me when Advisor goes live
@@ -2152,7 +2159,7 @@ export function AppDemo() {
                         title={w.label ?? w.wallet}
                         className={`px-3 py-1.5 rounded-md text-2xs font-mono border transition-all cursor-pointer ${
                           selectedWallet === w.wallet
-                            ? "bg-panik-orange/15 text-panik-orange border-panik-orange/30 font-bold"
+                            ? "bg-white/10 text-text-primary border-border-strong font-bold"
                             : "bg-white/[0.02] text-text-secondary border-border-subtle hover:text-text-primary"
                         }`}
                       >
@@ -2165,7 +2172,7 @@ export function AppDemo() {
                         onClick={() => setSelectedWallet("all")}
                         className={`px-3 py-1.5 rounded-md text-2xs font-mono border transition-all cursor-pointer ${
                           selectedWallet === "all"
-                            ? "bg-panik-orange/15 text-panik-orange border-panik-orange/30 font-bold"
+                            ? "bg-white/10 text-text-primary border-border-strong font-bold"
                             : "bg-white/[0.02] text-text-secondary border-border-subtle hover:text-text-primary"
                         }`}
                       >
@@ -2177,18 +2184,18 @@ export function AppDemo() {
 
                 {/* Macro metrics columns — computed from LIVE positions when available */}
                 {(() => {
-                  // Read once: the aggregate drives both the figure's colour and
-                  // its verdict, and they must never disagree.
                   const aggregate = liveMacro?.aggregate ?? 22;
-                  const aggregateTone =
-                    aggregate >= 50 ? "critical" : aggregate >= 25 ? "elevated" : "low";
-                  // Spelled out rather than interpolated: Tailwind only emits a
-                  // utility it can see as a literal in the source.
-                  const AGGREGATE_VERDICT = {
-                    critical: { text: "Elevated portfolio risk", cls: "text-risk-critical" },
-                    elevated: { text: "Watch status", cls: "text-risk-elevated" },
-                    low: { text: "Secure health status", cls: "text-risk-low" },
-                  } as const;
+                  // The verdict is carried by the WORD, not by a hue. A 28px
+                  // numeral repainted red is the single loudest thing a
+                  // dashboard can emit, and it was firing on a summary figure
+                  // while the four per-position bands — the numbers a user can
+                  // actually act on — sat in 11px chips beside it.
+                  const aggregateVerdict =
+                    aggregate >= 50
+                      ? "Elevated portfolio risk"
+                      : aggregate >= 25
+                        ? "Watch status"
+                        : "Secure health status";
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
                       <Card tone="raised">
@@ -2200,7 +2207,7 @@ export function AppDemo() {
                             </>
                           }
                           value={liveMacro ? `$${Math.round(liveMacro.capital).toLocaleString()}` : "$18,450"}
-                          sub={<span className="text-risk-low">Guard active</span>}
+                          sub="Guard active"
                         />
                       </Card>
 
@@ -2221,7 +2228,6 @@ export function AppDemo() {
                         <Stat
                           label="Protocols Watched"
                           value={liveMacro ? `${liveMacro.positions} Positions` : "4 Pools"}
-                          tone="brand"
                           sub={liveMacro ? `Aave V3, Moonwell · ${liveMacro.protocols} protocols` : "Aave, Moonwell"}
                         />
                       </Card>
@@ -2235,12 +2241,7 @@ export function AppDemo() {
                             </>
                           }
                           value={`${aggregate} / 100`}
-                          tone={aggregateTone}
-                          sub={
-                            <span className={`font-bold ${AGGREGATE_VERDICT[aggregateTone].cls}`}>
-                              {AGGREGATE_VERDICT[aggregateTone].text}
-                            </span>
-                          }
+                          sub={aggregateVerdict}
                         />
                       </Card>
                     </div>
@@ -2324,10 +2325,7 @@ export function AppDemo() {
                         Risk Index History
                       </h3>
                       {riskHistory && (
-                        <span className={`text-lg font-mono font-bold tabular-nums ${
-                          (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 50 ? "text-risk-critical" :
-                          (riskHistory.series[riskHistory.series.length - 1] ?? 0) >= 25 ? "text-risk-elevated" : "text-risk-low"
-                        }`}>
+                        <span className="text-lg font-mono font-bold tabular-nums text-text-primary">
                           {riskHistory.series[riskHistory.series.length - 1]} / 100
                         </span>
                       )}
@@ -2366,15 +2364,19 @@ export function AppDemo() {
                         {walletHistory.alerts.slice(0, 12).map((a, i) => {
                           const chip = a.notify_channel
                             ? NOTIFY_CHANNEL_CHIP[a.notify_channel] ?? { label: a.notify_channel.toUpperCase(), cls: "text-text-muted border-border-subtle bg-white/[0.03]" }
-                            : { label: "QUEUED", cls: "text-risk-elevated border-risk-elevated/25 bg-risk-elevated/10" };
+                            : { label: "QUEUED", cls: "text-text-muted border-border-subtle bg-white/[0.03]" };
                           return (
                             <div key={`${a.created_at}-${i}`} className="flex items-start gap-2.5 bg-white/[0.02] border border-border-subtle p-3 rounded-md">
+                              {/* The glyph carries the transition; the words next
+                                  to it name the band. Painting the icon too gave
+                                  this log twelve coloured marks for a history the
+                                  user is skimming, not acting on. */}
                               {a.to_status === "outside" ? (
-                                <Flame className="w-4 h-4 text-risk-critical shrink-0 mt-0.5" />
+                                <Flame className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
                               ) : a.to_status === "approaching" ? (
-                                <ShieldAlert className="w-4 h-4 text-risk-elevated shrink-0 mt-0.5" />
+                                <ShieldAlert className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
                               ) : (
-                                <CheckCircle2 className="w-4 h-4 text-risk-low shrink-0 mt-0.5" />
+                                <CheckCircle2 className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline justify-between gap-2">
@@ -2419,7 +2421,7 @@ export function AppDemo() {
                 className="max-w-5xl space-y-6"
               >
                 <div className="border-b border-border-subtle pb-3">
-                  <span className="block text-2xs font-mono tracking-widest text-panik-orange uppercase">Sentry System Preferences</span>
+                  <span className="block text-2xs font-mono tracking-widest text-text-primary uppercase">Sentry System Preferences</span>
                   <h2 className="text-lg font-display font-extrabold text-text-primary tracking-wide">Settings &amp; Endpoints</h2>
                 </div>
 
@@ -2430,7 +2432,7 @@ export function AppDemo() {
                     {/* Telegram alerts dispatcher (the real Connect flow) */}
                     <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
                       <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-                        <Bell className="w-4 h-4 text-panik-orange" />
+                        <Bell className="w-4 h-4 text-text-primary" />
                         <h3 className="text-2xs font-mono uppercase tracking-widest text-text-primary font-bold">
                           Web3 Telegram Alerts Dispatcher
                         </h3>
@@ -2502,7 +2504,7 @@ export function AppDemo() {
                     <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
                       <div className="flex justify-between items-center border-b border-border-subtle pb-2.5">
                         <div className="flex items-center gap-2">
-                          <Sliders className="w-4 h-4 text-panik-orange" />
+                          <Sliders className="w-4 h-4 text-text-primary" />
                           <h3 className="text-2xs font-mono uppercase tracking-widest text-text-primary font-bold">
                             Emergency Auto Repayment Trigger
                           </h3>
@@ -2532,7 +2534,7 @@ export function AppDemo() {
                           step={5}
                           value={automaticRepayTarget}
                           onChange={(e) => setAutomaticRepayTarget(Number(e.target.value))}
-                          className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-panik-orange"
+                          className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         />
                       </div>
                     </div>
@@ -2544,13 +2546,13 @@ export function AppDemo() {
                     <div className="bg-white/[0.01] border border-border-subtle p-5 rounded-lg space-y-2">
                       <h4 className="text-2xs font-mono font-bold text-text-primary uppercase tracking-widest">How to connect alerts</h4>
                       <ol className="text-2xs text-text-secondary space-y-1.5 list-decimal pl-4 font-sans leading-relaxed">
-                        <li>Click <span className="text-panik-orange font-semibold">Connect Telegram</span> - it opens <span className="text-text-primary font-semibold">@{telegramBotUsername}</span>.</li>
-                        <li>Press <span className="text-panik-orange">Start</span> in the chat to confirm.</li>
+                        <li>Click <span className="text-text-primary font-semibold">Connect Telegram</span> - it opens <span className="text-text-primary font-semibold">@{telegramBotUsername}</span>.</li>
+                        <li>Press <span className="text-text-primary">Start</span> in the chat to confirm.</li>
                         <li>Alerts fire when your wallet nears its risk limit.</li>
-                        <li>Send <span className="text-panik-orange">/stop</span> any time to mute them.</li>
+                        <li>Send <span className="text-text-primary">/stop</span> any time to mute them.</li>
                       </ol>
                     </div>
-                    <div className="p-3 bg-panik-orange/[0.03] border border-panik-orange/15 rounded-lg font-sans text-2xs text-text-secondary leading-relaxed">
+                    <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-2xs text-text-secondary leading-relaxed">
                       We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
                     </div>
                   </div>
@@ -2735,7 +2737,7 @@ export function AppDemo() {
                           3. Liquidation Price
                           <InfoTip text="The collateral price at which this position becomes liquidatable." />
                         </span>
-                        <span className="text-sm font-mono font-bold text-panik-orange mt-1 tabular-nums">
+                        <span className="text-sm font-mono font-bold text-text-primary mt-1 tabular-nums">
                           {breakdownData?.liqPrice != null ? formatCurrency(breakdownData.liqPrice) : "-"}
                         </span>
                       </div>
@@ -2876,7 +2878,7 @@ export function AppDemo() {
                       setActiveTab("watch");
                       setSelectedRiskBreakdownPreset(null);
                     }}
-                    className="flex-1 py-3 text-center text-xs font-mono font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/25 rounded-md cursor-pointer hover:bg-panik-orange/20 transition-all"
+                    className="flex-1 py-3 text-center text-xs font-mono font-bold text-text-primary bg-white/[0.06] border border-border-subtle rounded-md cursor-pointer hover:bg-white/10 transition-all"
                   >
                     Open Simulator
                   </button>
@@ -2979,9 +2981,9 @@ export function AppDemo() {
       {/* First-run onboarding tooltip tour */}
       {currentTourStep && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] w-full max-w-sm px-4">
-          <div className="bg-surface-raised border border-panik-orange/30 rounded-md p-4 shadow-2xl shadow-black/60">
+          <div className="bg-surface-raised border border-border-subtle rounded-md p-4 shadow-2xl shadow-black/60">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-2xs font-mono text-panik-orange uppercase tracking-widest font-bold">
+              <span className="text-2xs font-mono text-text-primary uppercase tracking-widest font-bold">
                 Step {currentTourStep.step} of {TOUR_STEPS.length}
               </span>
               <button onClick={dismissTour} className="text-text-muted hover:text-text-primary transition-colors text-2xs font-mono uppercase cursor-pointer">

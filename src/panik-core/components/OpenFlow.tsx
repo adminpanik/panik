@@ -355,7 +355,7 @@ export function OpenFlow({
   ]);
 
   const inputCls =
-    "w-full bg-surface-raised border border-border-strong rounded-md px-3 py-2 text-sm font-mono tabular-nums text-text-primary focus:border-panik-orange/50";
+    "w-full bg-surface-raised border border-border-strong rounded-md px-3 py-2 text-sm font-mono tabular-nums text-text-primary focus:border-border-strong";
 
   const summary = useMemo(
     () =>
@@ -419,7 +419,7 @@ export function OpenFlow({
         {step === "connect" ? (
           <button
             onClick={() => connect({ connector: injected() })}
-            className="w-full py-3 rounded-md bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
+            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-mono font-bold text-sm hover:bg-white/15 transition-colors"
           >
             Connect wallet
           </button>
@@ -428,7 +428,7 @@ export function OpenFlow({
         {step === "chain" ? (
           <button
             onClick={() => void switchChainAsync({ chainId: OPEN_CHAIN_ID })}
-            className="w-full py-3 rounded-md bg-panik-orange/15 border border-panik-orange/30 text-panik-orange font-mono font-bold text-sm hover:bg-panik-orange/25 transition-colors"
+            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-mono font-bold text-sm hover:bg-white/15 transition-colors"
           >
             Switch to Base
           </button>
@@ -541,7 +541,7 @@ export function OpenFlow({
               href={`https://basescan.org/tx/${doneHash}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-mono text-panik-orange hover:underline"
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-text-primary hover:underline"
             >
               View on Basescan <ExternalLink className="w-3 h-3" />
             </a>

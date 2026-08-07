@@ -1,39 +1,31 @@
 import React from "react";
 
 /**
- * `brand` is for a figure that is a count, not a judgement. The three risk
- * tones are for figures that ARE a risk statement — a number that changes
- * colour with its own value. Anything else stays neutral: colouring a dollar
- * amount by band implies the amount is the risk, and it is not.
+ * A stat value is always neutral. It used to accept a `tone`, which is how a
+ * dashboard ends up with a giant orange "4 Positions" next to a giant red
+ * "57 / 100": once the figure itself carries hue, every card competes, and the
+ * one element that genuinely encodes a risk band — the chip on a position row —
+ * stops being the loudest thing on the screen.
+ *
+ * A band still has a home. It is the RiskChip, and it is small on purpose.
  */
-const STAT_TONE = {
-  default: "text-text-primary",
-  brand: "text-panik-orange",
-  low: "text-risk-low",
-  elevated: "text-risk-elevated",
-  critical: "text-risk-critical",
-} as const;
-
 interface StatProps {
   label: React.ReactNode;
   value: React.ReactNode;
   /** Secondary line under the figure: a ratio, a breakdown, a qualifier. */
   sub?: React.ReactNode;
-  tone?: keyof typeof STAT_TONE;
 }
 
-export function Stat({ label, value, sub, tone = "default" }: StatProps) {
+export function Stat({ label, value, sub }: StatProps) {
   return (
     <div>
-      <span className="flex items-center gap-1 text-2xs font-mono font-bold uppercase text-text-muted">
+      <span className="flex items-center gap-1 text-xs font-sans font-medium text-text-muted">
         {label}
       </span>
-      <span
-        className={`mt-2 block text-2xl font-mono font-bold tabular-nums ${STAT_TONE[tone]}`}
-      >
+      <span className="mt-2 block text-2xl font-sans font-bold tabular-nums text-text-primary">
         {value}
       </span>
-      {sub && <span className="mt-2 block text-2xs font-mono text-text-secondary">{sub}</span>}
+      {sub && <span className="mt-2 block text-xs font-sans text-text-secondary">{sub}</span>}
     </div>
   );
 }

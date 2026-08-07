@@ -39,7 +39,7 @@ const ACTION_CHIP: Record<string, string> = {
   REBALANCE: "bg-violet-500/10 text-violet-400 border-violet-500/25",
   REDUCE: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
   EXIT: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
-  OPEN: "bg-panik-orange/10 text-panik-orange border-panik-orange/25",
+  OPEN: "bg-white/[0.06] text-text-primary border-border-subtle",
 };
 
 /** null = the engine could not price this leg (degraded feed); never show $0. */
@@ -100,7 +100,7 @@ function ActionButton({
         onClick={onOpen ? () => onOpen(plan) : undefined}
         disabled={!onOpen}
         title={onOpen ? undefined : "In-app opening ships with the position flows"}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-mono font-bold tracking-wide bg-panik-orange/15 text-panik-orange border border-panik-orange/30 hover:bg-panik-orange/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-mono font-bold tracking-wide bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Open position <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -205,7 +205,7 @@ function OpportunityCard({
             {plan.apy !== null ? ` · ${(plan.apy * 100).toFixed(1)}% APY` : ""}
           </div>
         </div>
-        <TrendingUp className="w-4 h-4 text-panik-orange/70" />
+        <TrendingUp className="w-4 h-4 text-text-muted" />
       </div>
       <p className="text-xs text-text-secondary leading-relaxed font-sans flex-1">
         {rec.sections.recommendation}
@@ -263,7 +263,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
             </p>
           ) : null}
           {report.narrated ? (
-            <p className="text-2xs font-mono text-panik-orange/60 mt-1 flex items-center gap-1">
+            <p className="text-2xs font-mono text-text-muted mt-1 flex items-center gap-1">
               <Sparkles className="w-3 h-3" /> AI-narrated · engine-decided
             </p>
           ) : null}
