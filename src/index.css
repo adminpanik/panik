@@ -1,32 +1,66 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/**
+ * Design tokens. Tailwind v4 is CSS-first: only `@theme` generates utilities,
+ * so every value the UI is allowed to use lives here and nowhere else.
+ */
 @theme {
   /* Brand Typography Alignment */
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* Custom Color Overrides to make code cleaner */
+  /**
+   * Surfaces — four depths, in stacking order. Depth is the only thing that
+   * varies; nothing tints a surface by state. Seventeen near-blacks collapse
+   * onto these four, so "which grey is this card" stops being a decision.
+   */
+  --color-surface-base: #09090B;
+  --color-surface-sunken: #0C0D11;
+  --color-surface-raised: #111318;
+  --color-surface-overlay: #16181F;
+
+  /**
+   * Text — three roles, no more. Each clears 4.5:1 on the LIGHTEST surface it
+   * can land on (overlay), not just on the page background: text-muted is
+   * 4.81:1 there. This is why the old #475569 (2.45:1 on raised) and #64748B
+   * (3.90:1) are gone rather than merely renamed.
+   */
+  --color-text-primary: #F8FAFC;
+  --color-text-secondary: #94A3B8;
+  --color-text-muted: #7A8699;
+
+  /**
+   * Borders — two families, because they do two unrelated jobs. Collapsing
+   * them into one alpha is the standard dark-UI mistake: a card divider wants
+   * to disappear, an input edge has to be findable. `strong` holds 3.27-3.34:1
+   * across all four surfaces (WCAG 1.4.11); `subtle` is decorative and makes
+   * no contrast claim.
+   */
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.36);
+
+  /**
+   * Brand accent. INTERACTIVE ONLY — primary buttons, links, focus. Always a
+   * solid fill with near-black text on top (7.10:1); white on orange is
+   * 2.80:1 and fails. Never used to communicate a state.
+   */
   --color-panik-orange: #F97316;
-  --color-panik-deep: #09090B;
-  --color-panik-surface: #111318;
-  --color-panik-card: rgba(17, 19, 24, 0.6);
+
+  /* Legacy aliases. Retired once the migration onto the tokens above lands. */
   --color-panik-text-primary: #F8FAFC;
   --color-panik-text-secondary: #94A3B8;
-
-  /* Premium alert values */
   --color-panik-green: #22C55E;
   --color-panik-amber: #F59E0B;
   --color-panik-red: #EF4444;
-  --color-panik-darkred: #DC2626;
 }
 
 /* Custom structural styles for financial style aesthetics */
 @layer base {
   body {
-    background-color: #09090B;
-    color: #F8FAFC;
+    background-color: var(--color-surface-base);
+    color: var(--color-text-primary);
     font-family: var(--font-sans);
     overflow-x: clip;
     position: relative;
@@ -50,24 +84,24 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #09090B;
+    background: var(--color-surface-base);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(249, 115, 22, 0.2);
+    background: rgb(from var(--color-panik-orange) r g b / 0.2);
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(249, 115, 22, 0.4);
+    background: rgb(from var(--color-panik-orange) r g b / 0.4);
   }
 }
 
 /* Elegant Utilities */
 .panik-glow-orange {
-  box-shadow: 0 0 25px -3px rgba(249, 115, 22, 0.45), 0 0 10px -2px rgba(249, 115, 22, 0.2);
+  box-shadow: 0 0 25px -3px rgb(from var(--color-panik-orange) r g b / 0.45), 0 0 10px -2px rgb(from var(--color-panik-orange) r g b / 0.2);
 }
 
 .panik-glow-orange-text {
-  text-shadow: 0 0 15px rgba(249, 115, 22, 0.6);
+  text-shadow: 0 0 15px rgb(from var(--color-panik-orange) r g b / 0.6);
 }
 
 .panik-glow-red {
@@ -80,22 +114,22 @@
 
 /* Glassmorphism treatment */
 .panik-glass {
-  background: rgba(21, 27, 38, 0.45);
+  background: rgb(from var(--color-surface-overlay) r g b / 0.45);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--color-border-subtle);
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 8px 32px 0 rgba(0, 0, 0, 0.5);
   transition: border-color 0.3s ease, background 0.3s ease;
 }
 
 .panik-glass:hover {
   border-color: rgba(255, 255, 255, 0.13);
-  background: rgba(21, 27, 38, 0.55);
+  background: rgb(from var(--color-surface-overlay) r g b / 0.55);
 }
 
 /* Dynamic Grid Background with slow fade effect */
 .panik-grid-bg {
-  background-image: 
+  background-image:
     linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
   background-size: 40px 40px;
@@ -109,11 +143,11 @@
 
 /* Soft orange gradient background glow */
 .panik-radial-ambient {
-  background: radial-gradient(circle at 60% 40%, rgba(249, 115, 22, 0.06) 0%, transparent 60%);
+  background: radial-gradient(circle at 60% 40%, rgb(from var(--color-panik-orange) r g b / 0.06) 0%, transparent 60%);
 }
 
 .panik-radial-subtle {
-  background: radial-gradient(circle at center, rgba(249, 115, 22, 0.03) 0%, transparent 70%);
+  background: radial-gradient(circle at center, rgb(from var(--color-panik-orange) r g b / 0.03) 0%, transparent 70%);
 }
 
 @keyframes slow-pulse {
