@@ -3000,8 +3000,12 @@ export function AppDemo() {
                           7. Pool borrow utilization
                           <InfoTip text="Share of the pool's supplied funds currently borrowed. Very high utilization can delay withdrawals and spike rates." />
                         </span>
-                        <span className="text-xs font-sans font-bold text-risk-low tabular-nums">
-                          {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (Optimal range)
+                        {/* Neutral. Utilization is not a risk band, and painting
+                            it risk-low put a green figure beside the health
+                            factor's genuine band two rows up — two greens in one
+                            panel, only one of them meaning "safe". */}
+                        <span className="text-xs font-sans font-bold text-text-primary tabular-nums">
+                          {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (optimal range)
                         </span>
                       </div>
 
@@ -3013,7 +3017,11 @@ export function AppDemo() {
                         </span>
                         {breakdownData?.poolYield ? (
                           <>
-                            <span className="text-base font-sans font-bold text-risk-low mt-1 tabular-nums">
+                            {/* Yield is not a risk band. Green here told the
+                                reader a high APY was safe, which is close to
+                                the opposite of true — the same mistake the
+                                Compass card had already corrected. */}
+                            <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
                               {breakdownData.poolYield.apy.toFixed(2)}%
                             </span>
                             <Sparkline data={breakdownData.poolYield.apySeries} stroke="var(--color-chart-series)" height={24} className="mt-1" />
