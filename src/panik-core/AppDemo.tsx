@@ -2496,11 +2496,23 @@ export function AppDemo() {
                           Risk index history
                           <InfoTip text="Aggregate PANIK score of this wallet over time, protocols weighted by collateral." />
                         </h3>
-                        {riskHistory && (
-                          <span className="text-lg font-sans font-bold tabular-nums text-text-primary">
-                            {riskHistory.series[riskHistory.series.length - 1]} / 100
-                          </span>
-                        )}
+                        {/* The delta, not the score. "57 / 100" is already the
+                            Aggregate risk index card two rows up, and the same
+                            figure printed twice reads as two metrics that happen
+                            to agree. Direction over the window is the one fact
+                            this card knows that the stat card cannot. */}
+                        {riskHistory && riskHistory.series.length > 1 && (() => {
+                          const s = riskHistory.series;
+                          const delta = Math.round(s[s.length - 1] - s[0]);
+                          const days = s.length - 1;
+                          return (
+                            <span className="text-xs font-sans tabular-nums text-text-secondary">
+                              {delta === 0
+                                ? `flat over ${days}d`
+                                : `${delta > 0 ? "up" : "down"} ${Math.abs(delta)} over ${days}d`}
+                            </span>
+                          );
+                        })()}
                       </div>
                       {riskHistory ? (
                         // Series colour is cool and fixed: repainting 30 days of history in
