@@ -239,8 +239,8 @@ export function ProtocolMarks({ protocols }: { protocols: string[] }) {
           <span key={p} className={active ? "" : "opacity-35 grayscale"}>
             <ProtocolLogo
               protocol={p}
-              size="w-9 h-9"
-              pad="p-1"
+              size="w-11 h-11"
+              pad="p-1.5"
               label={active ? `${p}, position held` : `${p}, covered, no position`}
             />
           </span>

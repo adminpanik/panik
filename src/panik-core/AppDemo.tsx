@@ -2395,7 +2395,7 @@ export function AppDemo() {
                              different props, which is a disagreement waiting
                              to happen. */
                           value={
-                            <span className="flex h-9 items-center">
+                            <span className="flex h-11 items-center">
                               <ProtocolMarks
                                 protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]}
                               />

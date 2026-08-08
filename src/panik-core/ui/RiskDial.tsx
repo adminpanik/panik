@@ -16,16 +16,17 @@ import { InfoTip } from "../components/InfoTip";
  * gauge is for. (Gauges deserve their bad reputation when the maximum is
  * arbitrary or the needle is decoration. Here 100 is a real ceiling.)
  *
- * Colour appears exactly ONCE per dial, on the arc. The numeral is
- * text-primary and the band word is text-secondary, both neutral ink. That is
- * deliberate on two counts: 18.1:1 beats the 4-5:1 a saturated numeral gets on
- * these surfaces, and it holds the page's colour budget flat — four rows still
- * spend four hued elements, the same as the four chips before them, rather
- * than three each.
+ * Colour appears exactly ONCE per dial, on the arc. The numeral is neutral ink:
+ * 18.1:1 beats the 4-5:1 a saturated numeral gets on these surfaces, and it
+ * holds the page's colour budget flat, four rows spending four hued elements
+ * rather than twelve.
  *
- * The band word is not optional decoration. A status is never allowed to be
- * carried by hue alone: at four rows the arcs are the fastest read for someone
- * who can see them, and the word is the whole message for someone who cannot.
+ * The band word sits in the explanation rather than under the dial. Severity is
+ * still not carried by hue alone, which WCAG 1.4.1 forbids: the numeral is the
+ * non-chromatic channel, and 19 against 75 says the same thing the words did.
+ * The accessible name still leads with "score N of 100, BAND", so a screen
+ * reader gets the label without the sighted reader paying for a caption under
+ * every row.
  */
 
 const SIZE = 44;
@@ -59,8 +60,7 @@ export function RiskDial({
 
   return (
     <InfoTip text={explanation} className="cursor-help rounded-full">
-      <span className="flex flex-col items-center gap-1">
-        <span className={`relative inline-flex shrink-0 ${RISK_TEXT[band]}`} style={{ width: SIZE, height: SIZE }}>
+      <span className={`relative inline-flex shrink-0 ${RISK_TEXT[band]}`} style={{ width: SIZE, height: SIZE }}>
           <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
             {/* Track. Recessive on purpose - it is the axis, not the datum. */}
             <circle
@@ -86,11 +86,9 @@ export function RiskDial({
               transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
             />
           </svg>
-          <span className="absolute inset-0 flex items-center justify-center text-sm font-sans font-bold tabular-nums text-text-primary">
-            {score}
-          </span>
+        <span className="absolute inset-0 flex items-center justify-center text-sm font-sans font-bold tabular-nums text-text-primary">
+          {score}
         </span>
-        <span className="text-2xs font-sans font-bold leading-none text-text-secondary">{band}</span>
       </span>
     </InfoTip>
   );
