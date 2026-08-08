@@ -14,8 +14,7 @@ import {
   RefreshCw, 
   Layers, 
   Wallet, 
-  HelpCircle, 
-  Sliders, 
+  Sliders,
   TrendingDown, 
   Cpu, 
   ShieldCheck,
@@ -109,17 +108,6 @@ const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
   { id: "advisor", label: "Advisor", icon: Sparkles },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
-
-/**
- * A risk-driver bar's band. Two cut points, three states, and the cut points
- * differ per driver — a health-factor sub-score turns amber at 40 and red at
- * 75, market stress at 40 and 70 — which is why this takes them as arguments
- * rather than reusing `bandOfScore`'s 25/50/75 composite ramp. It returns a
- * `Band` so the class lookup is still `RISK_TEXT` / `RISK_FILL` and no call
- * site ever types a colour.
- */
-const driverBand = (value: number, elevatedOver: number, criticalOver: number): Band =>
-  value > criticalOver ? "CRITICAL" : value > elevatedOver ? "ELEVATED" : "LOW";
 
 /**
  * The four weighted sub-scores behind a composite, in weight order, stated
@@ -1894,12 +1882,15 @@ export function AppDemo() {
                           </div>
 
                           <div className="flex items-baseline gap-2 mb-2">
-                            {/* The numeral takes its colour from the SAME band
-                                the chip beside it names. It used to re-derive
-                                one from the score with no HIGH branch, so a
-                                50-74 score rendered as a red numeral six pixels
-                                from an orange chip reading HIGH RISK. */}
-                            <span className={`text-4xl font-sans font-black tracking-tight tabular-nums ${RISK_TEXT[positionState.status]}`}>
+                            {/* Neutral ink, like every other figure in the
+                                product: `Stat`'s value, `RiskDial`'s numeral,
+                                Portfolio's 28px aggregate. A 40px saturated
+                                numeral is the single loudest thing a dashboard
+                                can emit, and it was saying exactly what the
+                                chip two inches to its right already says — in
+                                the same hue, so the page spent two coloured
+                                elements on one fact. The chip is the band. */}
+                            <span className="text-4xl font-sans font-black tracking-tight tabular-nums text-text-primary">
                               {positionState.riskScore}
                             </span>
                             <span className="text-xs font-sans text-text-muted tabular-nums">/ 100</span>
@@ -1979,13 +1970,27 @@ export function AppDemo() {
                                     {label}
                                     <InfoTip text={`${hint} ${weight}% of the score.`} />
                                   </span>
-                                  <span className={`font-bold tabular-nums ${RISK_TEXT[driverBand(value, 40, 70)]}`}>
+                                  <span className="font-bold tabular-nums text-text-primary">
                                     {value}%
                                   </span>
                                 </div>
+                                {/* Neutral fill, and the bar LENGTH is the
+                                    channel. These four are the parts of one
+                                    score, not four verdicts: the composite has
+                                    already been banded once, by the chip. The
+                                    ramp they used to carry was invented here
+                                    and inconsistently — two drivers cut at
+                                    40/75, one at 40/70, and the other two had
+                                    no bands at all but hard-coded blue and
+                                    green, which is how "Protocol risk 16%", a
+                                    good score, ended up drawn in the most
+                                    alarming colour the product owns.
+                                    `RiskDial` already settled this: it lists
+                                    the same four sub-scores in its explanation
+                                    with no hue on any of them. */}
                                 <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
                                   <div
-                                    className={`h-full rounded-full transition-all duration-300 ${RISK_FILL[driverBand(value, 40, 70)]}`}
+                                    className="h-full rounded-full bg-text-secondary transition-all duration-300"
                                     style={{ width: `${value}%` }}
                                   ></div>
                                 </div>
@@ -1993,12 +1998,14 @@ export function AppDemo() {
                             );
                           })}
                         </div>
-
-                        {/* Explanatory footer line inside bento block */}
-                        <div className="pt-2.5 flex items-center gap-1.5 text-2xs font-sans text-text-muted border-t border-border-subtle">
-                          <HelpCircle className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                          <span>Core parameters compiled from real-time pool triggers & volatility parameters.</span>
-                        </div>
+                        {/* "Core parameters compiled from real-time pool
+                            triggers & volatility parameters." used to close
+                            this block, behind a blue question mark — the only
+                            non-risk hue on the page. It said the word
+                            "parameters" twice and told the reader nothing they
+                            could act on; each driver's own InfoTip already
+                            names its inputs and its weight. Deleted, along with
+                            the blue. */}
                       </div>
                     </div>
 
@@ -2125,15 +2132,30 @@ export function AppDemo() {
                               <span className={`text-2xs font-sans font-bold ${active ? "text-text-primary" : "text-text-secondary"}`}>
                                 {s.label}
                               </span>
+                              {/* The scenario's magnitude, not a measurement
+                                  of anything. It defines which button this is
+                                  ("Crash" is -40%), so it reads as a label and
+                                  is inked like one. Painting it risk-critical
+                                  put three permanent red figures on the page
+                                  that would say -20/-40/-55 for a debt-free
+                                  position in no danger at all. */}
                               {s.pct !== 0 && (
-                                <span className="text-2xs font-sans text-risk-critical/80 tabular-nums">{Math.round(s.pct * 100)}%</span>
+                                <span className="text-2xs font-sans text-text-muted tabular-nums">{Math.round(s.pct * 100)}%</span>
                               )}
                             </div>
                             <span className="block text-2xs font-sans text-text-secondary mt-1 tabular-nums">
                               {formatCurrency(price)}
                               {borrowUsd > 0 && (
-                                <span className={`ml-1.5 font-bold tabular-nums ${liquidated ? "text-risk-critical" : estHf < 1.3 ? "text-risk-elevated" : "text-risk-low"}`}>
-                                  {liquidated ? "LIQUIDATED" : `HF ~${estHf.toFixed(2)}`}
+                                /* Colour survives on ONE branch. "Liquidated"
+                                   is a verdict — this scenario ends the
+                                   position — and it is the only thing in this
+                                   panel that is. The HF preview beside it is a
+                                   reading, so it is inked as one; it used to
+                                   run its own green/amber/red ramp cut at 1.3,
+                                   a fourth set of thresholds on a screen that
+                                   already had three. */
+                                <span className={`ml-1.5 font-bold tabular-nums ${liquidated ? "text-risk-critical" : "text-text-primary"}`}>
+                                  {liquidated ? "Liquidated" : `HF ~${estHf.toFixed(2)}`}
                                 </span>
                               )}
                             </span>
@@ -2193,9 +2215,14 @@ export function AppDemo() {
                             setAssetPrice(Math.max(0, Number(e.target.value)));
                             setActiveScenario("custom");
                           }}
-                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans focus:border-border-strong tabular-nums ${
-                            assetPrice < activeMarket.defaultPrice * 0.8 ? "text-risk-critical font-bold" : "text-text-primary"
-                          }`}
+                          /* Neutral. These three inputs used to repaint
+                             themselves red or amber once the value passed an
+                             arbitrary distance from the preset — a number the
+                             USER typed, styled as a risk band. What a
+                             simulated price means for this position is the
+                             score, the chip and the drop tile's job; the input
+                             is a control. */
+                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans text-text-primary focus:border-border-strong tabular-nums"
                           aria-label="Collateral asset price in USD"
                         />
                       </div>
@@ -2228,9 +2255,7 @@ export function AppDemo() {
                           step={activeMarket.defaultBorrow < 10 ? 0.1 : 50}
                           value={borrowAmount}
                           onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans focus:border-border-strong tabular-nums ${
-                            borrowAmount > activeMarket.defaultBorrow * 1.2 ? "text-risk-critical font-bold" : "text-text-primary"
-                          }`}
+                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans text-text-primary focus:border-border-strong tabular-nums"
                           aria-label="Borrowed amount"
                         />
                       </div>
@@ -2260,9 +2285,7 @@ export function AppDemo() {
                           step={0.005}
                           value={debtPrice}
                           onChange={(e) => setDebtPrice(Math.max(0, Number(e.target.value)))}
-                          className={`w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans focus:border-border-strong tabular-nums ${
-                            Math.abs(debtPrice - 1) > 0.02 ? "text-risk-elevated font-bold" : "text-text-primary"
-                          }`}
+                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans text-text-primary focus:border-border-strong tabular-nums"
                           aria-label="Borrowed asset price in USD"
                         />
                       </div>
