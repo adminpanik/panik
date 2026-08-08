@@ -44,10 +44,48 @@ lines, ever.** `/simpcommit` enforces this.
   were an artifact of missing type packages, not a real wagmi incompatibility.
   `strictNullChecks` is on. The CI ratchet still fails at >=4 and can now be replaced
   with a plain `npm run lint`.
-- `npm test` (144) and `npm run test:scoring` (212) must pass.
+- `npm test` (160) and `npm run test:scoring` (229) must pass.
 - Contracts: `cd contracts && forge test`. forge-std is a tracked submodule —
   `git clone --recursive` builds with no setup.
 - Report failures with their output. Never claim a command ran when it didn't.
+- **UI work has extra gates.** See the checklist in `docs/DESIGN_SYSTEM.md`. In short:
+  measure in a real browser rather than eyeballing — `scrollWidth === innerWidth` at
+  390/768/1024/1440/2000, zero console errors, count the risk-hued elements with a
+  computed-style scan, and confirm no text below 11px by measuring the DOM (not by
+  grepping source).
+
+## UI and design
+
+**Read `docs/DESIGN_SYSTEM.md` before building or redesigning any screen.** It is the
+product's design contract and it was written after PRs #12-#15 rebuilt the whole app UI,
+so most rules exist because their absence caused a specific, named bug.
+
+The parts that bite hardest:
+
+- **`src/index.css` `@theme` is the only place a value may be defined.** Everything else is
+  reset to `initial`, so an off-token utility renders as nothing. If you want a value that
+  is not there, that is a decision to raise, not a class to invent.
+- **Use the primitives in `src/panik-core/ui/`** (`Card`, `Stat`, `Button`, `RiskChip`,
+  `RiskDial`, `EmptyState`, `Skeleton`, `TabPanel`). `RISK_CHIP` in `lib/utils.ts` is the
+  single place a risk band becomes pixels.
+- **Colour is earned.** The risk ramp belongs to risk indicators only, a handful per screen.
+  Categorical data uses the cool chart palette, which contains no red or green so a series
+  can never read as a risk state. Never colour a stat value, a whole sentence, or a verb.
+- **No jargon and no engine enums in UI copy.** `ProfileStatus` values go through
+  `LIMIT_STATE`/`LIMIT_EVENT`; health factor goes through `liquidationOutlook`, which leads
+  with the price-drop buffer ("Liquidates if cbBTC falls 4.8%") and keeps the exact ratio in
+  the hover.
+- **Never render an unknown value as a zero.** No `$0`, `0%` or `Infinity%` standing in for
+  "unknown" or "not applicable" — a degraded feed once made a $120,000 debt read as $40.
+- **Never state a fact the code does not know.** No hardcoded status strings, no invented
+  trends, no two cards showing the same quantity with different numbers.
+- No em dashes in UI copy. No pulsing or live indicators. No text below 11px. No
+  hand-drawn SVG icons (Lucide only). No new runtime dependencies.
+
+`packages/scoring` owns scoring, money math and thresholds. If the UI needs a derived
+number, **export it from the engine** rather than recomputing it — and grep for an existing
+helper first. This branch shipped a second copy of `1 - 1/HF` that disagreed with the
+existing one on invalid input, which is exactly what that rule exists to prevent.
 
 ## Repo facts that bite
 
