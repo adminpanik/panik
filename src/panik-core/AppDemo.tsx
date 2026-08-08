@@ -963,6 +963,32 @@ export function AppDemo() {
     };
   }, [walletHistory]);
 
+  /**
+   * Y-domain for the risk history chart.
+   *
+   * Neither obvious choice works. The series' own min/max makes every window
+   * look equally dramatic, so a 2-point drift and a 20-point climb draw the
+   * same shape. A full 0-100 makes the line so flat you cannot see it cross
+   * anything, which is the one event the chart exists to show.
+   *
+   * So: fit the data, force the alert threshold into view (a chart that hides
+   * the line you are being measured against is pointless), pad by 15% of the
+   * span so nothing touches an edge, and snap to fives so the axis labels are
+   * numbers a person would choose. Clamped to the score's real 0-100 range.
+   */
+  const riskDomain = useMemo<[number, number] | undefined>(() => {
+    if (!riskHistory) return undefined;
+    const threshold = ALERT_THRESHOLD[selectedRiskProfile];
+    const lo = Math.min(...riskHistory.series, threshold);
+    const hi = Math.max(...riskHistory.series, threshold);
+    const pad = Math.max(4, (hi - lo) * 0.15);
+    const snap = 5;
+    return [
+      Math.max(0, Math.floor((lo - pad) / snap) * snap),
+      Math.min(100, Math.ceil((hi + pad) / snap) * snap),
+    ];
+  }, [riskHistory, selectedRiskProfile]);
+
   // Portfolio macro metrics from the SELECTED wallet's live positions
   const liveMacro = useMemo(() => {
     if (!portfolioPositions || portfolioPositions.length === 0) return null;
@@ -2524,7 +2550,7 @@ export function AppDemo() {
                           data={riskHistory.series}
                           height={110}
                           stroke="var(--color-chart-series)"
-                          domain={[0, 100]}
+                          domain={riskDomain}
                           reference={{
                             value: ALERT_THRESHOLD[selectedRiskProfile],
                             label: `alert ${ALERT_THRESHOLD[selectedRiskProfile]}`,
