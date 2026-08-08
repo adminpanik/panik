@@ -2157,7 +2157,11 @@ export function AppDemo() {
                                    run its own green/amber/red ramp cut at 1.3,
                                    a fourth set of thresholds on a screen that
                                    already had three. */
+                                /* Leading space, not just the margin: without
+                                   it the accessible text of this line is
+                                   "$1,667HF ~1.20". */
                                 <span className={`ml-1.5 font-bold tabular-nums ${liquidated ? "text-risk-critical" : "text-text-primary"}`}>
+                                  {" "}
                                   {liquidated ? "Liquidated" : `HF ~${estHf.toFixed(2)}`}
                                 </span>
                               )}
