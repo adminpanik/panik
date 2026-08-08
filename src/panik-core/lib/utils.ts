@@ -267,11 +267,24 @@ export function formatUsd(value: number | null): string {
   return `$${Math.round(value).toLocaleString("en-US")}`;
 }
 
-/** $36.27m / $609.9k style compact USD (TVL figures). */
+/**
+ * $36.3m / $214m / $610k style compact USD (TVL figures).
+ *
+ * One significant decimal, dropped when it is a zero. A pool holding $214m was
+ * rendering as "$214.00m": two digits that cannot change the reader's mind
+ * about anything, sitting in the same line as the APY they are there to
+ * qualify. "$0.00" precision on a nine-figure number reads as a template that
+ * forgot to be filled in, which is the same failure mode as the "APY 0.0%" it
+ * sat beside.
+ */
 export function formatCompactUsd(value: number): string {
   if (!Number.isFinite(value)) return "-";
-  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}b`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}m`;
-  if (value >= 1e3) return `$${(value / 1e3).toFixed(1)}k`;
+  const scaled = (divisor: number, suffix: string) => {
+    const n = value / divisor;
+    return `$${n.toFixed(1).replace(/\.0$/, "")}${suffix}`;
+  };
+  if (value >= 1e9) return scaled(1e9, "b");
+  if (value >= 1e6) return scaled(1e6, "m");
+  if (value >= 1e3) return scaled(1e3, "k");
   return `$${Math.round(value)}`;
 }
