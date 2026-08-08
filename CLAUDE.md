@@ -18,6 +18,20 @@ Run independent agents in ONE message so they work in parallel. Give each a
 disjoint file set — overlapping scopes cause merge conflicts. Use
 `isolation: "worktree"` when agents write files concurrently.
 
+**Never let two agents edit `AppDemo.tsx` at once.** It is one ~3400-line file holding
+all five tabs, so almost any UI task touches it. Sequence them.
+
+**When delegating UI work, restate the constraints in the prompt.** Do not rely on the
+agent opening `docs/DESIGN_SYSTEM.md` on its own. What made the rules hold in practice
+was naming them per task, with the numbers: which surface is the reference, the current
+risk-hued element count it must not exceed, and the exact verification commands with
+their expected output. Tell it to report the measured numbers back.
+
+**Verify returned work yourself.** Re-run the commands and read the diff — do not trust
+the report. Across the UI rebuild, agent reports were mostly accurate but the misses
+were the expensive kind: a duplicated money-math formula, a comment describing code that
+had since changed, and screenshots swept into a commit by `git add -A`.
+
 ## Branch and PR rules
 
 - Never commit to `main`. Never merge to `main` without explicit user consent —
