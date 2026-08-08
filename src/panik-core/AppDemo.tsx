@@ -44,6 +44,13 @@ import {
   RISK_FILL,
   RISK_TEXT,
 } from "./lib/utils";
+/**
+ * The user's alert level, from the engine rather than a literal. A VALUE import
+ * from `packages/scoring` — allowed here only because it is a DEEP import of
+ * `profile.ts`, whose sole import is type-only. The package barrel pulls viem
+ * and must never reach a browser bundle (see lib/live.ts).
+ */
+import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
 import { PositionState } from "./lib/types";
 import { LivePositions } from "./components/LivePositions";
 import { Sparkline } from "./components/Sparkline";
@@ -2487,7 +2494,12 @@ export function AppDemo() {
                         {riskHistory && riskHistory.series.length > 1 && (() => {
                           const s = riskHistory.series;
                           const delta = Math.round(s[s.length - 1] - s[0]);
-                          const days = s.length - 1;
+                          // The WINDOW, not the interval count. 30 daily points
+                          // span 29 intervals, and this header used to say "29d"
+                          // beside an x-axis reading "30d ago" — two defensible
+                          // numbers describing one chart, which reads as a bug.
+                          // `riskHistory.xStart` counts days the same way.
+                          const days = s.length;
                           return (
                             <span className="text-xs font-sans tabular-nums text-text-secondary">
                               {delta === 0
@@ -2501,10 +2513,22 @@ export function AppDemo() {
                         // Series colour is cool and fixed: repainting 30 days of history in
                         // today's band colour claims the whole series was that band. The
                         // current band is already stated in the chip above.
+                        // The axis is 0-100 because the SCORE is 0-100. Scaled to
+                        // its own min/max the line filled the card whatever it
+                        // did, and cropped out the two facts worth having: the
+                        // band boundaries, and the level at which PANIK starts
+                        // alerting this user. The threshold is the user's own,
+                        // read from their profile, and drawn as a neutral
+                        // annotation — not a fifth band colour.
                         <Sparkline
                           data={riskHistory.series}
                           height={110}
                           stroke="var(--color-chart-series)"
+                          domain={[0, 100]}
+                          reference={{
+                            value: ALERT_THRESHOLD[selectedRiskProfile],
+                            label: `alert ${ALERT_THRESHOLD[selectedRiskProfile]}`,
+                          }}
                           axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
                         />
                       ) : (
