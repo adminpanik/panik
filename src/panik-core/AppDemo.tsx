@@ -2703,8 +2703,15 @@ export function AppDemo() {
                   </div>
 
                   {/* Right column: the narrow pair. A legend and a feed are
-                      both lists; lists read better narrow than wide. */}
-                  <div className="lg:col-span-5 space-y-6">
+                      both lists; lists read better narrow than wide.
+
+                      `lg:flex lg:flex-col` so Alert history can take `flex-1`
+                      and absorb whatever slack the left column leaves. Grid
+                      items already stretch to the tallest row, so the two
+                      columns end level at any position count and any chart
+                      height, with no magic number to go stale. Below `lg` the
+                      cards stack and size to their content as normal. */}
+                  <div className="lg:col-span-5 space-y-6 lg:flex lg:flex-col lg:space-y-0 lg:gap-6">
                     {/* Asset allocation: the visual collateral breakdown. */}
                     <Card className="space-y-6">
                       <h3 className="text-sm font-sans font-semibold text-text-primary">
@@ -2746,9 +2753,17 @@ export function AppDemo() {
                       </div>
                     </Card>
 
-                    {/* Alert history (watch_transitions IS the alert log) */}
-                    <Card>
-                      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4">
+                    {/* Alert history (watch_transitions IS the alert log).
+
+                        `lg:flex-1 lg:min-h-0` plus an internal scroller: the
+                        card's height is set by the layout, never by how many
+                        alerts happen to exist. A feed that grows with its data
+                        cannot hold a column aligned, and a wallet with 200
+                        transitions would otherwise push the page to nothing but
+                        alerts. `min-h-0` is required or a flex child refuses to
+                        shrink below its content and the scroller never engages. */}
+                    <Card className="lg:flex-1 lg:min-h-0 lg:flex lg:flex-col">
+                      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4 shrink-0">
                         Alert history
                         <InfoTip text="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet." />
                       </h3>
@@ -2759,7 +2774,7 @@ export function AppDemo() {
                            asset-allocation legend. A hairline separates rows for
                            free; the border and the padding were paying for it
                            twice. */
-                        <div className="divide-y divide-border-subtle">
+                        <div className="divide-y divide-border-subtle lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
                           {walletHistory.alerts.slice(0, alertsShown).map((a, i) => {
                             const chip = deliveryChip(a.notify_channel);
                             const protocolLabel = LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol;
