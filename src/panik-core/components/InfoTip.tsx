@@ -13,8 +13,15 @@ import { HelpCircle } from "lucide-react";
  * so it never gets clipped by the cards' overflow-hidden containers, and
  * flips below the anchor near the top of the viewport. Keyboard-accessible
  * (focusable, shows on focus).
+ *
+ * `children` replaces the help glyph with a custom anchor, for the case where
+ * the thing being explained is itself the obvious hover target and a separate
+ * "?" beside it would be a second control for one idea. The anchor keeps the
+ * focus, the portal and the viewport flip either way — the alternative was a
+ * native `title`, which cannot be focused, cannot be styled, and does not
+ * appear for a keyboard user at all.
  */
-export function InfoTip(props: { text: string; className?: string }) {
+export function InfoTip(props: { text: string; className?: string; children?: React.ReactNode }) {
   const anchor = useRef<HTMLSpanElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; below: boolean } | null>(null);
 
@@ -37,7 +44,9 @@ export function InfoTip(props: { text: string; className?: string }) {
       onFocus={show}
       onBlur={hide}
     >
-      <HelpCircle className="w-3 h-3 text-text-muted hover:text-text-primary transition-colors cursor-help shrink-0" />
+      {props.children ?? (
+        <HelpCircle className="w-3 h-3 text-text-muted hover:text-text-primary transition-colors cursor-help shrink-0" />
+      )}
       {pos &&
         createPortal(
           <span

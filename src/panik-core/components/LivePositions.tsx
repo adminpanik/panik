@@ -11,7 +11,7 @@ import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
 import { formatUsd, RISK_CHIP } from "../lib/utils";
-import { Button, Card, EmptyState, RiskChip, Skeleton } from "../ui";
+import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
 const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
   aave_v3: "Aave V3",
@@ -97,11 +97,15 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
           {[0, 1].map((i) => (
             <div key={i} className="flex items-start gap-3 rounded-md border border-border-subtle bg-surface-raised/50 p-4">
               <Skeleton className="h-8 w-8 rounded-md" />
-              <div className="flex-1 space-y-2">
+              <div className="min-w-0 flex-1 space-y-2">
                 <Skeleton className="h-3.5 w-40" />
                 <Skeleton className="h-3 w-56" />
                 <Skeleton className="h-3 w-48" />
               </div>
+              {/* The rail is reserved while loading. A skeleton that omits it
+                  hands the real row a 44px shove sideways the moment data
+                  lands, which is the jump the skeleton exists to prevent. */}
+              <Skeleton className="h-11 w-11 shrink-0 rounded-full" />
             </div>
           ))}
           <p className="text-xs font-sans text-text-secondary">Reading positions from chain…</p>
@@ -132,10 +136,14 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                   {/* Line 1 — identity. The protocol never shrinks; only the
                       asset symbol may truncate, because "Aave V3" truncated to
                       "Aav…" is unreadable while "wstE…" is still placeable.
-                      It wraps rather than truncates first: on a phone this row
-                      is ~210px, and with the chip holding its width the symbol
-                      was being squeezed to a single pixel, so "cbBTC" rendered
-                      as nothing at all. The chip drops to its own line instead. */}
+
+                      The score is no longer competing for the end of this line.
+                      It used to be a chip here, which is why the line needed to
+                      wrap: chip plus protocol plus symbol plus address did not
+                      fit a ~210px phone row, and the symbol was the thing that
+                      got squeezed to nothing. With the score moved to its own
+                      rail, this line is three short strings and stays one line
+                      on every width. */}
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
                       {PROTOCOL_NAME[p.protocol]}
@@ -148,13 +156,6 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                         {p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}
                       </span>
                     )}
-                    <RiskChip
-                      className={showWallet ? "" : "ml-auto"}
-                      band={p.band}
-                      title={`Sub-scores: position ${Math.round(p.subScores.positionHealth)}, asset ${Math.round(p.subScores.assetRisk)}, protocol ${Math.round(p.subScores.protocolSafety)}, systemic ${Math.round(p.subScores.systemicRisk)}`}
-                    >
-                      {p.total} {p.band}
-                    </RiskChip>
                   </div>
 
                   {/* Line 2 — magnitudes, and the reason this row exists.
@@ -244,39 +245,50 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       are missing. The icon moved up into the block on line 2 —
                       it was the same warning twice, six pixels apart.
 
-                      The Stress-test button drops to its own line rather than
-                      squeezing this sentence. On a 390px phone the row has
-                      ~242px and the button takes ~110 of it, which left the
-                      verdict reading four words to a line down a 130px gutter —
-                      raising the type would have bought nothing if the column
-                      it sits in stays that narrow. `basis` is the trigger: the
-                      sentence claims 12rem before the button is allowed to
-                      share the line, and above that width nothing moves. */}
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">
-                    <p className="min-w-0 flex-1 basis-48 text-sm font-sans text-text-secondary">
-                      <span className="tabular-nums">{health}</span>, {status}
-                      {p.usdValuesUnavailable && (
-                        <span
-                          className="mt-1 block text-text-secondary"
-                          title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score are unaffected; only the dollar amounts are unknown."
-                        >
-                          <strong className="font-semibold text-text-primary">Prices degraded</strong>
-                          {": the score and health factor above are exact. Only the dollar amounts are unknown."}
-                        </span>
-                      )}
-                    </p>
-                    {onStressTest && (
-                      <Button
-                        variant="quiet"
-                        onClick={() => onStressTest(p)}
-                        title="Stress-test this position in Watch"
-                        className="shrink-0 px-2 py-1 font-normal"
+                      The verdict now gets the full column width. The
+                      Stress-test button used to sit at the end of this line and
+                      then, when that crushed the sentence, on a line of its
+                      own below it — both of which were the same problem, which
+                      is that a secondary action was being laid out inside a
+                      block of prose. It lives on the rail now, with the score
+                      it acts on. */}
+                  <p className="text-sm font-sans text-text-secondary">
+                    <span className="tabular-nums">{health}</span>, {status}
+                    {p.usdValuesUnavailable && (
+                      <span
+                        className="mt-1 block text-text-secondary"
+                        title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score are unaffected; only the dollar amounts are unknown."
                       >
-                        <SlidersHorizontal className="h-3 w-3" />
-                        Stress-test
-                      </Button>
+                        <strong className="font-semibold text-text-primary">Prices degraded</strong>
+                        {": the score and health factor above are exact. Only the dollar amounts are unknown."}
+                      </span>
                     )}
-                  </div>
+                  </p>
+                </div>
+
+                {/* Right rail — the score, and the one thing you can do about
+                    it. Grouping them is the point: "this is 75" and "simulate
+                    75 under a price move" are one thought, and they were at
+                    opposite corners of the row.
+
+                    Icon-only, because the rail is as wide as the dial (44px)
+                    and a 110px labelled button would have taken a quarter of a
+                    390px row away from the figures. It keeps its name for
+                    everything that is not a sighted mouse user: `title` for the
+                    tooltip, `aria-label` for the accessibility tree. */}
+                <div className="flex shrink-0 flex-col items-center gap-2">
+                  <RiskDial score={p.total} band={p.band} subScores={p.subScores} />
+                  {onStressTest && (
+                    <Button
+                      variant="quiet"
+                      onClick={() => onStressTest(p)}
+                      title="Stress-test this position in Watch"
+                      aria-label={`Stress-test the ${PROTOCOL_NAME[p.protocol]} position in Watch`}
+                      className="px-1.5 py-1"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               </li>
             );
