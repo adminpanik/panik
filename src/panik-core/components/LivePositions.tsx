@@ -10,7 +10,7 @@ import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
-import { formatUsd, RISK_CHIP } from "../lib/utils";
+import { formatUsd, limitStateCopy, RISK_CHIP } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
 const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
@@ -21,18 +21,19 @@ const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
 };
 
 /**
- * Line 3 is a sentence, and a sentence does not get painted. Both halves used
- * to carry the risk ramp, so a single row could show red prose, a red chip and
- * a red numeral for one fact stated once. The chip on line 1 is the band; this
- * line is the reason, and reasons read better in muted grey.
+ * Line 3's second clause comes from `limitStateCopy` in lib/utils, shared with
+ * the alert log so both surfaces name the same three states the same way.
  *
- * Lower-case: this is a clause inside a sentence, not a label.
+ * It used to be retyped here as "outside your profile" / "approaching your
+ * limit" / "within your profile" — three strings that each embedded the raw
+ * `ProfileStatus` token they were translating, which is how "approaching"
+ * ended up being read as an internal value rather than a word.
+ *
+ * A sentence does not get painted. Both halves used to carry the risk ramp, so
+ * a single row could show red prose, a red dial and a red numeral for one fact
+ * stated once. The dial on the rail is the band; this line is the reason, and
+ * reasons read better in muted grey.
  */
-function statusCopy(p: LiveWalletPosition): string {
-  if (p.profileStatus === "outside") return "outside your profile";
-  if (p.profileStatus === "approaching") return "approaching your limit";
-  return "within your profile";
-}
 
 /** No debt is not the same as a healthy ratio: there is no ratio to report. */
 function healthCopy(p: LiveWalletPosition): string {
@@ -123,7 +124,7 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
       {positions !== null && positions.length > 0 && (
         <ul className="space-y-3">
           {(positions ?? []).map((p) => {
-            const status = statusCopy(p);
+            const status = limitStateCopy(p.profileStatus);
             const health = healthCopy(p);
             return (
               <li
@@ -202,11 +203,32 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       hand-written copy this replaced had reintroduced exactly
                       that fill. A contrast decision that lives in one file and
                       is re-typed in another is a decision that only holds
-                      until someone types it slightly differently. */}
+                      until someone types it slightly differently.
+
+                      This marker is now the ONLY place the degraded state is
+                      stated. It used to be said three times in one row — here,
+                      again in line 3's clause, and a third time in a bolded
+                      "Prices degraded:" paragraph under it — which made the one
+                      row carrying a caveat the tallest and busiest thing on the
+                      page, 159px against its siblings' 117px. Three
+                      restatements of one condition do not make it three times
+                      as clear; they make the row look broken.
+
+                      So the marker keeps the four distinctness axes (shape,
+                      colour, icon, words) and takes the explanation onto its
+                      own hover, where the row's other recoverable detail
+                      already lives. `cursor-help` is what advertises that the
+                      hover exists; without it a `title` is a secret.
+
+                      Vertical padding is `py-0.5`, not `py-1`: this block
+                      stands in for the money line on every other row, and the
+                      row is only the same height as its siblings if its
+                      substitute is the same height as what it replaces. */}
                   {p.usdValuesUnavailable ? (
                     <div className="flex">
                       <span
-                        className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
+                        title="A price feed this position's USD conversion depends on was missing or stale. The PANIK score and health factor are unaffected - they are ratios - so only the dollar amounts are unknown."
+                        className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
                       >
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         USD amounts unavailable
@@ -237,13 +259,14 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       Secondary is the right COLOUR (it is prose, and prose does
                       not compete with figures); 12px was the wrong size for it.
 
-                      The "Prices degraded" explanation stays, and it now says
-                      what it means in the open rather than only in a `title`
-                      nobody hovers. That clause is the whole answer to the
-                      question the old "$…" provoked: the score and the health
-                      factor above it are exact, and it is only the dollars that
-                      are missing. The icon moved up into the block on line 2 —
-                      it was the same warning twice, six pixels apart.
+                      One sentence, the SAME sentence, on every row — including
+                      the degraded one. The "Prices degraded: the score and
+                      health factor above are exact…" paragraph that used to
+                      hang off this line was a third statement of what the
+                      marker on line 2 already says with a shape, a colour, an
+                      icon and four words. It now lives on that marker's hover:
+                      the fact is not lost, it is just no longer shouted three
+                      times at the one user who is already looking at a warning.
 
                       The verdict now gets the full column width. The
                       Stress-test button used to sit at the end of this line and
@@ -254,15 +277,6 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       it acts on. */}
                   <p className="text-sm font-sans text-text-secondary">
                     <span className="tabular-nums">{health}</span>, {status}
-                    {p.usdValuesUnavailable && (
-                      <span
-                        className="mt-1 block text-text-secondary"
-                        title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score are unaffected; only the dollar amounts are unknown."
-                      >
-                        <strong className="font-semibold text-text-primary">Prices degraded</strong>
-                        {": the score and health factor above are exact. Only the dollar amounts are unknown."}
-                      </span>
-                    )}
                   </p>
                 </div>
 
