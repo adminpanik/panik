@@ -7,7 +7,6 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { 
   ShieldAlert,
   AlertTriangle,
-  Activity,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
@@ -1205,7 +1204,11 @@ export function AppDemo() {
           protocol: LIVE_PROTOCOL_LABEL[pos.protocol],
           engineProtocol: pos.protocol,
           collateralSymbol: pos.scoredCollateralSymbol,
-          assetPair: `${pos.scoredCollateralSymbol} / USDC · YOUR POSITION`,
+          // No "· YOUR POSITION" suffix: the eyebrow above the Watch heading
+          // already says whose position this is, and the heading was rendering
+          // "Aave V3 · wstETH / USDC · YOUR POSITION" under a label reading
+          // "YOUR POSITION · SCORED ON-CHAIN".
+          assetPair: `${pos.scoredCollateralSymbol} / USDC`,
           collateralAsset: pos.scoredCollateralSymbol,
           debtAsset: "USDC",
           // Degraded legs have no USD magnitude to anchor the simulator with;
@@ -1746,8 +1749,12 @@ export function AppDemo() {
                           wallet's real on-chain positions; Recommendations lists
                           the Compass preset catalog. */}
                       <div className="relative" ref={watchDropRef}>
-                        <span className="block text-2xs font-sans text-text-primary mb-1">
-                          {watchingOwnPosition ? "YOUR POSITION · SCORED ON-CHAIN" : "POSITION SIMULATOR · MARKET"}
+                        {/* Sentence case, and two words. The uppercase
+                            letter-spaced style was retired everywhere else in
+                            the app, and "SCORED ON-CHAIN" was provenance the
+                            risk index's own InfoTip states properly. */}
+                        <span className="block text-2xs font-sans text-text-muted mb-1">
+                          {watchingOwnPosition ? "Your position" : "Simulated market"}
                         </span>
                         <button
                           id="watch-market-selector"
@@ -1875,9 +1882,11 @@ export function AppDemo() {
                       {/* Left: Score display & interpretation */}
                       <div className="flex-1 xl:max-w-[280px] flex flex-col justify-between">
                         <div>
-                          <div className="flex items-center gap-1.5 text-text-muted font-sans text-2xs mb-2">
-                            <Activity className="w-3.5 h-3.5 text-text-primary shrink-0" />
-                            <span>Panik risk index</span>
+                          {/* No icon. Portfolio's stat labels carry none, and a
+                              generic pulse glyph beside the words "risk index"
+                              adds no information the words are missing. */}
+                          <div className="flex items-center gap-1 text-text-muted font-sans text-2xs mb-2">
+                            <span>Risk index</span>
                             <InfoTip text="0-100 composite of position health, asset risk, protocol safety, and market stress. Higher means closer to liquidation; your risk profile sets where alerts fire." />
                           </div>
 
@@ -1952,7 +1961,7 @@ export function AppDemo() {
                       {/* Right: Top Risk Drivers section */}
                       <div className="flex-1 min-w-0 border-t xl:border-t-0 xl:border-l border-border-subtle pt-4 xl:pt-0 xl:pl-6 space-y-4">
                         <span className="block text-2xs font-sans text-text-muted select-none">
-                          Top risk drivers
+                          Score breakdown
                         </span>
 
                         {/* One row per driver, from RISK_DRIVERS. The four
@@ -2169,13 +2178,13 @@ export function AppDemo() {
                   {/* Advanced parameters (#4): direct inputs for amounts + prices */}
                   <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-4">
                     <span className="text-2xs font-sans text-text-primary block border-b border-border-subtle pb-2">
-                       Simulate fluctuation parameters
+                      Adjust the position
                     </span>
 
                     {/* Collateral amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
-                        <span>Collateral deposited ({activeMarket.collateralAsset}):</span>
+                        <span>Collateral ({activeMarket.collateralAsset})</span>
                         <input
                           type="number"
                           min={0}
@@ -2197,15 +2206,15 @@ export function AppDemo() {
                         id="watch-collateral-slider"
                       />
                       <div className="flex justify-between text-xs font-sans text-text-muted">
-                        <span>Withdrawn (0)</span>
-                        <span>Topped up (2.5x) - worth {formatCurrency(collateralAmount * assetPrice)}</span>
+                        <span>0</span>
+                        <span>2.5x, worth {formatCurrency(collateralAmount * assetPrice)}</span>
                       </div>
                     </div>
 
                     {/* Collateral price */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
-                        <span>Collateral asset price ({activeMarket.collateralAsset}):</span>
+                        <span>{activeMarket.collateralAsset} price</span>
                         <input
                           type="number"
                           min={0}
@@ -2240,15 +2249,15 @@ export function AppDemo() {
                         id="watch-price-slider"
                       />
                       <div className="flex justify-between text-xs font-sans text-text-muted">
-                        <span>Minus -60% Downside ({formatCurrency(activeMarket.defaultPrice * 0.4)})</span>
-                        <span>Plus +30% Upside ({formatCurrency(activeMarket.defaultPrice * 1.3)})</span>
+                        <span>-60% ({formatCurrency(activeMarket.defaultPrice * 0.4)})</span>
+                        <span>+30% ({formatCurrency(activeMarket.defaultPrice * 1.3)})</span>
                       </div>
                     </div>
 
                     {/* Borrowed amount */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
-                        <span>Borrowed amount ({activeMarket.debtAsset}):</span>
+                        <span>Borrowed ({activeMarket.debtAsset})</span>
                         <input
                           type="number"
                           min={0}
@@ -2270,15 +2279,15 @@ export function AppDemo() {
                         id="watch-borrow-slider"
                       />
                       <div className="flex justify-between text-xs font-sans text-text-muted">
-                        <span>Fully repaid (0)</span>
-                        <span>Leveraged (+60% debt)</span>
+                        <span>0</span>
+                        <span>+60% debt</span>
                       </div>
                     </div>
 
                     {/* Borrowed asset price (depeg scenarios) */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
-                        <span>Borrowed asset price ({activeMarket.debtAsset}):</span>
+                        <span>{activeMarket.debtAsset} price</span>
                         <input
                           type="number"
                           min={0}
@@ -2300,8 +2309,8 @@ export function AppDemo() {
                         id="watch-debt-price-slider"
                       />
                       <div className="flex justify-between text-xs font-sans text-text-muted">
-                        <span>Depeg ($0.85 - USDC hit $0.87 in Mar 2023)</span>
-                        <span>Premium ($1.05)</span>
+                        <span title="USDC fell to $0.87 during the SVB weekend in March 2023." className="cursor-help">$0.85 depeg</span>
+                        <span>$1.05 premium</span>
                       </div>
                     </div>
                   </div>
