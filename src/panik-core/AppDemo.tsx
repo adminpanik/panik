@@ -7,8 +7,10 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { 
   ShieldAlert,
   AlertTriangle,
-  Activity, 
-  ArrowLeft, 
+  Activity,
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
   RefreshCw, 
   Layers, 
   Wallet, 
@@ -1352,9 +1354,21 @@ export function AppDemo() {
       }
     : calculateResult();
 
-  // Dynamic parameters for redesigned Panik Risk Index
-  const diff = positionState.riskScore - activeMarket.baseRisk;
-  const trendNum = diff !== 0 ? diff : (positionState.riskScore >= 75 ? 14 : positionState.riskScore >= 50 ? 9 : positionState.riskScore >= 25 ? 6 : -2);
+  /**
+   * How far the simulation has moved the score away from the real thing.
+   *
+   * This used to render as "+24 in the last 24 hours", which was not a claim
+   * this value could support: it is `simulated score - the live score of the
+   * position or market being simulated`, so it measures the SLIDERS, not time.
+   * Nothing on this screen reads a 24-hour history, and the branch behind it
+   * was worse — when the difference was genuinely zero it substituted a
+   * hard-coded 14 / 9 / 6 / -2 by band, inventing a movement that had not
+   * happened so the line would never look empty.
+   *
+   * A line with nothing to say now says nothing (see the render), which is the
+   * only honest rendering of "the simulation matches reality".
+   */
+  const scoreDelta = positionState.riskScore - activeMarket.baseRisk;
 
   // LIVE chain telemetry: real Base gas price via the API (the previous
   // random-walk simulation is gone). The block number arrives on the same poll
@@ -1899,20 +1913,24 @@ export function AppDemo() {
 
                         {/* Plain language summary & trend indicators */}
                         <div className="mt-3 pt-3 border-t border-border-subtle space-y-2.5">
-                          <div className="flex items-center gap-1.5 font-sans text-2xs">
-                            {trendNum > 0 ? (
-                              <span className="text-risk-elevated font-bold flex items-center gap-1">
-                                <span>▲</span>
-                                <span>+{trendNum} in the last 24 hours</span>
-                              </span>
-                            ) : (
-                              <span className="text-risk-low font-bold flex items-center gap-1">
-                                <span>▼</span>
-                                <span>{trendNum} in the last 24 hours</span>
-                              </span>
-                            )}
-                          </div>
-                          
+                          {/* Absent when the simulation sits on the real
+                              numbers: there is then no delta, and a zero
+                              dressed up as a trend is what the fabricated
+                              fallback used to emit. Neutral ink — the arrow
+                              says the direction and the band is already stated
+                              once, by the chip six pixels above. */}
+                          {scoreDelta !== 0 && (
+                            <p className="flex items-center gap-1 font-sans text-2xs text-text-secondary tabular-nums">
+                              {scoreDelta > 0 ? (
+                                <ArrowUp className="w-3 h-3 shrink-0" aria-hidden="true" />
+                              ) : (
+                                <ArrowDown className="w-3 h-3 shrink-0" aria-hidden="true" />
+                              )}
+                              {scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta} vs{" "}
+                              {watchingOwnPosition ? "your position" : "this market"} now
+                            </p>
+                          )}
+
                           <p className="text-2xs text-text-secondary leading-relaxed font-sans">
                             {/* One clause each. These are verdicts, and a verdict
                                 that needs two sentences is not a verdict. The
