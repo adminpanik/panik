@@ -29,6 +29,13 @@ export interface SubScores {
 
 export type LiveProtocol = "aave_v3" | "moonwell" | "morpho" | "compound_v3";
 
+/**
+ * Where a position sits relative to the limit the user's risk profile sets
+ * (packages/scoring, `profile.ts`). An INTERNAL enum and a database column —
+ * never a string to render. `lib/utils.ts` owns the two English phrasings.
+ */
+export type ProfileStatus = "within" | "approaching" | "outside";
+
 export interface LiveWalletPosition {
   protocol: LiveProtocol;
   wallet: string;
@@ -48,7 +55,7 @@ export interface LiveWalletPosition {
   scoredCollateralSymbol: string;
   label: string | null;
   riskProfile: string;
-  profileStatus: "within" | "approaching" | "outside";
+  profileStatus: ProfileStatus;
 }
 
 export interface CompassLiveScore {
@@ -177,8 +184,9 @@ export interface HistoryAlert {
   risk_profile: string;
   score: number;
   band: Band;
+  /** Loose on purpose: this is whatever the DB row holds, including older values. */
   from_status: string | null;
-  to_status: "within" | "approaching" | "outside";
+  to_status: ProfileStatus;
   notify_channel: string | null;
   notified_at: string | null;
   created_at: string;

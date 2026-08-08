@@ -38,6 +38,8 @@ import {
   formatCompactUsd,
   formatCurrency,
   formatUsd,
+  limitEventCopy,
+  limitStateCopy,
   RISK_CHIP,
   RISK_FILL,
   RISK_TEXT,
@@ -269,8 +271,9 @@ const NOTIFY_CHANNEL_CHIP: Record<string, { label: string; cls: string }> = {
  * matters — the alert that did not reach you — has to compete with it.
  *
  * `telegram` is delivery succeeding. `skipped` is a recovery, where the row's
- * own "→ within" already says there was nothing to send. Everything else still
- * renders: queued, both suppressions, blocked, and any channel we do not know.
+ * own "back under your risk limit" already says there was nothing to send.
+ * Everything else still renders: queued, both suppressions, blocked, and any
+ * channel we do not know.
  * Silence here means "PANIK reached you", so nothing that failed can borrow it.
  */
 const DELIVERY_SILENT = new Set(["telegram", "skipped"]);
@@ -1218,7 +1221,7 @@ export function AppDemo() {
                   {RISK_TIER_LABELS[riskTier]}
                 </button>
                 <InfoTip
-                  text={`Your risk profile, from the onboarding questions. It sets the limit each position is measured against, so it decides which positions read as "outside your profile" and when PANIK alerts you. Click it to retake the questions.`}
+                  text={`Your risk profile, from the onboarding questions. It sets the limit each position is measured against, so it decides which positions read as "over your risk limit" and when PANIK alerts you. Click it to retake the questions.`}
                 />
               </span>
             )}
@@ -2588,26 +2591,38 @@ export function AppDemo() {
                                  `score 51 (HIGH)` went the same way: the band is
                                  a pure function of the score, and the score at the
                                  moment of transition is detail, not headline — the
-                                 transition already names which side of the user's
-                                 limit the position landed on. Kept on hover so the
-                                 number is recoverable without being in the scan. */
+                                 event already names which side of the user's limit
+                                 the position landed on. Kept on hover so the
+                                 number is recoverable without being in the scan.
+
+                                 The ORIGIN status joined it there. `approaching →
+                                 outside` was two internal enum values and an arrow
+                                 — a state-machine dump on the one card whose job
+                                 is to say what happened to someone's money. What
+                                 happened is the destination; where it came from is
+                                 detail, and detail belongs in the hover with the
+                                 score. */
                               <div
                                 key={`${a.created_at}-${i}`}
                                 className="flex items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
-                                title={`PANIK score ${a.score} (${a.band})`}
+                                title={`PANIK score ${a.score} (${a.band}). ${
+                                  a.from_status
+                                    ? `Previously ${limitStateCopy(a.from_status)}.`
+                                    : "First reading recorded for this position."
+                                }`}
                               >
                                 {/* Wraps rather than truncates: this line is
-                                    "which protocol" plus "which way it moved",
+                                    "which protocol" plus "what happened to it",
                                     and clipping it kept the protocol while eating
-                                    the direction, which is the half that says
-                                    whether things got worse. */}
+                                    the event, which is the half that says whether
+                                    things got worse. */}
                                 <span className="min-w-0 text-xs font-sans font-bold text-text-primary">
                                   {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
-                                  <span className="text-text-secondary font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
+                                  <span className="text-text-secondary font-normal"> {limitEventCopy(a.to_status)}</span>
                                   {/* The space is load-bearing: `ml-1` is margin,
                                       not whitespace, so without it a screen
-                                      reader and every text scrape run the
-                                      transition into the chip ("outsideQueued"). */}
+                                      reader and every text scrape run the event
+                                      into the chip ("risk limitQueued"). */}
                                   {chip && (
                                     <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
                                       {chip.label}
