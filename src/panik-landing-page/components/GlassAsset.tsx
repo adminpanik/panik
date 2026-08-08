@@ -79,7 +79,7 @@ export function GlassAsset({
   duration = 9,
   delay = 0,
   parallax = 0,
-  glow = "rgba(249, 115, 22, 0.30)",
+  glow = "rgb(from var(--color-panik-orange) r g b / 0.30)",
   opacity = 1,
   blend = "screen",
 }: GlassAssetProps) {

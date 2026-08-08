@@ -48,15 +48,15 @@ export function RiskVisualization() {
   };
 
   const getActiveColor = () => {
-    if (activeTab === "CALM") return "#22C55E";
-    if (activeTab === "LIQUIDITY") return "#F59E0B";
-    return "#DC2626";
+    if (activeTab === "CALM") return "var(--color-risk-low)";
+    if (activeTab === "LIQUIDITY") return "var(--color-risk-elevated)";
+    return "var(--color-risk-critical)";
   };
 
   const getBorderColor = () => {
-    if (activeTab === "CALM") return "rgba(34,197,94,0.40)";
-    if (activeTab === "LIQUIDITY") return "rgba(245,158,11,0.40)";
-    return "rgba(220,38,38,0.40)";
+    if (activeTab === "CALM") return "rgb(from var(--color-risk-low) r g b / 0.40)";
+    if (activeTab === "LIQUIDITY") return "rgb(from var(--color-risk-elevated) r g b / 0.40)";
+    return "rgb(from var(--color-risk-critical) r g b / 0.40)";
   };
 
   const getSummary = () => {
@@ -86,11 +86,11 @@ export function RiskVisualization() {
     >
       <style dangerouslySetInnerHTML={{ __html: `
         .re-section-wrapper {
-          background-color: #09090B;
+          background-color: var(--color-surface-base);
           padding: 120px 24px;
           width: 100%;
           overflow: hidden;
-          color: #F8FAFC;
+          color: var(--color-text-primary);
           box-sizing: border-box;
         }
         .re-container {
@@ -113,7 +113,7 @@ export function RiskVisualization() {
           font-family: 'JetBrains Mono', monospace;
           font-size: 11px;
           font-weight: 500;
-          color: #F97316;
+          color: var(--color-panik-orange);
           text-transform: uppercase;
           letter-spacing: 0.09em;
           margin-bottom: 16px;
@@ -123,7 +123,7 @@ export function RiskVisualization() {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
           font-size: 48px;
           font-weight: 700;
-          color: #F8FAFC;
+          color: var(--color-text-primary);
           letter-spacing: -0.02em;
           line-height: 1.1;
           margin: 0 0 20px 0;
@@ -132,7 +132,7 @@ export function RiskVisualization() {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
           font-size: 17px;
           font-weight: 400;
-          color: #94A3B8;
+          color: var(--color-text-secondary);
           line-height: 1.7;
           margin: 0 0 56px 0;
           text-align: center;
@@ -156,7 +156,7 @@ export function RiskVisualization() {
           background: transparent;
           border: none;
           border-radius: 7px;
-          color: #475569;
+          color: var(--color-text-muted);
           font-family: 'JetBrains Mono', monospace;
           font-size: 11px;
           font-weight: 500;
@@ -168,13 +168,13 @@ export function RiskVisualization() {
           line-height: 1;
         }
         .re-tab-btn:hover {
-          color: #94A3B8;
+          color: var(--color-text-secondary);
           background: rgba(255,255,255,0.04);
         }
         .re-tab-btn.re-active {
-          background: rgba(249,115,22,0.12);
-          border: 0.5px solid rgba(249,115,22,0.30);
-          color: #F97316;
+          background: rgb(from var(--color-panik-orange) r g b / 0.12);
+          border: 0.5px solid rgb(from var(--color-panik-orange) r g b / 0.30);
+          color: var(--color-panik-orange);
         }
         
         /* Part 5 - Two-Column Panel */
@@ -199,7 +199,7 @@ export function RiskVisualization() {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
           font-size: 20px;
           font-weight: 600;
-          color: #F8FAFC;
+          color: var(--color-text-primary);
           margin: 0 0 6px 0;
           line-height: 1.2;
         }
@@ -207,7 +207,7 @@ export function RiskVisualization() {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
           font-size: 14px;
           font-weight: 400;
-          color: #94A3B8;
+          color: var(--color-text-secondary);
           margin: 0 0 28px 0;
           line-height: 1.4;
         }
@@ -262,52 +262,52 @@ export function RiskVisualization() {
         .re-signal-desc {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
           font-size: 13px;
-          color: #94A3B8;
+          color: var(--color-text-secondary);
           line-height: 1.5;
           margin: 0;
         }
         
         /* Row Variants */
         .re-signal-row.re-protocol {
-          background: rgba(20,184,166,0.05);
-          border: 0.5px solid rgba(20,184,166,0.15);
+          background: rgb(from var(--color-risk-low) r g b / 0.05);
+          border: 0.5px solid rgb(from var(--color-risk-low) r g b / 0.15);
         }
         .re-signal-row.re-protocol .re-signal-accent {
-          background-color: #14B8A6;
+          background-color: var(--color-risk-low);
         }
         .re-signal-row.re-protocol .re-signal-dot {
-          background-color: #14B8A6;
+          background-color: var(--color-risk-low);
         }
         .re-signal-row.re-protocol .re-signal-title {
-          color: #14B8A6;
+          color: var(--color-risk-low);
         }
         
         .re-signal-row.re-pool {
-          background: rgba(245,158,11,0.05);
-          border: 0.5px solid rgba(245,158,11,0.15);
+          background: rgb(from var(--color-risk-elevated) r g b / 0.05);
+          border: 0.5px solid rgb(from var(--color-risk-elevated) r g b / 0.15);
         }
         .re-signal-row.re-pool .re-signal-accent {
-          background-color: #F59E0B;
+          background-color: var(--color-risk-elevated);
         }
         .re-signal-row.re-pool .re-signal-dot {
-          background-color: #F59E0B;
+          background-color: var(--color-risk-elevated);
         }
         .re-signal-row.re-pool .re-signal-title {
-          color: #F59E0B;
+          color: var(--color-risk-elevated);
         }
         
         .re-signal-row.re-position {
-          background: rgba(249,115,22,0.05);
-          border: 0.5px solid rgba(249,115,22,0.15);
+          background: rgb(from var(--color-panik-orange) r g b / 0.05);
+          border: 0.5px solid rgb(from var(--color-panik-orange) r g b / 0.15);
         }
         .re-signal-row.re-position .re-signal-accent {
-          background-color: #F97316;
+          background-color: var(--color-panik-orange);
         }
         .re-signal-row.re-position .re-signal-dot {
-          background-color: #F97316;
+          background-color: var(--color-panik-orange);
         }
         .re-signal-row.re-position .re-signal-title {
-          color: #F97316;
+          color: var(--color-panik-orange);
         }
         
         /* Connector chevron / arrow */
@@ -374,18 +374,18 @@ export function RiskVisualization() {
           height: 100%;
         }
         .re-score-bar-segment:nth-child(1) {
-          background-color: #22C55E;
+          background-color: var(--color-risk-low);
           border-top-left-radius: 3px;
           border-bottom-left-radius: 3px;
         }
         .re-score-bar-segment:nth-child(2) {
-          background-color: #F59E0B;
+          background-color: var(--color-risk-elevated);
         }
         .re-score-bar-segment:nth-child(3) {
-          background-color: #EF4444;
+          background-color: var(--color-risk-critical);
         }
         .re-score-bar-segment:nth-child(4) {
-          background-color: #DC2626;
+          background-color: var(--color-risk-critical);
           border-top-right-radius: 3px;
           border-bottom-right-radius: 3px;
         }
@@ -415,16 +415,16 @@ export function RiskVisualization() {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
           font-size: 14px;
           font-weight: 400;
-          color: #94A3B8;
+          color: var(--color-text-secondary);
           line-height: 1.75;
           margin: 0;
         }
         
         /* Critical state glowing */
         .re-card.re-card-critical {
-          border-color: rgba(220, 38, 38, 0.2);
-          box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.12),
-                      0 4px 24px rgba(220, 38, 38, 0.08);
+          border-color: rgb(from var(--color-risk-critical) r g b / 0.2);
+          box-shadow: 0 0 0 1px rgb(from var(--color-risk-critical) r g b / 0.12),
+                      0 4px 24px rgb(from var(--color-risk-critical) r g b / 0.08);
         }
         
         /* Bottom Caption */
@@ -432,7 +432,7 @@ export function RiskVisualization() {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
           font-size: 14px;
           font-weight: 400;
-          color: #475569;
+          color: var(--color-text-muted);
           text-align: center;
           margin-top: 32px;
           max-width: 520px;

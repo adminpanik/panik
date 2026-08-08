@@ -6,9 +6,12 @@
  */
 
 import React from "react";
-import { Activity, WifiOff, SlidersHorizontal, AlertTriangle } from "lucide-react";
+import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
+import { InfoTip } from "./InfoTip";
+import { formatUsd, RISK_CHIP } from "../lib/utils";
+import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
 const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
   aave_v3: "Aave V3",
@@ -17,153 +20,282 @@ const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
   compound_v3: "Compound V3",
 };
 
-function bandStyle(band: LiveWalletPosition["band"]): string {
-  if (band === "LOW") return "bg-emerald-500/10 text-emerald-400 border-emerald-500/25";
-  if (band === "ELEVATED") return "bg-amber-500/10 text-amber-500 border-amber-500/25";
-  return "bg-red-500/10 text-red-400 border-red-500/25";
+/**
+ * Line 3 is a sentence, and a sentence does not get painted. Both halves used
+ * to carry the risk ramp, so a single row could show red prose, a red chip and
+ * a red numeral for one fact stated once. The chip on line 1 is the band; this
+ * line is the reason, and reasons read better in muted grey.
+ *
+ * Lower-case: this is a clause inside a sentence, not a label.
+ */
+function statusCopy(p: LiveWalletPosition): string {
+  if (p.profileStatus === "outside") return "outside your profile";
+  if (p.profileStatus === "approaching") return "approaching your limit";
+  return "within your profile";
 }
 
-function statusCopy(p: LiveWalletPosition): { text: string; cls: string } {
-  if (p.profileStatus === "outside")
-    return { text: "Outside your profile", cls: "text-red-400" };
-  if (p.profileStatus === "approaching")
-    return { text: "Approaching your limit", cls: "text-amber-400" };
-  return { text: "Within your profile", cls: "text-emerald-400" };
+/** No debt is not the same as a healthy ratio: there is no ratio to report. */
+function healthCopy(p: LiveWalletPosition): string {
+  if (p.healthFactor === null) return "No debt";
+  return `Health factor ${p.healthFactor.toFixed(2)}`;
 }
-
-/** Unknown dollar magnitudes render as a dash — never as "$0". */
-const fmtUsd = (v: number | null) =>
-  v === null || !Number.isFinite(v) ? "$—" : `$${Math.round(v).toLocaleString()}`;
 
 interface LivePositionsProps {
   positions: LiveWalletPosition[] | null;
-  updatedAt: number;
   offline: boolean;
   /** Optional: open this real position in the Watch simulator (stress-test bridge). */
   onStressTest?: (position: LiveWalletPosition) => void;
 }
 
 export function LivePositions({ positions, offline, onStressTest }: LivePositionsProps) {
+  // The address only disambiguates in the registry ("ALL wallets") view. On a
+  // single wallet it is the same string on every row, so it is noise competing
+  // with the score chip for the end of line 1.
+  const showWallet = new Set((positions ?? []).map((p) => p.wallet)).size > 1;
+
   if (offline) {
     return (
-      <div className="flex items-center gap-2 text-[10px] font-mono text-panik-text-secondary bg-white/[0.02] border border-white/[0.05] rounded-xl px-4 py-3">
-        <WifiOff className="w-3.5 h-3.5 text-panik-text-secondary" />
-        <span>Live feed offline (run `npm run dev:api`) — showing simulation data below.</span>
-      </div>
+      <EmptyState
+        tone="problem"
+        title="Live feed unavailable"
+        hint="We could not reach the scoring feed, so this wallet's positions are unknown right now. That is not the same as having none."
+      />
     );
   }
 
   return (
-    <div className="bg-white/[0.01] border border-panik-orange/20 rounded-2xl p-5.5">
-      <h3 className="text-sm font-mono tracking-widest text-[#748BAA] font-bold uppercase mb-4 flex items-center justify-end">
-        <span className="text-[10px] text-panik-orange font-normal flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          {positions === null ? "CONNECTING…" : "LIVE"}
-        </span>
+    <Card className="space-y-4">
+      {/* The provenance that used to sit as a permanent 24-word footer under
+          the list. It is real and worth keeping — which RPC calls, which price
+          and TVL sources, which refresh interval — but it is an answer to a
+          question asked once, not a caption you need on every glance. It also
+          gives this card the same titled header its three siblings on the
+          Portfolio grid already have. */}
+      {/* The count lives HERE, not in a grey subline on the "Protocols
+          watched" card three columns away. It is a fact about this list, and a
+          list that states its own length needs no second card to do it — that
+          subline was also the one place the two cards could disagree, because
+          they were reading the same array through different props.
+
+          Only rendered once the array has arrived: "0 Positions" while the
+          first fetch is still in flight is a claim we cannot make yet, and it
+          is the exact claim this product must never make by accident. */}
+      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
+        {positions === null
+          ? "Positions"
+          : `${positions.length} ${positions.length === 1 ? "Position" : "Positions"}`}
+        <InfoTip text="Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF) + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s." />
       </h3>
 
+      {/* Three fixed lines instead of a wrapping chain of bullet-separated
+          fragments. The old row let any fragment reflow, which stranded a "•"
+          at the start of a line and split a "$X supplied / $Y borrowed" pair
+          across two — a value pair that breaks in half is worse than one that
+          overflows, because half a pair still reads as a whole number. */}
       {positions === null && (
-        <div className="text-xs font-mono text-panik-text-secondary py-6 text-center">
-          Reading positions from chain…
+        <div className="space-y-3">
+          {[0, 1].map((i) => (
+            <div key={i} className="flex items-start gap-3 rounded-md border border-border-subtle bg-surface-raised/50 p-4">
+              <Skeleton className="h-8 w-8 rounded-md" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="h-3 w-56" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+              {/* The rail is reserved while loading. A skeleton that omits it
+                  hands the real row a 44px shove sideways the moment data
+                  lands, which is the jump the skeleton exists to prevent. */}
+              <Skeleton className="h-11 w-11 shrink-0 rounded-full" />
+            </div>
+          ))}
+          <p className="text-xs font-sans text-text-secondary">Reading positions from chain…</p>
         </div>
       )}
 
       {positions !== null && positions.length === 0 && (
-        <div className="text-xs font-mono text-panik-text-secondary py-6 text-center">
-          No open positions among watched wallets.
-        </div>
+        <EmptyState
+          tone="clear"
+          title="No open positions"
+          hint="New positions are picked up within a minute of opening."
+        />
       )}
-
-      <div className="space-y-3">
-        {(positions ?? []).map((p) => {
-          const status = statusCopy(p);
-          return (
-            <div
-              key={`${p.wallet}:${p.protocol}`}
-              className="flex flex-col sm:flex-row justify-between sm:items-center p-4 rounded-xl border border-white/[0.04] bg-[#111318]/50 gap-3"
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <ProtocolLogo protocol={PROTOCOL_NAME[p.protocol]} size="w-8 h-8" />
-                <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-mono font-bold text-white truncate">
-                    {PROTOCOL_NAME[p.protocol]} · {p.scoredCollateralSymbol} position
-                  </h4>
-                  <span
-                    className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded border ${bandStyle(p.band)}`}
-                  >
-                    {p.total} {p.band}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1.5 text-[10px] font-mono text-panik-text-secondary">
-                  <span className={status.cls}>{status.text}</span>
-                  <span className="text-white/20">•</span>
-                  <span>
-                    HF:{" "}
-                    <strong
-                      className={
-                        p.healthFactor === null
-                          ? "text-emerald-400"
-                          : p.healthFactor < 1.25
-                            ? "text-red-400"
-                            : p.healthFactor < 1.7
-                              ? "text-amber-400"
-                              : "text-emerald-400"
-                      }
-                    >
-                      {p.healthFactor === null ? "no debt" : p.healthFactor.toFixed(2)}
-                    </strong>
-                  </span>
-                  <span className="text-white/20">•</span>
-                  <span>
-                    {fmtUsd(p.collateralValueUsd)} supplied / {fmtUsd(p.borrowValueUsd)} borrowed
-                  </span>
-                  {p.usdValuesUnavailable && (
-                    <>
-                      <span className="text-white/20">•</span>
-                      <span
-                        className="flex items-center gap-1 text-amber-400"
-                        title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score above are unaffected; only the dollar amounts are unknown."
-                      >
-                        <AlertTriangle className="w-3 h-3" />
-                        Prices degraded
-                      </span>
-                    </>
-                  )}
-                  <span className="text-white/20">•</span>
-                  <span className="truncate">{p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}</span>
-                </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 shrink-0 text-[9px] font-mono text-panik-text-secondary">
-                <span className="flex items-center gap-1" title="Sub-scores: position / asset / protocol / systemic">
-                  <Activity className="w-3 h-3 text-panik-orange" />
-                  {Math.round(p.subScores.positionHealth)} · {Math.round(p.subScores.assetRisk)} ·{" "}
-                  {Math.round(p.subScores.protocolSafety)} · {Math.round(p.subScores.systemicRisk)}
-                </span>
-                {onStressTest && (
-                  <button
-                    onClick={() => onStressTest(p)}
-                    title="Stress-test this position in Watch"
-                    className="flex items-center gap-1 text-[9px] font-mono font-bold text-panik-orange bg-panik-orange/10 border border-panik-orange/25 px-2 py-1 rounded-lg hover:bg-panik-orange/20 cursor-pointer transition-all"
-                  >
-                    <SlidersHorizontal className="w-3 h-3" />
-                    <span>Stress-test</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
 
       {positions !== null && positions.length > 0 && (
-        <p className="mt-4 text-[9px] font-mono text-white/30">
-          Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF)
-          + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s.
-        </p>
+        <ul className="space-y-3">
+          {(positions ?? []).map((p) => {
+            const status = statusCopy(p);
+            const health = healthCopy(p);
+            return (
+              <li
+                key={`${p.wallet}:${p.protocol}`}
+                className="flex items-start gap-3 rounded-md border border-border-subtle bg-surface-raised/50 p-4"
+              >
+                <ProtocolLogo protocol={PROTOCOL_NAME[p.protocol]} size="w-8 h-8" />
+
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  {/* Line 1 — identity. The protocol never shrinks; only the
+                      asset symbol may truncate, because "Aave V3" truncated to
+                      "Aav…" is unreadable while "wstE…" is still placeable.
+
+                      The score is no longer competing for the end of this line.
+                      It used to be a chip here, which is why the line needed to
+                      wrap: chip plus protocol plus symbol plus address did not
+                      fit a ~210px phone row, and the symbol was the thing that
+                      got squeezed to nothing. With the score moved to its own
+                      rail, this line is three short strings and stays one line
+                      on every width. */}
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
+                      {PROTOCOL_NAME[p.protocol]}
+                    </h4>
+                    <span className="truncate text-xs font-sans text-text-secondary">
+                      {p.scoredCollateralSymbol}
+                    </span>
+                    {showWallet && (
+                      <span className="ml-auto shrink-0 text-xs font-mono text-text-muted">
+                        {p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Line 2 — magnitudes, and the reason this row exists.
+                      It used to render at 12px in text-secondary: the dimmest,
+                      smallest thing in a row whose entire point is two dollar
+                      figures. The protocol name above it — which the brand mark
+                      to the left already states — was the loudest. That is
+                      backwards, so the money is now 14px and the figures
+                      themselves are text-primary.
+
+                      The words stay secondary. "collateral" and "debt" are
+                      units; giving them the same weight as the numbers turns
+                      the line into an undifferentiated bar of near-white and
+                      costs the scanning advantage the size bought.
+
+                      Two nowrap chunks rather than one. The pair still never
+                      breaks in half — half a pair reads as a whole number — but
+                      at 14px the single span was ~230px against ~240px of row
+                      on a 390px phone, so the pair now wraps BETWEEN its halves
+                      instead of overflowing.
+
+                      When the price feed is degraded this line is REPLACED, not
+                      dimmed. It used to render "$… collateral / $… debt" in
+                      grey, and an ellipsis standing where digits belong is what
+                      a truncated string looks like, so the honest statement
+                      "we could not price this" was read as "this component is
+                      broken". A sentence cannot be mistaken for a clipped
+                      number, so the sentence is what renders.
+
+                      The treatment is the one this product already uses for
+                      "we do not know": dashed edge, risk-unknown grey — the
+                      same pairing as EmptyState's `problem` tone and the
+                      unknown score chip. Distinctness from a healthy row is a
+                      CORRECTNESS requirement here, not a preference, and it now
+                      holds on four independent axes: different shape (a bordered
+                      block, not a figure pair), different colour, an icon, and
+                      words that say it outright. No branch of this can emit
+                      "$0".
+
+                      The treatment comes from `RISK_CHIP.UNKNOWN` rather than
+                      being retyped here, and the difference is not cosmetic:
+                      the canonical entry carries NO fill because a 10% wash of
+                      this grey under this grey label measures 4.26:1, and the
+                      hand-written copy this replaced had reintroduced exactly
+                      that fill. A contrast decision that lives in one file and
+                      is re-typed in another is a decision that only holds
+                      until someone types it slightly differently. */}
+                  {p.usdValuesUnavailable ? (
+                    <div className="flex">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        USD amounts unavailable
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums text-text-secondary">
+                      <span className="whitespace-nowrap">
+                        <span className="font-semibold text-text-primary">
+                          {formatUsd(p.collateralValueUsd)}
+                        </span>{" "}
+                        collateral
+                      </span>
+                      <span className="whitespace-nowrap">
+                        <span className="font-semibold text-text-primary">
+                          {formatUsd(p.borrowValueUsd)}
+                        </span>{" "}
+                        debt
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Line 3 — verdict, as one sentence.
+
+                      14px, not 12px. This is the row's verdict — "your health
+                      factor is X and that is outside the profile you chose" —
+                      and it was set smaller than the protocol label above it.
+                      Secondary is the right COLOUR (it is prose, and prose does
+                      not compete with figures); 12px was the wrong size for it.
+
+                      The "Prices degraded" explanation stays, and it now says
+                      what it means in the open rather than only in a `title`
+                      nobody hovers. That clause is the whole answer to the
+                      question the old "$…" provoked: the score and the health
+                      factor above it are exact, and it is only the dollars that
+                      are missing. The icon moved up into the block on line 2 —
+                      it was the same warning twice, six pixels apart.
+
+                      The verdict now gets the full column width. The
+                      Stress-test button used to sit at the end of this line and
+                      then, when that crushed the sentence, on a line of its
+                      own below it — both of which were the same problem, which
+                      is that a secondary action was being laid out inside a
+                      block of prose. It lives on the rail now, with the score
+                      it acts on. */}
+                  <p className="text-sm font-sans text-text-secondary">
+                    <span className="tabular-nums">{health}</span>, {status}
+                    {p.usdValuesUnavailable && (
+                      <span
+                        className="mt-1 block text-text-secondary"
+                        title="A price feed this position's USD conversion depends on was missing or stale. The health factor and PANIK score are unaffected; only the dollar amounts are unknown."
+                      >
+                        <strong className="font-semibold text-text-primary">Prices degraded</strong>
+                        {": the score and health factor above are exact. Only the dollar amounts are unknown."}
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+                {/* Right rail — the score, and the one thing you can do about
+                    it. Grouping them is the point: "this is 75" and "simulate
+                    75 under a price move" are one thought, and they were at
+                    opposite corners of the row.
+
+                    Icon-only, because the rail is as wide as the dial (44px)
+                    and a 110px labelled button would have taken a quarter of a
+                    390px row away from the figures. It keeps its name for
+                    everything that is not a sighted mouse user: `title` for the
+                    tooltip, `aria-label` for the accessibility tree. */}
+                <div className="flex shrink-0 flex-col items-center gap-2">
+                  <RiskDial score={p.total} band={p.band} subScores={p.subScores} />
+                  {onStressTest && (
+                    <Button
+                      variant="quiet"
+                      onClick={() => onStressTest(p)}
+                      title="Stress-test this position in Watch"
+                      aria-label={`Stress-test the ${PROTOCOL_NAME[p.protocol]} position in Watch`}
+                      className="px-1.5 py-1"
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
-    </div>
+
+    </Card>
   );
 }

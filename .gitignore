@@ -34,3 +34,12 @@ contracts/cache/
 # so a committed copy is dirty on whichever platform did not generate it. The
 # submodule gitlink in .gitmodules/.git is the real pin.
 contracts/foundry.lock
+
+# Playwright MCP snapshots and local screenshots. `/*.png` already covers the
+# `phase*.png` / `baseline.png` names verification passes keep producing, so
+# they are not listed again — a second pattern for a subset of the first only
+# reads as though it were doing something the first does not.
+.playwright-mcp/
+/*.png
+/*.jpeg
+/*.jpg

@@ -18,6 +18,7 @@ import type {
   LiveProtocol,
 } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
+import { formatUsd } from "../lib/utils";
 import { EXIT_ENV } from "../lib/exit";
 
 const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
@@ -28,33 +29,27 @@ const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
 };
 
 const URGENCY_CHIP: Record<AdvisorUrgency, string> = {
-  info: "bg-white/[0.04] text-white/70 border-white/10",
-  warning: "bg-amber-500/10 text-amber-400 border-amber-500/25",
-  critical: "bg-red-500/10 text-red-400 border-red-500/25",
+  info: "bg-white/[0.04] text-text-secondary border-border-subtle",
+  warning: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
+  critical: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
 };
 
 const ACTION_CHIP: Record<string, string> = {
-  HOLD: "bg-emerald-500/10 text-emerald-400 border-emerald-500/25",
+  HOLD: "bg-risk-low/10 text-risk-low border-risk-low/25",
   MONITOR: "bg-sky-500/10 text-sky-400 border-sky-500/25",
   REBALANCE: "bg-violet-500/10 text-violet-400 border-violet-500/25",
-  REDUCE: "bg-amber-500/10 text-amber-400 border-amber-500/25",
-  EXIT: "bg-red-500/10 text-red-400 border-red-500/25",
-  OPEN: "bg-panik-orange/10 text-panik-orange border-panik-orange/25",
+  REDUCE: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
+  EXIT: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
+  OPEN: "bg-white/[0.06] text-text-primary border-border-subtle",
 };
-
-/** null = the engine could not price this leg (degraded feed); never show $0. */
-const fmtUsd = (n: number | null) =>
-  n === null || !Number.isFinite(n)
-    ? "$—"
-    : `$${Math.abs(n) >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(0)}`;
 
 function SectionRow({ label, text }: { label: string; text: string }) {
   return (
     <div className="flex flex-col sm:flex-row sm:gap-4">
-      <span className="w-36 shrink-0 text-[10px] font-mono tracking-widest uppercase text-white/35 pt-0.5">
+      <span className="w-36 shrink-0 text-xs font-sans text-text-muted pt-0.5">
         {label}
       </span>
-      <p className="text-sm text-panik-text-secondary leading-relaxed font-sans flex-1">{text}</p>
+      <p className="text-sm text-text-secondary leading-relaxed font-sans flex-1">{text}</p>
     </div>
   );
 }
@@ -74,7 +69,7 @@ function ActionButton({
     return (
       <span className="inline-flex items-center gap-2">
         {EXIT_ENV === "testnet" ? (
-          <span className="px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-400 text-[9px] font-mono font-bold tracking-widest">
+          <span className="px-1.5 py-0.5 rounded-sm border border-risk-elevated/40 bg-risk-elevated/10 text-risk-elevated text-2xs font-sans font-bold">
             TESTNET
           </span>
         ) : null}
@@ -82,10 +77,10 @@ function ActionButton({
           onClick={onExit ? () => onExit(prefill) : undefined}
           disabled={!onExit}
           title={onExit ? undefined : "Transaction flow ships with the Atomic Exit integration"}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-bold tracking-wide transition-colors ${
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-sans font-bold tracking-wide transition-colors ${
             rec.action === "EXIT"
-              ? "bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25"
-              : "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25"
+              ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25"
+              : "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25"
           } disabled:opacity-40 disabled:cursor-not-allowed`}
         >
           {label} <ArrowRight className="w-3.5 h-3.5" />
@@ -100,7 +95,7 @@ function ActionButton({
         onClick={onOpen ? () => onOpen(plan) : undefined}
         disabled={!onOpen}
         title={onOpen ? undefined : "In-app opening ships with the position flows"}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-bold tracking-wide bg-panik-orange/15 text-panik-orange border border-panik-orange/30 hover:bg-panik-orange/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-sans font-bold tracking-wide bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         Open position <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -114,17 +109,21 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
   const items: [string, string][] = [
     ["Score", `${n.total} · ${n.band}`],
     ["Health factor", n.healthFactor === null ? "no debt" : n.healthFactor.toFixed(2)],
-    ["Collateral", fmtUsd(n.collateralValueUsd)],
-    ["Debt", fmtUsd(n.borrowValueUsd)],
+    ["Collateral", formatUsd(n.collateralValueUsd)],
+    ["Debt", formatUsd(n.borrowValueUsd)],
     ["Asset", n.scoredCollateralSymbol],
   ];
   if (n.usdValuesUnavailable) items.push(["Prices", "degraded - USD unverified"]);
+  // The label is the unit and stays quiet; the VALUE is a score, a health
+  // factor, a collateral balance — the numbers the whole card is arguing
+  // about. Both used to sit at 11-12px in muted/secondary grey, which made the
+  // evidence the faintest part of the recommendation resting on it.
   return (
-    <div className="flex flex-wrap gap-x-6 gap-y-1 pt-3 border-t border-white/[0.05]">
+    <div className="flex flex-wrap gap-x-6 gap-y-1 pt-3 border-t border-border-subtle">
       {items.map(([label, value]) => (
         <div className="flex items-baseline gap-2" key={label}>
-          <span className="text-[10px] font-mono tracking-widest uppercase text-white/30">{label}</span>
-          <span className="text-xs font-mono text-white/80">{value}</span>
+          <span className="text-xs font-sans text-text-muted">{label}</span>
+          <span className="text-sm font-sans font-semibold tabular-nums text-text-primary">{value}</span>
         </div>
       ))}
     </div>
@@ -142,26 +141,26 @@ function RecommendationCard({
 }) {
   return (
     <div
-      className={`bg-[#111318]/50 border rounded-2xl p-5 space-y-4 ${
+      className={`bg-surface-raised/50 border rounded-lg p-5 space-y-4 ${
         rec.urgency === "critical"
-          ? "border-red-500/30"
+          ? "border-risk-critical/30"
           : rec.urgency === "warning"
-            ? "border-amber-500/20"
-            : "border-white/[0.06]"
+            ? "border-risk-elevated/20"
+            : "border-border-subtle"
       }`}
     >
       <div className="flex items-center gap-3 flex-wrap">
         <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-display font-bold text-white">
+          <div className="text-sm font-sans font-bold text-text-primary">
             {PROTOCOL_LABEL[rec.protocol]}
           </div>
-          <div className="text-[10px] font-mono text-white/35 tracking-wider uppercase">
+          <div className="text-xs font-sans text-text-secondary">
             {rec.numbers.scoredCollateralSymbol} position
           </div>
         </div>
         <span
-          className={`px-2.5 py-1 rounded-lg border text-[10px] font-mono font-bold tracking-widest ${ACTION_CHIP[rec.action] ?? URGENCY_CHIP[rec.urgency]}`}
+          className={`px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${ACTION_CHIP[rec.action] ?? URGENCY_CHIP[rec.urgency]}`}
         >
           {rec.action}
         </span>
@@ -193,27 +192,27 @@ function OpportunityCard({
   const plan = rec.openPlan;
   if (!plan) return null;
   return (
-    <div className="bg-[#111318]/50 border border-white/[0.06] rounded-2xl p-5 flex flex-col gap-3">
+    <div className="bg-surface-raised/50 border border-border-subtle rounded-lg p-5 flex flex-col gap-3">
       <div className="flex items-center gap-3">
         <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-7 h-7" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-display font-bold text-white truncate">
+          <div className="text-sm font-sans font-bold text-text-primary truncate">
             {plan.collateralSymbol} on {PROTOCOL_LABEL[rec.protocol]}
           </div>
-          <div className="text-[10px] font-mono text-white/35 tracking-wider">
+          <div className="text-xs font-sans tabular-nums text-text-secondary">
             Projected score {plan.projectedScore}
             {plan.apy !== null ? ` · ${(plan.apy * 100).toFixed(1)}% APY` : ""}
           </div>
         </div>
-        <TrendingUp className="w-4 h-4 text-panik-orange/70" />
+        <TrendingUp className="w-4 h-4 text-text-muted" />
       </div>
-      <p className="text-xs text-panik-text-secondary leading-relaxed font-sans flex-1">
+      <p className="text-xs text-text-secondary leading-relaxed font-sans flex-1">
         {rec.sections.recommendation}
       </p>
       <div className="flex items-center justify-between pt-1">
-        <span className="text-[10px] font-mono text-white/30">
-          ~{fmtUsd(plan.collateralUsd)} collateral
-          {plan.borrowUsd > 0 ? ` / ${fmtUsd(plan.borrowUsd)} borrow` : ""}
+        <span className="text-sm font-sans tabular-nums text-text-secondary">
+          ~{formatUsd(plan.collateralUsd)} collateral
+          {plan.borrowUsd > 0 ? ` / ${formatUsd(plan.borrowUsd)} borrow` : ""}
         </span>
         <ActionButton rec={rec} onOpen={onOpen} />
       </div>
@@ -233,25 +232,25 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
     <div className="space-y-6">
       {/* Overall banner */}
       <div
-        className={`rounded-2xl border p-4 flex items-start gap-3 ${
+        className={`rounded-lg border p-4 flex items-start gap-3 ${
           overall.urgency === "critical"
-            ? "bg-red-500/[0.06] border-red-500/30"
+            ? "bg-risk-critical/[0.06] border-risk-critical/30"
             : overall.urgency === "warning"
-              ? "bg-amber-500/[0.05] border-amber-500/25"
-              : "bg-[#111318]/50 border-white/[0.06]"
+              ? "bg-risk-elevated/[0.05] border-risk-elevated/25"
+              : "bg-surface-raised/50 border-border-subtle"
         }`}
       >
         {overall.urgency === "info" ? (
-          <Eye className="w-4 h-4 mt-0.5 text-white/50 shrink-0" />
+          <Eye className="w-4 h-4 mt-0.5 text-text-muted shrink-0" />
         ) : (
           <AlertTriangle
-            className={`w-4 h-4 mt-0.5 shrink-0 ${overall.urgency === "critical" ? "text-red-400" : "text-amber-400"}`}
+            className={`w-4 h-4 mt-0.5 shrink-0 ${overall.urgency === "critical" ? "text-risk-critical" : "text-risk-elevated"}`}
           />
         )}
         <div className="min-w-0">
-          <p className="text-sm text-white font-sans leading-relaxed">{overall.headline}</p>
+          <p className="text-sm text-text-primary font-sans leading-relaxed">{overall.headline}</p>
           {walletInsights ? (
-            <p className="text-[11px] font-mono text-white/35 mt-1">
+            <p className="text-xs font-sans text-text-secondary mt-1">
               Based on your history: {walletInsights.archetype}
               {walletInsights.lendingAgeDays > 0
                 ? ` · ${Math.round(walletInsights.lendingAgeDays / 30)}mo lending tenure`
@@ -263,7 +262,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
             </p>
           ) : null}
           {report.narrated ? (
-            <p className="text-[10px] font-mono text-panik-orange/60 mt-1 flex items-center gap-1">
+            <p className="text-2xs font-sans text-text-muted mt-1 flex items-center gap-1">
               <Sparkles className="w-3 h-3" /> AI-narrated · engine-decided
             </p>
           ) : null}
@@ -273,7 +272,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
       {/* Position legs */}
       {recommendations.length > 0 ? (
         <div className="space-y-4">
-          <h3 className="text-[11px] font-mono tracking-widest uppercase text-white/40">
+          <h3 className="text-xs font-sans font-semibold text-text-secondary">
             Your positions
           </h3>
           {recommendations.map((rec) => (
@@ -283,8 +282,8 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
           ))}
         </div>
       ) : (
-        <div className="bg-[#111318]/50 border border-white/[0.06] rounded-2xl p-6 text-center">
-          <p className="text-sm text-panik-text-secondary font-sans">
+        <div className="bg-surface-raised/50 border border-border-subtle rounded-lg p-6 text-center">
+          <p className="text-sm text-text-secondary font-sans">
             No open lending positions detected for this wallet on Base. The opportunities below are
             sized to your risk profile.
           </p>
@@ -294,10 +293,13 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
       {/* Opportunities */}
       {opportunities.length > 0 ? (
         <div className="space-y-4">
-          <h3 className="text-[11px] font-mono tracking-widest uppercase text-white/40">
+          <h3 className="text-xs font-sans font-semibold text-text-secondary">
             Opportunities within your profile
           </h3>
-          <div className="grid md:grid-cols-3 gap-4">
+          {/* Three across only once the window can actually spare it: at `md`
+              the sidebar has already taken 256px, so three of these cards got
+              ~137px each and every title ellipsised to a couple of letters. */}
+          <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
             {opportunities.map((rec) => (
               <div key={`${rec.protocol}-${rec.openPlan?.collateralSymbol}`} className="h-full">
                 <OpportunityCard rec={rec} onOpen={onOpen} />

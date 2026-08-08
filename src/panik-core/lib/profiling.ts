@@ -49,13 +49,13 @@ export const QUESTIONS: QuizQuestion[] = [
   {
     id: "q1",
     text: "What's your main focus in DeFi right now?",
-    subtitle: "There's no wrong answer — this tailors what Panik shows you.",
+    subtitle: "There's no wrong answer. This tailors what Panik shows you.",
     options: [
-      { key: "A", label: "Learning how it works — I want to start carefully and understand the risks" },
+      { key: "A", label: "Learning how it works. I want to start carefully and understand the risks" },
       { key: "B", label: "Earning yield on crypto I already hold, without taking on too much risk" },
       { key: "C", label: "Providing liquidity to pools to earn trading fees" },
       { key: "D", label: "Actively moving capital to capture opportunities as markets move" },
-      { key: "E", label: "Maximizing returns per unit of risk — leverage, capital efficiency, portfolio construction" },
+      { key: "E", label: "Maximizing returns per unit of risk: leverage, capital efficiency, portfolio construction" },
     ],
   },
   {
@@ -63,22 +63,22 @@ export const QUESTIONS: QuizQuestion[] = [
     text: "One of your positions drops 25% in 48 hours. What do you do?",
     subtitle: "Go with your honest gut reaction.",
     options: [
-      { key: "A", label: "Exit — protecting what I have left is the priority" },
-      { key: "B", label: "Hold and wait — it'll likely recover" },
+      { key: "A", label: "Exit. Protecting what I have left is the priority" },
+      { key: "B", label: "Hold and wait. It'll likely recover" },
       { key: "C", label: "Review it carefully, then decide whether to hold, trim, or exit" },
-      { key: "D", label: "Consider adding to it — lower prices can be better entry points" },
-      { key: "E", label: "Assess whether to hedge, rebalance, or adjust leverage — and act on a plan" },
+      { key: "D", label: "Consider adding to it. Lower prices can be better entry points" },
+      { key: "E", label: "Assess whether to hedge, rebalance, or adjust leverage, then act on a plan" },
     ],
   },
   {
     id: "q3",
     text: "How often do you move capital between DeFi positions?",
     options: [
-      { key: "A", label: "Rarely or never — I mostly hold, or I'm just getting started" },
+      { key: "A", label: "Rarely or never. I mostly hold, or I'm just getting started" },
       { key: "B", label: "Every few months, when a clearly better opportunity comes along" },
       { key: "C", label: "About monthly, based on yields and market conditions" },
-      { key: "D", label: "Weekly or more — I'm always looking for better setups" },
-      { key: "E", label: "On a set schedule or trigger — I rebalance systematically, not on impulse" },
+      { key: "D", label: "Weekly or more. I'm always looking for better setups" },
+      { key: "E", label: "On a set schedule or trigger. I rebalance systematically, not on impulse" },
     ],
   },
   {
@@ -95,13 +95,13 @@ export const QUESTIONS: QuizQuestion[] = [
   {
     id: "q5",
     text: "How much of the crypto you're putting into DeFi could drop 50% without causing you serious stress?",
-    subtitle: "This is about capacity to absorb a loss — not a prediction.",
+    subtitle: "This is about capacity to absorb a loss, not a prediction.",
     options: [
-      { key: "A", label: "None of it — I need this to stay relatively safe" },
-      { key: "B", label: "A small portion — less than 10%" },
-      { key: "C", label: "A meaningful slice — around a third" },
-      { key: "D", label: "Most of it — more than half" },
-      { key: "E", label: "All of it — I treat this as high-risk, high-conviction capital" },
+      { key: "A", label: "None of it. I need this to stay relatively safe" },
+      { key: "B", label: "A small portion (less than 10%)" },
+      { key: "C", label: "A meaningful slice (around a third)" },
+      { key: "D", label: "Most of it (more than half)" },
+      { key: "E", label: "All of it. I treat this as high-risk, high-conviction capital" },
     ],
   },
 ];

@@ -1,35 +1,213 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/**
+ * Design tokens. Tailwind v4 is CSS-first: only `@theme` generates utilities,
+ * so every value the UI is allowed to use lives here and nowhere else.
+ *
+ * The set is deliberately small. Anything not listed below has been reset to
+ * `initial` further down, which deletes the utility entirely — a stray
+ * `text-red-400` or `rounded-2xl` then renders as nothing and is caught in
+ * review instead of quietly reintroducing a fifth green.
+ */
 @theme {
-  /* Brand Typography Alignment */
+  /**
+   * Two families, down from three. Space Grotesk was the display face on a
+   * couple of dozen headings, and a second sans that close to the first buys
+   * nothing a weight step does not.
+   *
+   * Mono is now reserved for hexadecimal addresses. It used to set labels,
+   * buttons, headings and prose — ~600 call sites — which is most of why this
+   * UI read as hard work: monospace is tuned for character-cell alignment, not
+   * for reading words. Plus Jakarta Sans ships real tabular figures (measured
+   * in-browser: digit advances collapse from a 36.1px spread at 100px to a
+   * uniform 60px under `font-variant-numeric: tabular-nums`), so numeric
+   * columns align in the sans face and mono is no longer load-bearing.
+   */
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* Custom Color Overrides to make code cleaner */
-  --color-panik-orange: #F97316;
-  --color-panik-deep: #09090B;
-  --color-panik-surface: #111318;
-  --color-panik-card: rgba(17, 19, 24, 0.6);
-  --color-panik-text-primary: #F8FAFC;
-  --color-panik-text-secondary: #94A3B8;
+  /**
+   * Surfaces — four depths, in stacking order. Depth is the only thing that
+   * varies; nothing tints a surface by state. Seventeen near-blacks collapsed
+   * onto these four, so "which grey is this card" stopped being a decision.
+   */
+  --color-surface-base: #09090B;
+  --color-surface-sunken: #0C0D11;
+  --color-surface-raised: #111318;
+  --color-surface-overlay: #16181F;
 
-  /* Premium alert values */
-  --color-panik-green: #22C55E;
-  --color-panik-amber: #F59E0B;
-  --color-panik-red: #EF4444;
-  --color-panik-darkred: #DC2626;
+  /**
+   * Text — three roles, no more. Each clears 4.5:1 on the LIGHTEST surface it
+   * can land on (overlay), not just on the page background: text-muted is
+   * 4.81:1 there. This is why the old #475569 (2.45:1 on raised) and #64748B
+   * (3.90:1) are gone rather than merely renamed.
+   */
+  --color-text-primary: #F8FAFC;
+  --color-text-secondary: #94A3B8;
+  --color-text-muted: #7A8699;
+
+  /**
+   * Borders — two families, because they do two unrelated jobs. Collapsing
+   * them into one alpha is the standard dark-UI mistake: a card divider wants
+   * to disappear, an input edge has to be findable. `strong` holds 3.27–3.34:1
+   * across all four surfaces (WCAG 1.4.11); `subtle` is decorative and makes
+   * no contrast claim.
+   */
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.36);
+
+  /**
+   * Brand accent, and in the product it now has exactly two jobs: the logo
+   * mark and the `:focus-visible` ring below. Nothing else.
+   *
+   * It used to fill primary buttons, tint selected chips, paint sidebar icons
+   * and set the wallet pill, which meant a saturated hue appeared eight or ten
+   * times on a screen whose actual job is to make FOUR risk chips findable.
+   * A neutral near-white fill is louder by contrast (18.1:1) and quieter by
+   * hue, so the only saturated pixels left on a dashboard are the ones stating
+   * a risk band. If a new control feels like it wants orange, it wants
+   * `bg-text-primary`.
+   */
+  --color-panik-orange: #F97316;
+
+  /**
+   * Risk ramp — four bands plus "we do not know". STATUS ONLY, and always as
+   * a tint (`bg-risk-x/10 text-risk-x border-risk-x/25`), never a solid fill.
+   * risk-high shares the brand hue on purpose: one hue, two treatments, so an
+   * orange chip is never mistaken for a button and vice versa.
+   *
+   * risk-unknown is not cosmetic. A position we could not price and a position
+   * that is genuinely safe used to render the same neutral grey, which in a
+   * liquidation product reads as a safety claim we cannot make.
+   */
+  --color-risk-low: #10B981;
+  --color-risk-elevated: #F59E0B;
+  /**
+   * Not a second literal. The brand hue and the HIGH band are the same colour
+   * BY DESIGN (see the accent note above, and the sidebar comment in AppDemo),
+   * and writing #F97316 twice made that a coincidence two independent edits
+   * could break — at which point the "one hue, two treatments" argument the
+   * whole accent policy rests on is quietly false and nothing fails.
+   *
+   * Brand is the source and risk-high is the borrower, not the other way
+   * round: the accent has two jobs (the logo mark and the focus ring) that
+   * exist whether or not there is a risk ramp, whereas risk-high is documented
+   * above as *sharing* the brand hue.
+   */
+  --color-risk-high: var(--color-panik-orange);
+  --color-risk-critical: #F87171;
+  --color-risk-unknown: #7A8699;
+
+  /**
+   * Chart series. Identical to sky-400, and named because a chart cannot
+   * depend on sky-400 being EMITTED: Tailwind v4 only writes a theme variable
+   * to :root when it finds a utility that uses it somewhere in source, so
+   * `--color-sky-400` resolves today only because unrelated files happen to
+   * contain `bg-sky-400` and `text-sky-400`. Change those strings and every
+   * sparkline stroke silently becomes no colour at all — the failure is a
+   * blank chart, with nothing to grep for. A token declared here is the
+   * dependency stated out loud.
+   */
+  --color-chart-series: oklch(74.6% 0.16 232.661);
+
+  /**
+   * Type scale — seven steps plus one display size, each with its line-height
+   * pinned to a 4px multiple. Dense numeric rows take the tighter ratio (~1.3),
+   * prose the looser (~1.5).
+   *
+   * The floor is 11px. It used to be 5.5px, and 313 usages sat at or under
+   * 9.5px, which is the single loudest "this is a mockup, not a product"
+   * signal a financial UI can emit.
+   */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 16px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-lg: 20px;
+  --text-lg--line-height: 28px;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 34px;
+  --text-4xl: 40px;
+  --text-4xl--line-height: 44px;
+  /* Marketing hero only. The product UI tops out at --text-4xl. */
+  --text-display: 64px;
+  --text-display--line-height: 64px;
+
+  --text-xl: initial;
+  --text-3xl: initial;
+  --text-5xl: initial;
+  --text-6xl: initial;
+  --text-7xl: initial;
+  --text-8xl: initial;
+  --text-9xl: initial;
+
+  /* Radii — chips/inputs, cards, modals. `rounded-full` stays for avatars and dots. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --radius-xs: initial;
+  --radius-xl: initial;
+  --radius-2xl: initial;
+  --radius-3xl: initial;
+  --radius-4xl: initial;
+
+  /**
+   * Every warm and neutral family is deleted. Greys must come from the text /
+   * surface / border tokens above, and anything red, amber, orange or green is
+   * a risk statement that has to name its band. The cool families (sky, cyan,
+   * blue, indigo, violet) survive as the chart palette — charts must never
+   * borrow red or green, or a series gets read as a risk state.
+   */
+  --color-red-*: initial;
+  --color-orange-*: initial;
+  --color-amber-*: initial;
+  --color-yellow-*: initial;
+  --color-lime-*: initial;
+  --color-green-*: initial;
+  --color-emerald-*: initial;
+  --color-teal-*: initial;
+  --color-rose-*: initial;
+  --color-pink-*: initial;
+  --color-fuchsia-*: initial;
+  --color-purple-*: initial;
+  --color-slate-*: initial;
+  --color-gray-*: initial;
+  --color-zinc-*: initial;
+  --color-neutral-*: initial;
+  --color-stone-*: initial;
 }
 
 /* Custom structural styles for financial style aesthetics */
 @layer base {
   body {
-    background-color: #09090B;
-    color: #F8FAFC;
+    background-color: var(--color-surface-base);
+    color: var(--color-text-primary);
     font-family: var(--font-sans);
+    /**
+     * Every digit in the product is tabular by default. This is what lets the
+     * sans face replace mono wholesale: a column of dollar amounts lines up on
+     * its own, without each call site having to remember `tabular-nums`.
+     */
+    font-variant-numeric: tabular-nums;
     overflow-x: clip;
     position: relative;
+  }
+
+  /**
+   * One global focus indicator instead of per-input `focus:` classes, so a
+   * control cannot ship without one. 2px of brand orange at 7.10:1 against the
+   * page and 3.5:1 against the resting input border satisfies both WCAG 1.4.11
+   * and 2.4.13.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-panik-orange);
+    outline-offset: 2px;
   }
 
   body::after {
@@ -50,52 +228,40 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #09090B;
+    background: var(--color-surface-base);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(249, 115, 22, 0.2);
-    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: var(--radius-sm);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(249, 115, 22, 0.4);
+    background: rgba(255, 255, 255, 0.24);
   }
 }
 
-/* Elegant Utilities */
+/* Marketing only — the two landing-page CTAs. The product UI has no glow. */
 .panik-glow-orange {
-  box-shadow: 0 0 25px -3px rgba(249, 115, 22, 0.45), 0 0 10px -2px rgba(249, 115, 22, 0.2);
-}
-
-.panik-glow-orange-text {
-  text-shadow: 0 0 15px rgba(249, 115, 22, 0.6);
-}
-
-.panik-glow-red {
-  box-shadow: 0 0 25px -3px rgba(239, 68, 68, 0.5), 0 0 10px -2px rgba(239, 68, 68, 0.35);
-}
-
-.panik-glow-green {
-  box-shadow: 0 0 25px -3px rgba(34, 197, 94, 0.4), 0 0 10px -2px rgba(34, 197, 94, 0.2);
+  box-shadow: 0 0 25px -3px rgb(from var(--color-panik-orange) r g b / 0.45), 0 0 10px -2px rgb(from var(--color-panik-orange) r g b / 0.2);
 }
 
 /* Glassmorphism treatment */
 .panik-glass {
-  background: rgba(21, 27, 38, 0.45);
+  background: rgb(from var(--color-surface-overlay) r g b / 0.45);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--color-border-subtle);
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 8px 32px 0 rgba(0, 0, 0, 0.5);
   transition: border-color 0.3s ease, background 0.3s ease;
 }
 
 .panik-glass:hover {
   border-color: rgba(255, 255, 255, 0.13);
-  background: rgba(21, 27, 38, 0.55);
+  background: rgb(from var(--color-surface-overlay) r g b / 0.55);
 }
 
 /* Dynamic Grid Background with slow fade effect */
 .panik-grid-bg {
-  background-image: 
+  background-image:
     linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
   background-size: 40px 40px;
@@ -105,40 +271,4 @@
 .panik-dot-bg {
   background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
   background-size: 24px 24px;
-}
-
-/* Soft orange gradient background glow */
-.panik-radial-ambient {
-  background: radial-gradient(circle at 60% 40%, rgba(249, 115, 22, 0.06) 0%, transparent 60%);
-}
-
-.panik-radial-subtle {
-  background: radial-gradient(circle at center, rgba(249, 115, 22, 0.03) 0%, transparent 70%);
-}
-
-@keyframes slow-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.03); }
-}
-
-.animate-slow-pulse {
-  animation: slow-pulse 4s infinite ease-in-out;
-}
-
-@keyframes float-subtle {
-  0%, 100% { transform: translateY(0px) rotate(0.5deg); }
-  50% { transform: translateY(-6px) rotate(-0.5deg); }
-}
-
-.animate-float-subtle {
-  animation: float-subtle 6s infinite ease-in-out;
-}
-
-@keyframes float-delayed {
-  0%, 100% { transform: translateY(-3px) rotate(-1.5deg) scale(0.98); }
-  50% { transform: translateY(3px) rotate(-0.5deg) scale(1); }
-}
-
-.animate-float-delayed {
-  animation: float-delayed 8s infinite ease-in-out;
 }

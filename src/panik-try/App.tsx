@@ -112,22 +112,22 @@ export default function App() {
   const canSubmit = hasCode && email.trim().length > 0 && phase !== "submitting";
 
   return (
-    <div className="relative min-h-screen bg-[#0A0A0B] text-[#F0F4FF] selection:bg-panik-orange/30 selection:text-white overflow-x-clip">
+    <div className="relative min-h-screen bg-surface-base text-text-primary selection:bg-panik-orange/30 selection:text-text-primary overflow-x-clip">
       {/* Ambient background */}
       <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[600px] rounded-full bg-gradient-to-b from-orange-500/[0.05] via-orange-600/[0.02] to-transparent blur-3xl" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[600px] rounded-full bg-gradient-to-b from-panik-orange/[0.05] via-panik-orange/[0.02] to-transparent blur-3xl" />
       </div>
       <div className="fixed inset-0 panik-dot-bg pointer-events-none z-0 opacity-50" />
 
       <main className="relative z-10 max-w-md mx-auto px-6 py-14 md:py-20 flex flex-col gap-6">
         {/* Brand mark */}
         <div className={`flex items-center gap-2.5 justify-center ${fade("delay-0")}`}>
-          <img src="/panik-logo.png" alt="PANIK" width={36} height={36} className="rounded-lg object-contain" />
-          <span className="font-display font-semibold text-xl tracking-tight text-white/90">PANIK</span>
+          <img src="/panik-logo.png" alt="PANIK" width={36} height={36} className="rounded-md object-contain" />
+          <span className="font-sans font-semibold text-lg tracking-tight text-text-primary">PANIK</span>
         </div>
 
         {/* ── Redemption panel (the interactive half) ── */}
-        <section className={`panik-glass rounded-2xl p-6 md:p-7 ${fade("delay-100")}`}>
+        <section className={`panik-glass rounded-lg p-6 md:p-7 ${fade("delay-100")}`}>
           {/* Honeypot - real users never see or fill this. */}
           <input
             ref={honeypotRef}
@@ -141,27 +141,27 @@ export default function App() {
 
           {phase === "success" ? (
             <div className="text-center">
-              <div className="mx-auto w-12 h-12 rounded-full bg-orange-500/15 flex items-center justify-center mb-4">
-                <Check className="w-6 h-6 text-orange-400" />
+              <div className="mx-auto w-12 h-12 rounded-full bg-panik-orange/15 flex items-center justify-center mb-4">
+                <Check className="w-6 h-6 text-panik-orange" />
               </div>
-              <h1 className="font-display text-xl font-bold text-white mb-1.5">You're in.</h1>
-              <p className="text-sm text-white/50 leading-relaxed mb-5">
+              <h1 className="font-sans text-lg font-bold text-text-primary mb-1.5">You're in.</h1>
+              <p className="text-sm text-text-muted leading-relaxed mb-5">
                 Here's your personal access link. It's unique to you and the trial
                 clock starts the moment you open the app.
               </p>
-              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 mb-4">
-                <span className="font-mono text-xs text-white/60 truncate flex-1 text-left">{absoluteTrialUrl}</span>
+              <div className="flex items-center gap-2 rounded-md border border-border-subtle bg-black/30 px-3 py-2.5 mb-4">
+                <span className="font-mono text-xs text-text-secondary truncate flex-1 text-left">{absoluteTrialUrl}</span>
                 <button
                   onClick={copyLink}
-                  className="shrink-0 text-white/40 hover:text-orange-400 transition-colors"
+                  className="shrink-0 text-text-muted hover:text-panik-orange transition-colors"
                   aria-label="Copy link"
                 >
-                  {copied ? <Check className="w-4 h-4 text-orange-400" /> : <Copy className="w-4 h-4" />}
+                  {copied ? <Check className="w-4 h-4 text-panik-orange" /> : <Copy className="w-4 h-4" />}
                 </button>
               </div>
               <a
                 href={trialUrl ?? "/app"}
-                className="group flex items-center justify-center gap-2 w-full rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-3 font-semibold text-white shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40 transition-all"
+                className="group flex items-center justify-center gap-2 w-full rounded-md bg-panik-orange px-5 py-3 font-semibold text-surface-base shadow-lg shadow-panik-orange/20 hover:shadow-panik-orange/40 transition-all"
               >
                 Open the PANIK app
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
@@ -169,14 +169,14 @@ export default function App() {
             </div>
           ) : phase === "invalid" ? (
             <div className="text-center">
-              <div className="mx-auto w-12 h-12 rounded-full bg-red-500/15 flex items-center justify-center mb-4">
-                <AlertCircle className="w-6 h-6 text-red-400" />
+              <div className="mx-auto w-12 h-12 rounded-full bg-risk-critical/15 flex items-center justify-center mb-4">
+                <AlertCircle className="w-6 h-6 text-risk-critical" />
               </div>
-              <h1 className="font-display text-xl font-bold text-white mb-1.5">{INVALID_COPY[invalidOutcome].title}</h1>
-              <p className="text-sm text-white/50 leading-relaxed mb-5">{INVALID_COPY[invalidOutcome].sub}</p>
+              <h1 className="font-sans text-lg font-bold text-text-primary mb-1.5">{INVALID_COPY[invalidOutcome].title}</h1>
+              <p className="text-sm text-text-muted leading-relaxed mb-5">{INVALID_COPY[invalidOutcome].sub}</p>
               <button
                 onClick={resetToIdle}
-                className="w-full rounded-xl border border-white/12 bg-white/[0.03] px-5 py-3 font-medium text-white/80 hover:bg-white/[0.06] transition-colors"
+                className="w-full rounded-md border border-border-subtle bg-white/[0.03] px-5 py-3 font-medium text-text-secondary hover:bg-white/[0.06] transition-colors"
               >
                 Enter a different code
               </button>
@@ -184,19 +184,19 @@ export default function App() {
           ) : (
             <div>
               <div className="flex items-center gap-2 mb-1.5">
-                <Ticket className="w-4 h-4 text-orange-400" />
-                <h1 className="font-display text-lg font-bold text-white">Try PANIK free</h1>
+                <Ticket className="w-4 h-4 text-panik-orange" />
+                <h1 className="font-sans text-lg font-bold text-text-primary">Try PANIK free</h1>
               </div>
-              <p className="text-sm text-white/45 leading-relaxed mb-5">
+              <p className="text-sm text-text-muted leading-relaxed mb-5">
                 {detectedCode
                   ? "Your card's code is ready. Add your email and one tap starts your trial."
                   : "Enter the code printed on your card and your email to start your trial."}
               </p>
 
               {detectedCode && (
-                <div className="flex items-center gap-2 rounded-lg border border-orange-500/20 bg-orange-500/[0.06] px-3 py-2.5 mb-4">
-                  <span className="text-xs font-mono uppercase tracking-wide text-orange-300/80">Code detected</span>
-                  <span className="font-mono text-sm text-white/90 ml-auto">{detectedCode}</span>
+                <div className="flex items-center gap-2 rounded-md border border-panik-orange/20 bg-panik-orange/[0.06] px-3 py-2.5 mb-4">
+                  <span className="text-xs font-mono uppercase tracking-wide text-panik-orange/80">Code detected</span>
+                  <span className="font-mono text-sm text-text-primary ml-auto">{detectedCode}</span>
                 </div>
               )}
 
@@ -209,14 +209,14 @@ export default function App() {
                   placeholder="PANIK-TRY-XXXXXXXX"
                   spellCheck={false}
                   autoCapitalize="characters"
-                  className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-white placeholder:text-white/25 outline-none focus:border-orange-500/40 transition-colors"
+                  className="w-full rounded-md border border-border-strong bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-text-primary placeholder:text-text-muted focus:border-panik-orange/40 transition-colors"
                 />
               )}
 
               {/* Email gate - required in every path (scan or manual). This is how
                   we count real users and build the contact list. */}
               <div className="relative mb-1.5">
-                <Mail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+                <Mail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
                 <input
                   ref={emailInputRef}
                   value={email}
@@ -229,25 +229,25 @@ export default function App() {
                   placeholder="you@email.com"
                   aria-invalid={emailError}
                   aria-label="Email address"
-                  className={`w-full rounded-lg border bg-black/30 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-white/25 outline-none transition-colors ${
-                    emailError ? "border-red-500/50 focus:border-red-500/60" : "border-white/12 focus:border-orange-500/40"
+                  className={`w-full rounded-md border bg-black/30 pl-9 pr-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted transition-colors ${
+                    emailError ? "border-risk-critical/50 focus:border-risk-critical/60" : "border-border-strong focus:border-panik-orange/40"
                   }`}
                 />
               </div>
               {emailError ? (
-                <p className="text-xs text-red-400/90 mb-4">Enter a valid email to start your trial.</p>
+                <p className="text-xs text-risk-critical/90 mb-4">Enter a valid email to start your trial.</p>
               ) : (
-                <p className="text-xs text-white/30 mb-4">We'll only use this to send you PANIK updates.</p>
+                <p className="text-xs text-text-muted mb-4">We'll only use this to send you PANIK updates.</p>
               )}
 
               {phase === "error" && (
-                <p className="text-xs text-red-400/90 mb-3 text-center">{errorMsg}</p>
+                <p className="text-xs text-risk-critical/90 mb-3 text-center">{errorMsg}</p>
               )}
 
               <button
                 onClick={onTryNow}
                 disabled={!canSubmit}
-                className="group flex items-center justify-center gap-2 w-full rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-5 py-3 font-semibold text-white shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:shadow-none"
+                className="group flex items-center justify-center gap-2 w-full rounded-md bg-panik-orange px-5 py-3 font-semibold text-surface-base shadow-lg shadow-panik-orange/20 hover:shadow-panik-orange/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:shadow-none"
               >
                 {phase === "submitting" ? (
                   <>
@@ -265,27 +265,27 @@ export default function App() {
         </section>
 
         {/* ── Business card (ALWAYS visible, every code state) ── */}
-        <section className={`panik-glass rounded-2xl p-6 ${fade("delay-200")}`}>
-          <p className="text-[11px] font-mono uppercase tracking-widest text-white/30 mb-3">Business card</p>
-          <h2 className="font-display text-lg font-semibold text-white/90">{BUSINESS_CARD.name}</h2>
-          <p className="text-sm text-white/45 mb-4">{BUSINESS_CARD.tagline}</p>
+        <section className={`panik-glass rounded-lg p-6 ${fade("delay-200")}`}>
+          <p className="text-2xs font-mono uppercase tracking-widest text-text-muted mb-3">Business card</p>
+          <h2 className="font-sans text-lg font-semibold text-text-primary">{BUSINESS_CARD.name}</h2>
+          <p className="text-sm text-text-muted mb-4">{BUSINESS_CARD.tagline}</p>
           <div className="flex flex-col gap-2.5">
             <a
               href={BUSINESS_CARD.websiteUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-center gap-3 text-sm text-white/70 hover:text-orange-300 transition-colors"
+              className="group flex items-center gap-3 text-sm text-text-secondary hover:text-panik-orange transition-colors"
             >
-              <Globe className="w-4 h-4 text-white/40 group-hover:text-orange-400 transition-colors" />
+              <Globe className="w-4 h-4 text-text-muted group-hover:text-panik-orange transition-colors" />
               {BUSINESS_CARD.website}
             </a>
             <a
               href={BUSINESS_CARD.twitterUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-center gap-3 text-sm text-white/70 hover:text-orange-300 transition-colors"
+              className="group flex items-center gap-3 text-sm text-text-secondary hover:text-panik-orange transition-colors"
             >
-              <svg className="w-4 h-4 text-white/40 group-hover:text-orange-400 transition-colors" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <svg className="w-4 h-4 text-text-muted group-hover:text-panik-orange transition-colors" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
               </svg>
               {BUSINESS_CARD.twitterHandle}
@@ -293,7 +293,7 @@ export default function App() {
           </div>
         </section>
 
-        <p className={`text-center text-[11px] text-white/25 ${fade("delay-300")}`}>© 2026 PANIK</p>
+        <p className={`text-center text-2xs text-text-muted ${fade("delay-300")}`}>© 2026 PANIK</p>
       </main>
     </div>
   );

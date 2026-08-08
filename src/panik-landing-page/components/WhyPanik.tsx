@@ -158,7 +158,7 @@ export function WhyPanik() {
   ];
 
   return (
-    <section id="why-panik" className="relative py-28 px-6 bg-[#09090B] overflow-hidden border-t border-b border-white/[0.04]">
+    <section id="why-panik" className="relative py-28 px-6 bg-surface-base overflow-hidden border-t border-b border-border-subtle">
       
       {/* Premium inline styling injecting keyframes and precise CSS for hardware accelerated animations */}
       <style dangerouslySetInnerHTML={{__html: `
@@ -177,8 +177,8 @@ export function WhyPanik() {
           animation: activeRing 2.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
         }
         @keyframes hbPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.5); }
-          60% { box-shadow: 0 0 0 8px rgba(20, 184, 166, 0); }
+          0%, 100% { box-shadow: 0 0 0 0 rgb(from var(--color-risk-low) r g b / 0.5); }
+          60% { box-shadow: 0 0 0 8px rgb(from var(--color-risk-low) r g b / 0); }
         }
         .animate-scanner-dot {
           animation: hbPulse 1.8s ease infinite;
@@ -212,15 +212,15 @@ export function WhyPanik() {
           animation: flowDashRotate 1.2s linear infinite;
         }
         @keyframes borderGlowPulse {
-          0%, 100% { border-color: rgba(249, 115, 22, 0.30); box-shadow: 0 0 0 0 transparent; }
-          50% { border-color: rgba(249, 115, 22, 0.70); box-shadow: 0 0 8px rgba(249, 115, 22, 0.08); }
+          0%, 100% { border-color: rgb(from var(--color-panik-orange) r g b / 0.30); box-shadow: 0 0 0 0 transparent; }
+          50% { border-color: rgb(from var(--color-panik-orange) r g b / 0.70); box-shadow: 0 0 8px rgb(from var(--color-panik-orange) r g b / 0.08); }
         }
         .animate-border-glow {
           animation: borderGlowPulse 2.2s ease-in-out infinite;
         }
         @keyframes alertBlinkAnim {
-          0%, 100% { opacity: 1; border-color: rgba(245, 158, 11, 0.50); }
-          50% { opacity: 0.35; border-color: rgba(245, 158, 11, 0.12); }
+          0%, 100% { opacity: 1; border-color: rgb(from var(--color-risk-elevated) r g b / 0.50); }
+          50% { opacity: 0.35; border-color: rgb(from var(--color-risk-elevated) r g b / 0.12); }
         }
         .animate-alert-blink {
           animation: alertBlinkAnim 1.4s ease-in-out infinite;
@@ -237,23 +237,23 @@ export function WhyPanik() {
       `}} />
 
       {/* Ambient Radial Mesh Backgrounds */}
-      <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-[550px] h-[550px] bg-gradient-to-tr from-[#F97316]/[0.025] to-transparent rounded-full blur-3xl pointer-events-none"></div>
+      <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-[550px] h-[550px] bg-gradient-to-tr from-panik-orange/[0.025] to-transparent rounded-full blur-3xl pointer-events-none"></div>
 
       <div className="max-w-7xl mx-auto relative z-10">
         
         {/* Headline and Subtext Block */}
         <ScrollReveal duration={0.6}>
           <div className="max-w-3xl mb-16 text-left">
-            <span className="text-[10px] font-mono tracking-widest text-[#F97316] uppercase font-medium">
+            <span className="text-2xs font-mono tracking-widest text-panik-orange uppercase font-medium">
               THE GAP
             </span>
-            <h2 className="font-sans font-extrabold text-4xl sm:text-5xl tracking-tight leading-tight text-[#F8FAFC] mt-3 mb-4">
+            <h2 className="font-sans font-extrabold text-4xl tracking-tight leading-tight text-text-primary mt-3 mb-4">
               Every DeFi tool sees <br />
-              <span className="text-[#475569]">part of </span>
-              <span className="text-[#F8FAFC]">the picture.</span>
+              <span className="text-text-muted">part of </span>
+              <span className="text-text-primary">the picture.</span>
             </h2>
-            <p className="text-[#94A3B8] text-sm sm:text-base max-w-xl leading-relaxed">
-              Siloed interfaces leave your funds vulnerable. <span className="text-[#F97316] font-semibold">PANIK</span> integrates state monitoring, audit history mapping, and action suggestions into a cohesive unit.
+            <p className="text-text-secondary text-sm sm:text-base max-w-xl leading-relaxed">
+              Siloed interfaces leave your funds vulnerable. <span className="text-panik-orange font-semibold">PANIK</span> integrates state monitoring, audit history mapping, and action suggestions into a cohesive unit.
             </p>
           </div>
         </ScrollReveal>
@@ -264,34 +264,34 @@ export function WhyPanik() {
           {/* Left Column (Radar Scanning Terminal) - Sticky */}
           <div className="lg:col-span-5 lg:sticky lg:top-[90px] z-20">
             <ScrollReveal
-              className="w-full max-w-[460px] bg-[#0A0C10] border border-white/[0.09] rounded-2xl flex flex-col justify-between overflow-hidden shadow-[inset_0_1px_0_rgba(20,184,166,0.08),0_12px_40px_rgba(0,0,0,0.65)]"
+              className="w-full max-w-[460px] bg-surface-sunken border border-border-subtle rounded-lg flex flex-col justify-between overflow-hidden shadow-[inset_0_1px_0_rgb(from var(--color-risk-low) r g b / 0.08),0_12px_40px_rgba(0,0,0,0.65)]"
               duration={0.7}
               delay={0.12}
             >
               {/* Card Header Row */}
-              <div className="flex justify-between items-center px-5 h-12 border-b border-white/[0.06] select-none">
+              <div className="flex justify-between items-center px-5 h-12 border-b border-border-subtle select-none">
                 <div className="flex items-center gap-2.5">
                   <span className="relative flex h-2 w-2">
-                    <span className="animate-scanner-dot absolute inline-flex h-full w-full rounded-full bg-[#14B8A6]"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#14B8A6]"></span>
+                    <span className="animate-scanner-dot absolute inline-flex h-full w-full rounded-full bg-risk-low"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-risk-low"></span>
                   </span>
-                  <span className="text-[11px] font-mono tracking-[0.09em] text-[#14B8A6] uppercase font-bold">
+                  <span className="text-2xs font-mono tracking-[0.09em] text-risk-low uppercase font-bold">
                     INTELLIGENCE SCANNER
                   </span>
                 </div>
                 
                 <div className="flex items-center gap-3">
-                  <span className="text-[9px] font-mono text-[#475569] uppercase font-medium">COVERAGE PATH</span>
+                  <span className="text-2xs font-mono text-text-muted uppercase font-medium">COVERAGE PATH</span>
                   
                   {/* Circular Arc Donut Progress */}
                   <div 
                     className="relative w-11 h-11 rounded-full flex items-center justify-center transition-all"
                     style={{
-                      background: `conic-gradient(#14B8A6 0deg, #14B8A6 ${displayCoverage * 3.6}deg, rgba(255,255,255,0.07) ${displayCoverage * 3.6}deg, rgba(255,255,255,0.07) 360deg)`
+                      background: `conic-gradient(var(--color-risk-low) 0deg, var(--color-risk-low) ${displayCoverage * 3.6}deg, rgba(255,255,255,0.07) ${displayCoverage * 3.6}deg, rgba(255,255,255,0.07) 360deg)`
                     }}
                   >
-                    <div className="absolute inset-[3px] rounded-full bg-[#0A0C10] flex items-center justify-center">
-                      <span className="text-[10px] font-mono font-bold text-[#14B8A6]">
+                    <div className="absolute inset-[3px] rounded-full bg-surface-sunken flex items-center justify-center">
+                      <span className="text-2xs font-mono font-bold text-risk-low">
                         {displayCoverage}%
                       </span>
                     </div>
@@ -300,7 +300,7 @@ export function WhyPanik() {
               </div>
 
               {/* Main Radar Screen Canvas Bounded Box */}
-              <div className="relative flex items-center justify-center w-full h-[340px] select-none overflow-hidden bg-[#0A0C10]/40">
+              <div className="relative flex items-center justify-center w-full h-[340px] select-none overflow-hidden bg-surface-sunken/40">
                 
                 {/* Center Anchor Wrapper for perfect coordinate alignment */}
                 <div className="relative w-[340px] h-[340px] shrink-0">
@@ -309,7 +309,7 @@ export function WhyPanik() {
                   <div className="absolute inset-0 pointer-events-none rounded-full overflow-hidden">
                     <div className="w-[340px] h-[340px] rounded-full radar-sweep-anim origin-center">
                       <div className="absolute inset-0 rounded-full" style={{
-                        background: 'conic-gradient(from 270deg, rgba(20, 184, 166, 0.4) 0deg, rgba(20, 184, 166, 0.15) 15deg, rgba(20, 184, 166, 0.05) 45deg, transparent 90deg, transparent 360deg)'
+                        background: 'conic-gradient(from 270deg, rgb(from var(--color-risk-low) r g b / 0.4) 0deg, rgb(from var(--color-risk-low) r g b / 0.15) 15deg, rgb(from var(--color-risk-low) r g b / 0.05) 45deg, transparent 90deg, transparent 360deg)'
                       }} />
                     </div>
                   </div>
@@ -317,16 +317,16 @@ export function WhyPanik() {
                   {/* 2. Concentric Circles & Axes background grid */}
                   <svg className="w-[340px] h-[340px] absolute inset-0 pointer-events-none" viewBox="0 0 340 340">
                     {/* Concentric rings */}
-                    <circle cx="170" cy="170" r="42" stroke="rgba(20,184,166,0.12)" strokeWidth="0.5" fill="none" />
-                    <circle cx="170" cy="170" r="85" stroke="rgba(20,184,166,0.10)" strokeWidth="0.5" fill="none" />
-                    <circle cx="170" cy="170" r="127" stroke="rgba(20,184,166,0.08)" strokeWidth="0.5" strokeDasharray="3 3" fill="none" />
-                    <circle cx="170" cy="170" r="170" stroke="rgba(20,184,166,0.06)" strokeWidth="0.5" fill="none" />
+                    <circle cx="170" cy="170" r="42" stroke="rgb(from var(--color-risk-low) r g b / 0.12)" strokeWidth="0.5" fill="none" />
+                    <circle cx="170" cy="170" r="85" stroke="rgb(from var(--color-risk-low) r g b / 0.10)" strokeWidth="0.5" fill="none" />
+                    <circle cx="170" cy="170" r="127" stroke="rgb(from var(--color-risk-low) r g b / 0.08)" strokeWidth="0.5" strokeDasharray="3 3" fill="none" />
+                    <circle cx="170" cy="170" r="170" stroke="rgb(from var(--color-risk-low) r g b / 0.06)" strokeWidth="0.5" fill="none" />
 
                     {/* Faint coordinates label markings */}
-                    <text x="215" y="173" className="text-[8px] font-mono font-medium fill-[#475569]">25</text>
-                    <text x="258" y="173" className="text-[8px] font-mono font-medium fill-[#2D3748]">50</text>
-                    <text x="300" y="173" className="text-[8px] font-mono font-medium fill-[#2D3748]">75</text>
-                    <text x="323" y="173" className="text-[8px] font-mono font-medium fill-[#2D3748]">100</text>
+                    <text x="215" y="173" className="text-2xs font-mono font-medium fill-text-muted">25</text>
+                    <text x="258" y="173" className="text-2xs font-mono font-medium fill-text-muted">50</text>
+                    <text x="300" y="173" className="text-2xs font-mono font-medium fill-text-muted">75</text>
+                    <text x="323" y="173" className="text-2xs font-mono font-medium fill-text-muted">100</text>
 
                     {/* Axis indicators */}
                     <line x1="170" y1="0" x2="170" y2="340" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
@@ -335,8 +335,8 @@ export function WhyPanik() {
                     {/* Wedge A: Audit Sentry Blind Spot Arc (~30deg to ~90deg) */}
                     <path 
                       d="M 170 170 L 317.2 85 A 170 170 0 0 0 170 0 Z" 
-                      fill="rgba(239, 68, 68, 0.04)" 
-                      stroke="rgba(239, 68, 68, 0.15)" 
+                      fill="rgb(from var(--color-risk-critical) r g b / 0.04)" 
+                      stroke="rgb(from var(--color-risk-critical) r g b / 0.15)" 
                       strokeWidth="0.5" 
                       className="transition-all duration-500" 
                       style={{ 
@@ -347,8 +347,8 @@ export function WhyPanik() {
                     {/* Wedge B: Atomic Repay Blind Spot Arc (~220deg to ~290deg) */}
                     <path 
                       d="M 170 170 L 39.8 279.3 A 170 170 0 0 0 228.1 329.8 Z" 
-                      fill="rgba(239, 68, 68, 0.04)" 
-                      stroke="rgba(239, 68, 68, 0.15)" 
+                      fill="rgb(from var(--color-risk-critical) r g b / 0.04)" 
+                      stroke="rgb(from var(--color-risk-critical) r g b / 0.15)" 
                       strokeWidth="0.5" 
                       className="transition-all duration-500" 
                       style={{ 
@@ -360,7 +360,7 @@ export function WhyPanik() {
                     {/* Sentry Tracker (98, 80) -> Alert Node (230, 280) */}
                     <line 
                       x1="98" y1="80" x2="230" y2="280" 
-                      stroke="rgba(20,184,166,0.35)" 
+                      stroke="rgb(from var(--color-risk-low) r g b / 0.35)" 
                       strokeWidth="1.5" 
                       strokeLinecap="round"
                       strokeDasharray="5 4" 
@@ -370,7 +370,7 @@ export function WhyPanik() {
                     {/* Alert Node (230, 280) -> Atomic Repay (115, 290) */}
                     <line 
                       x1="230" y1="280" x2="115" y2="290" 
-                      stroke="rgba(239,68,68,0.22)" 
+                      stroke="rgb(from var(--color-risk-critical) r g b / 0.22)" 
                       strokeWidth="1.2" 
                       strokeLinecap="round"
                       strokeDasharray="3 6" 
@@ -379,7 +379,7 @@ export function WhyPanik() {
                     {/* Sentry Tracker (98, 80) -> Audit Sentry (265, 115) - active only when PANIK row is in place */}
                     <line 
                       x1="98" y1="80" x2="265" y2="115" 
-                      stroke="#22C55E" 
+                      stroke="var(--color-risk-low)" 
                       strokeWidth="1.8" 
                       strokeLinecap="round"
                       style={{ opacity: activeIdx === 4 ? 0.75 : 0 }}
@@ -389,9 +389,8 @@ export function WhyPanik() {
 
                   {/* 3. Center origin monitoring dot */}
                   <div className="absolute left-[170px] top-[170px] -translate-x-1/2 -translate-y-1/2 z-30">
-                    <div className="w-2.5 h-2.5 rounded-full bg-[#F97316] relative flex items-center justify-center">
-                      <div className="absolute inset-0 rounded-full animate-ping bg-[#F97316] opacity-75" />
-                      <div className="absolute inset-[-14px] rounded-full border border-[#F97316]/20" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-panik-orange relative flex items-center justify-center">
+                      <div className="absolute inset-[-14px] rounded-full border border-panik-orange/20" />
                     </div>
                   </div>
 
@@ -405,20 +404,20 @@ export function WhyPanik() {
                       title: "SENTRY TRACKER",
                       status: "ACTIVE",
                       details: "Real-time on-chain tracker streaming secure validation heartbeats block-by-block.",
-                      colorClass: "text-[#14B8A6]"
+                      colorClass: "text-risk-low"
                     })}
                     onMouseLeave={() => setHoveredNode(null)}
                   >
-                    <div className="relative w-[34px] h-[34px] rounded-full bg-[#0A0C10] border border-[#14B8A6]/45 flex items-center justify-center text-[#14B8A6] animated-ping-sentry-tracker">
+                    <div className="relative w-[34px] h-[34px] rounded-full bg-surface-sunken border border-risk-low/45 flex items-center justify-center text-risk-low animated-ping-sentry-tracker">
                       <svg viewBox="0 0 20 20" className="w-4.5 h-4.5">
                         <polyline points="2,8 6,8 8,4 10,12 12,6 14,8 18,8" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
-                      <div className="absolute inset-[-4px] rounded-full border border-[#14B8A6]/20 animate-active-ring" />
+                      <div className="absolute inset-[-4px] rounded-full border border-risk-low/20 animate-active-ring" />
                     </div>
                     
                     <div className="absolute top-[38px] left-1/2 -translate-x-1/2 flex flex-col items-center">
-                      <span className="text-[8px] font-mono text-white/50 whitespace-nowrap font-medium tracking-wider">SENTRY TRACKER</span>
-                      <span className="text-[7px] font-mono text-[#14B8A6] font-bold">ACTIVE</span>
+                      <span className="text-2xs font-mono text-text-muted whitespace-nowrap font-medium tracking-wider">SENTRY TRACKER</span>
+                      <span className="text-2xs font-mono text-risk-low font-bold">ACTIVE</span>
                     </div>
                   </div>
 
@@ -432,14 +431,14 @@ export function WhyPanik() {
                       details: activeIdx === 4 
                         ? "Continuous inspection mapping active contracts directly against audited parameters."
                         : "Siloed dashboard gap: execution metrics evaluated without audit safety checking.",
-                      colorClass: activeIdx === 4 ? "text-[#22C55E]" : "text-[#EF4444]"
+                      colorClass: activeIdx === 4 ? "text-risk-low" : "text-risk-critical"
                     })}
                     onMouseLeave={() => setHoveredNode(null)}
                   >
-                    <div className={`relative w-[34px] h-[34px] rounded-full bg-[#0A0C10] border transition-all duration-500 flex items-center justify-center animated-ping-audit-sentry ${
+                    <div className={`relative w-[34px] h-[34px] rounded-full bg-surface-sunken border transition-all duration-500 flex items-center justify-center animated-ping-audit-sentry ${
                       activeIdx === 4 
-                        ? "border-[#22C55E] text-[#22C55E]" 
-                        : "border-red-500/25 text-red-400/50"
+                        ? "border-risk-low text-risk-low" 
+                        : "border-risk-critical/25 text-risk-critical/50"
                     }`}>
                       <svg viewBox="0 0 20 20" className="w-4.5 h-4.5">
                         <circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="1.5" fill="none"/>
@@ -448,15 +447,15 @@ export function WhyPanik() {
 
                       {/* Standard red indicator dot when blind spot is active */}
                       {activeIdx !== 4 && (
-                        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 flex items-center justify-center border border-red-900 shadow">
-                           <span className="text-[7px] font-bold text-white leading-none">!</span>
+                        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-risk-critical flex items-center justify-center border border-risk-critical shadow">
+                           <span className="text-2xs font-bold text-text-primary leading-none">!</span>
                         </div>
                       )}
                     </div>
                     
                     <div className="absolute top-[38px] left-1/2 -translate-x-1/2 flex flex-col items-center">
-                      <span className="text-[8px] font-mono text-white/50 whitespace-nowrap font-medium tracking-wider">AUDIT SENTRY</span>
-                      <span className={`text-[7px] font-mono font-bold ${activeIdx === 4 ? "text-[#22C55E]" : "text-red-400/70"}`}>
+                      <span className="text-2xs font-mono text-text-muted whitespace-nowrap font-medium tracking-wider">AUDIT SENTRY</span>
+                      <span className={`text-2xs font-mono font-bold ${activeIdx === 4 ? "text-risk-low" : "text-risk-critical/70"}`}>
                         {activeIdx === 4 ? "ACTIVE" : "BLIND SPOT"}
                       </span>
                     </div>
@@ -470,11 +469,11 @@ export function WhyPanik() {
                       title: "ALERT DETECTOR",
                       status: "WARNING STATE",
                       details: "Real-time state anomaly detected. Disconnected in secondary dashboards.",
-                      colorClass: "text-[#F59E0B]"
+                      colorClass: "text-risk-elevated"
                     })}
                     onMouseLeave={() => setHoveredNode(null)}
                   >
-                    <div className="w-[30px] h-[30px] rounded-full bg-[#0A0C10] border border-[#F59E0B]/35 flex items-center justify-center text-[#F59E0B] animated-ping-warning-node animate-alert-blink">
+                    <div className="w-[30px] h-[30px] rounded-full bg-surface-sunken border border-risk-elevated/35 flex items-center justify-center text-risk-elevated animated-ping-warning-node animate-alert-blink">
                       <svg viewBox="0 0 20 20" className="w-4 h-4">
                         <path d="M10,3 L18,17 H2 Z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
                         <line x1="10" y1="10" x2="10" y2="13" stroke="currentColor" strokeWidth="1.5"/>
@@ -493,14 +492,14 @@ export function WhyPanik() {
                       details: activeIdx === 4 
                         ? "Automated atomic repayment and protective safehousing configured active."
                         : "Portfolio track hazard: action trigger bypassed. Emergency rescue unreachable.",
-                      colorClass: activeIdx === 4 ? "text-[#22C55E]" : "text-[#EF4444]"
+                      colorClass: activeIdx === 4 ? "text-risk-low" : "text-risk-critical"
                     })}
                     onMouseLeave={() => setHoveredNode(null)}
                   >
-                    <div className={`relative w-[34px] h-[34px] rounded-full bg-[#0A0C10] border transition-all duration-500 flex items-center justify-center animated-ping-atomic-repay ${
+                    <div className={`relative w-[34px] h-[34px] rounded-full bg-surface-sunken border transition-all duration-500 flex items-center justify-center animated-ping-atomic-repay ${
                       activeIdx === 4 
-                        ? "border-[#22C55E] text-[#22C55E]" 
-                        : "border-red-500/25 text-red-400/50"
+                        ? "border-risk-low text-risk-low" 
+                        : "border-risk-critical/25 text-risk-critical/50"
                     }`}>
                       <svg viewBox="0 0 20 20" className="w-4.5 h-4.5">
                         <path d="M13,2 L8,11 H12 L7,20" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
@@ -508,15 +507,15 @@ export function WhyPanik() {
 
                       {/* Standard red indicator dot when blind spot is active */}
                       {activeIdx !== 4 && (
-                        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 flex items-center justify-center border border-red-900 shadow">
-                           <span className="text-[7px] font-bold text-white leading-none">!</span>
+                        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-risk-critical flex items-center justify-center border border-risk-critical shadow">
+                           <span className="text-2xs font-bold text-text-primary leading-none">!</span>
                         </div>
                       )}
                     </div>
                     
                     <div className="absolute top-[38px] left-1/2 -translate-x-1/2 flex flex-col items-center">
-                      <span className="text-[8px] font-mono text-white/50 whitespace-nowrap font-medium tracking-wider">ATOMIC REPAY</span>
-                      <span className={`text-[7px] font-mono font-bold ${activeIdx === 4 ? "text-[#22C55E]" : "text-red-400/70"}`}>
+                      <span className="text-2xs font-mono text-text-muted whitespace-nowrap font-medium tracking-wider">ATOMIC REPAY</span>
+                      <span className={`text-2xs font-mono font-bold ${activeIdx === 4 ? "text-risk-low" : "text-risk-critical/70"}`}>
                         {activeIdx === 4 ? "ACTIVE" : "BLIND SPOT"}
                       </span>
                     </div>
@@ -530,17 +529,17 @@ export function WhyPanik() {
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute bottom-5 left-5 right-5 bg-[#0A0C10]/95 border border-white/[0.08] p-3.5 rounded-xl backdrop-blur-md z-45 shadow-[0_8px_32px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.02)] select-none text-left"
+                        className="absolute bottom-5 left-5 right-5 bg-surface-sunken/95 border border-border-subtle p-3.5 rounded-md backdrop-blur-md z-45 shadow-[0_8px_32px_rgba(0,0,0,0.8),inset_0_1px_0_rgba(255,255,255,0.02)] select-none text-left"
                       >
                         <div className="flex justify-between items-center mb-1">
-                          <span className="text-[10px] font-mono font-bold tracking-wider text-white">
+                          <span className="text-2xs font-mono font-bold tracking-wider text-text-primary">
                             {hoveredNode.title}
                           </span>
-                          <span className={`text-[9px] font-mono font-bold uppercase ${hoveredNode.colorClass}`}>
+                          <span className={`text-2xs font-mono font-bold uppercase ${hoveredNode.colorClass}`}>
                             {hoveredNode.status}
                           </span>
                         </div>
-                        <p className="text-[10px] text-[#94A3B8] leading-relaxed">
+                        <p className="text-2xs text-text-secondary leading-relaxed">
                           {hoveredNode.details}
                         </p>
                       </motion.div>
@@ -568,7 +567,7 @@ export function WhyPanik() {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 10px;
                 font-weight: 500;
-                color: #475569;
+                color: var(--color-text-muted);
                 letter-spacing: 0.09em;
                 margin-bottom: 16px;
                 text-transform: uppercase;
@@ -585,7 +584,7 @@ export function WhyPanik() {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 9px;
                 font-weight: 500;
-                color: #475569;
+                color: var(--color-text-muted);
                 text-transform: uppercase;
                 letter-spacing: 0.07em;
                 text-align: center;
@@ -616,7 +615,7 @@ export function WhyPanik() {
                 padding-right: 12px;
               }
               .lm-row-portfolio {
-                border-left: 2px solid rgba(249,115,22,0.35) !important;
+                border-left: 2px solid rgb(from var(--color-panik-orange) r g b / 0.35) !important;
                 padding-left: 12px !important;
                 margin-left: -14px !important;
               }
@@ -672,7 +671,7 @@ export function WhyPanik() {
                 width: 8px;
                 height: 8px;
                 border-radius: 50%;
-                background: #F8FAFC;
+                background: var(--color-text-primary);
               }
 
               /* STATE B - NOT COVERED (hollow) */
@@ -683,8 +682,8 @@ export function WhyPanik() {
 
               /* STATE C - DANGEROUS (red) */
               .lm-node-dangerous {
-                background: rgba(239,68,68,0.10);
-                border: 1px solid rgba(239,68,68,0.35);
+                background: rgb(from var(--color-risk-critical) r g b / 0.10);
+                border: 1px solid rgb(from var(--color-risk-critical) r g b / 0.35);
                 position: relative;
               }
               .lm-node-dangerous::after {
@@ -692,7 +691,7 @@ export function WhyPanik() {
                 width: 8px;
                 height: 8px;
                 border-radius: 50%;
-                background: #EF4444;
+                background: var(--color-risk-critical);
               }
               .lm-node-dangerous .lm-tooltip {
                 visibility: hidden;
@@ -700,11 +699,11 @@ export function WhyPanik() {
                 bottom: calc(100% + 8px);
                 left: 50%;
                 transform: translateX(-50%);
-                background: #0F1117;
+                background: var(--color-surface-raised);
                 border: 0.5px solid rgba(255,255,255,0.10);
                 border-radius: 6px;
                 padding: 6px 10px;
-                color: #94A3B8;
+                color: var(--color-text-secondary);
                 font-family: 'Inter', sans-serif;
                 font-size: 11px;
                 white-space: nowrap;
@@ -720,15 +719,15 @@ export function WhyPanik() {
 
               /* STATE D - PARTIAL (amber) */
               .lm-node-partial {
-                background: rgba(245,158,11,0.08);
-                border: 1px solid rgba(245,158,11,0.25);
+                background: rgb(from var(--color-risk-elevated) r g b / 0.08);
+                border: 1px solid rgb(from var(--color-risk-elevated) r g b / 0.25);
               }
               .lm-node-partial::after {
                 content: '';
                 width: 8px;
                 height: 8px;
                 border-radius: 50%;
-                background: #F59E0B;
+                background: var(--color-risk-elevated);
               }
 
               /* STATE E - PANIK COVERED (orange) */
@@ -736,8 +735,8 @@ export function WhyPanik() {
                 width: 32px !important;
                 height: 32px !important;
                 border-radius: 50% !important;
-                background: rgba(249,115,22,0.15);
-                border: 1px solid rgba(249,115,22,0.55);
+                background: rgb(from var(--color-panik-orange) r g b / 0.15);
+                border: 1px solid rgb(from var(--color-panik-orange) r g b / 0.55);
                 opacity: 0.15;
                 transition: opacity 0.3s ease, border-color 0.15s ease;
               }
@@ -746,17 +745,17 @@ export function WhyPanik() {
                 width: 8px !important;
                 height: 8px !important;
                 border-radius: 50% !important;
-                background: #F97316;
+                background: var(--color-panik-orange);
               }
               .lm-node-panik.lm-light-up {
                 opacity: 1;
               }
               @keyframes lm-pulse-glow {
                 0% {
-                  box-shadow: 0 0 0 0 rgba(249,115,22,0.5);
+                  box-shadow: 0 0 0 0 rgb(from var(--color-panik-orange) r g b / 0.5);
                 }
                 100% {
-                  box-shadow: 0 0 0 10px rgba(249,115,22,0);
+                  box-shadow: 0 0 0 10px rgb(from var(--color-panik-orange) r g b / 0);
                 }
               }
               .lm-node-panik.lm-pulse {
@@ -802,15 +801,15 @@ export function WhyPanik() {
               .lm-line-broken-right {
                 width: 40%;
                 height: 1.5px;
-                border-top: 1.5px dashed rgba(239,68,68,0.18);
+                border-top: 1.5px dashed rgb(from var(--color-risk-critical) r g b / 0.18);
               }
                .lm-gap-marker {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 8px;
                 font-weight: 600;
-                color: #EF4444;
-                background: rgba(239, 68, 68, 0.12);
-                border: 0.5px solid rgba(239, 68, 68, 0.30);
+                color: var(--color-risk-critical);
+                background: rgb(from var(--color-risk-critical) r g b / 0.12);
+                border: 0.5px solid rgb(from var(--color-risk-critical) r g b / 0.30);
                 border-radius: 4px;
                 padding: 2px 6px;
                 white-space: nowrap;
@@ -824,7 +823,7 @@ export function WhyPanik() {
                 pointer-events: auto;
               }
               .lm-gap-marker:hover {
-                border-color: rgba(239,68,68,1.0);
+                border-color: var(--color-risk-critical);
               }
 
               /* Critical Gap Marker */
@@ -832,9 +831,9 @@ export function WhyPanik() {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 7px;
                 font-weight: 600;
-                color: #F97316;
-                background: rgba(249,115,22,0.12);
-                border: 0.5px solid rgba(249,115,22,0.35);
+                color: var(--color-panik-orange);
+                background: rgb(from var(--color-panik-orange) r g b / 0.12);
+                border: 0.5px solid rgb(from var(--color-panik-orange) r g b / 0.35);
                 border-radius: 4px;
                 padding: 3px 8px;
                 white-space: nowrap;
@@ -849,14 +848,14 @@ export function WhyPanik() {
                 min-width: max-content;
               }
               .lm-critical-gap-marker:hover {
-                border-color: rgba(249,115,22,1.0);
+                border-color: var(--color-panik-orange);
               }
 
               /* Uncovered start dashed continuation */
               .lm-line-uncovered {
                 width: 100%;
                 height: 1.5px;
-                border-top: 1.5px dashed rgba(239,68,68,0.18);
+                border-top: 1.5px dashed rgb(from var(--color-risk-critical) r g b / 0.18);
               }
 
               /* PANIK active connectors with draw animation */
@@ -882,21 +881,21 @@ export function WhyPanik() {
               .lm-separator-line-left {
                 width: calc(50% - 120px);
                 height: 1px;
-                background: linear-gradient(to right, transparent, rgba(249,115,22,0.40));
+                background: linear-gradient(to right, transparent, rgb(from var(--color-panik-orange) r g b / 0.40));
               }
               .lm-separator-line-right {
                 width: calc(50% - 120px);
                 height: 1px;
-                background: linear-gradient(to left, transparent, rgba(249,115,22,0.40));
+                background: linear-gradient(to left, transparent, rgb(from var(--color-panik-orange) r g b / 0.40));
               }
               .lm-separator-pill {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 9px;
                 font-weight: 600;
-                color: #F97316;
+                color: var(--color-panik-orange);
                 letter-spacing: 0.09em;
-                background: rgba(249,115,22,0.08);
-                border: 0.5px solid rgba(249,115,22,0.25);
+                background: rgb(from var(--color-panik-orange) r g b / 0.08);
+                border: 0.5px solid rgb(from var(--color-panik-orange) r g b / 0.25);
                 border-radius: 20px;
                 padding: 5px 14px;
                 white-space: nowrap;
@@ -905,14 +904,14 @@ export function WhyPanik() {
 
               /* PANIK Card Redesign */
               .lm-panik-card {
-                background: rgba(249,115,22,0.07);
-                border: 0.5px solid rgba(249,115,22,0.35);
+                background: rgb(from var(--color-panik-orange) r g b / 0.07);
+                border: 0.5px solid rgb(from var(--color-panik-orange) r g b / 0.35);
                 border-radius: 12px;
-                border-left: 3px solid #F97316;
+                border-left: 3px solid var(--color-panik-orange);
                 padding: 20px 20px 20px 18px;
-                box-shadow: 0 0 0 1px rgba(249,115,22,0.05),
-                            0 4px 28px rgba(249,115,22,0.08),
-                            inset 0 1px 0 rgba(249,115,22,0.08);
+                box-shadow: 0 0 0 1px rgb(from var(--color-panik-orange) r g b / 0.05),
+                            0 4px 28px rgb(from var(--color-panik-orange) r g b / 0.08),
+                            inset 0 1px 0 rgb(from var(--color-panik-orange) r g b / 0.08);
                 width: 100%;
                 display: flex;
                 align-items: flex-start;
@@ -922,8 +921,8 @@ export function WhyPanik() {
                 margin-bottom: 8px;
               }
               .lm-panik-card:hover {
-                box-shadow: 0 0 0 1px rgba(249,115,22,0.10),
-                            0 4px 32px rgba(249,115,22,0.14);
+                box-shadow: 0 0 0 1px rgb(from var(--color-panik-orange) r g b / 0.10),
+                            0 4px 32px rgb(from var(--color-panik-orange) r g b / 0.14);
               }
               .lm-panik-left-title {
                 display: flex;
@@ -939,7 +938,7 @@ export function WhyPanik() {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 14px;
                 font-weight: 700;
-                color: #F97316;
+                color: var(--color-panik-orange);
                 letter-spacing: 0.10em;
                 margin-left: 10px;
               }
@@ -947,7 +946,7 @@ export function WhyPanik() {
                 font-family: 'Inter', sans-serif;
                 font-size: 13px;
                 font-weight: 400;
-                color: rgba(249,115,22,0.80);
+                color: rgb(from var(--color-panik-orange) r g b / 0.80);
                 line-height: 1.6;
                 margin-top: 6px;
                 max-width: 230px;
@@ -959,9 +958,9 @@ export function WhyPanik() {
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 9px;
                 font-weight: 600;
-                color: #22C55E;
-                background: rgba(34,197,94,0.10);
-                border: 0.5px solid rgba(34,197,94,0.30);
+                color: var(--color-risk-low);
+                background: rgb(from var(--color-risk-low) r g b / 0.10);
+                border: 0.5px solid rgb(from var(--color-risk-low) r g b / 0.30);
                 border-radius: 4px;
                 padding: 4px 10px;
                 white-space: nowrap;
@@ -992,14 +991,14 @@ export function WhyPanik() {
                 font-size: 11px;
                 font-weight: 600;
                 text-transform: uppercase;
-                color: #94A3B8;
+                color: var(--color-text-secondary);
                 letter-spacing: 0.07em;
               }
               .lm-row-desc {
                 font-family: 'Inter', sans-serif;
                 font-size: 12px;
                 font-weight: 400;
-                color: #475569;
+                color: var(--color-text-muted);
                 line-height: 1.6;
                 max-width: 230px;
               }
@@ -1291,11 +1290,11 @@ export function WhyPanik() {
                   <div className="lm-panik-left-title">
                     <div className="lm-panik-spin-logo">
                       <svg width="20" height="20" viewBox="0 0 20 20">
-                        <circle cx="10" cy="10" r="6" stroke="#F97316" strokeWidth="1.5" fill="none"/>
-                        <line x1="10" y1="1" x2="10" y2="4" stroke="#F97316" strokeWidth="1.5"/>
-                        <line x1="10" y1="16" x2="10" y2="19" stroke="#F97316" strokeWidth="1.5"/>
-                        <line x1="1" y1="10" x2="4" y2="10" stroke="#F97316" strokeWidth="1.5"/>
-                        <line x1="16" y1="10" x2="19" y2="10" stroke="#F97316" strokeWidth="1.5"/>
+                        <circle cx="10" cy="10" r="6" stroke="var(--color-panik-orange)" strokeWidth="1.5" fill="none"/>
+                        <line x1="10" y1="1" x2="10" y2="4" stroke="var(--color-panik-orange)" strokeWidth="1.5"/>
+                        <line x1="10" y1="16" x2="10" y2="19" stroke="var(--color-panik-orange)" strokeWidth="1.5"/>
+                        <line x1="1" y1="10" x2="4" y2="10" stroke="var(--color-panik-orange)" strokeWidth="1.5"/>
+                        <line x1="16" y1="10" x2="19" y2="10" stroke="var(--color-panik-orange)" strokeWidth="1.5"/>
                       </svg>
                     </div>
                     <span className="lm-panik-name">PANIK</span>
@@ -1312,7 +1311,7 @@ export function WhyPanik() {
                     <svg width="100%" height="1.5" viewBox="0 0 100 1.5" preserveAspectRatio="none" className="overflow-visible">
                       <line
                         x1="0" y1="0.75" x2="100" y2="0.75"
-                        stroke="#F97316"
+                        stroke="var(--color-panik-orange)"
                         strokeWidth="1.5"
                         className={`lm-svg-draw-path ${animateStep >= 2 ? 'lm-draw-anim' : ''}`}
                       />
@@ -1323,7 +1322,7 @@ export function WhyPanik() {
                     <svg width="100%" height="1.5" viewBox="0 0 100 1.5" preserveAspectRatio="none" className="overflow-visible">
                       <line
                         x1="0" y1="0.75" x2="100" y2="0.75"
-                        stroke="#F97316"
+                        stroke="var(--color-panik-orange)"
                         strokeWidth="1.5"
                         className={`lm-svg-draw-path ${animateStep >= 3 ? 'lm-draw-anim' : ''}`}
                       />
@@ -1334,7 +1333,7 @@ export function WhyPanik() {
                     <svg width="100%" height="1.5" viewBox="0 0 100 1.5" preserveAspectRatio="none" className="overflow-visible">
                       <line
                         x1="0" y1="0.75" x2="100" y2="0.75"
-                        stroke="#F97316"
+                        stroke="var(--color-panik-orange)"
                         strokeWidth="1.5"
                         className={`lm-svg-draw-path ${animateStep >= 4 ? 'lm-draw-anim' : ''}`}
                       />
@@ -1345,7 +1344,7 @@ export function WhyPanik() {
                     <svg width="100%" height="1.5" viewBox="0 0 100 1.5" preserveAspectRatio="none" className="overflow-visible">
                       <line
                         x1="0" y1="0.75" x2="100" y2="0.75"
-                        stroke="#F97316"
+                        stroke="var(--color-panik-orange)"
                         strokeWidth="1.5"
                         className={`lm-svg-draw-path ${animateStep >= 5 ? 'lm-draw-anim' : ''}`}
                       />
@@ -1411,13 +1410,9 @@ function TerminalLog() {
   }, []);
 
   return (
-    <div className="bg-[#060810] border-t border-white/[0.08] p-3 rounded-none font-mono text-[9px] relative overflow-hidden h-[72px] flex flex-col justify-between shrink-0">
-      <div className="flex items-center justify-between mb-1.5 text-[8px] text-[#475569] uppercase tracking-widest leading-none shrink-0 select-none">
+    <div className="bg-surface-base border-t border-border-subtle p-3 rounded-none font-mono text-2xs relative overflow-hidden h-[72px] flex flex-col justify-between shrink-0">
+      <div className="flex items-center justify-between mb-1.5 text-2xs text-text-muted uppercase tracking-widest leading-none shrink-0 select-none">
         <span>SYSTEM REGULAR TELEMETRY</span>
-        <span className="flex items-center gap-1.5 font-bold text-[#22C55E]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse"></span>
-          ● LIVE FEED
-        </span>
       </div>
       
       {/* scrolling typed lines feed */}
@@ -1434,8 +1429,8 @@ function TerminalLog() {
             const isTealColor = typeLabel === "[INFO]";
 
             const colorClass = isLatest
-              ? isRedColor ? "text-[#EF4444]" : isAmberColor ? "text-[#F59E0B]" : "text-[#14B8A6]/80"
-              : "text-[#475569]/50";
+              ? isRedColor ? "text-risk-critical" : isAmberColor ? "text-risk-elevated" : "text-risk-low/80"
+              : "text-text-muted";
 
             return (
               <motion.div
@@ -1485,7 +1480,6 @@ function TypewriterText({ label, text, colorClass }: { label: string; text: stri
       <span className="font-bold shrink-0">{label}</span>
       <span className="truncate">
         {displayed}
-        <span className="inline-block w-1 h-3 bg-current animate-pulse ml-0.5 align-middle" />
       </span>
     </span>
   );

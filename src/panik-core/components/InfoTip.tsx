@@ -13,8 +13,15 @@ import { HelpCircle } from "lucide-react";
  * so it never gets clipped by the cards' overflow-hidden containers, and
  * flips below the anchor near the top of the viewport. Keyboard-accessible
  * (focusable, shows on focus).
+ *
+ * `children` replaces the help glyph with a custom anchor, for the case where
+ * the thing being explained is itself the obvious hover target and a separate
+ * "?" beside it would be a second control for one idea. The anchor keeps the
+ * focus, the portal and the viewport flip either way — the alternative was a
+ * native `title`, which cannot be focused, cannot be styled, and does not
+ * appear for a keyboard user at all.
  */
-export function InfoTip(props: { text: string; className?: string }) {
+export function InfoTip(props: { text: string; className?: string; children?: React.ReactNode }) {
   const anchor = useRef<HTMLSpanElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number; below: boolean } | null>(null);
 
@@ -31,13 +38,15 @@ export function InfoTip(props: { text: string; className?: string }) {
       ref={anchor}
       tabIndex={0}
       aria-label={props.text}
-      className={`inline-flex align-middle outline-none ${props.className ?? ""}`}
+      className={`inline-flex align-middle ${props.className ?? ""}`}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}
       onBlur={hide}
     >
-      <HelpCircle className="w-3 h-3 text-white/25 hover:text-panik-orange transition-colors cursor-help shrink-0" />
+      {props.children ?? (
+        <HelpCircle className="w-3 h-3 text-text-muted hover:text-text-primary transition-colors cursor-help shrink-0" />
+      )}
       {pos &&
         createPortal(
           <span
@@ -45,7 +54,13 @@ export function InfoTip(props: { text: string; className?: string }) {
             className={`fixed z-[300] w-60 -translate-x-1/2 pointer-events-none ${pos.below ? "" : "-translate-y-full"}`}
             style={{ left: pos.x, top: pos.below ? pos.y + 6 : pos.y - 6 }}
           >
-            <span className="block p-2.5 rounded-lg bg-[#1A1D26] border border-white/10 text-[10px] font-sans normal-case tracking-normal font-normal text-white/85 leading-relaxed shadow-2xl text-left">
+            {/* 12px, not 11px. A tooltip is a paragraph a user opened on
+                purpose because they did not understand something; setting the
+                explanation smaller than the thing it explains is the wrong way
+                round. `surface-overlay` is the lightest surface in the system,
+                which is exactly the case text-secondary (#94A3B8, 6.68:1) is
+                specified against. */}
+            <span className="block p-2.5 rounded-md bg-surface-overlay border border-border-subtle text-xs font-sans normal-case tracking-normal font-normal text-text-secondary leading-relaxed shadow-2xl text-left">
               {props.text}
             </span>
           </span>,

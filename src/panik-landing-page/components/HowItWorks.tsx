@@ -78,7 +78,7 @@ export function HowItWorks() {
       step: "03",
       title: "ADVISOR",
       subtitle: "KNOW EXACTLY WHAT TO DO AND WHY.",
-      icon: <Zap className="w-5 h-5 text-panik-orange shrink-0 animate-pulse" />,
+      icon: <Zap className="w-5 h-5 text-panik-orange shrink-0" />,
       description: "When a position needs attention, Panik surfaces one specific recommendation with full reasoning, backed by live on-chain data."
     }
   ];
@@ -87,7 +87,7 @@ export function HowItWorks() {
     <div 
       ref={sectionRef} 
       id="products" 
-      className="relative h-[250vh] bg-[#09090B] w-full"
+      className="relative h-[250vh] bg-surface-base w-full"
     >
       {/* Scope-contained Styles for Advanced Outer Outline Tracing and Fluid Liquid Numeric Fill */}
       <style>{`
@@ -99,24 +99,24 @@ export function HowItWorks() {
           transition: stroke-dashoffset 1.4s cubic-bezier(0.25, 1, 0.2, 1), stroke 0.3s ease-out;
         }
         .group:hover .card-outline-svg {
-          stroke: #F97316;
+          stroke: var(--color-panik-orange);
           stroke-dashoffset: 0;
-          filter: drop-shadow(0 0 3px rgba(249, 115, 22, 0.4));
+          filter: drop-shadow(0 0 3px rgb(from var(--color-panik-orange) r g b / 0.4));
         }
       `}</style>
 
       {/* Absolute Ambient Glow in Section background */}
       <div className="absolute top-[30vh] left-1/4 w-[500px] h-[500px] bg-panik-orange/[0.02] rounded-full blur-3xl pointer-events-none z-0"></div>
-      <div className="absolute bottom-[30vh] right-1/4 w-[500px] h-[500px] bg-red-500/[0.01] rounded-full blur-3xl pointer-events-none z-0"></div>
+      <div className="absolute bottom-[30vh] right-1/4 w-[500px] h-[500px] bg-risk-critical/[0.01] rounded-full blur-3xl pointer-events-none z-0"></div>
 
       {/* STICKY CONTAINER - Locks the screen inside viewport as user scrolls the height */}
       <div className="sticky top-0 h-screen w-full flex flex-col justify-center overflow-hidden py-16 px-6 z-10">
         
         {/* Section Header */}
-        <div className="text-center max-w-3xl mx-auto mb-12 select-none shrink-0 border-b border-white/[0.03] pb-6">
-          <h2 className="font-display font-medium text-3xl sm:text-4xl tracking-tight text-[#F8FAFC] mt-4 mb-3 leading-tight">
+        <div className="text-center max-w-3xl mx-auto mb-12 select-none shrink-0 border-b border-border-subtle pb-6">
+          <h2 className="font-sans font-medium text-2xl sm:text-4xl tracking-tight text-text-primary mt-4 mb-3 leading-tight">
             From entry to exit. <br />
-            <span className="text-panik-text-secondary font-semibold">Every step covered.</span>
+            <span className="text-text-secondary font-semibold">Every step covered.</span>
           </h2>
         </div>
 
@@ -132,10 +132,10 @@ export function HowItWorks() {
                 onClick={() => {
                   if (!isActive) handleScrollToPhase(idx);
                 }}
-                className={`group relative rounded-2xl border flex flex-col justify-between p-6 md:p-8 overflow-hidden min-w-0 basis-0 [transition:background-color_0.5s_ease,border-color_0.5s_ease,box-shadow_0.5s_ease,opacity_0.5s_ease,filter_0.5s_ease] ${
+                className={`group relative rounded-lg border flex flex-col justify-between p-6 md:p-8 overflow-hidden min-w-0 basis-0 [transition:background-color_0.5s_ease,border-color_0.5s_ease,box-shadow_0.5s_ease,opacity_0.5s_ease,filter_0.5s_ease] ${
                   isActive
-                    ? "bg-[#0C0E14] border-white/[0.12] hover:border-panik-orange/55 shadow-2xl hover:shadow-[0_0_25px_rgba(249,115,22,0.12)] brightness-100 cursor-default"
-                    : "panik-glass bg-[#0A0C11]/50 hover:bg-[#0E1119]/80 border-white/[0.04] hover:border-panik-orange/25 opacity-40 hover:opacity-75 cursor-pointer select-none"
+                    ? "bg-surface-sunken border-border-subtle hover:border-panik-orange/55 shadow-2xl hover:shadow-[0_0_25px_rgb(from var(--color-panik-orange) r g b / 0.12)] brightness-100 cursor-default"
+                    : "panik-glass bg-surface-sunken/50 hover:bg-surface-raised/80 border-border-subtle hover:border-panik-orange/25 opacity-40 hover:opacity-75 cursor-pointer select-none"
                 }`}
                 style={{ willChange: "flex-grow" }}
                 initial={false}
@@ -150,7 +150,7 @@ export function HowItWorks() {
                 }}
               >
                 {/* Custom Card Outline Glow Effect Originating from Top and Encompassing borders */}
-                <div className="absolute inset-0 rounded-2xl pointer-events-none overflow-hidden z-30">
+                <div className="absolute inset-0 rounded-lg pointer-events-none overflow-hidden z-30">
                   <svg className="absolute inset-0 w-full h-full" fill="none">
                     <rect
                       x="0.5"
@@ -184,19 +184,19 @@ export function HowItWorks() {
                     <div>
                       {/* Brand Label Header inside Active view */}
                       <div className="flex justify-between items-start mb-8">
-                        <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-white/[0.03] border border-white/[0.08] shadow-inner">
+                        <div className="flex items-center justify-center w-11 h-11 rounded-md bg-white/[0.03] border border-border-subtle shadow-inner">
                           {item.icon}
                         </div>
 
                         {/* Dynamic Step Fill Effect */}
                         <div className="relative select-none pr-2 sm:pr-3 pt-0.5">
                           {/* Base low-opacity background number */}
-                          <span className="font-mono text-4xl sm:text-5xl font-extrabold text-white/[0.05] select-none tracking-tighter block transition-colors duration-500 group-hover:text-white/[0.09]">
+                          <span className="font-mono text-4xl font-extrabold text-white/[0.05] select-none tracking-tighter block transition-colors duration-500 group-hover:text-white/[0.09]">
                             {item.step}
                           </span>
                           {/* Low opacity orange overlay container that fills from bottom up on card hover */}
                           <div className="absolute inset-x-0 bottom-0 top-0 h-0 group-hover:h-full transition-all duration-[1600ms] ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden pointer-events-none select-none flex items-end">
-                            <span className="font-mono text-4xl sm:text-5xl font-extrabold text-[#F97316]/55 select-none tracking-tighter block leading-none select-none pb-[2px]">
+                            <span className="font-mono text-4xl font-extrabold text-panik-orange/55 select-none tracking-tighter block leading-none select-none pb-[2px]">
                               {item.step}
                             </span>
                           </div>
@@ -204,29 +204,29 @@ export function HowItWorks() {
                       </div>
 
                       {/* Header values */}
-                      <h3 className="font-display font-medium text-2xl text-white tracking-tight">
+                      <h3 className="font-sans font-medium text-2xl text-text-primary tracking-tight">
                         {item.title}
                       </h3>
                       
-                      <p className="font-mono text-[10px] text-panik-orange mt-1.5 uppercase tracking-wider font-semibold">
+                      <p className="font-mono text-2xs text-panik-orange mt-1.5 uppercase tracking-wider font-semibold">
                         {item.subtitle}
                       </p>
 
                       {/* Paragraph text */}
-                      <p className="text-panik-text-secondary text-xs sm:text-sm leading-relaxed mt-5 max-w-xl">
+                      <p className="text-text-secondary text-xs sm:text-sm leading-relaxed mt-5 max-w-xl">
                         {item.description}
                       </p>
                     </div>
 
                     {/* Active Section Footer */}
-                    <div className="mt-8 pt-4.5 border-t border-white/[0.04] flex items-center justify-end text-[10px] font-mono text-panik-text-secondary">
+                    <div className="mt-8 pt-4.5 border-t border-border-subtle flex items-center justify-end text-2xs font-mono text-text-secondary">
                       {activeIndex < 2 && (
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
                             handleScrollToPhase(idx + 1);
                           }}
-                          className="flex items-center gap-1 text-panik-orange hover:text-orange-400 font-bold uppercase tracking-wider transition-colors"
+                          className="flex items-center gap-1 text-panik-orange hover:text-panik-orange font-bold uppercase tracking-wider transition-colors"
                         >
                           <span>Next Module</span>
                           <ChevronRight className="w-3.5 h-3.5" />
@@ -245,7 +245,7 @@ export function HowItWorks() {
                     className="flex flex-col items-center justify-between h-full py-2 w-full text-center"
                   >
                     {/* Big Mono step index at top */}
-                    <span className="font-mono text-xs font-extrabold text-panik-orange/65 font-bold tracking-widest block bg-white/[0.02] border border-white/[0.08] px-1.5 py-0.5 rounded">
+                    <span className="font-mono text-xs font-extrabold text-panik-orange/65 font-bold tracking-widest block bg-white/[0.02] border border-border-subtle px-1.5 py-0.5 rounded-sm">
                       {item.step}
                     </span>
 
@@ -257,7 +257,7 @@ export function HowItWorks() {
                     {/* Sideways Vertical cybernetic Title block */}
                     <div className="flex-1 flex items-center justify-center py-4">
                       <span 
-                        className="block font-display font-extrabold text-xs tracking-[0.25em] text-[#F0F4FF]/30 select-none uppercase"
+                        className="block font-sans font-extrabold text-xs tracking-[0.25em] text-text-muted select-none uppercase"
                         style={{ writingMode: "vertical-rl" }}
                       >
                         {item.title}

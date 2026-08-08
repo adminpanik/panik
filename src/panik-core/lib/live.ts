@@ -6,7 +6,19 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type Band = "LOW" | "ELEVATED" | "HIGH" | "CRITICAL";
+/**
+ * The engine's band vocabulary, not a copy of it. This used to be a literal
+ * re-declaration of the same four strings, which meant `packages/scoring` — the
+ * one place scoring is allowed to live — could gain a band and every consumer
+ * here would keep compiling and silently resolve `RISK_CHIP[band]` to
+ * `undefined`. Importing it makes that a type error at the door.
+ *
+ * TYPE-only, and it has to stay that way: `packages/scoring` is raw TS whose
+ * barrel pulls viem, so a value import would put the engine in a browser
+ * bundle. `import type` is erased before the bundler ever sees it.
+ */
+export type { Band } from "../../../packages/scoring/src/types";
+import type { Band } from "../../../packages/scoring/src/types";
 
 export interface SubScores {
   positionHealth: number;

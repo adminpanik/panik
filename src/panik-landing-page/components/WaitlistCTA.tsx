@@ -67,7 +67,7 @@ export function WaitlistCTA({ subscribersList, hasSubscribed, onOpenWaitlistModa
           sway={2.5}
           duration={9.5}
           parallax={26}
-          glow="rgba(249, 146, 22, 0.34)"
+          glow="rgb(from var(--color-panik-orange) r g b / 0.34)"
           opacity={0.98}
         />
 
@@ -85,34 +85,34 @@ export function WaitlistCTA({ subscribersList, hasSubscribed, onOpenWaitlistModa
           duration={9}
           delay={0.6}
           parallax={-24}
-          glow="rgba(249, 115, 22, 0.32)"
+          glow="rgb(from var(--color-panik-orange) r g b / 0.32)"
           opacity={0.98}
         />
 
         {/* Main CTA structure */}
-        <ScrollReveal className="panik-glass p-8 sm:p-14 lg:p-16 rounded-3xl border border-white/[0.08] bg-[#111318]/60 relative overflow-hidden z-10" id="cta-inner-block" duration={0.65}>
+        <ScrollReveal className="panik-glass p-8 sm:p-14 lg:p-16 rounded-lg border border-border-subtle bg-surface-raised/60 relative overflow-hidden z-10" id="cta-inner-block" duration={0.65}>
           
           {/* Accent lighting in background */}
           <div className="absolute -bottom-24 left-1/2 -translate-x-1/2 w-80 h-80 bg-panik-orange/15 rounded-full blur-3xl pointer-events-none"></div>
 
-          <h2 className="font-display font-bold text-3xl sm:text-5xl tracking-tight leading-tight text-[#F0F4FF] mb-5">
+          <h2 className="font-sans font-bold text-2xl sm:text-4xl tracking-tight leading-tight text-text-primary mb-5">
             Apply for Early Access
           </h2>
 
-          <p className="text-panik-text-secondary text-sm sm:text-base max-w-2xl mx-auto mb-12 leading-relaxed">
+          <p className="text-text-secondary text-sm sm:text-base max-w-2xl mx-auto mb-12 leading-relaxed">
             Get first access to Compass, Watch, and Advisor before public launch. Help us shape the future of DeFi risk management.
           </p>
 
           {/* Onboarding Trigger Button Area */}
           <div className="max-w-md mx-auto mb-10 py-2">
             {hasSubscribed ? (
-              <div className="p-6 rounded-xl bg-orange-500/5 border border-panik-orange/30 backdrop-blur-md flex gap-4 items-center justify-start text-left animate-fade-in" id="bottom-form-success">
+              <div className="p-6 rounded-md bg-panik-orange/5 border border-panik-orange/30 backdrop-blur-md flex gap-4 items-center justify-start text-left animate-fade-in" id="bottom-form-success">
                 <div className="w-10 h-10 rounded-full bg-panik-orange/20 border border-panik-orange/40 flex items-center justify-center shrink-0">
                   <CheckCircle2 className="w-6 h-6 text-panik-orange" />
                 </div>
                 <div>
                   <h3 className="font-mono text-xs tracking-wider uppercase text-panik-orange font-semibold">ACCESS GRANTED // SLOT IMMINENT</h3>
-                  <p className="text-xs text-panik-text-secondary mt-0.5">
+                  <p className="text-xs text-text-secondary mt-0.5">
                     You're in. We'll reach out directly when beta opens for your cohort.
                   </p>
                 </div>
@@ -122,7 +122,7 @@ export function WaitlistCTA({ subscribersList, hasSubscribed, onOpenWaitlistModa
                 <button
                   type="button"
                   onClick={() => onOpenWaitlistModal()}
-                  className="w-full sm:w-auto h-14 px-10 bg-panik-orange hover:bg-panik-orange/90 text-white font-mono text-sm uppercase tracking-wider font-bold rounded-lg flex items-center justify-center gap-3 cursor-pointer transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] panik-glow-orange shrink-0 shadow-xl shadow-orange-500/20"
+                  className="w-full sm:w-auto h-14 px-10 bg-panik-orange hover:bg-panik-orange/90 text-surface-base font-mono text-sm uppercase tracking-wider font-bold rounded-md flex items-center justify-center gap-3 cursor-pointer transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] panik-glow-orange shrink-0 shadow-xl shadow-panik-orange/20"
                   id="bottom-btn-submit"
                 >
                   <span>JOIN THE WAITLIST →</span>

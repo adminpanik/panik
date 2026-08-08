@@ -22,7 +22,7 @@ export interface RiskBreakdown {
 }
 
 export interface PositionState {
-  protocol: "Aave V3" | "Moonwell";
+  protocol: "Aave V3" | "Moonwell" | "Morpho" | "Compound V3";
   assetPair: string;
   riskScore: number; // calculated overall score (0 - 100)
   status: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL";
