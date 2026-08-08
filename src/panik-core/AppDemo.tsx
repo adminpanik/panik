@@ -3149,7 +3149,14 @@ export function AppDemo() {
                         <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.baseRisk < 20 
                             ? "Position health maintains normal volatility parameters. No automated hedges currently required."
-                            : "Position health has entered an elevated stress range. Consider reducing leverage or adding collateral before the health factor approaches 1.25."
+                            /* "before the health factor approaches 1.25" was
+                               the same ratio-nobody-reads problem as the
+                               position rows, and in prose rather than in a
+                               labelled cell where it at least had an InfoTip
+                               beside it. 1.25 IS a 20% cushion (1 - 1/1.25),
+                               so this is the same threshold said in the unit
+                               the user can check against a price chart. */
+                            : "Position health has entered an elevated stress range. Consider reducing leverage or adding collateral while the collateral can still fall 20% before liquidation."
                           }
                         </p>
                       </div>
