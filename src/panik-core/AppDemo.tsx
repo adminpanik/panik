@@ -1896,7 +1896,11 @@ export function AppDemo() {
                             </span>
                             <span className="text-xs font-sans text-text-muted tabular-nums">/ 100</span>
 
-                            <RiskChip band={positionState.status} className="ml-auto">
+                            {/* Beside the figure, not `ml-auto`. Below `xl`
+                                this column is the full card width, and pushing
+                                the band to the far edge left 600px of nothing
+                                between a score and the word that reads it. */}
+                            <RiskChip band={positionState.status} className="ml-1">
                               {positionState.status === "CRITICAL" ? "CRITICAL THREAT" :
                                positionState.status === "HIGH" ? "HIGH RISK" :
                                positionState.status === "ELEVATED" ? "ELEVATED" : "LOW RISK"}
