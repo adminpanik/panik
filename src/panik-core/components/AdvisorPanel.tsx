@@ -1,24 +1,43 @@
 /**
- * AI Advisor tab body (Phase 2). Renders the /api/advisor report: overall
- * banner, one card per position leg (the 4-section advice format), and the
- * OPEN opportunity row. Deterministic engine decides; sections may be
- * LLM-narrated server-side - this component only displays.
+ * AI Advisor tab body. Renders the /api/advisor report: overall banner, one
+ * card per position leg, and the OPEN opportunity row. Deterministic engine
+ * decides; sections may be LLM-narrated server-side - this component only
+ * displays.
+ *
+ * It used to display ALL of it, all the time. Every leg rendered four labelled
+ * prose paragraphs (POSITION, MARKET, RECOMMENDATION, EXECUTION) and then
+ * repeated the same figures in a stat strip immediately underneath, so the one
+ * screen in the product that answers "what do I do" opened as four columns of
+ * essay per position and the answer was the third paragraph down.
+ *
+ * What changed is the ORDER and the DEFAULT, not the content:
+ *   - the RECOMMENDATION is the lead line, at reading size, right under the
+ *     protocol it is about;
+ *   - the numbers stay in the strip, where they are scannable and where the
+ *     prose does not have to restate them;
+ *   - POSITION, MARKET and EXECUTION move into a collapsed disclosure. A user
+ *     acting on an EXIT deserves the reasoning, so nothing is deleted - it is
+ *     one click, keyboard-reachable, and it is the same click for every card.
+ *
+ * The engine's prose is not edited here. Where it duplicates the strip that is
+ * a copy problem in packages/scoring/src/advisor, out of this file's scope.
  *
  * Exit/Open CTAs are wired through optional callbacks so the panel ships
  * before the transaction flows do (undefined callback = disabled + tooltip).
  */
 
 import React from "react";
-import { AlertTriangle, ArrowRight, Eye, Sparkles, TrendingUp } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronRight, Eye, Sparkles } from "lucide-react";
 import type {
   AdvisorOpenPlan,
   AdvisorRecommendation,
   AdvisorReport,
-  AdvisorUrgency,
   LiveProtocol,
 } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
-import { formatUsd } from "../lib/utils";
+import { InfoTip } from "./InfoTip";
+import { formatUsd, RISK_TEXT } from "../lib/utils";
+import { Button, Card, EmptyState, RiskDial } from "../ui";
 import { EXIT_ENV } from "../lib/exit";
 
 const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
@@ -28,31 +47,21 @@ const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
   compound_v3: "Compound V3",
 };
 
-const URGENCY_CHIP: Record<AdvisorUrgency, string> = {
-  info: "bg-white/[0.04] text-text-secondary border-border-subtle",
-  warning: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
-  critical: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
-};
-
-const ACTION_CHIP: Record<string, string> = {
-  HOLD: "bg-risk-low/10 text-risk-low border-risk-low/25",
-  MONITOR: "bg-sky-500/10 text-sky-400 border-sky-500/25",
-  REBALANCE: "bg-violet-500/10 text-violet-400 border-violet-500/25",
-  REDUCE: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
-  EXIT: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
-  OPEN: "bg-white/[0.06] text-text-primary border-border-subtle",
-};
-
-function SectionRow({ label, text }: { label: string; text: string }) {
-  return (
-    <div className="flex flex-col sm:flex-row sm:gap-4">
-      <span className="w-36 shrink-0 text-xs font-sans text-text-muted pt-0.5">
-        {label}
-      </span>
-      <p className="text-sm text-text-secondary leading-relaxed font-sans flex-1">{text}</p>
-    </div>
-  );
-}
+/**
+ * The action, as a chip, in NEUTRAL ink.
+ *
+ * It used to be painted off the risk ramp: EXIT red, REDUCE orange, HOLD green,
+ * plus a sky blue and a violet for MONITOR and REBALANCE. Two problems. An
+ * action is not a risk band - HOLD in risk-low green is the ramp making a
+ * safety claim about a verb - and the genuine band was already on the same
+ * card, in the strip, which meant a HIGH position could show a green chip and
+ * an orange band six inches apart.
+ *
+ * The band now has exactly one home per card: the RiskDial, borrowed from the
+ * Portfolio position rows so a score means the same thing on both screens.
+ */
+const ACTION_CHIP =
+  "shrink-0 rounded-md border border-border-subtle bg-white/[0.06] px-2.5 py-1 text-2xs font-sans font-bold text-text-primary";
 
 function ActionButton({
   rec,
@@ -68,64 +77,109 @@ function ActionButton({
     const label = rec.action === "EXIT" ? "Execute exit" : "Reduce position";
     return (
       <span className="inline-flex items-center gap-2">
+        {/* Neutral, like every other chip here. TESTNET is a statement about
+            which chain you are signing on, not about how risky the position is,
+            and it was spending an orange on a card whose colour budget is one
+            dial. The word is the warning. */}
         {EXIT_ENV === "testnet" ? (
-          <span className="px-1.5 py-0.5 rounded-sm border border-risk-elevated/40 bg-risk-elevated/10 text-risk-elevated text-2xs font-sans font-bold">
+          <span className="rounded-sm border border-border-subtle bg-white/[0.06] px-1.5 py-0.5 text-2xs font-sans font-bold text-text-secondary">
             TESTNET
           </span>
         ) : null}
-        <button
-          onClick={onExit ? () => onExit(prefill) : undefined}
-          disabled={!onExit}
-          title={onExit ? undefined : "Transaction flow ships with the Atomic Exit integration"}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-sans font-bold tracking-wide transition-colors ${
-            rec.action === "EXIT"
-              ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25"
-              : "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25"
-          } disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
-          {label} <ArrowRight className="w-3.5 h-3.5" />
-        </button>
+        {/* The `Button` primitive, which by design does not accept a risk band:
+            these were a red fill and an orange fill, so the loudest element on
+            the card was the control rather than the reading it acts on. */}
+        <Button onClick={onExit ? () => onExit(prefill) : undefined} disabled={!onExit}
+          title={onExit ? undefined : "Transaction flow ships with the Atomic Exit integration"}>
+          {label} <ArrowRight className="h-3.5 w-3.5" />
+        </Button>
       </span>
     );
   }
   if (rec.action === "OPEN" && rec.openPlan) {
     const plan = rec.openPlan;
     return (
-      <button
-        onClick={onOpen ? () => onOpen(plan) : undefined}
-        disabled={!onOpen}
-        title={onOpen ? undefined : "In-app opening ships with the position flows"}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-sans font-bold tracking-wide bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        Open position <ArrowRight className="w-3.5 h-3.5" />
-      </button>
+      <Button onClick={onOpen ? () => onOpen(plan) : undefined} disabled={!onOpen}
+        title={onOpen ? undefined : "In-app opening ships with the position flows"}>
+        Open position <ArrowRight className="h-3.5 w-3.5" />
+      </Button>
     );
   }
   return null;
 }
 
+/**
+ * The three sections that are not the recommendation, behind one disclosure.
+ *
+ * A native `<details>`: it is focusable, it is announced as expandable, it
+ * works with no JavaScript and it costs no dependency. `list-none` plus the
+ * webkit marker reset removes the browser's own triangle, so the chevron is
+ * the only marker and it is the one that rotates.
+ */
+function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
+  const rows: [string, string][] = [
+    ["Position", rec.sections.position],
+    ["Market", rec.sections.market],
+    ["Execution", rec.sections.execution],
+  ];
+  return (
+    <details className="group min-w-0 flex-1">
+      {/* `min-h-8.5` matches the button beside it (33.6px), so the summary text
+          and the button label sit on one line whether the card is open or
+          closed. Without it the summary is 16px tall and the row reads as two
+          controls at two different heights. */}
+      <summary className="flex min-h-8.5 cursor-pointer list-none items-center gap-1 text-xs font-sans font-semibold text-text-secondary hover:text-text-primary [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90"
+          aria-hidden="true"
+        />
+        Why this
+      </summary>
+      <div className="mt-3 space-y-2.5">
+        {rows.map(([label, text]) => (
+          <div key={label} className="flex flex-col sm:flex-row sm:gap-4">
+            <span className="w-28 shrink-0 pt-0.5 text-xs font-sans text-text-muted">{label}</span>
+            <p className="flex-1 text-sm font-sans leading-relaxed text-text-secondary">{text}</p>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * The evidence, on one line.
+ *
+ * Score and Asset left the strip because they are now stated once each,
+ * elsewhere on the same card: the score is the dial on the rail, the asset is
+ * the subtitle under the protocol. Five items became three, and the strip fits
+ * a phone without wrapping into a block.
+ */
 function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
   const n = rec.numbers;
   const items: [string, string][] = [
-    ["Score", `${n.total} · ${n.band}`],
     ["Health factor", n.healthFactor === null ? "no debt" : n.healthFactor.toFixed(2)],
     ["Collateral", formatUsd(n.collateralValueUsd)],
     ["Debt", formatUsd(n.borrowValueUsd)],
-    ["Asset", n.scoredCollateralSymbol],
   ];
-  if (n.usdValuesUnavailable) items.push(["Prices", "degraded - USD unverified"]);
-  // The label is the unit and stays quiet; the VALUE is a score, a health
-  // factor, a collateral balance — the numbers the whole card is arguing
-  // about. Both used to sit at 11-12px in muted/secondary grey, which made the
-  // evidence the faintest part of the recommendation resting on it.
   return (
-    <div className="flex flex-wrap gap-x-6 gap-y-1 pt-3 border-t border-border-subtle">
+    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
       {items.map(([label, value]) => (
         <div className="flex items-baseline gap-2" key={label}>
           <span className="text-xs font-sans text-text-muted">{label}</span>
-          <span className="text-sm font-sans font-semibold tabular-nums text-text-primary">{value}</span>
+          <span className="text-sm font-sans font-semibold tabular-nums text-text-primary">
+            {value}
+          </span>
         </div>
       ))}
+      {/* The degraded caveat is a statement about the two dollar figures beside
+          it, so it sits with them rather than as a fourth pseudo-metric. */}
+      {n.usdValuesUnavailable && (
+        <span className="inline-flex items-center gap-1.5 text-xs font-sans text-risk-unknown">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          USD amounts unavailable
+        </span>
+      )}
     </div>
   );
 }
@@ -139,49 +193,65 @@ function RecommendationCard({
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
   onOpen?: (plan: AdvisorOpenPlan) => void;
 }) {
+  const action = <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} />;
   return (
-    <div
-      className={`bg-surface-raised/50 border rounded-lg p-5 space-y-4 ${
-        rec.urgency === "critical"
-          ? "border-risk-critical/30"
-          : rec.urgency === "warning"
-            ? "border-risk-elevated/20"
-            : "border-border-subtle"
-      }`}
-    >
-      <div className="flex items-center gap-3 flex-wrap">
+    /* `Card`, so the container does not tint by state. The border used to turn
+       risk-critical on an EXIT leg, which is a whole box painted with a band -
+       exactly what the primitive exists to prevent, and it doubled the red the
+       dial inside it was already spending. */
+    <Card tone="raised" className="space-y-4">
+      <div className="flex items-start gap-3">
         <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-sans font-bold text-text-primary">
-            {PROTOCOL_LABEL[rec.protocol]}
+
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
+              {PROTOCOL_LABEL[rec.protocol]}
+            </h4>
+            <span className="truncate text-xs font-sans text-text-secondary">
+              {rec.numbers.scoredCollateralSymbol}
+            </span>
+            <span className={`ml-auto ${ACTION_CHIP}`}>{rec.action}</span>
           </div>
-          <div className="text-xs font-sans text-text-secondary">
-            {rec.numbers.scoredCollateralSymbol} position
-          </div>
+
+          {/* The lead. This is the answer the page exists to give, so it is the
+              first thing under the name of the thing it is about, at reading
+              size, in primary ink. It was the third of four paragraphs. */}
+          <p className="text-sm font-sans leading-relaxed text-text-primary">
+            {rec.sections.recommendation}
+          </p>
+
+          <NumbersStrip rec={rec} />
         </div>
-        <span
-          className={`px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${ACTION_CHIP[rec.action] ?? URGENCY_CHIP[rec.urgency]}`}
-        >
-          {rec.action}
-        </span>
+
+        {/* The rail, matching a Portfolio position row: the score, and the one
+            thing you can do about it, in the same place on both screens. */}
+        <div className="flex shrink-0 flex-col items-center gap-2">
+          <RiskDial score={rec.numbers.total} band={rec.numbers.band} subScores={rec.numbers.subScores} />
+        </div>
       </div>
 
-      <div className="space-y-3">
-        <SectionRow label="Position" text={rec.sections.position} />
-        <SectionRow label="Market" text={rec.sections.market} />
-        <SectionRow label="Recommendation" text={rec.sections.recommendation} />
-        <SectionRow label="Execution" text={rec.sections.execution} />
+      {/* The disclosure and the action share one row, so a collapsed card ends
+          in a single line rather than a summary, a gap and a button. Open, the
+          reasoning grows underneath and the button stays where it was. */}
+      <div className="flex items-start justify-between gap-4 border-t border-border-subtle pt-3">
+        <Reasoning rec={rec} />
+        {action && <div className="shrink-0">{action}</div>}
       </div>
-
-      <NumbersStrip rec={rec} />
-
-      <div className="flex justify-end">
-        <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} />
-      </div>
-    </div>
+    </Card>
   );
 }
 
+/**
+ * An opportunity, shaped like a position row read forwards: what it would be,
+ * what it would cost, what it would score.
+ *
+ * The prose paragraph that used to sit in the middle of this card said
+ * "Deposit ~$25,000 USDC on Aave V3 (no borrow). Projected PANIK score 10,
+ * ~8.1% net APY" - every figure of which is on the card already, in the two
+ * lines above and below it. It is in the disclosure with the rest of the
+ * reasoning now rather than printed twice.
+ */
 function OpportunityCard({
   rec,
   onOpen,
@@ -192,31 +262,39 @@ function OpportunityCard({
   const plan = rec.openPlan;
   if (!plan) return null;
   return (
-    <div className="bg-surface-raised/50 border border-border-subtle rounded-lg p-5 flex flex-col gap-3">
+    <Card tone="raised" className="flex h-full flex-col gap-3">
       <div className="flex items-center gap-3">
-        <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-7 h-7" />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-sans font-bold text-text-primary truncate">
-            {plan.collateralSymbol} on {PROTOCOL_LABEL[rec.protocol]}
-          </div>
-          <div className="text-xs font-sans tabular-nums text-text-secondary">
-            Projected score {plan.projectedScore}
-            {plan.apy !== null ? ` · ${(plan.apy * 100).toFixed(1)}% APY` : ""}
-          </div>
-        </div>
-        <TrendingUp className="w-4 h-4 text-text-muted" />
+        <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
+        <h4 className="min-w-0 flex-1 truncate text-sm font-sans font-bold text-text-primary">
+          {plan.collateralSymbol} on {PROTOCOL_LABEL[rec.protocol]}
+        </h4>
       </div>
-      <p className="text-xs text-text-secondary leading-relaxed font-sans flex-1">
-        {rec.sections.recommendation}
-      </p>
-      <div className="flex items-center justify-between pt-1">
-        <span className="text-sm font-sans tabular-nums text-text-secondary">
-          ~{formatUsd(plan.collateralUsd)} collateral
-          {plan.borrowUsd > 0 ? ` / ${formatUsd(plan.borrowUsd)} borrow` : ""}
+
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums text-text-secondary">
+        <span className="whitespace-nowrap">
+          <span className="font-semibold text-text-primary">{formatUsd(plan.collateralUsd)}</span>{" "}
+          collateral
         </span>
-        <ActionButton rec={rec} onOpen={onOpen} />
+        {plan.borrowUsd > 0 && (
+          <span className="whitespace-nowrap">
+            <span className="font-semibold text-text-primary">{formatUsd(plan.borrowUsd)}</span>{" "}
+            borrow
+          </span>
+        )}
       </div>
-    </div>
+
+      <p className="text-sm font-sans tabular-nums text-text-secondary">
+        Projected score {plan.projectedScore}
+        {plan.apy !== null ? `, ${(plan.apy * 100).toFixed(1)}% APY` : ""}
+      </p>
+
+      <div className="mt-auto flex items-start justify-between gap-4 border-t border-border-subtle pt-3">
+        <Reasoning rec={rec} />
+        <div className="shrink-0">
+          <ActionButton rec={rec} onOpen={onOpen} />
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -228,82 +306,92 @@ export interface AdvisorPanelProps {
 
 export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
   const { overall, recommendations, opportunities, walletInsights } = report;
+
+  /* Provenance, on hover. "Based on your history: Levered ETH borrower · 17mo
+     lending tenure · mostly moonwell · no liquidations" is how the engine
+     reached its verdict, not a thing to do about it, and it was a permanent
+     second line under the one sentence on this page that must be read. */
+  const insightsText = walletInsights
+    ? `Read from this wallet's history: ${walletInsights.archetype}. ` +
+      (walletInsights.lendingAgeDays > 0
+        ? `About ${Math.round(walletInsights.lendingAgeDays / 30)} months of lending activity. `
+        : "") +
+      (walletInsights.topProtocol ? `Mostly on ${walletInsights.topProtocol}. ` : "") +
+      (walletInsights.liquidations > 0
+        ? `${walletInsights.liquidations} past liquidation${walletInsights.liquidations > 1 ? "s" : ""}.`
+        : "No past liquidations.")
+    : null;
+
   return (
     <div className="space-y-6">
-      {/* Overall banner */}
-      <div
-        className={`rounded-lg border p-4 flex items-start gap-3 ${
-          overall.urgency === "critical"
-            ? "bg-risk-critical/[0.06] border-risk-critical/30"
-            : overall.urgency === "warning"
-              ? "bg-risk-elevated/[0.05] border-risk-elevated/25"
-              : "bg-surface-raised/50 border-border-subtle"
-        }`}
-      >
+      {/* The verdict for the whole wallet. Container stays neutral - the icon
+          is the one hued element, which is the treatment the Portfolio
+          aggregate card already uses for exactly this job, and it is absent
+          below `warning` because a glyph that is always there and only changes
+          colour is a glyph people stop seeing. */}
+      <Card tone="raised" className="flex items-start gap-3">
         {overall.urgency === "info" ? (
-          <Eye className="w-4 h-4 mt-0.5 text-text-muted shrink-0" />
+          <Eye className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
         ) : (
           <AlertTriangle
-            className={`w-4 h-4 mt-0.5 shrink-0 ${overall.urgency === "critical" ? "text-risk-critical" : "text-risk-elevated"}`}
+            className={`mt-0.5 h-4 w-4 shrink-0 ${
+              overall.urgency === "critical" ? RISK_TEXT.CRITICAL : RISK_TEXT.ELEVATED
+            }`}
+            aria-hidden="true"
           />
         )}
-        <div className="min-w-0">
-          <p className="text-sm text-text-primary font-sans leading-relaxed">{overall.headline}</p>
-          {walletInsights ? (
-            <p className="text-xs font-sans text-text-secondary mt-1">
-              Based on your history: {walletInsights.archetype}
-              {walletInsights.lendingAgeDays > 0
-                ? ` · ${Math.round(walletInsights.lendingAgeDays / 30)}mo lending tenure`
-                : ""}
-              {walletInsights.topProtocol ? ` · mostly ${walletInsights.topProtocol}` : ""}
-              {walletInsights.liquidations > 0
-                ? ` · ${walletInsights.liquidations} past liquidation${walletInsights.liquidations > 1 ? "s" : ""}`
-                : " · no liquidations"}
-            </p>
-          ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-sans leading-relaxed text-text-primary">
+            {overall.headline}
+            {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
+          </p>
+          {/* Stays on screen: this one is a disclosure about who wrote the
+              sentences, not a metric. */}
           {report.narrated ? (
-            <p className="text-2xs font-sans text-text-muted mt-1 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> AI-narrated · engine-decided
+            <p className="mt-1 flex items-center gap-1 text-2xs font-sans text-text-muted">
+              <Sparkles className="h-3 w-3" aria-hidden="true" /> AI-narrated, engine-decided
             </p>
           ) : null}
         </div>
-      </div>
+      </Card>
 
       {/* Position legs */}
       {recommendations.length > 0 ? (
         <div className="space-y-4">
-          <h3 className="text-xs font-sans font-semibold text-text-secondary">
-            Your positions
-          </h3>
+          <h3 className="text-sm font-sans font-semibold text-text-primary">Your positions</h3>
           {recommendations.map((rec) => (
-            <div key={`${rec.protocol}-${rec.numbers.scoredCollateralSymbol}`}>
-              <RecommendationCard rec={rec} onExit={onExit} onOpen={onOpen} />
-            </div>
+            <RecommendationCard
+              key={`${rec.protocol}-${rec.numbers.scoredCollateralSymbol}`}
+              rec={rec}
+              onExit={onExit}
+              onOpen={onOpen}
+            />
           ))}
         </div>
       ) : (
-        <div className="bg-surface-raised/50 border border-border-subtle rounded-lg p-6 text-center">
-          <p className="text-sm text-text-secondary font-sans">
-            No open lending positions detected for this wallet on Base. The opportunities below are
-            sized to your risk profile.
-          </p>
-        </div>
+        <EmptyState
+          tone="clear"
+          title="No open lending positions on Base"
+          hint="The opportunities below are sized to your risk profile."
+        />
       )}
 
       {/* Opportunities */}
       {opportunities.length > 0 ? (
         <div className="space-y-4">
-          <h3 className="text-xs font-sans font-semibold text-text-secondary">
+          <h3 className="text-sm font-sans font-semibold text-text-primary">
             Opportunities within your profile
           </h3>
           {/* Three across only once the window can actually spare it: at `md`
               the sidebar has already taken 256px, so three of these cards got
               ~137px each and every title ellipsised to a couple of letters. */}
-          <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
             {opportunities.map((rec) => (
-              <div key={`${rec.protocol}-${rec.openPlan?.collateralSymbol}`} className="h-full">
-                <OpportunityCard rec={rec} onOpen={onOpen} />
-              </div>
+              <OpportunityCard
+                key={`${rec.protocol}-${rec.openPlan?.collateralSymbol}`}
+                rec={rec}
+                onOpen={onOpen}
+              />
             ))}
           </div>
         </div>

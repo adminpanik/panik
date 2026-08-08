@@ -18,6 +18,30 @@ export interface SparklineAxes {
   xEnd: string;
 }
 
+/**
+ * A single horizontal annotation — a threshold the series is measured against,
+ * not a second dataset. Deliberately one, not many: tinting every band behind
+ * the line is the "everything is coloured" failure this design system exists to
+ * prevent. It draws in a neutral border token UNDER the series so the series
+ * always wins, and never in a risk-ramp hue.
+ *
+ * Requires `axes`: the label lives in a gutter beside the plot, so that it can
+ * never sit on top of the data no matter where the series happens to run.
+ */
+export interface SparklineReference {
+  /** Position on the y scale. Only meaningful inside `domain`. */
+  value: number;
+  /** Short muted caption, e.g. "alert 50". */
+  label: string;
+}
+
+/**
+ * Width of the right-hand gutter holding the reference caption. Declared once
+ * because the caption row and the x-label spacer row have to agree, and a
+ * mismatch shows up as x labels drifting out from under the plot.
+ */
+const REF_GUTTER = "w-14";
+
 export function Sparkline(props: {
   data: number[];
   /** CSS color for the line + gradient fill. Defaults to the chart-series token. */
@@ -27,24 +51,46 @@ export function Sparkline(props: {
   className?: string;
   /** Optional min/max + time-range labels around the chart. */
   axes?: SparklineAxes;
+  /**
+   * Fixed `[min, max]` y range. Omit to auto-scale to the data (the default,
+   * and what every caller without a meaningful absolute scale wants).
+   *
+   * Auto-scale makes the line fill the box whatever the numbers are, so a
+   * 39 -> 57 move and a 39 -> 41 move draw the same picture. Pass a domain
+   * wherever the scale itself carries meaning — a 0-100 risk score has fixed
+   * bands and a fixed alert threshold, and cropping to the observed range hides
+   * both. A fixed domain draws a flatter line; that flatness is the fact.
+   */
+  domain?: [number, number];
+  /** Single threshold annotation. Ignored unless `axes` is also given. */
+  reference?: SparklineReference;
 }) {
-  const { data, stroke = "var(--color-chart-series)", height = 36, className, axes } = props;
+  const {
+    data,
+    stroke = "var(--color-chart-series)",
+    height = 36,
+    className,
+    axes,
+    domain,
+    reference,
+  } = props;
   const gradientId = useId();
   if (data.length < 2) return null;
 
   const W = 100;
   const H = 32;
   const PAD = 2;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  const min = domain ? domain[0] : Math.min(...data);
+  const max = domain ? domain[1] : Math.max(...data);
   const span = max - min || 1; // flat series still renders a midline
+  const yFor = (v: number) => PAD + (1 - (v - min) / span) * (H - 2 * PAD);
   const points = data.map((v, i) => {
     const x = (i / (data.length - 1)) * W;
-    const y = PAD + (1 - (v - min) / span) * (H - 2 * PAD);
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
+    return `${x.toFixed(2)},${yFor(v).toFixed(2)}`;
   });
   const line = points.join(" ");
   const area = `${line} ${W},${H} 0,${H}`;
+  const refY = reference ? yFor(reference.value) : 0;
 
   const svg = (
     <svg
@@ -61,6 +107,20 @@ export function Sparkline(props: {
           <stop offset="100%" stopColor={stroke} stopOpacity="0" />
         </linearGradient>
       </defs>
+      {/* Under the series on purpose: an annotation the line crosses, never a
+          second series competing with it. */}
+      {axes && reference && (
+        <line
+          x1="0"
+          x2={W}
+          y1={refY}
+          y2={refY}
+          stroke="var(--color-border-strong)"
+          strokeWidth="1"
+          strokeDasharray="3 3"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
       <polygon points={area} fill={`url(#${gradientId})`} />
       <polyline
         points={line}
@@ -75,7 +135,9 @@ export function Sparkline(props: {
 
   if (!axes) return svg;
 
-  // Axes layout: y min/max on the left gutter, time range under the chart.
+  // Axes layout: y min/max in the left gutter, the reference caption in a right
+  // gutter, time range under the chart. The gutters are mirrored as empty
+  // spacers on the second row so the x labels stay aligned to the plot.
   return (
     <div className={className}>
       <div className="flex items-stretch gap-1.5">
@@ -88,10 +150,24 @@ export function Sparkline(props: {
           <span className="text-2xs font-sans tabular-nums text-text-muted leading-none">{axes.yFormat(min)}</span>
         </div>
         <div className="flex-1 min-w-0">{svg}</div>
+        {reference && (
+          <div className={`relative shrink-0 ${REF_GUTTER}`} style={{ height }} aria-hidden="true">
+            <span
+              className="absolute right-0 -translate-y-1/2 whitespace-nowrap text-2xs font-sans tabular-nums text-text-muted leading-none"
+              style={{ top: (refY / H) * height }}
+            >
+              {reference.label}
+            </span>
+          </div>
+        )}
       </div>
-      <div className="flex justify-between pl-9 mt-0.5" aria-hidden="true">
-        <span className="text-2xs font-sans text-text-muted">{axes.xStart}</span>
-        <span className="text-2xs font-sans text-text-muted">{axes.xEnd}</span>
+      <div className="flex gap-1.5 mt-0.5" aria-hidden="true">
+        <div className="shrink-0 min-w-8" />
+        <div className="flex-1 min-w-0 flex justify-between">
+          <span className="text-2xs font-sans text-text-muted">{axes.xStart}</span>
+          <span className="text-2xs font-sans text-text-muted">{axes.xEnd}</span>
+        </div>
+        {reference && <div className={`shrink-0 ${REF_GUTTER}`} />}
       </div>
     </div>
   );

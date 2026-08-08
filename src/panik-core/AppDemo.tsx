@@ -44,6 +44,13 @@ import {
   RISK_FILL,
   RISK_TEXT,
 } from "./lib/utils";
+/**
+ * The user's alert level, from the engine rather than a literal. A VALUE import
+ * from `packages/scoring` — allowed here only because it is a DEEP import of
+ * `profile.ts`, whose sole import is type-only. The package barrel pulls viem
+ * and must never reach a browser bundle (see lib/live.ts).
+ */
+import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
 import { PositionState } from "./lib/types";
 import { LivePositions } from "./components/LivePositions";
 import { Sparkline } from "./components/Sparkline";
@@ -62,6 +69,7 @@ import {
   useWalletRegistry,
   type Band,
   type LiveProtocol,
+  type PoolYield,
 } from "./lib/live";
 import { AdvisorPanel } from "./components/AdvisorPanel";
 import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
@@ -498,6 +506,151 @@ const VAULT_PRESETS: VaultPreset[] = [
   }
 ];
 
+/** The three Compass risk profiles, as a table so the toggle is one map. */
+const RISK_PROFILES = ["conservative", "moderate", "aggressive"] as const;
+
+/**
+ * What the 30d APY sparkline was drawing, as one clause.
+ *
+ * The chart it replaces plotted a 0.2-point band across a full card width, with
+ * a two-label y-axis, a two-label x-axis and a caption underneath: six elements
+ * and 36px of height to say "this yield has not moved much". A line whose whole
+ * range is smaller than the ink used to draw it is noise rendered as signal,
+ * and the only fact a reader could actually take from it is direction — which
+ * is a sentence.
+ *
+ * This is the same trade the Portfolio history card already makes: it dropped
+ * the restated score and kept "up 3 over 30d". The shape is still there for
+ * anyone who wants it, in the risk-breakdown panel behind the card.
+ *
+ * Measured against the APY the card is SHOWING, not against the end of the
+ * series. The two are the same number in production but need not be — the
+ * headline is a separate field on the API row — and a card reading "2.5% APY"
+ * over "Up from 2.6%" is a card arguing with itself.
+ *
+ * 0.1 is the flat threshold, not zero: it is the smallest move that survives
+ * one-decimal rounding, so "Up from 2.5%" can never sit under "2.5% APY".
+ */
+function apyTrendCopy(apy: number, apySeries: number[]): string | null {
+  const first = apySeries[0];
+  if (first === undefined) return null;
+  const delta = apy - first;
+  if (Math.abs(delta) < 0.1) return "Flat over 30 days";
+  return `${delta > 0 ? "Up" : "Down"} from ${first.toFixed(1)}% 30 days ago`;
+}
+
+/**
+ * One Compass market.
+ *
+ * Deliberately shaped like a Portfolio position row, because it is the same
+ * kind of object seen from the other side: identity on the left, the band on
+ * the right, the money on one line, the verdict on the next, actions at the
+ * foot. Nine stacked elements became five.
+ *
+ * `muted` is the "outside your profile" rendering. It dims the SURFACE only.
+ * The old version also dimmed the logo, the title and the risk chip, which put
+ * a CRITICAL market's band at 60% opacity — the one card on the page most worth
+ * reading clearly was the faintest. Which section it is in already says it is
+ * out of profile; the chip's job is to say how far.
+ */
+function MarketCard({
+  preset,
+  poolYield,
+  muted = false,
+  onBreakdown,
+  onSimulate,
+  onOpen,
+}: {
+  preset: VaultPreset;
+  poolYield: PoolYield | null;
+  muted?: boolean;
+  onBreakdown: () => void;
+  onSimulate: () => void;
+  /** Absent on an out-of-profile card: nothing there is a recommended step. */
+  onOpen?: () => void;
+}) {
+  const apy = poolYield?.apy ?? preset.apy;
+  const trend = poolYield ? apyTrendCopy(apy, poolYield.apySeries) : null;
+  return (
+    <div
+      onClick={onBreakdown}
+      className={`flex cursor-pointer flex-col gap-3 rounded-lg border border-border-subtle p-5 transition-colors hover:border-border-strong ${
+        muted
+          ? "bg-surface-raised/25 hover:bg-surface-raised/45"
+          : "bg-surface-raised/60 hover:bg-surface-overlay/70"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-sans font-bold text-text-primary">
+              {preset.protocol}
+            </h3>
+            <span className="block truncate text-xs font-sans text-text-secondary">
+              {preset.assetPair}
+            </span>
+          </div>
+        </div>
+        {/* The chip is the keyboard route into the breakdown; the card body is
+            the mouse route. It no longer opens the panel on MOUSEENTER — a
+            500px slide-out with a full-page backdrop was firing on an
+            accidental pass of the cursor, so the page moved out from under
+            anyone scanning the grid. */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onBreakdown();
+          }}
+          title={`Open the ${preset.protocol} risk breakdown`}
+          className="shrink-0 cursor-pointer rounded-sm"
+        >
+          <RiskChip band={preset.riskStatus}>
+            {preset.baseRisk} {preset.riskStatus}
+          </RiskChip>
+        </button>
+      </div>
+
+      {/* The money line, in the Portfolio position row's exact shape: figure in
+          primary ink, unit in secondary, each pair unbreakable. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums text-text-secondary">
+        <span className="whitespace-nowrap">
+          <span className="font-semibold text-text-primary">{apy.toFixed(1)}%</span> APY
+        </span>
+        {poolYield && (
+          <span className="whitespace-nowrap">
+            <span className="font-semibold text-text-primary">
+              {formatCompactUsd(poolYield.tvlUsd)}
+            </span>{" "}
+            TVL
+          </span>
+        )}
+      </div>
+
+      <p className="text-sm font-sans tabular-nums text-text-secondary">
+        {trend ?? "30-day yield history unavailable"}
+      </p>
+
+      <div
+        className={`mt-1 flex items-center gap-3 border-t border-border-subtle pt-3 ${
+          onOpen ? "justify-between" : "justify-end"
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {onOpen && (
+          <Button onClick={onOpen}>
+            <Plus className="h-3.5 w-3.5" />
+            Open position
+          </Button>
+        )}
+        <Button variant="quiet" onClick={onSimulate}>
+          Stress-test →
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AppDemo() {
   // Navigation tabs exactly reflecting the Figma screenshot
   const [activeTab, setActiveTab] = useState<SidebarTab>("portfolio");
@@ -809,6 +962,32 @@ export function AppDemo() {
       }),
     };
   }, [walletHistory]);
+
+  /**
+   * Y-domain for the risk history chart.
+   *
+   * Neither obvious choice works. The series' own min/max makes every window
+   * look equally dramatic, so a 2-point drift and a 20-point climb draw the
+   * same shape. A full 0-100 makes the line so flat you cannot see it cross
+   * anything, which is the one event the chart exists to show.
+   *
+   * So: fit the data, force the alert threshold into view (a chart that hides
+   * the line you are being measured against is pointless), pad by 15% of the
+   * span so nothing touches an edge, and snap to fives so the axis labels are
+   * numbers a person would choose. Clamped to the score's real 0-100 range.
+   */
+  const riskDomain = useMemo<[number, number] | undefined>(() => {
+    if (!riskHistory) return undefined;
+    const threshold = ALERT_THRESHOLD[selectedRiskProfile];
+    const lo = Math.min(...riskHistory.series, threshold);
+    const hi = Math.max(...riskHistory.series, threshold);
+    const pad = Math.max(4, (hi - lo) * 0.15);
+    const snap = 5;
+    return [
+      Math.max(0, Math.floor((lo - pad) / snap) * snap),
+      Math.min(100, Math.ceil((hi + pad) / snap) * snap),
+    ];
+  }, [riskHistory, selectedRiskProfile]);
 
   // Portfolio macro metrics from the SELECTED wallet's live positions
   const liveMacro = useMemo(() => {
@@ -1267,260 +1446,97 @@ export function AppDemo() {
             {/* VIEW A: COMPASS TAB (Fully interactive and identical to the requested design layout!) */}
             {activeTab === "compass" && (
               <TabPanel key="compass" tab="compass" gap="space-y-8">
-                {/* Title Section */}
+                {/* No subtitle. "Find and open positions matched to your risk
+                    profile" restated the tab you are standing in, the heading
+                    above it and the section heading below it, which already
+                    names the profile by name. Portfolio's header is an h1 and a
+                    button; this one is an h1 and the control that changes what
+                    the page shows. */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle pb-5">
-                  <div>
-                    <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary mb-1">Compass</h1>
-                    <p className="text-text-secondary font-sans text-xs">
-                      Find and open positions matched to your risk profile
-                    </p>
-                  </div>
+                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Compass</h1>
 
-                  {/* High Fidelity Risk Profile Toggle matching Figma */}
+                  {/* Three copies of one button became a map over the three
+                      profiles, so the selected/unselected treatment cannot
+                      drift between them. */}
                   <div className="bg-white/[0.02] border border-border-subtle p-1 rounded-md flex items-center max-w-sm">
-                    <button
-                      onClick={() => setSelectedRiskProfile("conservative")}
-                      className={`px-3 py-1.5 text-2xs font-sans rounded-md transition-all cursor-pointer ${
-                        selectedRiskProfile === "conservative"
-                          ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
-                          : "text-text-secondary hover:text-text-primary"
-                      }`}
-                    >
-                      Conservative
-                    </button>
-                    <button
-                      onClick={() => setSelectedRiskProfile("moderate")}
-                      className={`px-3 py-1.5 text-2xs font-sans rounded-md transition-all cursor-pointer ${
-                        selectedRiskProfile === "moderate"
-                          ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
-                          : "text-text-secondary hover:text-text-primary"
-                      }`}
-                    >
-                      Moderate
-                    </button>
-                    <button
-                      onClick={() => setSelectedRiskProfile("aggressive")}
-                      className={`px-3 py-1.5 text-2xs font-sans rounded-md transition-all cursor-pointer ${
-                        selectedRiskProfile === "aggressive"
-                          ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
-                          : "text-text-secondary hover:text-text-primary"
-                      }`}
-                    >
-                      Aggressive
-                    </button>
-                  </div>
-                </div>
-
-                {/* Section 1: Recommended for your chosen Profile */}
-                <div className="space-y-4">
-                  <h2 className="text-base font-sans font-bold text-text-primary tracking-wide">
-                    Recommended for your {selectedRiskProfile} profile
-                  </h2>
-
-                  {/* `lg`, not `md`: at a 768px window the sidebar has already
-                      taken 256px, so two columns here were 208px each, which
-                      is narrower than "Compound V3" plus its risk chip. */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {recommended.map((preset) => (
-                      <div
-                        key={preset.id}
-                        onClick={() => setSelectedRiskBreakdownPreset(preset)}
-                        className="bg-surface-raised/60 hover:bg-surface-overlay/70 border border-border-subtle rounded-lg p-5 relative overflow-hidden transition-all hover:border-border-strong shadow-xl group cursor-pointer"
+                    {RISK_PROFILES.map((profile) => (
+                      <button
+                        key={profile}
+                        onClick={() => setSelectedRiskProfile(profile)}
+                        className={`px-3 py-1.5 text-2xs font-sans rounded-md capitalize transition-all cursor-pointer ${
+                          selectedRiskProfile === profile
+                            ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
+                            : "text-text-secondary hover:text-text-primary"
+                        }`}
                       >
-                        <div className="flex flex-wrap justify-between items-start gap-x-3 gap-y-2 mb-4">
-                          <div className="flex items-center gap-3">
-                            <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
-                            <div>
-                              <h3 className="text-sm font-sans font-bold text-text-primary tracking-wide group-hover:text-text-primary transition-colors">
-                                {preset.protocol}
-                              </h3>
-                              <span className="text-xs font-sans text-text-secondary block">
-                                {preset.assetPair}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedRiskBreakdownPreset(preset);
-                            }}
-                            onMouseEnter={() => setSelectedRiskBreakdownPreset(preset)}
-                            className={`text-2xs font-sans font-bold py-1 px-2.5 rounded-md flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm border ${RISK_CHIP[preset.riskStatus]}`}
-                            title="Hover or click to view detailed risk breakdown"
-                          >
-                            <span>{preset.baseRisk} {preset.riskStatus}</span>
-                            <Sliders className="w-3 h-3 text-current stroke-[2.5]" />
-                          </button>
-                        </div>
-
-                        {/* Yield reality: live APY + TVL + 30d trend (DefiLlama via /api/poolhistory) */}
-                        {(() => {
-                          const py = poolYields?.[preset.id];
-                          return (
-                            <>
-                              <div className="mb-2 flex items-baseline justify-between">
-                                {/* Yield is not a risk band. Painting it with
-                                    risk-low told the user a high APY was safe,
-                                    which is close to the opposite of true. */}
-                                <span className="text-xs text-text-primary font-sans font-semibold tabular-nums">
-                                  APY rate: {(py?.apy ?? preset.apy).toFixed(1)}%
-                                </span>
-                                {py && (
-                                  <span className="text-2xs font-sans text-text-secondary tabular-nums">
-                                    TVL {formatCompactUsd(py.tvlUsd)}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="border-t border-border-subtle pt-3 mt-2">
-                                {py ? (
-                                  <>
-                                    <Sparkline
-                                      data={py.apySeries}
-                                      stroke="var(--color-chart-series)"
-                                      height={36}
-                                      axes={{ yFormat: (v) => `${v < 0.1 && v > 0 ? v.toFixed(2) : v.toFixed(1)}%`, xStart: "30d ago", xEnd: "today" }}
-                                    />
-                                    <span className="block text-2xs font-sans text-text-secondary mt-1">
-                                      Supply APY, last 30 days
-                                    </span>
-                                  </>
-                                ) : (
-                                  <span className="block text-2xs font-sans text-text-muted py-3">
-                                    30d yield history unavailable
-                                  </span>
-                                )}
-                              </div>
-                            </>
-                          );
-                        })()}
-
-                        {/* One primary per card. Five cards used to put five solid
-                            and five outlined buttons on one screen, which is ten
-                            things competing to be the next step. Simulating is the
-                            secondary path, so it reads as a link. */}
-                        <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
-                          <Button onClick={() => setOpenPositionPreset(preset)}>
-                            <Plus className="h-3.5 w-3.5" />
-                            Open position
-                          </Button>
-                          <Button
-                            variant="quiet"
-                            onClick={() => {
-                              setSelectedPresetId(preset.id);
-                              setWatchSource("recommendations");
-                              setActiveTab("watch");
-                            }}
-                          >
-                            Audit &amp; simulate →
-                          </Button>
-                        </div>
-                      </div>
+                        {profile}
+                      </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Section 2: Vaults outside the core profile limits */}
-                <div className="space-y-4 pt-4">
-                  <h2 className="text-base font-sans font-bold text-text-secondary tracking-wide">
-                    Outside your profile
-                  </h2>
+                {/* Three across at `xl`. Two columns left a permanent orphan:
+                    an odd count is the normal case here (three recommended and
+                    five outside at the moderate profile), and at two wide the
+                    stray card sat alone beside half a row of void. The cards
+                    are five elements tall now rather than nine, so three fit
+                    the 1120px content column without crushing anything.
 
-                  {/* `lg`, not `md`: at a 768px window the sidebar has already
-                      taken 256px, so two columns here were 208px each, which
-                      is narrower than "Compound V3" plus its risk chip. */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {outside.map((preset) => (
-                      <div
-                        key={preset.id}
-                        onClick={() => setSelectedRiskBreakdownPreset(preset)}
-                        className="bg-surface-raised/25 border border-border-subtle rounded-lg p-5 relative overflow-hidden transition-all hover:bg-surface-raised/45 hover:border-border-strong cursor-pointer group"
-                      >
-                        <div className="flex flex-wrap justify-between items-start gap-x-3 gap-y-2 mb-4">
-                          <div className="flex items-center gap-3">
-                            <ProtocolLogo protocol={preset.protocol} size="w-8 h-8 opacity-60 group-hover:opacity-100 transition-opacity" />
-                            <div>
-                              <h3 className="text-sm font-sans font-bold text-text-muted group-hover:text-text-primary transition-colors">
-                                {preset.protocol}
-                              </h3>
-                              <span className="text-xs font-sans text-text-secondary block">
-                                {preset.assetPair}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedRiskBreakdownPreset(preset);
-                            }}
-                            onMouseEnter={() => setSelectedRiskBreakdownPreset(preset)}
-                            className={`text-2xs font-sans py-1 px-2.5 rounded-md opacity-60 hover:opacity-100 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-sm border ${RISK_CHIP[preset.riskStatus]}`}
-                            title="Hover or click to view detailed risk breakdown"
-                          >
-                            <span>{preset.baseRisk} {preset.riskStatus}</span>
-                            <Sliders className="w-3 h-3 text-current stroke-[2.5]" />
-                          </button>
-                        </div>
-
-                        {/* Yield reality (muted): live APY + TVL + 30d trend */}
-                        {(() => {
-                          const py = poolYields?.[preset.id];
-                          return (
-                            <>
-                              <div className="mb-2 flex items-baseline justify-between">
-                                <span className="text-xs text-text-muted font-sans tabular-nums">
-                                  APY rate: {(py?.apy ?? preset.apy).toFixed(1)}%
-                                </span>
-                                {py && (
-                                  <span className="text-2xs font-sans text-text-muted tabular-nums">
-                                    TVL {formatCompactUsd(py.tvlUsd)}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="border-t border-border-subtle pt-3 mt-2">
-                                {py ? (
-                                  <>
-                                    <Sparkline
-                                      data={py.apySeries}
-                                      stroke="var(--color-text-muted)"
-                                      height={36}
-                                      className="opacity-70"
-                                      axes={{ yFormat: (v) => `${v < 0.1 && v > 0 ? v.toFixed(2) : v.toFixed(1)}%`, xStart: "30d ago", xEnd: "today" }}
-                                    />
-                                    <span className="block text-2xs font-sans text-text-muted font-bold mt-1">
-                                      Supply APY, last 30 days
-                                    </span>
-                                  </>
-                                ) : (
-                                  <span className="block text-xs font-sans text-text-secondary py-3">
-                                    30d yield history unavailable
-                                  </span>
-                                )}
-                              </div>
-                            </>
-                          );
-                        })()}
-
-                        <div className="mt-5 pt-3 border-t border-border-subtle flex justify-between items-center" onClick={(e) => e.stopPropagation()}>
-                          <span className="text-2xs font-sans text-text-muted">Outside safety triggers</span>
-                          {/* No primary here on purpose: nothing on this card is a
-                              recommended next step. */}
-                          <Button
-                            variant="quiet"
-                            onClick={() => {
-                              setSelectedPresetId(preset.id);
-                              setWatchSource("recommendations");
-                              setActiveTab("watch");
-                            }}
-                          >
-                            Force audit →
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                    `lg`, not `md`: at a 768px window the sidebar has already
+                    taken 256px, so two columns there were 208px each, which is
+                    narrower than "Compound V3" plus its risk chip. */}
+                {recommended.length > 0 && (
+                  <div className="space-y-4">
+                    <h2 className="text-base font-sans font-bold text-text-primary tracking-wide">
+                      Recommended for your {selectedRiskProfile} profile
+                    </h2>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+                      {recommended.map((preset) => (
+                        <MarketCard
+                          key={preset.id}
+                          preset={preset}
+                          poolYield={poolYields?.[preset.id] ?? null}
+                          onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
+                          onOpen={() => setOpenPositionPreset(preset)}
+                          onSimulate={() => {
+                            setSelectedPresetId(preset.id);
+                            setWatchSource("recommendations");
+                            setActiveTab("watch");
+                          }}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* Outside the profile's limits. The per-card "Outside safety
+                    triggers" caption is gone: it restated this heading eight
+                    words later, once per card, and no card without it is any
+                    less clearly filed under it. No primary action here either,
+                    which is the part that actually says "not recommended". */}
+                {outside.length > 0 && (
+                  <div className="space-y-4 pt-4">
+                    <h2 className="text-base font-sans font-bold text-text-secondary tracking-wide">
+                      Outside your profile
+                    </h2>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+                      {outside.map((preset) => (
+                        <MarketCard
+                          key={preset.id}
+                          preset={preset}
+                          poolYield={poolYields?.[preset.id] ?? null}
+                          muted
+                          onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
+                          onSimulate={() => {
+                            setSelectedPresetId(preset.id);
+                            setWatchSource("recommendations");
+                            setActiveTab("watch");
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               </TabPanel>
             )}
@@ -2504,7 +2520,12 @@ export function AppDemo() {
                         {riskHistory && riskHistory.series.length > 1 && (() => {
                           const s = riskHistory.series;
                           const delta = Math.round(s[s.length - 1] - s[0]);
-                          const days = s.length - 1;
+                          // The WINDOW, not the interval count. 30 daily points
+                          // span 29 intervals, and this header used to say "29d"
+                          // beside an x-axis reading "30d ago" — two defensible
+                          // numbers describing one chart, which reads as a bug.
+                          // `riskHistory.xStart` counts days the same way.
+                          const days = s.length;
                           return (
                             <span className="text-xs font-sans tabular-nums text-text-secondary">
                               {delta === 0
@@ -2518,10 +2539,22 @@ export function AppDemo() {
                         // Series colour is cool and fixed: repainting 30 days of history in
                         // today's band colour claims the whole series was that band. The
                         // current band is already stated in the chip above.
+                        // The axis is 0-100 because the SCORE is 0-100. Scaled to
+                        // its own min/max the line filled the card whatever it
+                        // did, and cropped out the two facts worth having: the
+                        // band boundaries, and the level at which PANIK starts
+                        // alerting this user. The threshold is the user's own,
+                        // read from their profile, and drawn as a neutral
+                        // annotation — not a fifth band colour.
                         <Sparkline
                           data={riskHistory.series}
                           height={110}
                           stroke="var(--color-chart-series)"
+                          domain={riskDomain}
+                          reference={{
+                            value: ALERT_THRESHOLD[selectedRiskProfile],
+                            label: `alert ${ALERT_THRESHOLD[selectedRiskProfile]}`,
+                          }}
                           axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
                         />
                       ) : (
@@ -3017,8 +3050,12 @@ export function AppDemo() {
                           7. Pool borrow utilization
                           <InfoTip text="Share of the pool's supplied funds currently borrowed. Very high utilization can delay withdrawals and spike rates." />
                         </span>
-                        <span className="text-xs font-sans font-bold text-risk-low tabular-nums">
-                          {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (Optimal range)
+                        {/* Neutral. Utilization is not a risk band, and painting
+                            it risk-low put a green figure beside the health
+                            factor's genuine band two rows up — two greens in one
+                            panel, only one of them meaning "safe". */}
+                        <span className="text-xs font-sans font-bold text-text-primary tabular-nums">
+                          {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (optimal range)
                         </span>
                       </div>
 
@@ -3030,7 +3067,11 @@ export function AppDemo() {
                         </span>
                         {breakdownData?.poolYield ? (
                           <>
-                            <span className="text-base font-sans font-bold text-risk-low mt-1 tabular-nums">
+                            {/* Yield is not a risk band. Green here told the
+                                reader a high APY was safe, which is close to
+                                the opposite of true — the same mistake the
+                                Compass card had already corrected. */}
+                            <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
                               {breakdownData.poolYield.apy.toFixed(2)}%
                             </span>
                             <Sparkline data={breakdownData.poolYield.apySeries} stroke="var(--color-chart-series)" height={24} className="mt-1" />
