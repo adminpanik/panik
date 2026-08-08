@@ -42,6 +42,7 @@ import {
   formatUsd,
   limitEventCopy,
   limitStateCopy,
+  liquidationOutlook,
   RISK_CHIP,
   RISK_FILL,
   RISK_TEXT,
@@ -1945,33 +1946,15 @@ export function AppDemo() {
                             {positionState.status === "LOW" && "Collateral buffer is comfortable."}
                           </p>
 
-                          {/* Dollar-framed verdict: what this scenario means in money, not percentages */}
-                          {(() => {
-                            const cv = positionState.collateralValue;
-                            const lp = positionState.liquidationPrice;
-                            if (borrowUsd <= 0 || cv <= 0) return null;
-                            if (positionState.healthFactor <= 1.0) {
-                              return (
-                                <p className="text-2xs font-sans leading-relaxed text-risk-critical font-semibold">
-                                  At this simulated price your {formatCurrency(cv)} collateral is past the
-                                  liquidation threshold - liquidators could seize it.
-                                </p>
-                              );
-                            }
-                            if (lp > 0 && lp < positionState.currentPrice) {
-                              const dropPct = Math.round((1 - lp / positionState.currentPrice) * 100);
-                              return (
-                                <p className="text-2xs font-sans leading-relaxed text-text-secondary">
-                                  A further <span className="text-text-primary font-semibold tabular-nums">-{dropPct}%</span>{" "}
-                                  {activeMarket.collateralAsset} move (to{" "}
-                                  <span className="text-text-primary font-semibold tabular-nums">{formatCurrency(lp)}</span>) puts
-                                  your <span className="text-text-primary font-semibold tabular-nums">{formatCurrency(cv)}</span> collateral
-                                  up for liquidation.
-                                </p>
-                              );
-                            }
-                            return null;
-                          })()}
+                          {/* The paragraph that used to sit here ("A further
+                              -18% wstETH move (to $1,640) puts your $48,500
+                              collateral up for liquidation") stated the drop a
+                              THIRD time: it is arithmetically the same figure
+                              as the "Drop to liquidation" tile below and as
+                              the liquidation price in that tile's sub-line,
+                              spelled out over 20 words with four emphasised
+                              spans inside a 200px column. The tile says it
+                              once, in two lines, at a size worth reading. */}
                         </div>
                       </div>
 
@@ -2019,40 +2002,96 @@ export function AppDemo() {
                       </div>
                     </div>
 
-                    {/* Central Core Indicators: Health, LTV exactly mirroring the uploaded reference mockup */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      
-                      {/* Health Factor */}
-                      <div className="bg-surface-sunken/85 border border-border-subtle p-4.5 rounded-md">
-                        <span className="flex items-center gap-1.5 text-2xs font-sans text-text-secondary mb-1">
-                          HEALTH FACTOR
-                          <InfoTip text="Collateral value times the protocol's liquidation threshold, divided by your debt. Below 1.00 the protocol can liquidate you. The buffer matters more than the raw number." />
-                        </span>
-                        <div className="flex items-baseline gap-1">
-                          <span className={`text-4xl font-sans font-bold tracking-tight tabular-nums ${RISK_TEXT[bandOfHealthFactor(positionState.healthFactor)]}`}>
-                            {positionState.healthFactor.toFixed(2)}
-                          </span>
-                        </div>
-                        <span className="text-2xs font-sans text-text-muted block mt-2">Liquidation trigger limit is &lt; 1.00</span>
-                      </div>
-
-                      {/* Position LTV */}
-                      <div className="bg-surface-sunken/85 border border-border-subtle p-4.5 rounded-md">
-                        <span className="flex items-center gap-1.5 text-2xs font-sans text-text-secondary mb-1">
-                          POSITION LTV
-                          <InfoTip text="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation." />
-                        </span>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-4xl font-sans font-bold tracking-tight text-text-primary tabular-nums">
-                            {Math.round((borrowUsd / (collateralAmount * assetPrice)) * 100)}%
-                          </span>
-                        </div>
-                        <span className="text-2xs font-sans text-text-muted block mt-2">Maximum risk cap parameter: {activeMarket.protocol === "Aave V3" ? "82%" : "78%"}</span>
-                      </div>
-
-                    </div>
-
                   </div>
+
+                  {/* The two core numbers, in the app's stat tile.
+                      ────────────────────────────────────────────────────────
+                      LIQUIDATION DISTANCE, not health factor. The previous
+                      commit translated "Health factor 1.20" into "Liquidates
+                      if WETH falls 17%" on Portfolio and Advisor and left
+                      Watch alone, on the argument that Watch is a slider
+                      simulator where the health factor is the unit the sliders
+                      move. Half of that is right and half of it is not: the
+                      sliders move collateral, price and debt — HF is an OUTPUT
+                      here exactly as it is everywhere else, and a 40px orange
+                      "1.40" is the one figure on this screen a non-expert
+                      cannot read.
+                      So both, in the order a person can use them: the drop is
+                      the value (`liquidationOutlook.strip`, the same helper and
+                      the same "Drop to liquidation" label the Advisor strip
+                      uses), and the exact health factor is the sub-line rather
+                      than the hover it gets elsewhere. Watch is the surface
+                      where someone is tuning the number, so here it is worth a
+                      line of its own — it costs no colour, because a Stat value
+                      is always neutral ink.
+
+                      NO DEBT replaces both tiles with one line instead of
+                      printing "POSITION LTV 0%". A position with nothing
+                      borrowed has no loan-to-value and no liquidation
+                      distance, and a 40px zero is the same lie as a "$0"
+                      standing in for an unknown price. Two tiles of "not
+                      applicable" is not better than one sentence, so the state
+                      gets the primitive built for "we looked and there is
+                      nothing to report" — and in a liquidation product, no
+                      debt genuinely is the good news `clear` is allowed to
+                      claim.
+
+                      NO COLLATERAL is guarded too: the collateral slider goes
+                      to 0, and `borrowUsd / 0` was rendering "Infinity%". */}
+                  {(() => {
+                    const collateralValue = collateralAmount * assetPrice;
+                    if (borrowUsd <= 0) {
+                      return (
+                        <EmptyState
+                          tone="clear"
+                          title="No debt on this position"
+                          hint={`Nothing is borrowed against your ${activeMarket.collateralAsset}, so there is nothing to liquidate. Raise the borrowed amount to simulate one.`}
+                        />
+                      );
+                    }
+                    const outlook = liquidationOutlook(
+                      positionState.healthFactor,
+                      activeMarket.collateralAsset,
+                    );
+                    const ltvPct = collateralValue > 0 ? Math.round((borrowUsd / collateralValue) * 100) : null;
+                    const maxLtvPct = activeMarket.protocol === "Aave V3" ? 82 : 78;
+                    const liqPrice = positionState.liquidationPrice;
+                    return (
+                      <div className="grid gap-5 sm:grid-cols-2">
+                        <Card tone="raised">
+                          <Stat
+                            label={
+                              <>
+                                Drop to liquidation
+                                {/* Never null on this branch — `hover` is only
+                                    absent for a null health factor, and no
+                                    debt returned above. */}
+                                {outlook.hover && <InfoTip text={outlook.hover} />}
+                              </>
+                            }
+                            value={outlook.strip}
+                            sub={
+                              `Health factor ${positionState.healthFactor.toFixed(2)}` +
+                              (liqPrice > 0 ? ` · ${activeMarket.collateralAsset} at ${formatCurrency(liqPrice)}` : "")
+                            }
+                          />
+                        </Card>
+
+                        <Card tone="raised">
+                          <Stat
+                            label={
+                              <>
+                                Loan to value
+                                <InfoTip text="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation." />
+                              </>
+                            }
+                            value={ltvPct === null ? "No collateral" : `${ltvPct}%`}
+                            sub={`${activeMarket.protocol} liquidates above ${maxLtvPct}%`}
+                          />
+                        </Card>
+                      </div>
+                    );
+                  })()}
 
                 </div>
 
