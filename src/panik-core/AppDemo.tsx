@@ -118,6 +118,61 @@ const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
 const driverBand = (value: number, elevatedOver: number, criticalOver: number): Band =>
   value > criticalOver ? "CRITICAL" : value > elevatedOver ? "ELEVATED" : "LOW";
 
+/**
+ * The four weighted sub-scores behind a composite, in weight order, stated
+ * ONCE.
+ *
+ * Watch used to render them twice on one screen: four bars under "Top risk
+ * drivers" and three more under "PANIK DETAILED AUDITING". The two blocks did
+ * not even agree — the drivers' first bar was a health factor rescaled here in
+ * the component (`100 - hf / 2.5 * 80`, printing 55%) while the auditing card
+ * showed the engine's actual `positionHealth` sub-score (60%), under a second
+ * name for the same quantity ("Health factor" vs "Collateral health"). One
+ * concept, two names, two numbers, both labelled as the truth.
+ *
+ * The table is the fix: the label, the hint and the weight for a driver exist
+ * in one place, and the value is read from the engine's breakdown by an
+ * accessor, so no surface can invent its own. `Record`-free but exhaustive by
+ * construction — every accessor names a real key of the breakdown, and the
+ * weights are the engine's 40/25/20/15 (params.ts COMPOSITE_WEIGHTS).
+ *
+ * "Market stress", not "Pool conditions": the quantity is market-wide (sector
+ * TVL flows, broad drawdowns), and calling it a pool property was the third
+ * name on this screen for something that is not a pool.
+ */
+const RISK_DRIVERS: {
+  label: string;
+  hint: string;
+  /** Share of the composite, in percent. Stated in the hint, not on screen. */
+  weight: number;
+  of: (b: PositionState["breakdown"]) => number;
+}[] = [
+  {
+    label: "Position health",
+    weight: 40,
+    hint: "How close your health factor and your LTV sit to the protocol's liquidation point.",
+    of: (b) => b.positionHealth,
+  },
+  {
+    label: "Asset volatility",
+    weight: 25,
+    hint: "How sharply your collateral's price has moved recently (30d vol, drawdown, correlation). Volatile collateral erodes your buffer faster.",
+    of: (b) => b.assetVolatility,
+  },
+  {
+    label: "Protocol risk",
+    weight: 20,
+    hint: "Audit posture, governance timelock, and market controls of the protocol holding this position.",
+    of: (b) => b.protocolSafety,
+  },
+  {
+    label: "Market stress",
+    weight: 15,
+    hint: "Market-wide stress: sector TVL flows and broad drawdowns that hit every position at once.",
+    of: (b) => b.systemicMarketStress,
+  },
+];
+
 /** Tailwind's `md`. The nav swaps here, so the JS query and the CSS agree. */
 const DESKTOP_MQ = "(min-width: 48rem)";
 
@@ -1300,12 +1355,6 @@ export function AppDemo() {
   // Dynamic parameters for redesigned Panik Risk Index
   const diff = positionState.riskScore - activeMarket.baseRisk;
   const trendNum = diff !== 0 ? diff : (positionState.riskScore >= 75 ? 14 : positionState.riskScore >= 50 ? 9 : positionState.riskScore >= 25 ? 6 : -2);
-  const healthFactorScore = Math.max(5, Math.min(98, Math.round(100 - (positionState.healthFactor / 2.5) * 80)));
-  // Each driver bar cuts at its OWN thresholds — these are 0-100 sub-scores,
-  // not the composite, so `bandOfScore` would be the wrong ramp. What they do
-  // share is the class lookup, which is the part that was being retyped.
-  const hfDriverBand = driverBand(healthFactorScore, 40, 75);
-  const stressDriverBand = driverBand(positionState.breakdown.systemicMarketStress, 40, 70);
 
   // LIVE chain telemetry: real Base gas price via the API (the previous
   // random-walk simulation is gone). The block number arrives on the same poll
@@ -1914,78 +1963,34 @@ export function AppDemo() {
                           Top risk drivers
                         </span>
 
+                        {/* One row per driver, from RISK_DRIVERS. The four
+                            blocks were four copies of the same twelve lines,
+                            which is how three of them ended up with a
+                            hand-typed colour and one with a number the engine
+                            never produced. */}
                         <div className="grid grid-cols-1 2xl:grid-cols-2 gap-x-6 gap-y-4">
-                          {/* Driver 1: Health Factor */}
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-2xs font-sans">
-                              <span className="text-text-secondary flex items-center gap-1">
-                                Health factor
-                                <InfoTip text="Your distance to liquidation, scaled 0-100. The heaviest input to the composite score (40% weight)." />
-                              </span>
-                              <span className={`font-bold tabular-nums ${RISK_TEXT[hfDriverBand]}`}>
-                                {healthFactorScore}%
-                              </span>
-                            </div>
-                            <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${RISK_FILL[hfDriverBand]}`}
-                                style={{ width: `${healthFactorScore}%` }}
-                              ></div>
-                            </div>
-                          </div>
-
-                          {/* Driver 2: Asset volatility */}
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-2xs font-sans">
-                              <span className="text-text-secondary flex items-center gap-1">
-                                Asset volatility
-                                <InfoTip text="How sharply your collateral's price has moved recently (30d vol, drawdown, correlation). Volatile collateral erodes your buffer faster. 25% weight." />
-                              </span>
-                              <span className="text-blue-400 font-bold tabular-nums">{positionState.breakdown.assetVolatility}%</span>
-                            </div>
-                            <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
-                              <div 
-                                className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                                style={{ width: `${positionState.breakdown.assetVolatility}%` }}
-                              ></div>
-                            </div>
-                          </div>
-
-                          {/* Driver 3: Protocol risk */}
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-2xs font-sans">
-                              <span className="text-text-secondary flex items-center gap-1">
-                                Protocol risk
-                                <InfoTip text="Audit posture, governance timelock, and market controls of the protocol holding this position. 20% weight." />
-                              </span>
-                              <span className="text-risk-low font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
-                            </div>
-                            <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
-                              <div 
-                                className="h-full bg-risk-low rounded-full transition-all duration-300"
-                                style={{ width: `${positionState.breakdown.protocolSafety}%` }}
-                              ></div>
-                            </div>
-                          </div>
-
-                          {/* Driver 4: Pool Conditions */}
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-2xs font-sans">
-                              <span className="text-text-secondary flex items-center gap-1">
-                                Pool conditions
-                                <InfoTip text="Market-wide stress: sector TVL flows and broad drawdowns that hit every position at once. 15% weight." />
-                              </span>
-                              <span className={`font-bold tabular-nums ${RISK_TEXT[stressDriverBand]}`}>
-                                {positionState.breakdown.systemicMarketStress}%
-                              </span>
-                            </div>
-                            <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${RISK_FILL[stressDriverBand]}`}
-                                style={{ width: `${positionState.breakdown.systemicMarketStress}%` }}
-                              ></div>
-                            </div>
-                          </div>
+                          {RISK_DRIVERS.map(({ label, hint, weight, of }) => {
+                            const value = of(positionState.breakdown);
+                            return (
+                              <div key={label} className="space-y-1.5">
+                                <div className="flex justify-between items-center text-2xs font-sans">
+                                  <span className="text-text-secondary flex items-center gap-1">
+                                    {label}
+                                    <InfoTip text={`${hint} ${weight}% of the score.`} />
+                                  </span>
+                                  <span className={`font-bold tabular-nums ${RISK_TEXT[driverBand(value, 40, 70)]}`}>
+                                    {value}%
+                                  </span>
+                                </div>
+                                <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-300 ${RISK_FILL[driverBand(value, 40, 70)]}`}
+                                    style={{ width: `${value}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
 
                         {/* Explanatory footer line inside bento block */}
@@ -2027,45 +2032,6 @@ export function AppDemo() {
                         <span className="text-2xs font-sans text-text-muted block mt-2">Maximum risk cap parameter: {activeMarket.protocol === "Aave V3" ? "82%" : "78%"}</span>
                       </div>
 
-                    </div>
-
-                    {/* PANIK Detailed Auditing Card */}
-                    <div className="border border-border-subtle bg-surface-raised/85 p-5 rounded-lg mt-6">
-                      <span className="block text-2xs font-sans text-text-muted mb-3.5">
-                        PANIK DETAILED AUDITING
-                      </span>
-                      
-                      <div className="space-y-3.5">
-                        <div>
-                          <div className="flex justify-between text-2xs font-sans mb-1">
-                            <span className="text-text-secondary">Collateral health</span>
-                            <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.positionHealth}%</span>
-                          </div>
-                          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-text-primary" style={{ width: `${positionState.breakdown.positionHealth}%` }}></div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between text-2xs font-sans mb-1">
-                            <span className="text-text-secondary">Asset volatility</span>
-                            <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.assetVolatility}%</span>
-                          </div>
-                          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-white/40" style={{ width: `${positionState.breakdown.assetVolatility}%` }}></div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between text-2xs font-sans mb-1">
-                            <span className="text-text-secondary">Protocol risk</span>
-                            <span className="text-text-primary font-bold tabular-nums">{positionState.breakdown.protocolSafety}%</span>
-                          </div>
-                          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-risk-critical" style={{ width: `${positionState.breakdown.protocolSafety}%` }}></div>
-                          </div>
-                        </div>
-                      </div>
                     </div>
 
                   </div>
