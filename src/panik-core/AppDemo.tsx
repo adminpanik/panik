@@ -2548,7 +2548,21 @@ export function AppDemo() {
                         // annotation — not a fifth band colour.
                         <Sparkline
                           data={riskHistory.series}
-                          height={110}
+                          /* 110px was a sparkline height on a card that is not
+                             a sparkline: 30 days of scores plus a y-axis, an
+                             alert threshold and its caption, all squeezed into
+                             three lines of text worth of vertical space, in the
+                             widest column on the page. At 220 the crossings of
+                             the alert line are legible, which is the one event
+                             this chart exists to show.
+
+                             Phones get 150 rather than 220. The card is full
+                             bleed there, so 220 is most of a viewport height
+                             for one chart, and it would push Asset allocation
+                             and Alert history below two screenfuls of scroll.
+                             The breakpoint is the same `useIsDesktop` the nav
+                             uses, so there is one definition of "phone". */
+                          height={isDesktop ? 220 : 150}
                           stroke="var(--color-chart-series)"
                           domain={riskDomain}
                           reference={{
