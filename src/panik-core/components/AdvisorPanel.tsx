@@ -158,24 +158,25 @@ function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
 function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
   const n = rec.numbers;
   /**
-   * "Health factor 1.20" was the first thing on this strip, and it is the one
-   * item here a non-expert cannot read: Collateral and Debt are dollars, and
-   * the third figure was a bare ratio on an unstated scale. It is now the price
-   * drop that ratio MEANS, from the same engine helper the position rows use.
+   * The price drop the health factor MEANS, from the same engine helper the
+   * position rows use: Collateral and Debt are dollars, and a bare ratio on an
+   * unstated scale was the one item here a non-expert could not read.
    *
-   * The asset is not repeated in the value: this card already names it as the
-   * subtitle under the protocol, and the strip has to fit a phone unwrapped.
-   * The exact health factor moves to the label's InfoTip, which is where every
-   * other "what is this number" answer on this screen already lives.
+   * The asset is not repeated in the value — the card names it as the subtitle
+   * under the protocol, and this strip has to fit a phone unwrapped. The exact
+   * health factor is in the label's InfoTip, where every other "what is this
+   * number" answer on this screen lives.
    */
   const outlook = liquidationOutlook(n.healthFactor, n.scoredCollateralSymbol);
   const items: { label: string; value: string; hint?: string }[] = [
     {
       label: "Drop to liquidation",
-      value: outlook.strip,
-      hint:
-        outlook.hover ??
-        "Nothing is borrowed against this collateral, so the protocol has nothing to liquidate.",
+      // This strip has no sub-line to hang `stripNote` on — it is one flex row
+      // of label/value pairs — so the clause joins the value inline. It wraps
+      // rather than truncating here, which is why the tile on Watch reads the
+      // two fields separately and this one does not.
+      value: outlook.stripNote ? `${outlook.strip}, ${outlook.stripNote}` : outlook.strip,
+      hint: outlook.hover,
     },
     { label: "Collateral", value: formatUsd(n.collateralValueUsd) },
     { label: "Debt", value: formatUsd(n.borrowValueUsd) },

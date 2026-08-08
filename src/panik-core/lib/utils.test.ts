@@ -22,7 +22,36 @@ describe("liquidationOutlook", () => {
     const o = liquidationOutlook(null, "wstETH");
     expect(o.sentence).toBe("No debt");
     expect(o.sentence).not.toMatch(/falls|%/);
-    expect(o.hover).toBeNull();
+    expect(o.strip).toBe("none");
+    expect(o.stripNote).toBe("no debt");
+  });
+
+  /**
+   * The strip feeds a `Stat` value: one truncated 24px line. A value that
+   * carries its own clause renders as "0%, liquidatab…" exactly where the clause
+   * is the only thing stopping "0%" from reading as "perfectly safe".
+   */
+  it("keeps the strip a value and the clause beside it", () => {
+    for (const hf of [null, 0.9, 1.0005, 1.2, 3]) {
+      const o = liquidationOutlook(hf, "WETH");
+      expect(o.strip).not.toContain(",");
+      expect(o.strip.length).toBeLessThanOrEqual(11); // "under 0.1%"
+    }
+    const liquidatable = liquidationOutlook(0.95, "WETH");
+    expect(liquidatable.strip).toBe("0%");
+    expect(liquidatable.stripNote).toBe("liquidatable now");
+    expect(liquidationOutlook(1.2, "WETH").stripNote).toBeNull();
+  });
+
+  /**
+   * Every branch explains itself. When this was null for no debt, all three call
+   * sites patched it with a sentence of their own and the three disagreed.
+   */
+  it("always has a hover, including the no-debt branch", () => {
+    for (const hf of [null, 0.9, 1.0005, 1.2, 3]) {
+      expect(liquidationOutlook(hf, "WETH").hover).toBeTruthy();
+    }
+    expect(liquidationOutlook(null, "wstETH").hover).toMatch(/Nothing is borrowed/);
   });
 
   it.each([1, 0.98, 0.5])(
@@ -62,7 +91,8 @@ describe("liquidationOutlook", () => {
       const o = liquidationOutlook(hf, "WETH");
       expect(o.sentence).not.toContain("—");
       expect(o.strip).not.toContain("—");
-      expect(o.hover ?? "").not.toContain("—");
+      expect(o.stripNote ?? "").not.toContain("—");
+      expect(o.hover).not.toContain("—");
     }
   });
 });

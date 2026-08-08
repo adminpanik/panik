@@ -7,14 +7,17 @@ import { PositionState } from "./types";
 import type { Band, ProfileStatus } from "./live";
 /**
  * A VALUE import from the engine, which every other import in panik-core is
- * careful not to be — and the exception is deliberate. `prospective.ts` has no
- * imports of its own (it is four lines of arithmetic), so pulling it in drags
- * nothing behind it; the rule the other files are protecting against is the
- * BARREL, which reaches viem through the chain adapters. Deep-importing the one
- * module keeps the liquidation formula in `packages/scoring`, where the
- * working agreement says scoring lives, instead of retyping `1 - 1/hf` here.
+ * careful not to be, and the exception is deliberate: `prospective.ts` has no
+ * imports of its own, so it drags nothing behind it. The rule this protects
+ * against is the BARREL, which reaches viem through the chain adapters.
+ * Deep-importing the one module keeps the liquidation formula AND its rounding in
+ * `packages/scoring`, instead of retyping `1 - 1/hf` here and rounding it to a
+ * second number the engine's own prose then disagrees with.
  */
-import { drawdownFromHealthFactor } from "../../../packages/scoring/src/prospective";
+import {
+  drawdownToLiquidation,
+  formatDrawdownPct,
+} from "../../../packages/scoring/src/prospective";
 
 /**
  * Calculates a DeFi position health factor and PANIK risk score.
@@ -248,94 +251,85 @@ export function limitEventCopy(status: string): string {
   return LIMIT_EVENT[status as ProfileStatus] ?? "changed against your risk limit";
 }
 
-/**
- * A drawdown fraction as a percentage a person can act on.
- *
- * One decimal below 10%, none above it. The precision is not cosmetic: at the
- * shallow end 4.8% and 5.4% are a different afternoon, and rounding both to
- * "5%" throws away the distinction exactly where it matters most. Above 10% the
- * decimal is noise on an estimate — the drop is derived from a linearity
- * assumption (see `drawdownFromHealthFactor`), and "17.4%" claims a precision
- * the model does not have.
- *
- * The one-decimal branch is re-checked AFTER rounding so 9.96% prints "10%"
- * rather than "10.0%", which would be the only value in the UI carrying a
- * decimal it is not entitled to.
- */
-function formatDropPct(drop: number): string {
-  const pct = drop * 100;
-  const oneDp = Number(pct.toFixed(1));
-  return oneDp < 10 ? `${oneDp.toFixed(1)}%` : `${Math.round(pct)}%`;
-}
-
 export interface LiquidationOutlook {
   /** Prose clause for a position row: "Liquidates if cbBTC falls 4.8%". */
   sentence: string;
-  /** Compact value for a labelled strip, where the asset is already named. */
+  /**
+   * Compact VALUE for a labelled strip, where the asset is already named — a
+   * value and nothing else. It used to carry its qualifying clause, and the stat
+   * tile rendering it is a truncated 24px line, so the one state where that
+   * clause is load-bearing came out as "0%, liquidatab…".
+   */
   strip: string;
   /**
-   * The exact health factor, plus the assumption the drop rests on. Null when
-   * there is no debt, because there is then nothing to qualify.
+   * The clause that qualifies `strip`, for the sub-line beside it. Null unless a
+   * bare figure would read as the opposite of the truth: "0%" for
+   * liquidatable-now, "none" for no-debt.
    */
-  hover: string | null;
+  stripNote: string | null;
+  /** The exact health factor, plus the assumption the drop rests on. */
+  hover: string;
 }
 
 /**
  * A health factor, in words a non-expert can act on.
  *
- * "Health factor 1.20" is a ratio whose scale nobody outside DeFi knows: it is
- * not a percentage, not a currency, and 1.20 is dangerous while 1.20 of almost
- * anything else would be fine. The number a person can actually use is the one
- * every comparable product leads with — how far the collateral can fall before
- * the protocol takes it. That is the SAME fact, arithmetically: the engine's
- * `drawdownFromHealthFactor` converts one to the other exactly.
+ * "Health factor 1.20" is a ratio whose scale nobody outside DeFi knows: 1.20 is
+ * dangerous where 1.20 of almost anything else is fine. The usable number is the
+ * one every comparable product leads with, how far the collateral can fall — the
+ * SAME fact, converted exactly by the engine's `drawdownToLiquidation` and
+ * rounded by `formatDrawdownPct`, the one way the engine's own prose rounds it.
  *
  * Three cases, and they are three genuinely different statements:
- *   null HF  -> no debt. There is no liquidation price, so no drop is printed.
- *               "0%" here would be the worst possible lie in this product.
- *   HF <= 1  -> already liquidatable. The engine floors the drop at 0, and
- *               "falls 0%" reads as "perfectly safe" to anyone scanning, which
- *               is the exact inverse of the truth. It gets its own sentence.
- *   HF > 1   -> the drop, rounded by `formatDropPct`.
+ *   null HF  -> no debt. No liquidation price, so no drop is printed; "0%" here
+ *               would be the worst possible lie in this product.
+ *   HF <= 1  -> already liquidatable. "falls 0%" reads as "perfectly safe", the
+ *               exact inverse of the truth, so it gets its own sentence.
+ *   HF > 1   -> the drop.
  *
- * The exact health factor is never deleted, only demoted: it is the first thing
- * in `hover`, because it is the number a DeFi-native user came here for and
- * this is a risk product.
+ * The exact health factor is demoted, never deleted: it opens `hover`, which is
+ * never null — the no-debt case has an explanation too, and while the helper
+ * withheld it all three call sites wrote their own, differently.
  */
 export function liquidationOutlook(
   healthFactor: number | null,
   symbol: string,
 ): LiquidationOutlook {
+  const drop = drawdownToLiquidation(healthFactor);
+
   if (healthFactor === null) {
     // Unchanged wording: no debt cannot be liquidated, and this row has said so
     // in these two words since before the health factor was on screen at all.
-    return { sentence: "No debt", strip: "none, no debt", hover: null };
+    return {
+      sentence: "No debt",
+      strip: "none",
+      stripNote: "no debt",
+      hover:
+        "Nothing is borrowed against this collateral, so the protocol has nothing to liquidate.",
+    };
   }
 
   const exact = `Health factor ${healthFactor.toFixed(2)}.`;
-  const drop = drawdownFromHealthFactor(healthFactor) ?? 0;
 
-  if (drop <= 0) {
+  // `null` here is a non-positive health factor, which the engine declines to
+  // state a drawdown for; it is liquidatable now either way.
+  if (drop === null || drop <= 0) {
     return {
       sentence: `Can be liquidated at today's ${symbol} price`,
-      strip: "0%, liquidatable now",
+      strip: formatDrawdownPct(0),
+      stripNote: "liquidatable now",
       hover: `${exact} At or below 1.00 the protocol can liquidate this position without the price moving at all.`,
     };
   }
 
-  // An HF a hair above 1.00 rounds to "0.0%", which reads as "no drop needed"
-  // — the same misreading the HF <= 1 branch exists to avoid. Say "under 0.1%".
-  const drift = drop < 0.001;
-  const assumption =
-    `${exact} The drop assumes the debt is priced in dollars and the collateral moves as one asset,` +
-    ` which holds for a stablecoin loan against a single asset and is an estimate otherwise.`;
-
+  const pct = formatDrawdownPct(drop);
   return {
-    sentence: drift
-      ? `Liquidates if ${symbol} falls under 0.1%`
-      : `Liquidates if ${symbol} falls ${formatDropPct(drop)}`,
-    strip: drift ? "under 0.1%" : formatDropPct(drop),
-    hover: assumption,
+    sentence: `Liquidates if ${symbol} falls ${pct}`,
+    strip: pct,
+    stripNote: null,
+    hover:
+      `${exact} The drop assumes the debt is priced in dollars and the collateral moves as one asset,` +
+      ` which holds for a stablecoin loan against a single asset and is an estimate otherwise.`,
   };
 }
 
