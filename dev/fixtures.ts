@@ -34,6 +34,7 @@ import type {
   LiveProtocol,
   LiveWalletPosition,
   PoolYield,
+  ProfileStatus,
   ProspectiveLive,
   RegistryWallet,
 } from "../src/panik-core/lib/live";
@@ -343,6 +344,49 @@ const HISTORY_LEGS: readonly HistoryLeg[] = [
 
 export const HISTORY_DAYS = 30;
 
+/**
+ * The alert feed, one row per line: days ago, protocol, score, band, previous
+ * status, new status, delivery channel.
+ *
+ * Twelve rows, not three: the feed paginates at 8, so three exercised neither the
+ * "Show N older alerts" control nor the second page. Every protocol here is one
+ * the mock wallet holds, so every row is a live link to a position.
+ *
+ * `band` is written out rather than derived, so dev/fixtures.test.ts asserting
+ * `band === bandFor(score)` stays a real check and not a tautology.
+ *
+ * Deliberately no `blocked` channel: that is the one delivery chip that keeps a
+ * risk hue, and the Portfolio tab is held to exactly five risk-hued elements
+ * (four dials plus the aggregate glyph). A sixth would turn a design budget into
+ * a demo artefact.
+ */
+type AlertRow = readonly [
+  daysAgo: number,
+  protocol: LiveProtocol,
+  score: number,
+  band: Band,
+  from: string | null,
+  to: ProfileStatus,
+  channel: string | null,
+];
+
+const ALERT_ROWS: readonly AlertRow[] = [
+  [2, "moonwell", 51, "HIGH", "approaching", "outside", null], // queued: no Telegram in mock mode
+  [4, "morpho", 61, "HIGH", "approaching", "outside", "telegram"],
+  [11, "morpho", 44, "ELEVATED", "within", "approaching", "telegram"],
+  [13, "compound_v3", 41, "ELEVATED", "within", "approaching", "telegram"],
+  [14, "moonwell", 38, "ELEVATED", "outside", "approaching", "telegram"],
+  [16, "moonwell", 55, "HIGH", "approaching", "outside", "telegram"],
+  [18, "morpho", 78, "CRITICAL", "outside", "outside", "telegram"],
+  [19, "aave_v3", 27, "ELEVATED", "within", "approaching", "suppressed_immaterial"],
+  [21, "compound_v3", 33, "ELEVATED", "approaching", "within", "telegram"],
+  [24, "morpho", 52, "HIGH", "approaching", "outside", "suppressed_cooldown"],
+  [27, "moonwell", 22, "LOW", "approaching", "within", "telegram"],
+  // The oldest row, and the only one with no prior status: the first reading
+  // this wallet ever produced for that protocol.
+  [29, "aave_v3", 16, "LOW", null, "within", "telegram"],
+];
+
 export function mockHistory(now = Date.now()): { alerts: HistoryAlert[]; snapshots: HistorySnapshot[] } {
   const snapshots: HistorySnapshot[] = [];
   for (let daysAgo = HISTORY_DAYS - 1; daysAgo >= 0; daysAgo--) {
@@ -372,152 +416,20 @@ export function mockHistory(now = Date.now()): { alerts: HistoryAlert[]; snapsho
   }
 
   const ago = (days: number) => new Date(now - days * 86_400_000).toISOString();
-  // Twelve, not three. The feed paginates at 8, and three rows exercised
-  // neither the "Show N older alerts" control nor the second page — the two
-  // things a reviewer has to be able to see working. The band on every row is
-  // still a pure function of its score (dev/fixtures.test.ts asserts it), and
-  // every protocol here is one the mock wallet holds, so every row is a live
-  // link to a position.
-  const alerts: HistoryAlert[] = [
-    {
-      protocol: "moonwell",
+  /** A delivered alert carries the moment it was delivered; nothing else does. */
+  const alerts: HistoryAlert[] = ALERT_ROWS.map(
+    ([daysAgo, protocol, score, band, from_status, to_status, notify_channel]) => ({
+      protocol,
       risk_profile: "moderate",
-      score: 51,
-      band: "HIGH",
-      from_status: "approaching",
-      to_status: "outside",
-      notify_channel: null, // queued: no Telegram linked in mock mode
-      notified_at: null,
-      created_at: ago(2),
-    },
-    {
-      protocol: "morpho",
-      risk_profile: "moderate",
-      score: 61,
-      band: "HIGH",
-      from_status: "approaching",
-      to_status: "outside",
-      notify_channel: "telegram",
-      notified_at: ago(4),
-      created_at: ago(4),
-    },
-    {
-      protocol: "morpho",
-      risk_profile: "moderate",
-      score: 44,
-      band: "ELEVATED",
-      from_status: "within",
-      to_status: "approaching",
-      notify_channel: "telegram",
-      notified_at: ago(11),
-      created_at: ago(11),
-    },
-    {
-      protocol: "compound_v3",
-      risk_profile: "moderate",
-      score: 41,
-      band: "ELEVATED",
-      from_status: "within",
-      to_status: "approaching",
-      notify_channel: "telegram",
-      notified_at: ago(13),
-      created_at: ago(13),
-    },
-    {
-      protocol: "moonwell",
-      risk_profile: "moderate",
-      score: 38,
-      band: "ELEVATED",
-      from_status: "outside",
-      to_status: "approaching",
-      notify_channel: "telegram",
-      notified_at: ago(14),
-      created_at: ago(14),
-    },
-    {
-      protocol: "moonwell",
-      risk_profile: "moderate",
-      score: 55,
-      band: "HIGH",
-      from_status: "approaching",
-      to_status: "outside",
-      notify_channel: "telegram",
-      notified_at: ago(16),
-      created_at: ago(16),
-    },
-    // Deliberately NOT `blocked`. That is the one delivery chip that keeps a
-    // risk hue, and the Portfolio tab is held to exactly five risk-hued
-    // elements (four dials plus the aggregate glyph). A fixture that adds a
-    // sixth turns a design budget into a demo artefact.
-    {
-      protocol: "morpho",
-      risk_profile: "moderate",
-      score: 78,
-      band: "CRITICAL",
-      from_status: "outside",
-      to_status: "outside",
-      notify_channel: "telegram",
-      notified_at: ago(18),
-      created_at: ago(18),
-    },
-    {
-      protocol: "aave_v3",
-      risk_profile: "moderate",
-      score: 27,
-      band: "ELEVATED",
-      from_status: "within",
-      to_status: "approaching",
-      notify_channel: "suppressed_immaterial",
-      notified_at: null,
-      created_at: ago(19),
-    },
-    {
-      protocol: "compound_v3",
-      risk_profile: "moderate",
-      score: 33,
-      band: "ELEVATED",
-      from_status: "approaching",
-      to_status: "within",
-      notify_channel: "telegram",
-      notified_at: ago(21),
-      created_at: ago(21),
-    },
-    {
-      protocol: "morpho",
-      risk_profile: "moderate",
-      score: 52,
-      band: "HIGH",
-      from_status: "approaching",
-      to_status: "outside",
-      notify_channel: "suppressed_cooldown",
-      notified_at: null,
-      created_at: ago(24),
-    },
-    {
-      protocol: "moonwell",
-      risk_profile: "moderate",
-      score: 22,
-      band: "LOW",
-      from_status: "approaching",
-      to_status: "within",
-      notify_channel: "telegram",
-      notified_at: ago(27),
-      created_at: ago(27),
-    },
-    // The oldest row, and the only one with no prior status: the first reading
-    // this wallet ever produced for that protocol.
-    {
-      protocol: "aave_v3",
-      risk_profile: "moderate",
-      score: 16,
-      band: "LOW",
-      from_status: null,
-      to_status: "within",
-      notify_channel: "telegram",
-      notified_at: ago(29),
-      created_at: ago(29),
-    },
-  ];
+      score,
+      band,
+      from_status,
+      to_status,
+      notify_channel,
+      notified_at: notify_channel === "telegram" ? ago(daysAgo) : null,
+      created_at: ago(daysAgo),
+    }),
+  );
 
   return { alerts, snapshots };
 }
@@ -633,7 +545,7 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
     },
     sections: {
       position:
-        "Your Moonwell position holds $84,200 collateral against $56,800 debt (health factor 1.20, PANIK score 52 - HIGH). A 16.7% WETH (proxy) price drop would trigger liquidation.",
+        "Your Moonwell position holds $84,200 collateral against $56,800 debt (health factor 1.20, PANIK score 52 - HIGH). A 17% WETH (proxy) price drop would trigger liquidation.",
       market: "The score is being driven by position health (80/100).",
       recommendation:
         "Repay ~$17,851 of USDC debt on Moonwell to lift your health factor from 1.20 to 1.75.",
@@ -653,7 +565,7 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
     triggers: ["band:ELEVATED", "profile:approaching", "prices:degraded"],
     sections: {
       position:
-        "Your Compound V3 position's USD values are unavailable (degraded price feed) - the health factor below is still exact (health factor 1.34, PANIK score 44 - ELEVATED). A 25.4% cbBTC price drop would trigger liquidation.",
+        "Your Compound V3 position's USD values are unavailable (degraded price feed) - the health factor below is still exact (health factor 1.34, PANIK score 44 - ELEVATED). A 25% cbBTC price drop would trigger liquidation.",
       market: "The score is being driven by position health (66/100).",
       recommendation:
         "No action needed yet, but this Compound V3 position is approaching your risk threshold - watch it closely.",
