@@ -28,7 +28,13 @@ export interface PositionState {
   status: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL";
   collateralValue: number;
   borrowValue: number;
-  healthFactor: number;
+  /**
+   * Null when there is no debt — the same sentinel the engine uses. It was
+   * `number`, which forced the Watch simulator to substitute 9.99 for a
+   * debt-free position and made the no-debt branch of `liquidationOutlook`
+   * unreachable on that surface.
+   */
+  healthFactor: number | null;
   liquidationPrice: number;
   currentPrice: number;
   recommendation: string;

@@ -1,19 +1,28 @@
 import React from "react";
 
 /**
- * Exactly two variants, because a screen with two levels of emphasis has one
- * obvious next step and a screen with four has none.
+ * One level of emphasis and two ways of being quiet, because a screen with two
+ * levels of emphasis has one obvious next step and a screen with four has none.
  *
  * `primary` is a NEUTRAL high-contrast fill: near-white plate, near-black
  * label (18.1:1). It used to be brand orange, which put a saturated hue on
  * every screen and made buttons compete with the risk chips for the eye. A
  * button is the loudest thing on a page by position and weight; it does not
  * also need to be the loudest by hue. Nothing here accepts a risk band.
+ *
+ * `outline` is `quiet` with its edge drawn: the same ink and the same hover, for
+ * a full-width row action that has to read as a control while it sits alone at
+ * the bottom of a card. It exists as a variant because it was being made at a
+ * call site by passing `variant="quiet"` and overriding the border in
+ * `className`, which produced two `border-*` utilities on one element and left
+ * which of them won to Tailwind's emit order.
  */
 const BUTTON_VARIANT = {
   primary: "bg-text-primary text-surface-base border-transparent hover:opacity-90",
   quiet:
     "bg-transparent text-text-secondary border-transparent hover:text-text-primary hover:bg-white/[0.04]",
+  outline:
+    "bg-transparent text-text-secondary border-border-subtle hover:text-text-primary hover:bg-white/[0.04]",
 } as const;
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

@@ -14,9 +14,6 @@ import {
   Layers, 
   Wallet, 
   Sliders,
-  TrendingDown, 
-  Cpu, 
-  ShieldCheck,
   CheckCircle2,
   ListFilter,
   Compass as CompassIcon,
@@ -52,6 +49,13 @@ import {
  * and must never reach a browser bundle (see lib/live.ts).
  */
 import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
+/**
+ * The composite weights, from the engine for the same reason: `params.ts` has no
+ * imports at all. Three surfaces on this file used to hard-code 40/25/20/15, one
+ * of them inside an InfoTip that TEACHES the number — a re-weight in the engine
+ * would have had the UI stating a wrong one with no visual tell.
+ */
+import { COMPOSITE_WEIGHTS } from "../../packages/scoring/src/params";
 import { PositionState } from "./lib/types";
 import { LivePositions, positionKey } from "./components/LivePositions";
 import { Sparkline } from "./components/Sparkline";
@@ -68,7 +72,6 @@ import {
   useWalletHistory,
   useWalletPositions,
   useWalletRegistry,
-  type Band,
   type LiveProtocol,
   type PoolYield,
 } from "./lib/live";
@@ -109,81 +112,107 @@ const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
 ];
 
 /**
- * The four weighted sub-scores behind a composite, in weight order, stated
- * ONCE.
+ * The four weighted sub-scores behind a composite, in weight order, stated ONCE
+ * for the two surfaces that list them: Watch's score breakdown and Compass's
+ * risk-breakdown panel.
  *
- * Watch used to render them twice on one screen: four bars under "Top risk
- * drivers" and three more under "PANIK DETAILED AUDITING". The two blocks did
- * not even agree — the drivers' first bar was a health factor rescaled here in
- * the component (`100 - hf / 2.5 * 80`, printing 55%) while the auditing card
- * showed the engine's actual `positionHealth` sub-score (60%), under a second
- * name for the same quantity ("Health factor" vs "Collateral health"). One
- * concept, two names, two numbers, both labelled as the truth.
+ * Watch used to render them twice on one screen under two names, with two
+ * different numbers for the same quantity, and the Compass panel hand-typed a
+ * third copy of the labels and the weights. The table is the fix: label, hint
+ * and weight exist in one place, and the value is read out of a breakdown by an
+ * accessor, so no surface can invent its own.
  *
- * The table is the fix: the label, the hint and the weight for a driver exist
- * in one place, and the value is read from the engine's breakdown by an
- * accessor, so no surface can invent its own. `Record`-free but exhaustive by
- * construction — every accessor names a real key of the breakdown, and the
- * weights are the engine's 40/25/20/15 (params.ts COMPOSITE_WEIGHTS).
+ * `key` is the engine's own sub-score name, which is also the key into
+ * COMPOSITE_WEIGHTS — so the weight is READ from the engine rather than retyped,
+ * and a re-weight there moves every InfoTip and every panel label at once.
  *
  * "Market stress", not "Pool conditions": the quantity is market-wide (sector
  * TVL flows, broad drawdowns), and calling it a pool property was the third
  * name on this screen for something that is not a pool.
  */
-const RISK_DRIVERS: {
+interface RiskDriver {
+  /** Engine sub-score name — indexes COMPOSITE_WEIGHTS and the live sub-scores. */
+  key: keyof typeof COMPOSITE_WEIGHTS;
   label: string;
+  /** The same driver named in one word, for the panel's four narrow cells. */
+  short: string;
   hint: string;
-  /** Share of the composite, in percent. Stated in the hint, not on screen. */
-  weight: number;
+  /** The panel's cells are half the width and get their own, shorter, hint. */
+  panelHint: string;
   of: (b: PositionState["breakdown"]) => number;
-}[] = [
+}
+
+const RISK_DRIVERS: RiskDriver[] = [
   {
+    key: "positionHealth",
     label: "Position health",
-    weight: 40,
+    short: "Position",
     hint: "How close your health factor and your LTV sit to the protocol's liquidation point.",
+    panelHint: "Distance to liquidation: health factor plus current LTV.",
     of: (b) => b.positionHealth,
   },
   {
+    key: "assetRisk",
     label: "Asset volatility",
-    weight: 25,
+    short: "Asset",
     hint: "How sharply your collateral's price has moved recently (30d vol, drawdown, correlation). Volatile collateral erodes your buffer faster.",
+    panelHint: "Collateral price volatility, 90d drawdown, and BTC correlation.",
     of: (b) => b.assetVolatility,
   },
   {
+    key: "protocolSafety",
     label: "Protocol risk",
-    weight: 20,
+    short: "Protocol",
     hint: "Audit posture, governance timelock, and market controls of the protocol holding this position.",
+    panelHint: "Protocol safety: audits, governance timelock, market controls.",
     of: (b) => b.protocolSafety,
   },
   {
+    key: "systemicRisk",
     label: "Market stress",
-    weight: 15,
+    short: "Systemic",
     hint: "Market-wide stress: sector TVL flows and broad drawdowns that hit every position at once.",
+    panelHint: "Market-wide stress: sector TVL flows and capital flight.",
     of: (b) => b.systemicMarketStress,
   },
 ];
+
+/**
+ * A driver's share of the composite, as a whole percent. Rounded because the
+ * weights are fractions and `0.15 * 100` is not a number anyone wants printed.
+ */
+function driverWeightPct(driver: RiskDriver): number {
+  return Math.round(COMPOSITE_WEIGHTS[driver.key] * 100);
+}
 
 /** Tailwind's `md`. The nav swaps here, so the JS query and the CSS agree. */
 const DESKTOP_MQ = "(min-width: 48rem)";
 
 /**
- * Which nav to mount. This is a media QUERY rather than a `hidden md:flex` pair
- * because two tablists cannot both be in the document: they would duplicate
- * every `tab-*` id that the panels point at with `aria-labelledby`, and they
- * would both write into the same `tabRefs` map, so the roving tabindex would
- * try to focus whichever copy mounted last — which on a phone is the one that
- * is `display: none`, and a `focus()` on that is silently a no-op.
+ * Tailwind's `lg`. Where the Portfolio grid becomes two columns, which is the
+ * only thing the chart's height should follow: below it the card is full bleed
+ * and a 220px chart is most of a phone viewport.
  */
-function useIsDesktop(): boolean {
-  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia(DESKTOP_MQ).matches);
+const WIDE_MQ = "(min-width: 64rem)";
+
+/**
+ * A CSS breakpoint, as a boolean. Used where a value is not expressible as a
+ * class pair — a `height` prop on a chart — and, for the nav, where two copies
+ * of the markup cannot both exist: two tablists would duplicate every `tab-*` id
+ * the panels point at with `aria-labelledby` and would both write into the same
+ * `tabRefs` map, so the roving tabindex would try to focus whichever mounted
+ * last, which on a phone is the `display: none` one and a silent no-op.
+ */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
-    const mq = window.matchMedia(DESKTOP_MQ);
-    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    const mq = window.matchMedia(query);
+    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
     mq.addEventListener("change", onChange);
-    setIsDesktop(mq.matches);
+    setMatches(mq.matches);
     return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return isDesktop;
+  }, [query]);
+  return matches;
 }
 
 interface NavTabsProps {
@@ -309,6 +338,13 @@ const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho
  */
 const ALERT_PAGE_SIZE = 8;
 
+/** How long a position row stays emphasised after an alert points at it. */
+const HIGHLIGHT_MS = 4000;
+
+/** One alert row's layout, shared by the linked (button) and inert (div) forms. */
+const ALERT_ROW_CLS =
+  "flex w-full items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0";
+
 /** Alert-outcome chip copy for the Portfolio history feed. */
 const CHIP_QUIET = "text-text-muted border-border-subtle bg-white/[0.03]";
 
@@ -393,13 +429,6 @@ interface VaultPreset {
 }
 
 /**
- * Composite weights mirrored from packages/scoring params.COMPOSITE_WEIGHTS
- * (0.40 position / 0.25 asset / 0.20 protocol / 0.15 systemic). Display-only;
- * keep in sync if the engine weights change.
- */
-const SUB_SCORE_WEIGHTS = { positionHealth: 0.4, assetRisk: 0.25, protocolSafety: 0.2, systemicRisk: 0.15 } as const;
-
-/**
  * Offline-only sub-score estimates whose WEIGHTED SUM reproduces the composite
  * (the old UI showed fabricated Position/Pool/Protocol numbers that did not
  * reconcile with the headline score - the exact QA complaint). Live engine
@@ -412,10 +441,10 @@ function demoSubScores(total: number) {
   const protocolSafety = clamp(total - 10);
   const systemicRisk = clamp(
     (total -
-      SUB_SCORE_WEIGHTS.positionHealth * positionHealth -
-      SUB_SCORE_WEIGHTS.assetRisk * assetRisk -
-      SUB_SCORE_WEIGHTS.protocolSafety * protocolSafety) /
-      SUB_SCORE_WEIGHTS.systemicRisk,
+      COMPOSITE_WEIGHTS.positionHealth * positionHealth -
+      COMPOSITE_WEIGHTS.assetRisk * assetRisk -
+      COMPOSITE_WEIGHTS.protocolSafety * protocolSafety) /
+      COMPOSITE_WEIGHTS.systemicRisk,
   );
   return { positionHealth, assetRisk, protocolSafety, systemicRisk };
 }
@@ -706,7 +735,8 @@ function MarketCard({
 export function AppDemo() {
   // Navigation tabs exactly reflecting the Figma screenshot
   const [activeTab, setActiveTab] = useState<SidebarTab>("portfolio");
-  const isDesktop = useIsDesktop();
+  const isDesktop = useMediaQuery(DESKTOP_MQ);
+  const isWide = useMediaQuery(WIDE_MQ);
 
   // Arrow / Home / End navigation for the tablist. Focus has to be moved
   // explicitly: the roving tabindex means the newly selected tab is the only
@@ -990,14 +1020,10 @@ export function AppDemo() {
   /**
    * Alert row -> the position it is about.
    *
-   * An alert names a protocol; the Positions card in the SAME column is keyed
-   * by wallet and protocol, so the destination is one lookup away and it is
-   * already on screen. That is why this scrolls and highlights rather than
-   * opening a panel or switching tabs: the alert's whole question is "which of
-   * my positions did this happen to, and where does it stand now", and the
-   * position row answers both in place. A modal would hide the feed the user
-   * is reading down; a tab switch would throw away their scroll position to
-   * show them a surface they did not ask for.
+   * It scrolls and highlights rather than opening a panel or switching tabs: the
+   * alert's question is "which of my positions, and where does it stand now",
+   * and the row in the same column answers both in place. A modal would hide the
+   * feed being read down; a tab switch would throw the scroll position away.
    *
    * A Map keyed by protocol, not a scan per row: the feed can hold every alert
    * this wallet ever raised, and `find()` inside the render loop is the shape
@@ -1009,37 +1035,31 @@ export function AppDemo() {
     return byProtocol;
   }, [portfolioPositions]);
 
-  const [highlightedPositionKey, setHighlightedPositionKey] = useState<string | null>(null);
-  const highlightTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
-    },
-    [],
-  );
   /**
-   * The emphasis is temporary on purpose. It answers "which row" at the moment
-   * of arrival and then gets out of the way — a border left permanently strong
-   * on one row becomes a state nobody can explain twenty seconds later, and on
-   * a page with a five-element colour budget an unexplained emphasis is a cost.
-   * Focus, which is the part that matters for a keyboard user, stays put.
+   * The emphasis is temporary on purpose: it answers "which row" on arrival and
+   * then gets out of the way, because an emphasis left standing is a state nobody
+   * can explain twenty seconds later. Focus, the part that matters for a keyboard
+   * user, stays put.
+   *
+   * Keyed on the state, so React's own cleanup handles both unmount and a second
+   * alert clicked inside the window; nothing clears a timer by hand.
    */
-  const revealPosition = useCallback((key: string) => {
-    if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
-    setHighlightedPositionKey(key);
-    highlightTimer.current = window.setTimeout(() => setHighlightedPositionKey(null), 4000);
-  }, []);
+  const [highlightedPositionKey, setHighlightedPositionKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!highlightedPositionKey) return;
+    const timer = window.setTimeout(() => setHighlightedPositionKey(null), HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [highlightedPositionKey]);
 
   /**
-   * Feed pagination. `.slice(0, 12)` inside a `max-h-80` scroller was not a
-   * page size, it was a CEILING: alert 13 was unreachable by any means, and the
-   * inner scrollbar hid that fact by looking like it went somewhere.
+   * Feed pagination. The old `.slice(0, 12)` was a CEILING, not a page size:
+   * alert 13 was unreachable by any means. "Show more" rather than numbered
+   * pages, because nobody thinks in pages of alerts.
    *
-   * "Show more" rather than numbered pages, because this is a reverse-chronological
-   * feed and nobody thinks in pages of alerts; they read down until they reach
-   * the one they remember. The inner scroller goes with it — a scrollable box
-   * inside a scrollable page, with a button underneath, is two mechanisms for
-   * one job, and the page has always been the one that works on a phone.
+   * The card keeps its `lg` scroller as well, and the two are not rival
+   * mechanisms: the scroller lets a fixed-height card (a column-alignment
+   * requirement) hold more rows than it can show, and paging is what puts rows
+   * beyond the first eight into it at all.
    */
   const [alertsShown, setAlertsShown] = useState(ALERT_PAGE_SIZE);
   useEffect(() => setAlertsShown(ALERT_PAGE_SIZE), [historyWallet]);
@@ -1330,7 +1350,10 @@ export function AppDemo() {
         status: liveWatch.band,
         collateralValue: collateralAmount * assetPrice,
         borrowValue: borrowUsd,
-        healthFactor: liveWatch.healthFactor ?? 9.99,
+        // No `?? 9.99`. A debt-free position has no health factor, and the
+        // sentinel both invented a 90% drop and hid the no-debt case from every
+        // helper downstream.
+        healthFactor: liveWatch.healthFactor,
         liquidationPrice:
           liveWatch.liquidationDrawdown !== null
             ? Math.round(assetPrice * (1 - liveWatch.liquidationDrawdown))
@@ -1347,20 +1370,50 @@ export function AppDemo() {
     : calculateResult();
 
   /**
-   * How far the simulation has moved the score away from the real thing.
+   * How far the simulation has moved the score away from the real thing:
+   * simulated score minus the live score of the position or market being
+   * simulated. It measures the SLIDERS, not time — nothing on this screen reads
+   * a 24-hour history, and this once rendered as "+24 in the last 24 hours".
    *
-   * This used to render as "+24 in the last 24 hours", which was not a claim
-   * this value could support: it is `simulated score - the live score of the
-   * position or market being simulated`, so it measures the SLIDERS, not time.
-   * Nothing on this screen reads a 24-hour history, and the branch behind it
-   * was worse — when the difference was genuinely zero it substituted a
-   * hard-coded 14 / 9 / 6 / -2 by band, inventing a movement that had not
-   * happened so the line would never look empty.
-   *
-   * A line with nothing to say now says nothing (see the render), which is the
-   * only honest rendering of "the simulation matches reality".
+   * A line with nothing to say says nothing (see the render), which is the only
+   * honest rendering of "the simulation matches reality".
    */
   const scoreDelta = positionState.riskScore - activeMarket.baseRisk;
+
+  /**
+   * Watch's two core tiles: the drop to liquidation, and the LTV.
+   *
+   * The drop is the VALUE and the exact health factor is the sub-line — Watch is
+   * the surface where someone is tuning the number, so it is worth a line of its
+   * own rather than the hover it gets elsewhere. It costs no colour, because a
+   * Stat value is always neutral ink.
+   *
+   * `stripNote` goes in the sub-line too, and when it is there the liquidation
+   * price is dropped: at or below HF 1.00 that price IS today's price, so the
+   * clause is the only half of the line carrying anything.
+   */
+  const watchCollateralValue = collateralAmount * assetPrice;
+  const watchOutlook = liquidationOutlook(
+    positionState.healthFactor,
+    activeMarket.collateralAsset,
+  );
+  // Guarded because the collateral slider goes to 0 and `borrowUsd / 0` rendered
+  // "Infinity%".
+  const watchLtvPct =
+    watchCollateralValue > 0 ? Math.round((borrowUsd / watchCollateralValue) * 100) : null;
+  const watchMaxLtvPct = activeMarket.protocol === "Aave V3" ? 82 : 78;
+  const watchLiqPrice = positionState.liquidationPrice;
+  const watchDropSub = [
+    positionState.healthFactor === null
+      ? null
+      : `Health factor ${positionState.healthFactor.toFixed(2)}`,
+    watchOutlook.stripNote,
+    watchOutlook.stripNote === null && watchLiqPrice > 0
+      ? `${activeMarket.collateralAsset} at ${formatCurrency(watchLiqPrice)}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   // LIVE chain telemetry: real Base gas price via the API (the previous
   // random-walk simulation is gone). The block number arrives on the same poll
@@ -1724,14 +1777,9 @@ export function AppDemo() {
                 {/* Simulator Area (xl:col-span-8) */}
                 <div className="col-span-1 xl:col-span-8 space-y-6">
                   
-                  {/* The simulator's summary, as ONE card.
-                      It was three nested surfaces deep: a raised widget, a
-                      sunken block inside it for the score, and two more sunken
-                      tiles under that — plus two decorative blurred circles and
-                      a backdrop filter. Three depths of container around one
-                      subject read as three separate subjects, which is most of
-                      what "cluttered" meant here. `Card` has exactly two
-                      depths, on purpose, and this is one of them. */}
+                  {/* The simulator's summary, as ONE card. Three depths of
+                      container around one subject read as three separate
+                      subjects; `Card` has exactly two depths, on purpose. */}
                   <Card tone="raised">
                     {/* Wraps on a phone: side by side, the market name took
                         three lines while the action next to it took three of
@@ -1858,20 +1906,16 @@ export function AppDemo() {
 
                     {/* Score on the left, its four components on the right.
 
-                        The split is `xl`, not `md`, because a Tailwind
-                        breakpoint measures the WINDOW and this block lives at
-                        the bottom of window minus a 256px sidebar, minus page
-                        padding, minus the 8/12 simulator column. At a 768px
-                        window that chain leaves it ~408px, so splitting it in
-                        two there gave each half ~190px and the drivers below
-                        crushed to 62px. Everything inside is stepped one or two
-                        breakpoints late for the same reason. */}
+                        The split is `xl`, not `md`: a Tailwind breakpoint
+                        measures the WINDOW, and this block sits inside window
+                        minus a 256px sidebar minus the 8/12 simulator column, so
+                        at 768px it has ~408px and splitting it there crushed the
+                        driver bars to 62px. Everything inside is stepped a
+                        breakpoint or two late for the same reason. */}
                     <div className="flex flex-col xl:flex-row gap-6 text-left">
-                      {/* Left: score, delta, verdict. Normal flow, not
-                          `justify-between`: with the restating paragraph gone
-                          this column is three short lines, and stretching them
-                          to the height of the four bars beside them left a
-                          150px hole in the middle of the card. */}
+                      {/* Normal flow, not `justify-between`: this column is three
+                          short lines, and stretching them to the height of the
+                          four bars beside them left a hole in the card. */}
                       <div className="flex-1 xl:max-w-[280px]">
                         <div>
                           {/* No icon. Portfolio's stat labels carry none, and a
@@ -1884,13 +1928,10 @@ export function AppDemo() {
 
                           <div className="flex items-baseline gap-2 mb-2">
                             {/* Neutral ink, like every other figure in the
-                                product: `Stat`'s value, `RiskDial`'s numeral,
-                                Portfolio's 28px aggregate. A 40px saturated
-                                numeral is the single loudest thing a dashboard
-                                can emit, and it was saying exactly what the
-                                chip two inches to its right already says — in
-                                the same hue, so the page spent two coloured
-                                elements on one fact. The chip is the band. */}
+                                product. A 40px saturated numeral is the loudest
+                                thing a dashboard can emit, and it was saying in
+                                the same hue what the chip beside it says. The
+                                chip is the band. */}
                             <span className="text-4xl font-sans font-black tracking-tight tabular-nums text-text-primary">
                               {positionState.riskScore}
                             </span>
@@ -1910,12 +1951,11 @@ export function AppDemo() {
 
                         {/* Plain language summary & trend indicators */}
                         <div className="mt-3 pt-3 border-t border-border-subtle space-y-2.5">
-                          {/* Absent when the simulation sits on the real
-                              numbers: there is then no delta, and a zero
-                              dressed up as a trend is what the fabricated
-                              fallback used to emit. Neutral ink — the arrow
-                              says the direction and the band is already stated
-                              once, by the chip six pixels above. */}
+                          {/* Absent when the simulation sits on the real numbers:
+                              there is then no delta, and a zero dressed up as a
+                              trend is a movement that did not happen. Neutral ink
+                              — the arrow says the direction, and the chip six
+                              pixels above already says the band. */}
                           {scoreDelta !== 0 && (
                             <p className="flex items-center gap-1 font-sans text-2xs text-text-secondary tabular-nums">
                               {scoreDelta > 0 ? (
@@ -1929,28 +1969,15 @@ export function AppDemo() {
                           )}
 
                           <p className="text-2xs text-text-secondary leading-relaxed font-sans">
-                            {/* One clause each. These are verdicts, and a verdict
-                                that needs two sentences is not a verdict. The
-                                warnings survive intact — what went is the
-                                brochure language wrapped around them ("robust
-                                collateral buffer easily withstands active market
-                                swings" for LOW), which read as reassurance we
-                                had not measured. */}
+                            {/* One clause each: a verdict that needs two
+                                sentences is not a verdict, and the brochure
+                                language that used to wrap these read as
+                                reassurance we had not measured. */}
                             {positionState.status === "CRITICAL" && "Spot price is close to your liquidation benchmark."}
                             {positionState.status === "HIGH" && "Leverage is high. Repay or add collateral."}
                             {positionState.status === "ELEVATED" && "Stable, but exposed to short-term volatility."}
                             {positionState.status === "LOW" && "Collateral buffer is comfortable."}
                           </p>
-
-                          {/* The paragraph that used to sit here ("A further
-                              -18% wstETH move (to $1,640) puts your $48,500
-                              collateral up for liquidation") stated the drop a
-                              THIRD time: it is arithmetically the same figure
-                              as the "Drop to liquidation" tile below and as
-                              the liquidation price in that tile's sub-line,
-                              spelled out over 20 words with four emphasised
-                              spans inside a 200px column. The tile says it
-                              once, in two lines, at a size worth reading. */}
                         </div>
                       </div>
 
@@ -1960,39 +1987,32 @@ export function AppDemo() {
                           Score breakdown
                         </span>
 
-                        {/* One row per driver, from RISK_DRIVERS. The four
-                            blocks were four copies of the same twelve lines,
-                            which is how three of them ended up with a
-                            hand-typed colour and one with a number the engine
-                            never produced. */}
+                        {/* One row per driver, from RISK_DRIVERS. These were four
+                            copies of the same twelve lines, which is how three
+                            ended up with a hand-typed colour and one with a
+                            number the engine never produced. */}
                         <div className="grid grid-cols-1 2xl:grid-cols-2 gap-x-6 gap-y-4">
-                          {RISK_DRIVERS.map(({ label, hint, weight, of }) => {
+                          {RISK_DRIVERS.map((driver) => {
+                            const { label, hint, of } = driver;
                             const value = of(positionState.breakdown);
                             return (
                               <div key={label} className="space-y-1.5">
                                 <div className="flex justify-between items-center text-2xs font-sans">
                                   <span className="text-text-secondary flex items-center gap-1">
                                     {label}
-                                    <InfoTip text={`${hint} ${weight}% of the score.`} />
+                                    <InfoTip
+                                      text={`${hint} ${driverWeightPct(driver)}% of the score.`}
+                                    />
                                   </span>
                                   <span className="font-bold tabular-nums text-text-primary">
                                     {value}%
                                   </span>
                                 </div>
-                                {/* Neutral fill, and the bar LENGTH is the
-                                    channel. These four are the parts of one
-                                    score, not four verdicts: the composite has
-                                    already been banded once, by the chip. The
-                                    ramp they used to carry was invented here
-                                    and inconsistently — two drivers cut at
-                                    40/75, one at 40/70, and the other two had
-                                    no bands at all but hard-coded blue and
-                                    green, which is how "Protocol risk 16%", a
-                                    good score, ended up drawn in the most
-                                    alarming colour the product owns.
-                                    `RiskDial` already settled this: it lists
-                                    the same four sub-scores in its explanation
-                                    with no hue on any of them. */}
+                                {/* Neutral fill; the bar LENGTH is the channel.
+                                    These four are the parts of one score, not
+                                    four verdicts, and the composite has already
+                                    been banded once by the chip. `RiskDial` lists
+                                    the same four with no hue either. */}
                                 <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
                                   <div
                                     className="h-full rounded-full bg-text-secondary transition-all duration-300"
@@ -2003,106 +2023,59 @@ export function AppDemo() {
                             );
                           })}
                         </div>
-                        {/* "Core parameters compiled from real-time pool
-                            triggers & volatility parameters." used to close
-                            this block, behind a blue question mark — the only
-                            non-risk hue on the page. It said the word
-                            "parameters" twice and told the reader nothing they
-                            could act on; each driver's own InfoTip already
-                            names its inputs and its weight. Deleted, along with
-                            the blue. */}
                       </div>
                     </div>
                   </Card>
 
-                  {/* The two core numbers, in the app's stat tile.
-                      ────────────────────────────────────────────────────────
-                      LIQUIDATION DISTANCE, not health factor. The previous
-                      commit translated "Health factor 1.20" into "Liquidates
-                      if WETH falls 17%" on Portfolio and Advisor and left
-                      Watch alone, on the argument that Watch is a slider
-                      simulator where the health factor is the unit the sliders
-                      move. Half of that is right and half of it is not: the
-                      sliders move collateral, price and debt — HF is an OUTPUT
-                      here exactly as it is everywhere else, and a 40px orange
-                      "1.40" is the one figure on this screen a non-expert
-                      cannot read.
-                      So both, in the order a person can use them: the drop is
-                      the value (`liquidationOutlook.strip`, the same helper and
-                      the same "Drop to liquidation" label the Advisor strip
-                      uses), and the exact health factor is the sub-line rather
-                      than the hover it gets elsewhere. Watch is the surface
-                      where someone is tuning the number, so here it is worth a
-                      line of its own — it costs no colour, because a Stat value
-                      is always neutral ink.
+                  {/* The two core numbers, in the app's stat tile. Liquidation
+                      distance leads, because the sliders move collateral, price
+                      and debt — the health factor is an OUTPUT here as it is
+                      everywhere else, and it is the one figure on this screen a
+                      non-expert cannot read. Values and sub-lines come from
+                      `watchOutlook` beside `scoreDelta`.
 
-                      NO DEBT replaces both tiles with one line instead of
-                      printing "POSITION LTV 0%". A position with nothing
-                      borrowed has no loan-to-value and no liquidation
-                      distance, and a 40px zero is the same lie as a "$0"
-                      standing in for an unknown price. Two tiles of "not
-                      applicable" is not better than one sentence, so the state
-                      gets the primitive built for "we looked and there is
-                      nothing to report" — and in a liquidation product, no
-                      debt genuinely is the good news `clear` is allowed to
-                      claim.
-
-                      NO COLLATERAL is guarded too: the collateral slider goes
-                      to 0, and `borrowUsd / 0` was rendering "Infinity%". */}
-                  {(() => {
-                    const collateralValue = collateralAmount * assetPrice;
-                    if (borrowUsd <= 0) {
-                      return (
-                        <EmptyState
-                          tone="clear"
-                          title="No debt on this position"
-                          hint={`Nothing is borrowed against your ${activeMarket.collateralAsset}, so there is nothing to liquidate. Raise the borrowed amount to simulate one.`}
+                      NO DEBT replaces both tiles with one line rather than
+                      printing "LOAN TO VALUE 0%". A position with nothing
+                      borrowed has no loan-to-value and no liquidation distance,
+                      and a 24px zero is the same lie as a "$0" standing in for an
+                      unknown price. It reads the borrowed amount rather than the
+                      health factor because the offline fallback formula has no
+                      null to offer. */}
+                  {borrowUsd <= 0 ? (
+                    <EmptyState
+                      tone="clear"
+                      title="No debt on this position"
+                      hint={`Nothing is borrowed against your ${activeMarket.collateralAsset}, so there is nothing to liquidate. Raise the borrowed amount to simulate one.`}
+                    />
+                  ) : (
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <Card tone="raised">
+                        <Stat
+                          label={
+                            <>
+                              Drop to liquidation
+                              <InfoTip text={watchOutlook.hover} />
+                            </>
+                          }
+                          value={watchOutlook.strip}
+                          sub={watchDropSub}
                         />
-                      );
-                    }
-                    const outlook = liquidationOutlook(
-                      positionState.healthFactor,
-                      activeMarket.collateralAsset,
-                    );
-                    const ltvPct = collateralValue > 0 ? Math.round((borrowUsd / collateralValue) * 100) : null;
-                    const maxLtvPct = activeMarket.protocol === "Aave V3" ? 82 : 78;
-                    const liqPrice = positionState.liquidationPrice;
-                    return (
-                      <div className="grid gap-5 sm:grid-cols-2">
-                        <Card tone="raised">
-                          <Stat
-                            label={
-                              <>
-                                Drop to liquidation
-                                {/* Never null on this branch — `hover` is only
-                                    absent for a null health factor, and no
-                                    debt returned above. */}
-                                {outlook.hover && <InfoTip text={outlook.hover} />}
-                              </>
-                            }
-                            value={outlook.strip}
-                            sub={
-                              `Health factor ${positionState.healthFactor.toFixed(2)}` +
-                              (liqPrice > 0 ? ` · ${activeMarket.collateralAsset} at ${formatCurrency(liqPrice)}` : "")
-                            }
-                          />
-                        </Card>
+                      </Card>
 
-                        <Card tone="raised">
-                          <Stat
-                            label={
-                              <>
-                                Loan to value
-                                <InfoTip text="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation." />
-                              </>
-                            }
-                            value={ltvPct === null ? "No collateral" : `${ltvPct}%`}
-                            sub={`${activeMarket.protocol} liquidates above ${maxLtvPct}%`}
-                          />
-                        </Card>
-                      </div>
-                    );
-                  })()}
+                      <Card tone="raised">
+                        <Stat
+                          label={
+                            <>
+                              Loan to value
+                              <InfoTip text="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation." />
+                            </>
+                          }
+                          value={watchLtvPct === null ? "No collateral" : `${watchLtvPct}%`}
+                          sub={`${activeMarket.protocol} liquidates above ${watchMaxLtvPct}%`}
+                        />
+                      </Card>
+                    </div>
+                  )}
 
                 </div>
 
@@ -2591,31 +2564,20 @@ export function AppDemo() {
                 })()}
 
                 {/* Two COLUMNS, each stacking its own cards — not two rows of
-                    two cards each.
+                    two. Portfolio has one tall card (Positions, which grows with
+                    the wallet) and three short ones, and as rows the tall card
+                    set row 1's height and left ~300px of structural void beside
+                    it that nothing could fill. Left takes the wide pair (a chart
+                    wants horizontal room), right the narrow pair (lists read
+                    better narrow). Below `lg` all four stack in DOM order.
 
-                    Portfolio has one tall card (Positions, which grows with the
-                    wallet) and three short ones. Laid out as rows, the tall card
-                    set the height of row 1 and Asset allocation beside it left
-                    ~300px of void underneath, while Risk index history and Alert
-                    history sat in a separate row below the whole thing. The void
-                    was structural: a grid row is as tall as its tallest cell, so
-                    nothing could ever fill it.
-
-                    Columns let each side pack independently. Left takes the two
-                    wide cards (Positions, Risk index history — a chart wants the
-                    horizontal room); right takes the two narrow ones (Asset
-                    allocation, Alert history — a legend and a feed are lists,
-                    and lists read better narrow). The columns end at different
-                    heights, which is fine and invisible; what is not fine is a
-                    hole in the MIDDLE of the page.
-
-                    Below `lg` the grid is one column and all four stack in DOM
-                    order: positions, history, allocation, alerts.
-
-                    Layout only. Not one card's contents changed. */}
+                    Both columns are `flex flex-col gap-6`, identically: the right
+                    needs flex so Alert history can absorb slack with `flex-1`,
+                    and matching the left keeps one spacing mechanism per column
+                    rather than a `space-y` cancelled by a `space-y-0`. */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4">
                   {/* Left column: the wide pair. */}
-                  <div className="lg:col-span-7 space-y-6">
+                  <div className="lg:col-span-7 flex flex-col gap-6">
                     <LivePositions
                       positions={portfolioPositions}
                       highlightKey={highlightedPositionKey}
@@ -2671,21 +2633,17 @@ export function AppDemo() {
                         // annotation — not a fifth band colour.
                         <Sparkline
                           data={riskHistory.series}
-                          /* 110px was a sparkline height on a card that is not
-                             a sparkline: 30 days of scores plus a y-axis, an
-                             alert threshold and its caption, all squeezed into
-                             three lines of text worth of vertical space, in the
-                             widest column on the page. At 220 the crossings of
-                             the alert line are legible, which is the one event
-                             this chart exists to show.
+                          /* At 220 the crossings of the alert line are legible,
+                             which is the one event this chart exists to show;
+                             110px was a sparkline height on a card carrying a
+                             y-axis, a threshold and a caption.
 
-                             Phones get 150 rather than 220. The card is full
-                             bleed there, so 220 is most of a viewport height
-                             for one chart, and it would push Asset allocation
-                             and Alert history below two screenfuls of scroll.
-                             The breakpoint is the same `useIsDesktop` the nav
-                             uses, so there is one definition of "phone". */
-                          height={isDesktop ? 220 : 150}
+                             150 while the card is full bleed, which is `lg` — the
+                             SAME breakpoint as the two-column grid, not the nav's
+                             `md`. Following the nav gave the 768-1023 band a
+                             220px chart in a full-width card, the exact case the
+                             shorter height exists for. */
+                          height={isWide ? 220 : 150}
                           stroke="var(--color-chart-series)"
                           domain={riskDomain}
                           reference={{
@@ -2702,16 +2660,13 @@ export function AppDemo() {
                     </Card>
                   </div>
 
-                  {/* Right column: the narrow pair. A legend and a feed are
-                      both lists; lists read better narrow than wide.
-
-                      `lg:flex lg:flex-col` so Alert history can take `flex-1`
-                      and absorb whatever slack the left column leaves. Grid
-                      items already stretch to the tallest row, so the two
-                      columns end level at any position count and any chart
-                      height, with no magic number to go stale. Below `lg` the
-                      cards stack and size to their content as normal. */}
-                  <div className="lg:col-span-5 space-y-6 lg:flex lg:flex-col lg:space-y-0 lg:gap-6">
+                  {/* Right column: the narrow pair. Alert history takes `lg:flex-1`
+                      and absorbs whatever slack the left column leaves — grid
+                      items already stretch to the tallest row, so the two columns
+                      end level at any position count and any chart height, with
+                      no magic number to go stale. Below `lg` the cards size to
+                      their content as normal. */}
+                  <div className="lg:col-span-5 flex flex-col gap-6">
                     {/* Asset allocation: the visual collateral breakdown. */}
                     <Card className="space-y-6">
                       <h3 className="text-sm font-sans font-semibold text-text-primary">
@@ -2755,132 +2710,116 @@ export function AppDemo() {
 
                     {/* Alert history (watch_transitions IS the alert log).
 
-                        `lg:flex-1 lg:min-h-0` plus an internal scroller: the
-                        card's height is set by the layout, never by how many
-                        alerts happen to exist. A feed that grows with its data
-                        cannot hold a column aligned, and a wallet with 200
-                        transitions would otherwise push the page to nothing but
-                        alerts. `min-h-0` is required or a flex child refuses to
-                        shrink below its content and the scroller never engages. */}
+                        `lg:flex-1 lg:min-h-0` plus an internal scroller at `lg`:
+                        the card's height is set by the layout, never by how many
+                        alerts exist, or a wallet with 200 transitions pushes the
+                        page to nothing but alerts and the column cannot stay
+                        aligned. `min-h-0` is required or a flex child refuses to
+                        shrink below its content and the scroller never engages.
+                        Below `lg` there is no fixed height to scroll inside, so
+                        the page scrolls and paging alone reaches older rows. */}
                     <Card className="lg:flex-1 lg:min-h-0 lg:flex lg:flex-col">
                       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4 shrink-0">
                         Alert history
                         <InfoTip text="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet." />
                       </h3>
                       {walletHistory?.alerts?.length ? (
-                        /* Rules, not boxes. Twelve bordered, tinted rows inside a
-                           Card that is already bordered and tinted is chrome
-                           wrapping chrome — the same nesting removed from the
-                           asset-allocation legend. A hairline separates rows for
-                           free; the border and the padding were paying for it
-                           twice. */
-                        <div className="divide-y divide-border-subtle lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
-                          {walletHistory.alerts.slice(0, alertsShown).map((a, i) => {
-                            const chip = deliveryChip(a.notify_channel);
-                            const protocolLabel = LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol;
-                            /* The position this alert is ABOUT, if the wallet
-                               still holds it. A closed position has no row to
-                               scroll to, so the alert stays a record rather
-                               than becoming a control: no button, no hover, no
-                               pointer. A control that looks live and does
-                               nothing is worse than a plain line of text. */
-                            const target = alertTargets.get(a.protocol) ?? null;
-                            const hover = `PANIK score ${a.score} (${a.band}). ${
-                              a.from_status
-                                ? `Previously ${limitStateCopy(a.from_status)}.`
-                                : "First reading recorded for this position."
-                            }${target ? "" : " This position is no longer open."}`;
-                            const body = (
-                              <>
-                                {/* Wraps rather than truncates: this line is
-                                    "which protocol" plus "what happened to it",
-                                    and clipping it kept the protocol while eating
-                                    the event, which is the half that says whether
-                                    things got worse. */}
-                                <span className="min-w-0 text-left text-xs font-sans font-bold text-text-primary">
-                                  {protocolLabel}
-                                  <span className="text-text-secondary font-normal"> {limitEventCopy(a.to_status)}</span>
-                                  {/* The space is load-bearing: `ml-1` is margin,
-                                      not whitespace, so without it a screen
-                                      reader and every text scrape run the event
-                                      into the chip ("risk limitQueued"). */}
-                                  {chip && (
-                                    <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
-                                      {chip.label}
-                                    </span></>
-                                  )}
-                                </span>
-                                {/* Timestamps stay muted. This is what text-muted
-                                    is FOR — you glance at it, you do not read it. */}
-                                <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
-                              </>
-                            );
-                            const rowCls = "flex w-full items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0";
-                            return target ? (
-                              /* A real <button>, not a div with onClick: it is
-                                 in the tab order, Enter and Space activate it,
-                                 the global :focus-visible ring applies, and the
-                                 accessibility tree calls it a button because it
-                                 is one. */
-                              <button
-                                type="button"
-                                key={`${a.created_at}-${i}`}
-                                onClick={() => revealPosition(target)}
-                                title={hover}
-                                aria-label={`${protocolLabel} ${limitEventCopy(a.to_status)}${
-                                  chip ? `, ${chip.label}` : ""
-                                }, ${timeAgo(a.created_at)}. Show this position.`}
-                                className={`${rowCls} rounded-sm text-left cursor-pointer transition-colors hover:bg-white/[0.03]`}
-                              >
-                                {body}
-                              </button>
-                            ) : (
-                              /* Was six elements over two lines behind an icon.
-                                 The icon encoded `to_status`, which the row spells
-                                 out in words 2cm to its right, and rendered it in
-                                 text-muted so it could not even carry severity —
-                                 a glyph paid for in vertical space to repeat the
-                                 next word along. Gone.
-
-                                 `score 51 (HIGH)` went the same way: the band is
-                                 a pure function of the score, and the score at the
-                                 moment of transition is detail, not headline — the
-                                 event already names which side of the user's limit
-                                 the position landed on. Kept on hover so the
-                                 number is recoverable without being in the scan.
-
-                                 The ORIGIN status joined it there. `approaching →
-                                 outside` was two internal enum values and an arrow
-                                 — a state-machine dump on the one card whose job
-                                 is to say what happened to someone's money. What
-                                 happened is the destination; where it came from is
-                                 detail, and detail belongs in the hover with the
-                                 score. */
-                              <div key={`${a.created_at}-${i}`} className={rowCls} title={hover}>
-                                {body}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                      {alertsRemaining > 0 && (
-                        /* Counts what is left rather than saying "Show more":
-                           the length of a feed is the thing a reader cannot
-                           see, and "Show 23 older alerts" is what decides
-                           whether they keep going. It also names the page size
-                           implicitly, so nobody wonders whether the button will
-                           expand by ten rows or ten thousand. */
-                        <Button
-                          variant="quiet"
-                          className="mt-3 w-full justify-center border-border-subtle"
-                          onClick={() => setAlertsShown((n) => n + ALERT_PAGE_SIZE)}
-                        >
-                          {alertsRemaining <= ALERT_PAGE_SIZE
-                            ? `Show ${alertsRemaining} older ${alertsRemaining === 1 ? "alert" : "alerts"}`
-                            : `Show ${ALERT_PAGE_SIZE} more of ${alertsRemaining} older alerts`}
-                        </Button>
-                      )}
-                      {walletHistory?.alerts?.length ? null : (
+                        <>
+                          {/* Rules, not boxes. Bordered, tinted rows inside a Card
+                              that is already bordered and tinted is chrome
+                              wrapping chrome; a hairline separates rows for free. */}
+                          <div className="divide-y divide-border-subtle lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
+                            {walletHistory.alerts.slice(0, alertsShown).map((a, i) => {
+                              const chip = deliveryChip(a.notify_channel);
+                              const protocolLabel = LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol;
+                              const event = limitEventCopy(a.to_status);
+                              const when = timeAgo(a.created_at);
+                              /* The position this alert is ABOUT, if the wallet
+                                 still holds it. A closed position has no row to
+                                 scroll to, so the alert stays a record rather than
+                                 becoming a control: no button, no hover, no
+                                 pointer. A control that looks live and does
+                                 nothing is worse than a plain line of text. */
+                              const target = alertTargets.get(a.protocol) ?? null;
+                              /* The score, the band and the ORIGIN status live
+                                 here rather than in the row: the band is a pure
+                                 function of the score, and "approaching →
+                                 outside" is a state-machine dump on the card
+                                 whose job is to say what happened to someone's
+                                 money. What happened is the destination. */
+                              const hover = `PANIK score ${a.score} (${a.band}). ${
+                                a.from_status
+                                  ? `Previously ${limitStateCopy(a.from_status)}.`
+                                  : "First reading recorded for this position."
+                              }${target ? "" : " This position is no longer open."}`;
+                              const body = (
+                                <>
+                                  {/* Wraps rather than truncates: clipping this
+                                      line kept the protocol and ate the event,
+                                      which is the half that says whether things
+                                      got worse. */}
+                                  <span className="min-w-0 text-left text-xs font-sans font-bold text-text-primary">
+                                    {protocolLabel}
+                                    <span className="text-text-secondary font-normal"> {event}</span>
+                                    {/* The space is load-bearing: `ml-1` is
+                                        margin, not whitespace, so without it a
+                                        screen reader and every text scrape run the
+                                        event into the chip ("risk limitQueued"). */}
+                                    {chip && (
+                                      <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
+                                        {chip.label}
+                                      </span></>
+                                    )}
+                                  </span>
+                                  {/* Timestamps stay muted. This is what
+                                      text-muted is FOR — you glance at it, you do
+                                      not read it. */}
+                                  <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{when}</span>
+                                </>
+                              );
+                              return target ? (
+                                /* A real <button>, not a div with onClick: it is
+                                   in the tab order, Enter and Space activate it,
+                                   the global :focus-visible ring applies, and the
+                                   accessibility tree calls it a button because it
+                                   is one. */
+                                <button
+                                  type="button"
+                                  key={`${a.created_at}-${i}`}
+                                  onClick={() => setHighlightedPositionKey(target)}
+                                  title={hover}
+                                  aria-label={`${protocolLabel} ${event}${
+                                    chip ? `, ${chip.label}` : ""
+                                  }, ${when}. Show this position.`}
+                                  className={`${ALERT_ROW_CLS} rounded-sm text-left cursor-pointer transition-colors hover:bg-white/[0.03]`}
+                                >
+                                  {body}
+                                </button>
+                              ) : (
+                                <div key={`${a.created_at}-${i}`} className={ALERT_ROW_CLS} title={hover}>
+                                  {body}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {alertsRemaining > 0 && (
+                            /* Counts what is left rather than saying "Show more":
+                               the length of a feed is what a reader cannot see,
+                               and it names the page size implicitly, so nobody
+                               wonders whether this expands by ten rows or ten
+                               thousand. */
+                            <Button
+                              variant="outline"
+                              className="mt-3 w-full justify-center"
+                              onClick={() => setAlertsShown((n) => n + ALERT_PAGE_SIZE)}
+                            >
+                              {alertsRemaining <= ALERT_PAGE_SIZE
+                                ? `Show ${alertsRemaining} older ${alertsRemaining === 1 ? "alert" : "alerts"}`
+                                : `Show ${ALERT_PAGE_SIZE} more of ${alertsRemaining} older alerts`}
+                            </Button>
+                          )}
+                        </>
+                      ) : (
                         <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
                           No alerts yet - PANIK messages you the moment a position
                           <br />crosses your profile's risk limit.
@@ -3134,41 +3073,28 @@ export function AppDemo() {
                       ></div>
                     </div>
 
-                    {/* Score components: the engine's real weighted sub-scores.
-                        The composite above IS the weighted sum of these four. */}
+                    {/* Score components: the engine's real weighted sub-scores,
+                        from the same RISK_DRIVERS table Watch's breakdown reads.
+                        These four cells were hand-typed labels and hand-typed
+                        weights, so this panel and that one were two tables of
+                        the same four rows. */}
                     {breakdownData && (
-                      <>
-                        <div className="grid grid-cols-4 gap-2 pt-2 text-center text-xs font-sans">
-                          <div className="bg-white/[0.02] border border-border-subtle p-2 rounded-md">
+                      <div className="grid grid-cols-4 gap-2 pt-2 text-center text-xs font-sans">
+                        {RISK_DRIVERS.map((driver) => (
+                          <div
+                            key={driver.key}
+                            className="bg-white/[0.02] border border-border-subtle p-2 rounded-md"
+                          >
                             <span className="flex items-center justify-center gap-1 text-2xs text-text-muted mb-0.5">
-                              Position ×40%
-                              <InfoTip text="Distance to liquidation: health factor plus current LTV." />
+                              {driver.short} ×{driverWeightPct(driver)}%
+                              <InfoTip text={driver.panelHint} />
                             </span>
-                            <strong className="text-text-primary tabular-nums">{breakdownData.subs.positionHealth}</strong>
+                            <strong className="text-text-primary tabular-nums">
+                              {breakdownData.subs[driver.key]}
+                            </strong>
                           </div>
-                          <div className="bg-white/[0.02] border border-border-subtle p-2 rounded-md">
-                            <span className="flex items-center justify-center gap-1 text-2xs text-text-muted mb-0.5">
-                              Asset ×25%
-                              <InfoTip text="Collateral price volatility, 90d drawdown, and BTC correlation." />
-                            </span>
-                            <strong className="text-text-primary tabular-nums">{breakdownData.subs.assetRisk}</strong>
-                          </div>
-                          <div className="bg-white/[0.02] border border-border-subtle p-2 rounded-md">
-                            <span className="flex items-center justify-center gap-1 text-2xs text-text-muted mb-0.5">
-                              Protocol ×20%
-                              <InfoTip text="Protocol safety: audits, governance timelock, market controls." />
-                            </span>
-                            <strong className="text-text-primary tabular-nums">{breakdownData.subs.protocolSafety}</strong>
-                          </div>
-                          <div className="bg-white/[0.02] border border-border-subtle p-2 rounded-md">
-                            <span className="flex items-center justify-center gap-1 text-2xs text-text-muted mb-0.5">
-                              Systemic ×15%
-                              <InfoTip text="Market-wide stress: sector TVL flows and capital flight." />
-                            </span>
-                            <strong className="text-text-primary tabular-nums">{breakdownData.subs.systemicRisk}</strong>
-                          </div>
-                        </div>
-                      </>
+                        ))}
+                      </div>
                     )}
                   </div>
 
