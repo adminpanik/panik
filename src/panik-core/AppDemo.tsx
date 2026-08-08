@@ -1696,36 +1696,23 @@ export function AppDemo() {
                 </div>
 
                 {watchSource === "positions" && watchPositionMarkets.length === 0 ? (
-                  /* Positions mode with nothing on-chain: honest empty state */
-                  <div className="bg-surface-raised/50 border border-border-subtle rounded-lg p-8 flex flex-col items-start gap-4">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-md bg-white/[0.06] border border-border-subtle flex items-center justify-center shrink-0">
-                        <Eye className="w-4.5 h-4.5 text-text-primary" />
-                      </div>
-                      <div>
-                        <h2 className="text-lg font-sans font-extrabold text-text-primary">No open positions to watch yet</h2>
-                        <p className="text-2xs font-sans text-text-secondary">Watch mirrors the positions this wallet holds on-chain.</p>
-                      </div>
-                    </div>
-                    <p className="text-xs font-sans text-text-secondary max-w-lg leading-relaxed">
-                      Open a position and it appears here automatically, preloaded into the
-                      stress-test simulator with your real collateral and debt.
-                    </p>
-                    <div className="flex flex-wrap gap-2.5">
-                      <button
-                        onClick={() => setWatchSource("recommendations")}
-                        className="px-4 py-2 rounded-md font-sans text-xs font-bold text-text-primary bg-white/[0.06] border border-border-subtle hover:bg-white/10 cursor-pointer transition-all"
-                      >
-                        Browse Recommendations →
-                      </button>
-                      <button
-                        onClick={() => setActiveTab("compass")}
-                        className="px-4 py-2 rounded-md font-sans text-xs font-bold text-surface-base bg-text-primary hover:opacity-90 cursor-pointer transition-all"
-                      >
-                        Open a Position in Compass
-                      </button>
-                    </div>
-                  </div>
+                  /* Positions mode with nothing on-chain. `clear`, not
+                     `problem`: we read the wallet successfully and it genuinely
+                     holds nothing — the same distinction Portfolio's empty
+                     wallet makes. One affordance, per the primitive's contract;
+                     the source toggle directly above already offers the other
+                     one. */
+                  <EmptyState
+                    tone="clear"
+                    title="No open positions to watch"
+                    hint="Watch mirrors what this wallet holds on-chain. Open a position and it appears here, preloaded into the simulator with your real collateral and debt."
+                    action={
+                      <Button onClick={() => setActiveTab("compass")}>
+                        <Plus className="h-3.5 w-3.5" />
+                        Open position
+                      </Button>
+                    }
+                  />
                 ) : (
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
                 {/* Splits at `xl`, not `lg`. At a 1024px window this grid has
@@ -1737,14 +1724,20 @@ export function AppDemo() {
                 {/* Simulator Area (xl:col-span-8) */}
                 <div className="col-span-1 xl:col-span-8 space-y-6">
                   
-                  {/* Active Simulator Header widget */}
-                  <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg relative overflow-hidden backdrop-blur-xl">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/[0.03] rounded-full blur-2xl pointer-events-none"></div>
+                  {/* The simulator's summary, as ONE card.
+                      It was three nested surfaces deep: a raised widget, a
+                      sunken block inside it for the score, and two more sunken
+                      tiles under that — plus two decorative blurred circles and
+                      a backdrop filter. Three depths of container around one
+                      subject read as three separate subjects, which is most of
+                      what "cluttered" meant here. `Card` has exactly two
+                      depths, on purpose, and this is one of them. */}
+                  <Card tone="raised">
                     {/* Wraps on a phone: side by side, the market name took
                         three lines while the action next to it took three of
                         its own, and neither was readable. Stacked, each gets
                         the full width for one line. */}
-                    <div className="flex flex-wrap justify-between items-center gap-3 mb-4.5 border-b border-border-subtle pb-3">
+                    <div className="flex flex-wrap justify-between items-center gap-3 mb-5 border-b border-border-subtle pb-3">
                       {/* Market selector - mode-aware. Positions mode lists the
                           wallet's real on-chain positions; Recommendations lists
                           the Compass preset catalog. */}
@@ -1851,12 +1844,10 @@ export function AppDemo() {
                       <div className="flex items-center gap-2.5">
                         {/* Simulate-to-open path: the simulator is where conviction
                             forms, so the open action must be one click away here. */}
-                        <button
-                          onClick={() => setOpenPositionPreset(activeMarket)}
-                          className="px-3 py-1.5 rounded-md font-sans text-2xs font-bold text-surface-base bg-text-primary hover:opacity-90 cursor-pointer transition-all"
-                        >
-                          Open this position
-                        </button>
+                        <Button onClick={() => setOpenPositionPreset(activeMarket)} className="shrink-0">
+                          <Plus className="h-3.5 w-3.5" />
+                          Open position
+                        </Button>
                         {!liveWatch && (
                           <span className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
                             Demo
@@ -1865,22 +1856,23 @@ export function AppDemo() {
                       </div>
                     </div>
 
-                    {/* REDESIGNED PANIK RISK INDEX CARD (Primary intelligence focal point)
+                    {/* Score on the left, its four components on the right.
 
                         The split is `xl`, not `md`, because a Tailwind
-                        breakpoint measures the WINDOW and this card lives at
+                        breakpoint measures the WINDOW and this block lives at
                         the bottom of window minus a 256px sidebar, minus page
                         padding, minus the 8/12 simulator column. At a 768px
-                        window that chain leaves the card ~408px, so splitting
-                        it in two there gave each half ~190px and the drivers
-                        below crushed to 62px. Everything inside this card is
-                        stepped one or two breakpoints late for the same
-                        reason. */}
-                    <div className="mb-6 p-5 bg-surface-sunken border border-border-subtle rounded-md flex flex-col xl:flex-row gap-6 relative overflow-hidden text-left">
-                      <div className="absolute top-0 left-0 w-24 h-24 bg-white/[0.01] rounded-full blur-xl pointer-events-none"></div>
-                      
-                      {/* Left: Score display & interpretation */}
-                      <div className="flex-1 xl:max-w-[280px] flex flex-col justify-between">
+                        window that chain leaves it ~408px, so splitting it in
+                        two there gave each half ~190px and the drivers below
+                        crushed to 62px. Everything inside is stepped one or two
+                        breakpoints late for the same reason. */}
+                    <div className="flex flex-col xl:flex-row gap-6 text-left">
+                      {/* Left: score, delta, verdict. Normal flow, not
+                          `justify-between`: with the restating paragraph gone
+                          this column is three short lines, and stretching them
+                          to the height of the four bars beside them left a
+                          150px hole in the middle of the card. */}
+                      <div className="flex-1 xl:max-w-[280px]">
                         <div>
                           {/* No icon. Portfolio's stat labels carry none, and a
                               generic pulse glyph beside the words "risk index"
@@ -2017,8 +2009,7 @@ export function AppDemo() {
                             the blue. */}
                       </div>
                     </div>
-
-                  </div>
+                  </Card>
 
                   {/* The two core numbers, in the app's stat tile.
                       ────────────────────────────────────────────────────────
@@ -2114,9 +2105,12 @@ export function AppDemo() {
                 {/* Automation triggers & Telemetry feed column (xl:col-span-4) */}
                 <div className="col-span-1 xl:col-span-4 space-y-6">
                   
-                  {/* Scenario presets (#3): the answer first, sliders second */}
-                  <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
-                    <span className="flex items-center gap-1.5 text-2xs font-sans text-text-primary border-b border-border-subtle pb-2">
+                  {/* Scenario presets (#3): the answer first, sliders second.
+                      Same `Card` as everything else on this tab now — it was a
+                      hand-typed copy of the raised tone that had drifted to
+                      p-6. */}
+                  <Card tone="raised" className="space-y-3">
+                    <span className="flex items-center gap-1 text-2xs font-sans text-text-muted border-b border-border-subtle pb-2">
                       Price scenarios
                       <InfoTip text="Crash and black-swan magnitudes mirror the backtest event set. The HF preview on each card is an estimate; the headline score uses the live engine." />
                     </span>
@@ -2173,11 +2167,11 @@ export function AppDemo() {
                         );
                       })}
                     </div>
-                  </div>
+                  </Card>
 
                   {/* Advanced parameters (#4): direct inputs for amounts + prices */}
-                  <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-4">
-                    <span className="text-2xs font-sans text-text-primary block border-b border-border-subtle pb-2">
+                  <Card tone="raised" className="space-y-4">
+                    <span className="text-2xs font-sans text-text-muted block border-b border-border-subtle pb-2">
                       Adjust the position
                     </span>
 
@@ -2313,7 +2307,7 @@ export function AppDemo() {
                         <span>$1.05 premium</span>
                       </div>
                     </div>
-                  </div>
+                  </Card>
 
                 </div>
 
