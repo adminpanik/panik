@@ -5,12 +5,12 @@
  * metrics) — this component only renders.
  */
 
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
-import { formatUsd, limitStateCopy, RISK_CHIP } from "../lib/utils";
+import { formatUsd, limitStateCopy, liquidationOutlook, RISK_CHIP } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
 const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
@@ -33,12 +33,17 @@ const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
  * a single row could show red prose, a red dial and a red numeral for one fact
  * stated once. The dial on the rail is the band; this line is the reason, and
  * reasons read better in muted grey.
+ *
+ * Its FIRST clause comes from `liquidationOutlook` in the same module, which is
+ * the only place a health factor turns into English on this surface.
  */
 
-/** No debt is not the same as a healthy ratio: there is no ratio to report. */
-function healthCopy(p: LiveWalletPosition): string {
-  if (p.healthFactor === null) return "No debt";
-  return `Health factor ${p.healthFactor.toFixed(2)}`;
+/**
+ * The row identity the alert feed navigates to. Same shape as the React key, and
+ * exported so the caller does not hand-assemble the string it has to match.
+ */
+export function positionKey(p: Pick<LiveWalletPosition, "wallet" | "protocol">): string {
+  return `${p.wallet}:${p.protocol}`;
 }
 
 interface LivePositionsProps {
@@ -46,9 +51,30 @@ interface LivePositionsProps {
   offline: boolean;
   /** Optional: open this real position in the Watch simulator (stress-test bridge). */
   onStressTest?: (position: LiveWalletPosition) => void;
+  /**
+   * `positionKey` of the row an alert just pointed at. The row scrolls into
+   * view, takes focus and holds a neutral emphasis until the caller clears it.
+   */
+  highlightKey?: string | null;
 }
 
-export function LivePositions({ positions, offline, onStressTest }: LivePositionsProps) {
+export function LivePositions({ positions, offline, onStressTest, highlightKey }: LivePositionsProps) {
+  const rowRefs = useRef(new Map<string, HTMLLIElement>());
+
+  /**
+   * Scrolling is not enough on its own. A sighted mouse user sees the row move
+   * under them; a keyboard or screen-reader user pressing Enter on an alert
+   * gets nothing at all unless focus follows, and would then Tab on from the
+   * alert feed rather than from the thing they just navigated to. `tabIndex=-1`
+   * on the row makes it focusable as a DESTINATION without adding a tab stop.
+   */
+  useEffect(() => {
+    if (!highlightKey) return;
+    const row = rowRefs.current.get(highlightKey);
+    if (!row) return;
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    row.focus({ preventScroll: true });
+  }, [highlightKey, positions]);
   // The address only disambiguates in the registry ("ALL wallets") view. On a
   // single wallet it is the same string on every row, so it is noise competing
   // with the score chip for the end of line 1.
@@ -125,11 +151,29 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
         <ul className="space-y-3">
           {(positions ?? []).map((p) => {
             const status = limitStateCopy(p.profileStatus);
-            const health = healthCopy(p);
+            const outlook = liquidationOutlook(p.healthFactor, p.scoredCollateralSymbol);
+            const key = positionKey(p);
+            const highlighted = key === highlightKey;
             return (
               <li
-                key={`${p.wallet}:${p.protocol}`}
-                className="flex items-start gap-3 rounded-md border border-border-subtle bg-surface-raised/50 p-4"
+                key={key}
+                ref={(el) => {
+                  if (el) rowRefs.current.set(key, el);
+                  else rowRefs.current.delete(key);
+                }}
+                tabIndex={-1}
+                /* Emphasis, not a risk statement. The alert feed points here,
+                   so the row has to be findable the moment it scrolls into
+                   view — but a fifth risk hue on this page would break the
+                   "one colour per band, five coloured things" budget the
+                   Portfolio is held to. A stronger edge on the neutral border
+                   token says "this one" without saying anything about how
+                   dangerous it is. */
+                className={`flex items-start gap-3 rounded-md border p-4 transition-colors ${
+                  highlighted
+                    ? "border-border-strong bg-white/[0.05]"
+                    : "border-border-subtle bg-surface-raised/50"
+                }`}
               >
                 <ProtocolLogo protocol={PROTOCOL_NAME[p.protocol]} size="w-8 h-8" />
 
@@ -253,9 +297,25 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
 
                   {/* Line 3 — verdict, as one sentence.
 
-                      14px, not 12px. This is the row's verdict — "your health
-                      factor is X and that is outside the profile you chose" —
-                      and it was set smaller than the protocol label above it.
+                      It used to open "Health factor 1.20", which is a ratio on
+                      a scale nobody outside DeFi carries in their head: not a
+                      percentage, not a currency, and 1.20 is frightening where
+                      1.20 of almost anything else is fine. It now opens with
+                      the same fact as a price move — "Liquidates if WETH falls
+                      17%" — which is what every comparable product leads with
+                      and what a person can actually decide on. The arithmetic
+                      is the engine's (`liquidationOutlook` -> the scoring
+                      package's `drawdownFromHealthFactor`), not this file's.
+
+                      The exact health factor is not deleted, only demoted: it
+                      opens the hover, together with the assumption the
+                      conversion rests on. An InfoTip would have been the more
+                      accessible anchor, but its anchor is `inline-flex` and so
+                      cannot wrap, and this column is ~186px on a 390px phone —
+                      a non-wrapping clause here is horizontal overflow.
+
+                      14px, not 12px. This is the row's verdict and it was set
+                      smaller than the protocol label above it.
                       Secondary is the right COLOUR (it is prose, and prose does
                       not compete with figures); 12px was the wrong size for it.
 
@@ -276,7 +336,13 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                       block of prose. It lives on the rail now, with the score
                       it acts on. */}
                   <p className="text-sm font-sans text-text-secondary">
-                    <span className="tabular-nums">{health}</span>, {status}
+                    <span
+                      className={outlook.hover ? "cursor-help tabular-nums" : "tabular-nums"}
+                      title={outlook.hover ?? undefined}
+                    >
+                      {outlook.sentence}
+                    </span>
+                    , {status}
                   </p>
                 </div>
 
