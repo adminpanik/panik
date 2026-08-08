@@ -5,12 +5,12 @@
  * metrics) — this component only renders.
  */
 
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
-import { formatUsd, limitStateCopy, RISK_CHIP } from "../lib/utils";
+import { formatUsd, limitStateCopy, liquidationOutlook, RISK_CHIP } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
 const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
@@ -21,24 +21,11 @@ const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
 };
 
 /**
- * Line 3's second clause comes from `limitStateCopy` in lib/utils, shared with
- * the alert log so both surfaces name the same three states the same way.
- *
- * It used to be retyped here as "outside your profile" / "approaching your
- * limit" / "within your profile" — three strings that each embedded the raw
- * `ProfileStatus` token they were translating, which is how "approaching"
- * ended up being read as an internal value rather than a word.
- *
- * A sentence does not get painted. Both halves used to carry the risk ramp, so
- * a single row could show red prose, a red dial and a red numeral for one fact
- * stated once. The dial on the rail is the band; this line is the reason, and
- * reasons read better in muted grey.
+ * The row identity the alert feed navigates to. Same shape as the React key, and
+ * exported so the caller does not hand-assemble the string it has to match.
  */
-
-/** No debt is not the same as a healthy ratio: there is no ratio to report. */
-function healthCopy(p: LiveWalletPosition): string {
-  if (p.healthFactor === null) return "No debt";
-  return `Health factor ${p.healthFactor.toFixed(2)}`;
+export function positionKey(p: Pick<LiveWalletPosition, "wallet" | "protocol">): string {
+  return `${p.wallet}:${p.protocol}`;
 }
 
 interface LivePositionsProps {
@@ -46,9 +33,39 @@ interface LivePositionsProps {
   offline: boolean;
   /** Optional: open this real position in the Watch simulator (stress-test bridge). */
   onStressTest?: (position: LiveWalletPosition) => void;
+  /**
+   * `positionKey` of the row an alert just pointed at, or null for none. The row
+   * scrolls into view, takes focus and holds a neutral emphasis until the caller
+   * clears it.
+   */
+  highlightKey: string | null;
 }
 
-export function LivePositions({ positions, offline, onStressTest }: LivePositionsProps) {
+export function LivePositions({ positions, offline, onStressTest, highlightKey }: LivePositionsProps) {
+  /**
+   * One ref, attached to the highlighted row only. Refs are set during commit,
+   * before effects run, so the row this points at is always the one the current
+   * `highlightKey` names.
+   */
+  const highlightedRow = useRef<HTMLLIElement | null>(null);
+
+  /**
+   * Scrolling is not enough on its own. A sighted mouse user sees the row move
+   * under them; a keyboard or screen-reader user pressing Enter on an alert
+   * gets nothing at all unless focus follows, and would then Tab on from the
+   * alert feed rather than from the thing they just navigated to. `tabIndex=-1`
+   * on the row makes it focusable as a DESTINATION without adding a tab stop.
+   *
+   * Keyed on the KEY alone. `positions` gets a fresh array identity on every 60s
+   * poll, so depending on it meant a poll landing inside the highlight window
+   * re-ran this and stole focus back mid-scroll.
+   */
+  useEffect(() => {
+    const row = highlightedRow.current;
+    if (!highlightKey || !row) return;
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    row.focus({ preventScroll: true });
+  }, [highlightKey]);
   // The address only disambiguates in the registry ("ALL wallets") view. On a
   // single wallet it is the same string on every row, so it is noise competing
   // with the score chip for the end of line 1.
@@ -66,21 +83,15 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
 
   return (
     <Card className="space-y-4">
-      {/* The provenance that used to sit as a permanent 24-word footer under
-          the list. It is real and worth keeping — which RPC calls, which price
-          and TVL sources, which refresh interval — but it is an answer to a
-          question asked once, not a caption you need on every glance. It also
-          gives this card the same titled header its three siblings on the
-          Portfolio grid already have. */}
-      {/* The count lives HERE, not in a grey subline on the "Protocols
-          watched" card three columns away. It is a fact about this list, and a
-          list that states its own length needs no second card to do it — that
-          subline was also the one place the two cards could disagree, because
-          they were reading the same array through different props.
+      {/* The count lives HERE, on the list it describes, rather than in a
+          subline on a card three columns away that read the same array through
+          different props and could therefore disagree with it. The provenance
+          moved into the InfoTip: it is an answer to a question asked once, not a
+          caption needed on every glance.
 
-          Only rendered once the array has arrived: "0 Positions" while the
-          first fetch is still in flight is a claim we cannot make yet, and it
-          is the exact claim this product must never make by accident. */}
+          Only rendered once the array has arrived: "0 Positions" while the first
+          fetch is still in flight is a claim we cannot make yet, and it is the
+          exact claim this product must never make by accident. */}
       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
         {positions === null
           ? "Positions"
@@ -88,11 +99,6 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
         <InfoTip text="Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF) + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s." />
       </h3>
 
-      {/* Three fixed lines instead of a wrapping chain of bullet-separated
-          fragments. The old row let any fragment reflow, which stranded a "•"
-          at the start of a line and split a "$X supplied / $Y borrowed" pair
-          across two — a value pair that breaks in half is worse than one that
-          overflows, because half a pair still reads as a whole number. */}
       {positions === null && (
         <div className="space-y-3">
           {[0, 1].map((i) => (
@@ -125,26 +131,35 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
         <ul className="space-y-3">
           {(positions ?? []).map((p) => {
             const status = limitStateCopy(p.profileStatus);
-            const health = healthCopy(p);
+            const outlook = liquidationOutlook(p.healthFactor, p.scoredCollateralSymbol);
+            const key = positionKey(p);
+            const highlighted = key === highlightKey;
             return (
               <li
-                key={`${p.wallet}:${p.protocol}`}
-                className="flex items-start gap-3 rounded-md border border-border-subtle bg-surface-raised/50 p-4"
+                key={key}
+                ref={highlighted ? highlightedRow : undefined}
+                tabIndex={-1}
+                /* Emphasis, not a risk statement. The alert feed points here,
+                   so the row has to be findable the moment it scrolls into
+                   view — but a fifth risk hue on this page would break the
+                   "one colour per band, five coloured things" budget the
+                   Portfolio is held to. A stronger edge on the neutral border
+                   token says "this one" without saying anything about how
+                   dangerous it is. */
+                className={`flex items-start gap-3 rounded-md border p-4 transition-colors ${
+                  highlighted
+                    ? "border-border-strong bg-white/[0.05]"
+                    : "border-border-subtle bg-surface-raised/50"
+                }`}
               >
                 <ProtocolLogo protocol={PROTOCOL_NAME[p.protocol]} size="w-8 h-8" />
 
                 <div className="min-w-0 flex-1 space-y-1.5">
                   {/* Line 1 — identity. The protocol never shrinks; only the
                       asset symbol may truncate, because "Aave V3" truncated to
-                      "Aav…" is unreadable while "wstE…" is still placeable.
-
-                      The score is no longer competing for the end of this line.
-                      It used to be a chip here, which is why the line needed to
-                      wrap: chip plus protocol plus symbol plus address did not
-                      fit a ~210px phone row, and the symbol was the thing that
-                      got squeezed to nothing. With the score moved to its own
-                      rail, this line is three short strings and stays one line
-                      on every width. */}
+                      "Aav…" is unreadable while "wstE…" is still placeable. The
+                      score is not here: on the rail instead, which is what keeps
+                      this line three short strings on a 390px phone. */}
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
                       {PROTOCOL_NAME[p.protocol]}
@@ -159,71 +174,35 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                     )}
                   </div>
 
-                  {/* Line 2 — magnitudes, and the reason this row exists.
-                      It used to render at 12px in text-secondary: the dimmest,
-                      smallest thing in a row whose entire point is two dollar
-                      figures. The protocol name above it — which the brand mark
-                      to the left already states — was the loudest. That is
-                      backwards, so the money is now 14px and the figures
-                      themselves are text-primary.
+                  {/* Line 2 — magnitudes, and the reason this row exists. 14px
+                      with the figures in primary ink and the units left
+                      secondary, so the money is what the eye lands on. Two
+                      nowrap chunks, not one: the pair must never break in half
+                      (half a pair reads as a whole number) but at 14px a single
+                      span overflowed a 390px row, so it wraps BETWEEN its
+                      halves.
 
-                      The words stay secondary. "collateral" and "debt" are
-                      units; giving them the same weight as the numbers turns
-                      the line into an undifferentiated bar of near-white and
-                      costs the scanning advantage the size bought.
+                      A degraded price feed REPLACES this line rather than
+                      dimming it. "$… collateral" is indistinguishable from a
+                      truncated string, so the honest statement got read as a
+                      broken component; a sentence cannot be misread that way.
+                      Distinctness from a healthy row is a CORRECTNESS
+                      requirement here, and it holds on four axes: shape,
+                      colour, icon, and words. No branch of this can emit "$0".
 
-                      Two nowrap chunks rather than one. The pair still never
-                      breaks in half — half a pair reads as a whole number — but
-                      at 14px the single span was ~230px against ~240px of row
-                      on a 390px phone, so the pair now wraps BETWEEN its halves
-                      instead of overflowing.
+                      The treatment comes from `RISK_CHIP.UNKNOWN`, not a local
+                      copy: that entry carries no fill because a 10% wash of
+                      this grey under this grey label measures 4.26:1, and a
+                      contrast decision re-typed in a second file holds only
+                      until someone types it differently.
 
-                      When the price feed is degraded this line is REPLACED, not
-                      dimmed. It used to render "$… collateral / $… debt" in
-                      grey, and an ellipsis standing where digits belong is what
-                      a truncated string looks like, so the honest statement
-                      "we could not price this" was read as "this component is
-                      broken". A sentence cannot be mistaken for a clipped
-                      number, so the sentence is what renders.
+                      This marker is the ONLY place the degraded state is
+                      stated; the explanation is on its hover, and `cursor-help`
+                      is what advertises that the hover exists.
 
-                      The treatment is the one this product already uses for
-                      "we do not know": dashed edge, risk-unknown grey — the
-                      same pairing as EmptyState's `problem` tone and the
-                      unknown score chip. Distinctness from a healthy row is a
-                      CORRECTNESS requirement here, not a preference, and it now
-                      holds on four independent axes: different shape (a bordered
-                      block, not a figure pair), different colour, an icon, and
-                      words that say it outright. No branch of this can emit
-                      "$0".
-
-                      The treatment comes from `RISK_CHIP.UNKNOWN` rather than
-                      being retyped here, and the difference is not cosmetic:
-                      the canonical entry carries NO fill because a 10% wash of
-                      this grey under this grey label measures 4.26:1, and the
-                      hand-written copy this replaced had reintroduced exactly
-                      that fill. A contrast decision that lives in one file and
-                      is re-typed in another is a decision that only holds
-                      until someone types it slightly differently.
-
-                      This marker is now the ONLY place the degraded state is
-                      stated. It used to be said three times in one row — here,
-                      again in line 3's clause, and a third time in a bolded
-                      "Prices degraded:" paragraph under it — which made the one
-                      row carrying a caveat the tallest and busiest thing on the
-                      page, 159px against its siblings' 117px. Three
-                      restatements of one condition do not make it three times
-                      as clear; they make the row look broken.
-
-                      So the marker keeps the four distinctness axes (shape,
-                      colour, icon, words) and takes the explanation onto its
-                      own hover, where the row's other recoverable detail
-                      already lives. `cursor-help` is what advertises that the
-                      hover exists; without it a `title` is a secret.
-
-                      Vertical padding is `py-0.5`, not `py-1`: this block
-                      stands in for the money line on every other row, and the
-                      row is only the same height as its siblings if its
-                      substitute is the same height as what it replaces. */}
+                      `py-0.5`, not `py-1`: this block stands in for the money
+                      line, and the row only matches its siblings' height if its
+                      substitute matches what it replaces. */}
                   {p.usdValuesUnavailable ? (
                     <div className="flex">
                       <span
@@ -251,45 +230,36 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
                     </div>
                   )}
 
-                  {/* Line 3 — verdict, as one sentence.
+                  {/* Line 3 — verdict, as one sentence. A health factor as the
+                      price move it means, because a ratio on an unstated scale
+                      is not something a non-expert can decide on. The
+                      arithmetic and the wording are the engine's
+                      (`liquidationOutlook`), never this file's.
 
-                      14px, not 12px. This is the row's verdict — "your health
-                      factor is X and that is outside the profile you chose" —
-                      and it was set smaller than the protocol label above it.
-                      Secondary is the right COLOUR (it is prose, and prose does
-                      not compete with figures); 12px was the wrong size for it.
+                      A `title` rather than an InfoTip: the tip's anchor is
+                      `inline-flex` and cannot wrap, and this column is ~186px
+                      on a 390px phone, so a non-wrapping clause here is
+                      horizontal overflow.
 
-                      One sentence, the SAME sentence, on every row — including
-                      the degraded one. The "Prices degraded: the score and
-                      health factor above are exact…" paragraph that used to
-                      hang off this line was a third statement of what the
-                      marker on line 2 already says with a shape, a colour, an
-                      icon and four words. It now lives on that marker's hover:
-                      the fact is not lost, it is just no longer shouted three
-                      times at the one user who is already looking at a warning.
-
-                      The verdict now gets the full column width. The
-                      Stress-test button used to sit at the end of this line and
-                      then, when that crushed the sentence, on a line of its
-                      own below it — both of which were the same problem, which
-                      is that a secondary action was being laid out inside a
-                      block of prose. It lives on the rail now, with the score
-                      it acts on. */}
+                      The same sentence on every row, including the degraded
+                      one. The degraded caveat is stated once, by the marker on
+                      line 2. */}
                   <p className="text-sm font-sans text-text-secondary">
-                    <span className="tabular-nums">{health}</span>, {status}
+                    <span className="cursor-help tabular-nums" title={outlook.hover}>
+                      {outlook.sentence}
+                    </span>
+                    , {status}
                   </p>
                 </div>
 
-                {/* Right rail — the score, and the one thing you can do about
-                    it. Grouping them is the point: "this is 75" and "simulate
-                    75 under a price move" are one thought, and they were at
-                    opposite corners of the row.
+                {/* Right rail — the score and the one thing you can do about
+                    it, grouped because "this is 75" and "simulate 75 under a
+                    price move" are one thought.
 
-                    Icon-only, because the rail is as wide as the dial (44px)
-                    and a 110px labelled button would have taken a quarter of a
-                    390px row away from the figures. It keeps its name for
-                    everything that is not a sighted mouse user: `title` for the
-                    tooltip, `aria-label` for the accessibility tree. */}
+                    Icon-only, because the rail is as wide as the dial (44px) and
+                    a 110px labelled button would take a quarter of a 390px row
+                    from the figures. It keeps its name for everyone who is not a
+                    sighted mouse user: `title` plus `aria-label`. */}
                 <div className="flex shrink-0 flex-col items-center gap-2">
                   <RiskDial score={p.total} band={p.band} subScores={p.subScores} />
                   {onStressTest && (

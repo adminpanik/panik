@@ -4,11 +4,11 @@ import { fallbackSections, overallHeadline } from "../src/advisor/fallback";
 import { findOpportunities } from "../src/advisor/opportunities";
 import {
   collateralFundedRepayToTargetHf,
-  drawdownToLiquidation,
   REDUCE_TO_EXIT_RATIO,
   repayToTargetHf,
   TARGET_HF,
 } from "../src/advisor/repayMath";
+import { drawdownToLiquidation } from "../src/prospective";
 import { adviseLeg, adviseWallet, safestAlternativeProtocol } from "../src/advisor/rules";
 import type { AdvisorRecommendation, WalletInsights } from "../src/advisor/types";
 import { MARKETS } from "../src/markets";

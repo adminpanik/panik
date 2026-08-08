@@ -5,6 +5,19 @@
 
 import { PositionState } from "./types";
 import type { Band, ProfileStatus } from "./live";
+/**
+ * A VALUE import from the engine, which every other import in panik-core is
+ * careful not to be, and the exception is deliberate: `prospective.ts` has no
+ * imports of its own, so it drags nothing behind it. The rule this protects
+ * against is the BARREL, which reaches viem through the chain adapters.
+ * Deep-importing the one module keeps the liquidation formula AND its rounding in
+ * `packages/scoring`, instead of retyping `1 - 1/hf` here and rounding it to a
+ * second number the engine's own prose then disagrees with.
+ */
+import {
+  drawdownToLiquidation,
+  formatDrawdownPct,
+} from "../../../packages/scoring/src/prospective";
 
 /**
  * Calculates a DeFi position health factor and PANIK risk score.
@@ -217,7 +230,8 @@ const LIMIT_EVENT: Record<ProfileStatus, string> = {
 
 /**
  * Where a position stands right now. Lower case: this is a clause inside a
- * sentence ("Health factor 1.34, nearing your risk limit"), not a label.
+ * sentence ("Liquidates if cbBTC falls 25%, nearing your risk limit"), not a
+ * label.
  *
  * Takes a loose `string` because `from_status` arrives straight off a DB row
  * and may hold a value this build has never heard of. The fallback still reads
@@ -235,6 +249,88 @@ export function limitStateCopy(status: string): string {
  */
 export function limitEventCopy(status: string): string {
   return LIMIT_EVENT[status as ProfileStatus] ?? "changed against your risk limit";
+}
+
+export interface LiquidationOutlook {
+  /** Prose clause for a position row: "Liquidates if cbBTC falls 4.8%". */
+  sentence: string;
+  /**
+   * Compact VALUE for a labelled strip, where the asset is already named — a
+   * value and nothing else. It used to carry its qualifying clause, and the stat
+   * tile rendering it is a truncated 24px line, so the one state where that
+   * clause is load-bearing came out as "0%, liquidatab…".
+   */
+  strip: string;
+  /**
+   * The clause that qualifies `strip`, for the sub-line beside it. Null unless a
+   * bare figure would read as the opposite of the truth: "0%" for
+   * liquidatable-now, "none" for no-debt.
+   */
+  stripNote: string | null;
+  /** The exact health factor, plus the assumption the drop rests on. */
+  hover: string;
+}
+
+/**
+ * A health factor, in words a non-expert can act on.
+ *
+ * "Health factor 1.20" is a ratio whose scale nobody outside DeFi knows: 1.20 is
+ * dangerous where 1.20 of almost anything else is fine. The usable number is the
+ * one every comparable product leads with, how far the collateral can fall — the
+ * SAME fact, converted exactly by the engine's `drawdownToLiquidation` and
+ * rounded by `formatDrawdownPct`, the one way the engine's own prose rounds it.
+ *
+ * Three cases, and they are three genuinely different statements:
+ *   null HF  -> no debt. No liquidation price, so no drop is printed; "0%" here
+ *               would be the worst possible lie in this product.
+ *   HF <= 1  -> already liquidatable. "falls 0%" reads as "perfectly safe", the
+ *               exact inverse of the truth, so it gets its own sentence.
+ *   HF > 1   -> the drop.
+ *
+ * The exact health factor is demoted, never deleted: it opens `hover`, which is
+ * never null — the no-debt case has an explanation too, and while the helper
+ * withheld it all three call sites wrote their own, differently.
+ */
+export function liquidationOutlook(
+  healthFactor: number | null,
+  symbol: string,
+): LiquidationOutlook {
+  const drop = drawdownToLiquidation(healthFactor);
+
+  if (healthFactor === null) {
+    // Unchanged wording: no debt cannot be liquidated, and this row has said so
+    // in these two words since before the health factor was on screen at all.
+    return {
+      sentence: "No debt",
+      strip: "none",
+      stripNote: "no debt",
+      hover:
+        "Nothing is borrowed against this collateral, so the protocol has nothing to liquidate.",
+    };
+  }
+
+  const exact = `Health factor ${healthFactor.toFixed(2)}.`;
+
+  // `null` here is a non-positive health factor, which the engine declines to
+  // state a drawdown for; it is liquidatable now either way.
+  if (drop === null || drop <= 0) {
+    return {
+      sentence: `Can be liquidated at today's ${symbol} price`,
+      strip: formatDrawdownPct(0),
+      stripNote: "liquidatable now",
+      hover: `${exact} At or below 1.00 the protocol can liquidate this position without the price moving at all.`,
+    };
+  }
+
+  const pct = formatDrawdownPct(drop);
+  return {
+    sentence: `Liquidates if ${symbol} falls ${pct}`,
+    strip: pct,
+    stripNote: null,
+    hover:
+      `${exact} The drop assumes the debt is priced in dollars and the collateral moves as one asset,` +
+      ` which holds for a stablecoin loan against a single asset and is an estimate otherwise.`,
+  };
 }
 
 export function formatCurrency(value: number): string {

@@ -59,13 +59,3 @@ export function collateralFundedRepayToTargetHf(
   const repay = (targetHf * borrowUsd - l) / (targetHf - weightedLiquidationThreshold);
   return Math.min(Math.max(repay, 0), borrowUsd);
 }
-
-/**
- * Collateral price drop (fraction 0-1) that triggers liquidation, under the
- * standard single-collateral approximation: liquidation at HF = 1, so a drop
- * of 1 - 1/HF erases the buffer. Null when there is no debt (no liquidation).
- */
-export function drawdownToLiquidation(hf: number | null): number | null {
-  if (hf === null || hf <= 0) return null;
-  return Math.max(0, 1 - 1 / hf);
-}

@@ -4,7 +4,7 @@
  * prose but the engine never depends on the LLM being available.
  */
 
-import { drawdownToLiquidation } from "./repayMath";
+import { drawdownToLiquidation, formatDrawdownPct } from "../prospective";
 import type {
   AdvisorAction,
   AdvisorRecommendation,
@@ -61,10 +61,13 @@ function positionSection(rec: AdvisorRecommendation): string {
   const { numbers, protocol } = rec;
   const label = PROTOCOL_LABEL[protocol] ?? protocol;
   const dd = drawdownToLiquidation(numbers.healthFactor);
+  // `formatDrawdownPct`, not `fmtPct`: this figure is also rendered by the
+  // Advisor card's numbers strip, and two rounding policies on one card printed
+  // one health factor as two different drops.
   const liq =
     dd === null
       ? "No debt, so no liquidation risk."
-      : `A ${fmtPct(dd)} ${numbers.scoredCollateralSymbol} price drop would trigger liquidation.`;
+      : `A ${formatDrawdownPct(dd)} ${numbers.scoredCollateralSymbol} price drop would trigger liquidation.`;
   // Degraded: the health factor and LTV are ratios and remain exact, only the
   // dollar magnitudes are unknown. Say that, rather than printing "$0".
   const size = numbers.usdValuesUnavailable

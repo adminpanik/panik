@@ -36,7 +36,7 @@ import type {
 } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
-import { formatUsd, RISK_TEXT } from "../lib/utils";
+import { formatUsd, liquidationOutlook, RISK_TEXT } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial } from "../ui";
 import { EXIT_ENV } from "../lib/exit";
 
@@ -157,16 +157,38 @@ function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
  */
 function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
   const n = rec.numbers;
-  const items: [string, string][] = [
-    ["Health factor", n.healthFactor === null ? "no debt" : n.healthFactor.toFixed(2)],
-    ["Collateral", formatUsd(n.collateralValueUsd)],
-    ["Debt", formatUsd(n.borrowValueUsd)],
+  /**
+   * The price drop the health factor MEANS, from the same engine helper the
+   * position rows use: Collateral and Debt are dollars, and a bare ratio on an
+   * unstated scale was the one item here a non-expert could not read.
+   *
+   * The asset is not repeated in the value — the card names it as the subtitle
+   * under the protocol, and this strip has to fit a phone unwrapped. The exact
+   * health factor is in the label's InfoTip, where every other "what is this
+   * number" answer on this screen lives.
+   */
+  const outlook = liquidationOutlook(n.healthFactor, n.scoredCollateralSymbol);
+  const items: { label: string; value: string; hint?: string }[] = [
+    {
+      label: "Drop to liquidation",
+      // This strip has no sub-line to hang `stripNote` on — it is one flex row
+      // of label/value pairs — so the clause joins the value inline. It wraps
+      // rather than truncating here, which is why the tile on Watch reads the
+      // two fields separately and this one does not.
+      value: outlook.stripNote ? `${outlook.strip}, ${outlook.stripNote}` : outlook.strip,
+      hint: outlook.hover,
+    },
+    { label: "Collateral", value: formatUsd(n.collateralValueUsd) },
+    { label: "Debt", value: formatUsd(n.borrowValueUsd) },
   ];
   return (
     <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-      {items.map(([label, value]) => (
+      {items.map(({ label, value, hint }) => (
         <div className="flex items-baseline gap-2" key={label}>
-          <span className="text-xs font-sans text-text-muted">{label}</span>
+          <span className="flex items-center gap-1 text-xs font-sans text-text-muted">
+            {label}
+            {hint && <InfoTip text={hint} />}
+          </span>
           <span className="text-sm font-sans font-semibold tabular-nums text-text-primary">
             {value}
           </span>
