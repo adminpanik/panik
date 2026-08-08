@@ -296,13 +296,49 @@ export function mockProspective(protocol: string, symbol: string): ProspectiveLi
 
 // ── /api/history ───────────────────────────────────────────────────────────
 // 30 daily points per leg so the Portfolio sparkline has something real to
-// draw. Collateral is derived from the health factor and a constant debt
-// (HF = collateral * LT / debt), which is what actually happens when the
-// collateral price moves — so the series stays self-consistent day by day.
+// draw.
+//
+// ONE LEG PER POSITION, and the last point of every leg IS that position's live
+// row. This is not tidiness: the Portfolio renders the same quantity twice, as
+// the "Aggregate risk index" stat card (collateral-weighted over MOCK_POSITIONS)
+// and as the header of "Risk index history" (collateral-weighted over the last
+// day of snapshots). While this table held only moonwell and morpho the two
+// were weighted over DIFFERENT SETS, so the page showed 57 in one card and 66
+// in the card beside it — the same metric, disagreeing with itself, which is
+// exactly the class of thing a risk product cannot ship. dev/fixtures.test.ts
+// now asserts the two agree.
+//
+// Collateral is anchored to the live value and moves with the health factor:
+// HF = collateral * LT / debt, so with debt and LT constant, collateral is
+// proportional to HF. Deriving it from a hand-picked LT instead (the old
+// `lt: 0.81`) landed the final day on $84,148 where the dashboard says $84,200,
+// which is precisely the kind of near-miss that makes an equality test
+// impossible to write.
 
-const HISTORY_LEGS = [
-  { protocol: "moonwell" as const, lt: 0.81, borrowUsd: 56_800, from: 34, to: 52, hfFrom: 1.62, hfTo: 1.2 },
-  { protocol: "morpho" as const, lt: 0.86, borrowUsd: 105_200, from: 48, to: 75, hfFrom: 1.34, hfTo: 1.05 },
+interface HistoryLeg {
+  protocol: LiveProtocol;
+  /** PANIK score, oldest -> newest. `to` must equal the live position's total. */
+  score: readonly [number, number];
+  /** Health factor, oldest -> newest. null for a supply-only leg: no debt, no ratio. */
+  hf: readonly [number, number] | null;
+  /** Live collateral, or null when the price feed is degraded. NEVER 0. */
+  collateralUsd: number | null;
+  borrowUsd: number | null;
+}
+
+const HISTORY_LEGS: readonly HistoryLeg[] = [
+  // Supply-only: no debt, so no health factor and no HF-driven collateral
+  // drift. Its score moves on asset and systemic risk alone.
+  { protocol: "aave_v3", score: [14, 19], hf: null, collateralUsd: 48_500, borrowUsd: 0 },
+  { protocol: "moonwell", score: [34, 52], hf: [1.62, 1.2], collateralUsd: 84_200, borrowUsd: 56_800 },
+  { protocol: "morpho", score: [48, 75], hf: [1.34, 1.05], collateralUsd: 128_500, borrowUsd: 105_200 },
+  // Degraded feed. The health factor is a ratio and stays exact; the dollars are
+  // NULL, which is the row scripts/watch-worker.ts actually inserts when
+  // `usdValuesUnavailable` is set (it passes collateralValueUsd straight
+  // through). Null and not 0 — and it is the only leg that exercises the
+  // `?? 0` / `Math.max(1, …)` weighting branch in AppDemo's riskHistory, which
+  // no fixture reached before.
+  { protocol: "compound_v3", score: [30, 44], hf: [1.55, 1.34], collateralUsd: null, borrowUsd: null },
 ];
 
 export const HISTORY_DAYS = 30;
@@ -314,16 +350,22 @@ export function mockHistory(now = Date.now()): { alerts: HistoryAlert[]; snapsho
     const t = (HISTORY_DAYS - 1 - daysAgo) / (HISTORY_DAYS - 1); // 0 oldest -> 1 newest
     for (const leg of HISTORY_LEGS) {
       // Trend plus a fixed wobble: a straight line does not look like a market,
-      // and Math.random would redraw a different chart on every poll.
+      // and Math.random would redraw a different chart on every poll. Today
+      // carries no wobble, so the series lands exactly on the live numbers.
       const wobble = Math.sin(daysAgo * 1.1) * 3;
-      const hf = leg.hfFrom + (leg.hfTo - leg.hfFrom) * t;
-      const collateral = (hf * leg.borrowUsd) / leg.lt;
+      const hf = leg.hf ? leg.hf[0] + (leg.hf[1] - leg.hf[0]) * t : null;
+      const collateral =
+        leg.collateralUsd === null
+          ? null
+          : hf === null
+            ? leg.collateralUsd
+            : (leg.collateralUsd * hf) / leg.hf![1];
       snapshots.push({
         protocol: leg.protocol,
-        total: Math.round(leg.from + (leg.to - leg.from) * t + (daysAgo === 0 ? 0 : wobble)),
-        health_factor: hf.toFixed(4),
-        collateral_usd: collateral.toFixed(2),
-        borrow_usd: leg.borrowUsd.toFixed(2),
+        total: Math.round(leg.score[0] + (leg.score[1] - leg.score[0]) * t + (daysAgo === 0 ? 0 : wobble)),
+        health_factor: hf === null ? null : hf.toFixed(4),
+        collateral_usd: collateral === null ? null : collateral.toFixed(2),
+        borrow_usd: leg.borrowUsd === null ? null : leg.borrowUsd.toFixed(2),
         created_at: createdAt,
       });
     }

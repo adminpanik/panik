@@ -14,7 +14,12 @@ import {
   mockAdvisor,
   mockHistory,
 } from "./fixtures";
-import type { Band, SubScores } from "../src/panik-core/lib/live";
+import type {
+  Band,
+  HistorySnapshot,
+  LiveWalletPosition,
+  SubScores,
+} from "../src/panik-core/lib/live";
 
 // Mirrors of packages/scoring — deliberately restated so a fixture edit is
 // checked against the published contract, not against itself.
@@ -156,28 +161,111 @@ describe("dev:mock fixtures — advisor invariants", () => {
   });
 });
 
+/**
+ * AppDemo.tsx `riskHistory`: bucket snapshots by day, weight each protocol by
+ * its snapshot collateral, round. This is the number the "Risk index history"
+ * card prints in its header and ends its sparkline on.
+ *
+ * Restated here rather than imported, for the same reason the band thresholds
+ * are: a fixture checked against a helper it shares with the code under test
+ * only proves the two agree with each other.
+ */
+function chartPoint(daySnapshots: readonly HistorySnapshot[]): number {
+  let weighted = 0;
+  let weight = 0;
+  for (const s of daySnapshots) {
+    const w = Math.max(1, Number(s.collateral_usd ?? 0));
+    weighted += s.total * w;
+    weight += w;
+  }
+  return Math.round(weighted / weight);
+}
+
+/**
+ * AppDemo.tsx `liveMacro.aggregate`: the "Aggregate risk index" stat card.
+ * A leg with no USD carries no dollar weight — its score is exact, its size is
+ * not, and weighting by a number we do not have is how a $0 gets invented.
+ */
+function aggregateIndex(positions: readonly LiveWalletPosition[]): number {
+  const usd = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? 0 : v);
+  const capital = positions.reduce((a, p) => a + usd(p.collateralValueUsd), 0);
+  if (capital <= 0) return 0;
+  return Math.round(positions.reduce((a, p) => a + p.total * usd(p.collateralValueUsd), 0) / capital);
+}
+
 describe("dev:mock fixtures — history", () => {
   const { alerts, snapshots } = mockHistory(Date.UTC(2026, 7, 7));
+  const lastDay = snapshots.at(-1)!.created_at;
+  const latest = snapshots.filter((s) => s.created_at === lastDay);
 
   it("draws a real sparkline: 30 distinct days", () => {
     expect(new Set(snapshots.map((s) => s.created_at.slice(0, 10))).size).toBe(30);
     expect(snapshots.length).toBeGreaterThanOrEqual(30);
   });
 
-  it("keeps every snapshot's band-able total in range and its dollars parseable", () => {
+  it("keeps every snapshot's total band-able and its dollars honest", () => {
     for (const s of snapshots) {
       expect(s.total).toBeGreaterThanOrEqual(0);
       expect(s.total).toBeLessThanOrEqual(100);
-      expect(Number(s.collateral_usd)).toBeGreaterThan(0);
-      expect(Number(s.borrow_usd)).toBeGreaterThan(0);
+      // Present or absent, never a fabricated zero: "$0" is the reading a
+      // six-figure debt must never be reported as. Absent is spelled null.
+      for (const v of [s.collateral_usd, s.borrow_usd]) {
+        if (v === null) continue;
+        expect(Number.isFinite(Number(v))).toBe(true);
+        expect(Number(v)).toBeGreaterThanOrEqual(0);
+      }
     }
   });
 
+  it("writes null, not zero, for the degraded leg's dollars", () => {
+    const degraded = MOCK_POSITIONS.find((p) => p.usdValuesUnavailable)!;
+    const rows = snapshots.filter((s) => s.protocol === degraded.protocol);
+    expect(rows).toHaveLength(30);
+    for (const s of rows) {
+      expect(s.collateral_usd).toBeNull();
+      expect(s.borrow_usd).toBeNull();
+      // The ratio survives what the pricing does not.
+      expect(Number(s.health_factor)).toBeGreaterThan(1);
+    }
+  });
+
+  /**
+   * The chart and the stat card are weighted averages over what is supposed to
+   * be the same set. While this fixture covered only two of the four legs they
+   * silently were not, and the Portfolio showed 57 in one card and 66 in the
+   * next. Covering every protocol is the precondition for the assertion below.
+   */
+  it("covers exactly the protocols the positions list holds", () => {
+    expect(new Set(snapshots.map((s) => s.protocol))).toEqual(
+      new Set(MOCK_POSITIONS.map((p) => p.protocol)),
+    );
+    expect(latest).toHaveLength(MOCK_POSITIONS.length);
+  });
+
   it("ends on today's live scores, so the chart meets the dashboard", () => {
-    const latest = snapshots.filter((s) => s.created_at === snapshots.at(-1)?.created_at);
     for (const s of latest) {
       expect(s.total).toBe(MOCK_POSITIONS.find((p) => p.protocol === s.protocol)?.total);
     }
+  });
+
+  it("ends on today's live collateral, so the two are weighted alike", () => {
+    for (const s of latest) {
+      const live = MOCK_POSITIONS.find((p) => p.protocol === s.protocol)!;
+      expect(s.collateral_usd === null ? null : Number(s.collateral_usd)).toBe(
+        live.collateralValueUsd,
+      );
+    }
+  });
+
+  /**
+   * THE guard. Everything above is a precondition for it: two cards side by
+   * side on the Portfolio must not print two different values for one metric.
+   * Per-protocol equality alone does not catch that — the old version of this
+   * test passed while the cards read 57 and 66 — because a chart weighted over
+   * a SUBSET can agree on every leg it contains and still land somewhere else.
+   */
+  it("ends on the same number the Aggregate risk index card shows", () => {
+    expect(chartPoint(latest)).toBe(aggregateIndex(MOCK_POSITIONS));
   });
 
   it("has a handful of alerts whose bands follow their scores", () => {

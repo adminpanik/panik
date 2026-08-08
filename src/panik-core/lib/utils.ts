@@ -4,7 +4,7 @@
  */
 
 import { PositionState } from "./types";
-import type { Band } from "./live";
+import type { Band, ProfileStatus } from "./live";
 
 /**
  * Calculates a DeFi position health factor and PANIK risk score.
@@ -184,6 +184,57 @@ export function bandOfHealthFactor(healthFactor: number): Band {
   if (healthFactor < 1.3) return "CRITICAL";
   if (healthFactor < 1.7) return "ELEVATED";
   return "LOW";
+}
+
+/**
+ * `ProfileStatus` in English. The enum itself — "within" / "approaching" /
+ * "outside" — is a database column describing a position's relation to the
+ * limit the user's profile sets, and it was reaching the screen verbatim: the
+ * alert log rendered `approaching → outside`, which reads as a state-machine
+ * dump and tells a user nothing about their money.
+ *
+ * TWO tables, because the same fact is two different sentences depending on
+ * where it lands:
+ *   STATE  — what a position IS right now      -> a position row's status line
+ *   EVENT  — what just HAPPENED to it          -> a row in the alert log
+ *
+ * Neither table contains the enum tokens, so no branch of either can put
+ * "approaching" or "outside" back on screen. `Record<ProfileStatus, string>`
+ * is what stops a status added to the engine from silently falling through to
+ * the raw value the way a `?:` chain would.
+ */
+const LIMIT_STATE: Record<ProfileStatus, string> = {
+  within: "under your risk limit",
+  approaching: "nearing your risk limit",
+  outside: "over your risk limit",
+};
+
+const LIMIT_EVENT: Record<ProfileStatus, string> = {
+  within: "back under your risk limit",
+  approaching: "nearing your risk limit",
+  outside: "crossed your risk limit",
+};
+
+/**
+ * Where a position stands right now. Lower case: this is a clause inside a
+ * sentence ("Health factor 1.34, nearing your risk limit"), not a label.
+ *
+ * Takes a loose `string` because `from_status` arrives straight off a DB row
+ * and may hold a value this build has never heard of. The fallback still reads
+ * as English, which is the whole point of this module.
+ */
+export function limitStateCopy(status: string): string {
+  return LIMIT_STATE[status as ProfileStatus] ?? "measured against your risk limit";
+}
+
+/**
+ * What an alert row records, as one phrase. The DESTINATION is the event; the
+ * origin is noise on a line that gets scanned, not read — `from_status` is
+ * deliberately not a parameter here. It stays recoverable on the row's hover
+ * via `limitStateCopy`, so nothing is deleted, only demoted.
+ */
+export function limitEventCopy(status: string): string {
+  return LIMIT_EVENT[status as ProfileStatus] ?? "changed against your risk limit";
 }
 
 export function formatCurrency(value: number): string {

@@ -17,7 +17,6 @@ import {
   TrendingDown, 
   Cpu, 
   ShieldCheck,
-  Flame,
   CheckCircle2,
   ListFilter,
   Compass as CompassIcon,
@@ -39,6 +38,8 @@ import {
   formatCompactUsd,
   formatCurrency,
   formatUsd,
+  limitEventCopy,
+  limitStateCopy,
   RISK_CHIP,
   RISK_FILL,
   RISK_TEXT,
@@ -249,6 +250,8 @@ const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho
 };
 
 /** Alert-outcome chip copy for the Portfolio history feed. */
+const CHIP_QUIET = "text-text-muted border-border-subtle bg-white/[0.03]";
+
 /**
  * Delivery outcome, not risk. "Sent" was green and "queued" amber, which put
  * the risk ramp on a fact about our own plumbing. Only `blocked` keeps a hue:
@@ -256,12 +259,31 @@ const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho
  * worth interrupting for.
  */
 const NOTIFY_CHANNEL_CHIP: Record<string, { label: string; cls: string }> = {
-  telegram: { label: "Sent · Telegram", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
-  skipped: { label: "Recovery", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
-  suppressed_cooldown: { label: "Muted · cooldown", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
-  suppressed_immaterial: { label: "Muted · no debt", cls: "text-text-muted border-border-subtle bg-white/[0.03]" },
+  suppressed_cooldown: { label: "Muted · cooldown", cls: CHIP_QUIET },
+  suppressed_immaterial: { label: "Muted · no debt", cls: CHIP_QUIET },
   blocked: { label: "Bot blocked", cls: "text-risk-critical border-risk-critical/25 bg-risk-critical/10" },
 };
+
+/**
+ * Outcomes that render NO chip. Same rationale that left only `blocked` hued,
+ * taken one step further: a chip that says "Sent · Telegram" on eleven of
+ * twelve rows is the expected case drawn twelve times, and the one row that
+ * matters — the alert that did not reach you — has to compete with it.
+ *
+ * `telegram` is delivery succeeding. `skipped` is a recovery, where the row's
+ * own "back under your risk limit" already says there was nothing to send.
+ * Everything else still renders: queued, both suppressions, blocked, and any
+ * channel we do not know.
+ * Silence here means "PANIK reached you", so nothing that failed can borrow it.
+ */
+const DELIVERY_SILENT = new Set(["telegram", "skipped"]);
+
+/** null = delivered as expected, so the row stays one quiet line. */
+function deliveryChip(channel: string | null): { label: string; cls: string } | null {
+  if (channel === null) return { label: "Queued", cls: CHIP_QUIET };
+  if (DELIVERY_SILENT.has(channel)) return null;
+  return NOTIFY_CHANNEL_CHIP[channel] ?? { label: channel, cls: CHIP_QUIET };
+}
 
 function timeAgo(iso: string): string {
   const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -1199,7 +1221,7 @@ export function AppDemo() {
                   {RISK_TIER_LABELS[riskTier]}
                 </button>
                 <InfoTip
-                  text={`Your risk profile, from the onboarding questions. It sets the limit each position is measured against, so it decides which positions read as "outside your profile" and when PANIK alerts you. Click it to retake the questions.`}
+                  text={`Your risk profile, from the onboarding questions. It sets the limit each position is measured against, so it decides which positions read as "over your risk limit" and when PANIK alerts you. Click it to retake the questions.`}
                 />
               </span>
             )}
@@ -2474,11 +2496,23 @@ export function AppDemo() {
                           Risk index history
                           <InfoTip text="Aggregate PANIK score of this wallet over time, protocols weighted by collateral." />
                         </h3>
-                        {riskHistory && (
-                          <span className="text-lg font-sans font-bold tabular-nums text-text-primary">
-                            {riskHistory.series[riskHistory.series.length - 1]} / 100
-                          </span>
-                        )}
+                        {/* The delta, not the score. "57 / 100" is already the
+                            Aggregate risk index card two rows up, and the same
+                            figure printed twice reads as two metrics that happen
+                            to agree. Direction over the window is the one fact
+                            this card knows that the stat card cannot. */}
+                        {riskHistory && riskHistory.series.length > 1 && (() => {
+                          const s = riskHistory.series;
+                          const delta = Math.round(s[s.length - 1] - s[0]);
+                          const days = s.length - 1;
+                          return (
+                            <span className="text-xs font-sans tabular-nums text-text-secondary">
+                              {delta === 0
+                                ? `flat over ${days}d`
+                                : `${delta > 0 ? "up" : "down"} ${Math.abs(delta)} over ${days}d`}
+                            </span>
+                          );
+                        })()}
                       </div>
                       {riskHistory ? (
                         // Series colour is cool and fixed: repainting 30 days of history in
@@ -2546,56 +2580,70 @@ export function AppDemo() {
                     <Card>
                       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4">
                         Alert history
-                        <InfoTip text="Every risk-status change PANIK detected, and what was sent. The chip on each row is the delivery outcome." />
+                        <InfoTip text="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet." />
                       </h3>
                       {walletHistory?.alerts?.length ? (
-                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        /* Rules, not boxes. Twelve bordered, tinted rows inside a
+                           Card that is already bordered and tinted is chrome
+                           wrapping chrome — the same nesting removed from the
+                           asset-allocation legend. A hairline separates rows for
+                           free; the border and the padding were paying for it
+                           twice. */
+                        <div className="divide-y divide-border-subtle max-h-80 overflow-y-auto pr-1">
                           {walletHistory.alerts.slice(0, 12).map((a, i) => {
-                            const chip = a.notify_channel
-                              ? NOTIFY_CHANNEL_CHIP[a.notify_channel] ?? { label: a.notify_channel, cls: "text-text-muted border-border-subtle bg-white/[0.03]" }
-                              : { label: "Queued", cls: "text-text-muted border-border-subtle bg-white/[0.03]" };
+                            const chip = deliveryChip(a.notify_channel);
                             return (
-                              <div key={`${a.created_at}-${i}`} className="flex items-start gap-2.5 bg-white/[0.02] border border-border-subtle p-3 rounded-md">
-                                {/* The glyph carries the transition; the words next
-                                    to it name the band. Painting the icon too gave
-                                    this log twelve coloured marks for a history the
-                                    user is skimming, not acting on. */}
-                                {a.to_status === "outside" ? (
-                                  <Flame className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
-                                ) : a.to_status === "approaching" ? (
-                                  <ShieldAlert className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
-                                ) : (
-                                  <CheckCircle2 className="w-4 h-4 text-text-muted shrink-0 mt-0.5" />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    {/* Wraps rather than truncates: this line is
-                                        "which protocol" plus "which way it
-                                        moved", and clipping it kept the protocol
-                                        while eating the direction, which is the
-                                        half that says whether things got worse.
-                                        In a 5/12 column at 1024px there is not
-                                        room for both on one line. */}
-                                    {/* The transition — "approaching → outside" —
-                                        is the whole content of an alert row, and
-                                        it was the muted half of an 11px line. It
-                                        is secondary now, at 12px: still quieter
-                                        than the protocol it belongs to, no longer
-                                        the thing you have to lean in for. */}
-                                    <span className="min-w-0 text-xs font-sans font-bold text-text-primary">
-                                      {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
-                                      <span className="text-text-secondary font-normal"> · {a.from_status ?? "start"} → {a.to_status}</span>
-                                    </span>
-                                    {/* Timestamps stay muted. This is what
-                                        text-muted is FOR — you glance at it, you
-                                        do not read it. */}
-                                    <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-xs font-sans text-text-secondary tabular-nums">score {a.score} ({a.band})</span>
-                                    <span className={`text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>{chip.label}</span>
-                                  </div>
-                                </div>
+                              /* Was six elements over two lines behind an icon.
+                                 The icon encoded `to_status`, which the row spells
+                                 out in words 2cm to its right, and rendered it in
+                                 text-muted so it could not even carry severity —
+                                 a glyph paid for in vertical space to repeat the
+                                 next word along. Gone.
+
+                                 `score 51 (HIGH)` went the same way: the band is
+                                 a pure function of the score, and the score at the
+                                 moment of transition is detail, not headline — the
+                                 event already names which side of the user's limit
+                                 the position landed on. Kept on hover so the
+                                 number is recoverable without being in the scan.
+
+                                 The ORIGIN status joined it there. `approaching →
+                                 outside` was two internal enum values and an arrow
+                                 — a state-machine dump on the one card whose job
+                                 is to say what happened to someone's money. What
+                                 happened is the destination; where it came from is
+                                 detail, and detail belongs in the hover with the
+                                 score. */
+                              <div
+                                key={`${a.created_at}-${i}`}
+                                className="flex items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                                title={`PANIK score ${a.score} (${a.band}). ${
+                                  a.from_status
+                                    ? `Previously ${limitStateCopy(a.from_status)}.`
+                                    : "First reading recorded for this position."
+                                }`}
+                              >
+                                {/* Wraps rather than truncates: this line is
+                                    "which protocol" plus "what happened to it",
+                                    and clipping it kept the protocol while eating
+                                    the event, which is the half that says whether
+                                    things got worse. */}
+                                <span className="min-w-0 text-xs font-sans font-bold text-text-primary">
+                                  {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
+                                  <span className="text-text-secondary font-normal"> {limitEventCopy(a.to_status)}</span>
+                                  {/* The space is load-bearing: `ml-1` is margin,
+                                      not whitespace, so without it a screen
+                                      reader and every text scrape run the event
+                                      into the chip ("risk limitQueued"). */}
+                                  {chip && (
+                                    <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
+                                      {chip.label}
+                                    </span></>
+                                  )}
+                                </span>
+                                {/* Timestamps stay muted. This is what text-muted
+                                    is FOR — you glance at it, you do not read it. */}
+                                <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
                               </div>
                             );
                           })}
