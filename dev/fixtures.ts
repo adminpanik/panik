@@ -422,14 +422,29 @@ function series(base: number, drift: number, wobble: number): number[] {
   );
 }
 
+/**
+ * `apy` is a PERCENT, not a fraction — 8.12 means 8.12% — because that is what
+ * DefiLlama's /chart endpoint returns and what `getPoolYields` in
+ * scripts/api-server.ts hands straight to the client (the advisor's yield table
+ * is the only consumer that converts, with `pool.apy / 100`).
+ *
+ * This fixture used to hold fractions (0.0812), so every Compass card rendered
+ * `(0.0248).toFixed(1)` and printed "0.0%" for a live 2.5% pool. A fixture in
+ * the wrong unit is worse than no fixture: the UI looked broken in the one
+ * place a reviewer looks, and the bug was invisible against the real API.
+ *
+ * Only the unit changed: every value below is the same number it was, times a
+ * hundred. The advisor fixtures downstream still hold FRACTIONS in their
+ * `openPlan.apy`, which is correct — that is the side of `pool.apy / 100`.
+ */
 export const MOCK_POOLS: Record<string, PoolYield> = {
-  "aave-usdc-supply": { apy: 0.0812, tvlUsd: 214_000_000, apySeries: series(0.074, 0.007, 0.004), tvlSeries: series(198e6, 16e6, 6e6) },
-  "moonwell-usdc-supply": { apy: 0.0731, tvlUsd: 61_400_000, apySeries: series(0.069, 0.004, 0.005), tvlSeries: series(58e6, 3.4e6, 2.2e6) },
-  "aave-wsteth-vault": { apy: 0.0248, tvlUsd: 148_000_000, apySeries: series(0.026, -0.001, 0.002), tvlSeries: series(155e6, -7e6, 4e6) },
-  "aave-weth-borrow": { apy: 0.0193, tvlUsd: 176_000_000, apySeries: series(0.021, -0.002, 0.003), tvlSeries: series(168e6, 8e6, 5e6) },
-  "moonwell-weth-debt": { apy: 0.0287, tvlUsd: 42_800_000, apySeries: series(0.027, 0.002, 0.004), tvlSeries: series(40e6, 2.8e6, 1.8e6) },
-  "morpho-weth-loop": { apy: 0.0412, tvlUsd: 33_600_000, apySeries: series(0.036, 0.005, 0.006), tvlSeries: series(31e6, 2.6e6, 1.5e6) },
-  "compound-weth-borrow": { apy: 0.0224, tvlUsd: 57_200_000, apySeries: series(0.024, -0.002, 0.003), tvlSeries: series(55e6, 2.2e6, 2e6) },
+  "aave-usdc-supply": { apy: 8.12, tvlUsd: 214_000_000, apySeries: series(7.4, 0.7, 0.4), tvlSeries: series(198e6, 16e6, 6e6) },
+  "moonwell-usdc-supply": { apy: 7.31, tvlUsd: 61_400_000, apySeries: series(6.9, 0.4, 0.5), tvlSeries: series(58e6, 3.4e6, 2.2e6) },
+  "aave-wsteth-vault": { apy: 2.48, tvlUsd: 148_000_000, apySeries: series(2.6, -0.1, 0.2), tvlSeries: series(155e6, -7e6, 4e6) },
+  "aave-weth-borrow": { apy: 1.93, tvlUsd: 176_000_000, apySeries: series(2.1, -0.2, 0.3), tvlSeries: series(168e6, 8e6, 5e6) },
+  "moonwell-weth-debt": { apy: 2.87, tvlUsd: 42_800_000, apySeries: series(2.7, 0.2, 0.4), tvlSeries: series(40e6, 2.8e6, 1.8e6) },
+  "morpho-weth-loop": { apy: 4.12, tvlUsd: 33_600_000, apySeries: series(3.6, 0.5, 0.6), tvlSeries: series(31e6, 2.6e6, 1.5e6) },
+  "compound-weth-borrow": { apy: 2.24, tvlUsd: 57_200_000, apySeries: series(2.4, -0.2, 0.3), tvlSeries: series(55e6, 2.2e6, 2e6) },
 };
 
 // ── /api/chain ─────────────────────────────────────────────────────────────
