@@ -52,7 +52,7 @@ import {
  */
 import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
 import { PositionState } from "./lib/types";
-import { LivePositions } from "./components/LivePositions";
+import { LivePositions, positionKey } from "./components/LivePositions";
 import { Sparkline } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
@@ -256,6 +256,13 @@ const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho
   morpho: "Morpho",
   compound_v3: "Compound V3",
 };
+
+/**
+ * Alert feed page size. Eight rows is roughly the 320px the old `max-h-80`
+ * scroller clamped to, so the card keeps the height it has today and gains a
+ * way to reach row nine, which it did not have.
+ */
+const ALERT_PAGE_SIZE = 8;
 
 /** Alert-outcome chip copy for the Portfolio history feed. */
 const CHIP_QUIET = "text-text-muted border-border-subtle bg-white/[0.03]";
@@ -934,6 +941,64 @@ export function AppDemo() {
       ? selectedWallet
       : null;
   const walletHistory = useWalletHistory(historyWallet);
+
+  /**
+   * Alert row -> the position it is about.
+   *
+   * An alert names a protocol; the Positions card in the SAME column is keyed
+   * by wallet and protocol, so the destination is one lookup away and it is
+   * already on screen. That is why this scrolls and highlights rather than
+   * opening a panel or switching tabs: the alert's whole question is "which of
+   * my positions did this happen to, and where does it stand now", and the
+   * position row answers both in place. A modal would hide the feed the user
+   * is reading down; a tab switch would throw away their scroll position to
+   * show them a surface they did not ask for.
+   *
+   * A Map keyed by protocol, not a scan per row: the feed can hold every alert
+   * this wallet ever raised, and `find()` inside the render loop is the shape
+   * that turns a long feed into a quadratic one.
+   */
+  const alertTargets = useMemo(() => {
+    const byProtocol = new Map<LiveProtocol, string>();
+    for (const p of portfolioPositions ?? []) byProtocol.set(p.protocol, positionKey(p));
+    return byProtocol;
+  }, [portfolioPositions]);
+
+  const [highlightedPositionKey, setHighlightedPositionKey] = useState<string | null>(null);
+  const highlightTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+    },
+    [],
+  );
+  /**
+   * The emphasis is temporary on purpose. It answers "which row" at the moment
+   * of arrival and then gets out of the way — a border left permanently strong
+   * on one row becomes a state nobody can explain twenty seconds later, and on
+   * a page with a five-element colour budget an unexplained emphasis is a cost.
+   * Focus, which is the part that matters for a keyboard user, stays put.
+   */
+  const revealPosition = useCallback((key: string) => {
+    if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+    setHighlightedPositionKey(key);
+    highlightTimer.current = window.setTimeout(() => setHighlightedPositionKey(null), 4000);
+  }, []);
+
+  /**
+   * Feed pagination. `.slice(0, 12)` inside a `max-h-80` scroller was not a
+   * page size, it was a CEILING: alert 13 was unreachable by any means, and the
+   * inner scrollbar hid that fact by looking like it went somewhere.
+   *
+   * "Show more" rather than numbered pages, because this is a reverse-chronological
+   * feed and nobody thinks in pages of alerts; they read down until they reach
+   * the one they remember. The inner scroller goes with it — a scrollable box
+   * inside a scrollable page, with a button underneath, is two mechanisms for
+   * one job, and the page has always been the one that works on a phone.
+   */
+  const [alertsShown, setAlertsShown] = useState(ALERT_PAGE_SIZE);
+  useEffect(() => setAlertsShown(ALERT_PAGE_SIZE), [historyWallet]);
+  const alertsRemaining = Math.max(0, (walletHistory?.alerts.length ?? 0) - alertsShown);
 
   // 30d aggregate risk series: bucket snapshots by day, protocols weighted by
   // collateral USD (same weighting the macro Aggregate risk index uses).
@@ -2496,6 +2561,7 @@ export function AppDemo() {
                   <div className="lg:col-span-7 space-y-6">
                     <LivePositions
                       positions={portfolioPositions}
+                      highlightKey={highlightedPositionKey}
                       offline={boundMode ? ownLive.offline : liveOffline}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
@@ -2636,10 +2702,67 @@ export function AppDemo() {
                            asset-allocation legend. A hairline separates rows for
                            free; the border and the padding were paying for it
                            twice. */
-                        <div className="divide-y divide-border-subtle max-h-80 overflow-y-auto pr-1">
-                          {walletHistory.alerts.slice(0, 12).map((a, i) => {
+                        <div className="divide-y divide-border-subtle">
+                          {walletHistory.alerts.slice(0, alertsShown).map((a, i) => {
                             const chip = deliveryChip(a.notify_channel);
-                            return (
+                            const protocolLabel = LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol;
+                            /* The position this alert is ABOUT, if the wallet
+                               still holds it. A closed position has no row to
+                               scroll to, so the alert stays a record rather
+                               than becoming a control: no button, no hover, no
+                               pointer. A control that looks live and does
+                               nothing is worse than a plain line of text. */
+                            const target = alertTargets.get(a.protocol) ?? null;
+                            const hover = `PANIK score ${a.score} (${a.band}). ${
+                              a.from_status
+                                ? `Previously ${limitStateCopy(a.from_status)}.`
+                                : "First reading recorded for this position."
+                            }${target ? "" : " This position is no longer open."}`;
+                            const body = (
+                              <>
+                                {/* Wraps rather than truncates: this line is
+                                    "which protocol" plus "what happened to it",
+                                    and clipping it kept the protocol while eating
+                                    the event, which is the half that says whether
+                                    things got worse. */}
+                                <span className="min-w-0 text-left text-xs font-sans font-bold text-text-primary">
+                                  {protocolLabel}
+                                  <span className="text-text-secondary font-normal"> {limitEventCopy(a.to_status)}</span>
+                                  {/* The space is load-bearing: `ml-1` is margin,
+                                      not whitespace, so without it a screen
+                                      reader and every text scrape run the event
+                                      into the chip ("risk limitQueued"). */}
+                                  {chip && (
+                                    <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
+                                      {chip.label}
+                                    </span></>
+                                  )}
+                                </span>
+                                {/* Timestamps stay muted. This is what text-muted
+                                    is FOR — you glance at it, you do not read it. */}
+                                <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
+                              </>
+                            );
+                            const rowCls = "flex w-full items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0";
+                            return target ? (
+                              /* A real <button>, not a div with onClick: it is
+                                 in the tab order, Enter and Space activate it,
+                                 the global :focus-visible ring applies, and the
+                                 accessibility tree calls it a button because it
+                                 is one. */
+                              <button
+                                type="button"
+                                key={`${a.created_at}-${i}`}
+                                onClick={() => revealPosition(target)}
+                                title={hover}
+                                aria-label={`${protocolLabel} ${limitEventCopy(a.to_status)}${
+                                  chip ? `, ${chip.label}` : ""
+                                }, ${timeAgo(a.created_at)}. Show this position.`}
+                                className={`${rowCls} rounded-sm text-left cursor-pointer transition-colors hover:bg-white/[0.03]`}
+                              >
+                                {body}
+                              </button>
+                            ) : (
                               /* Was six elements over two lines behind an icon.
                                  The icon encoded `to_status`, which the row spells
                                  out in words 2cm to its right, and rendered it in
@@ -2661,41 +2784,31 @@ export function AppDemo() {
                                  happened is the destination; where it came from is
                                  detail, and detail belongs in the hover with the
                                  score. */
-                              <div
-                                key={`${a.created_at}-${i}`}
-                                className="flex items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
-                                title={`PANIK score ${a.score} (${a.band}). ${
-                                  a.from_status
-                                    ? `Previously ${limitStateCopy(a.from_status)}.`
-                                    : "First reading recorded for this position."
-                                }`}
-                              >
-                                {/* Wraps rather than truncates: this line is
-                                    "which protocol" plus "what happened to it",
-                                    and clipping it kept the protocol while eating
-                                    the event, which is the half that says whether
-                                    things got worse. */}
-                                <span className="min-w-0 text-xs font-sans font-bold text-text-primary">
-                                  {LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol}
-                                  <span className="text-text-secondary font-normal"> {limitEventCopy(a.to_status)}</span>
-                                  {/* The space is load-bearing: `ml-1` is margin,
-                                      not whitespace, so without it a screen
-                                      reader and every text scrape run the event
-                                      into the chip ("risk limitQueued"). */}
-                                  {chip && (
-                                    <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
-                                      {chip.label}
-                                    </span></>
-                                  )}
-                                </span>
-                                {/* Timestamps stay muted. This is what text-muted
-                                    is FOR — you glance at it, you do not read it. */}
-                                <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{timeAgo(a.created_at)}</span>
+                              <div key={`${a.created_at}-${i}`} className={rowCls} title={hover}>
+                                {body}
                               </div>
                             );
                           })}
                         </div>
-                      ) : (
+                      ) : null}
+                      {alertsRemaining > 0 && (
+                        /* Counts what is left rather than saying "Show more":
+                           the length of a feed is the thing a reader cannot
+                           see, and "Show 23 older alerts" is what decides
+                           whether they keep going. It also names the page size
+                           implicitly, so nobody wonders whether the button will
+                           expand by ten rows or ten thousand. */
+                        <Button
+                          variant="quiet"
+                          className="mt-3 w-full justify-center border-border-subtle"
+                          onClick={() => setAlertsShown((n) => n + ALERT_PAGE_SIZE)}
+                        >
+                          {alertsRemaining <= ALERT_PAGE_SIZE
+                            ? `Show ${alertsRemaining} older ${alertsRemaining === 1 ? "alert" : "alerts"}`
+                            : `Show ${ALERT_PAGE_SIZE} more of ${alertsRemaining} older alerts`}
+                        </Button>
+                      )}
+                      {walletHistory?.alerts?.length ? null : (
                         <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
                           No alerts yet - PANIK messages you the moment a position
                           <br />crosses your profile's risk limit.

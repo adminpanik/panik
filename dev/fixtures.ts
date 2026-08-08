@@ -372,6 +372,12 @@ export function mockHistory(now = Date.now()): { alerts: HistoryAlert[]; snapsho
   }
 
   const ago = (days: number) => new Date(now - days * 86_400_000).toISOString();
+  // Twelve, not three. The feed paginates at 8, and three rows exercised
+  // neither the "Show N older alerts" control nor the second page — the two
+  // things a reviewer has to be able to see working. The band on every row is
+  // still a pure function of its score (dev/fixtures.test.ts asserts it), and
+  // every protocol here is one the mock wallet holds, so every row is a live
+  // link to a position.
   const alerts: HistoryAlert[] = [
     {
       protocol: "moonwell",
@@ -405,6 +411,111 @@ export function mockHistory(now = Date.now()): { alerts: HistoryAlert[]; snapsho
       notify_channel: "telegram",
       notified_at: ago(11),
       created_at: ago(11),
+    },
+    {
+      protocol: "compound_v3",
+      risk_profile: "moderate",
+      score: 41,
+      band: "ELEVATED",
+      from_status: "within",
+      to_status: "approaching",
+      notify_channel: "telegram",
+      notified_at: ago(13),
+      created_at: ago(13),
+    },
+    {
+      protocol: "moonwell",
+      risk_profile: "moderate",
+      score: 38,
+      band: "ELEVATED",
+      from_status: "outside",
+      to_status: "approaching",
+      notify_channel: "telegram",
+      notified_at: ago(14),
+      created_at: ago(14),
+    },
+    {
+      protocol: "moonwell",
+      risk_profile: "moderate",
+      score: 55,
+      band: "HIGH",
+      from_status: "approaching",
+      to_status: "outside",
+      notify_channel: "telegram",
+      notified_at: ago(16),
+      created_at: ago(16),
+    },
+    // Deliberately NOT `blocked`. That is the one delivery chip that keeps a
+    // risk hue, and the Portfolio tab is held to exactly five risk-hued
+    // elements (four dials plus the aggregate glyph). A fixture that adds a
+    // sixth turns a design budget into a demo artefact.
+    {
+      protocol: "morpho",
+      risk_profile: "moderate",
+      score: 78,
+      band: "CRITICAL",
+      from_status: "outside",
+      to_status: "outside",
+      notify_channel: "telegram",
+      notified_at: ago(18),
+      created_at: ago(18),
+    },
+    {
+      protocol: "aave_v3",
+      risk_profile: "moderate",
+      score: 27,
+      band: "ELEVATED",
+      from_status: "within",
+      to_status: "approaching",
+      notify_channel: "suppressed_immaterial",
+      notified_at: null,
+      created_at: ago(19),
+    },
+    {
+      protocol: "compound_v3",
+      risk_profile: "moderate",
+      score: 33,
+      band: "ELEVATED",
+      from_status: "approaching",
+      to_status: "within",
+      notify_channel: "telegram",
+      notified_at: ago(21),
+      created_at: ago(21),
+    },
+    {
+      protocol: "morpho",
+      risk_profile: "moderate",
+      score: 52,
+      band: "HIGH",
+      from_status: "approaching",
+      to_status: "outside",
+      notify_channel: "suppressed_cooldown",
+      notified_at: null,
+      created_at: ago(24),
+    },
+    {
+      protocol: "moonwell",
+      risk_profile: "moderate",
+      score: 22,
+      band: "LOW",
+      from_status: "approaching",
+      to_status: "within",
+      notify_channel: "telegram",
+      notified_at: ago(27),
+      created_at: ago(27),
+    },
+    // The oldest row, and the only one with no prior status: the first reading
+    // this wallet ever produced for that protocol.
+    {
+      protocol: "aave_v3",
+      risk_profile: "moderate",
+      score: 16,
+      band: "LOW",
+      from_status: null,
+      to_status: "within",
+      notify_channel: "telegram",
+      notified_at: ago(29),
+      created_at: ago(29),
     },
   ];
 
