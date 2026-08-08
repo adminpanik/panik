@@ -5,7 +5,8 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { 
-  ShieldAlert, 
+  ShieldAlert,
+  AlertTriangle,
   Activity, 
   ArrowLeft, 
   RefreshCw, 
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import {
   bandOfHealthFactor,
+  bandOfScore,
   calculateDynamicPosition,
   formatCompactUsd,
   formatCurrency,
@@ -2307,6 +2309,21 @@ export function AppDemo() {
                       : aggregate >= 25
                         ? "Watch status"
                         : "Secure health status";
+                  // The verdict is still carried by the WORD — the sentence
+                  // stays secondary grey, and the 28px figure above it stays
+                  // neutral. What the word could not do on its own is be
+                  // findable: a user scanning four cards reads four grey
+                  // sublines and has to parse each to learn which one is the
+                  // warning. The glyph is that findability, and it is the only
+                  // thing here that takes the band's hue.
+                  //
+                  // Absent below 25. "No icon" is the honest rendering of "no
+                  // warning" — an icon that is always present and merely
+                  // changes colour trains people to stop looking at it, and it
+                  // would also spend a fifth risk-hued element on a page whose
+                  // whole colour budget is the four position chips.
+                  const aggregateBand = bandOfScore(aggregate);
+                  const aggregateAlarming = aggregateBand !== "LOW";
                   // 1 -> 2 -> 4. The old jump straight from 1 to 4 at `sm` gave
                   // each card ~150px at 640px wide, which is narrower than
                   // "Monitored liabilities" and narrower than the figure under
@@ -2350,8 +2367,8 @@ export function AppDemo() {
                               <InfoTip
                                 text={
                                   liveMacro
-                                    ? `PANIK is reading this wallet on ${liveMacro.protocolNames.join(", ")}.`
-                                    : "PANIK is reading this wallet on Aave and Moonwell."
+                                    ? `PANIK covers Aave V3, Moonwell, Morpho and Compound V3. This wallet holds a position on ${liveMacro.protocolNames.join(", ")}; the dimmed marks are covered but empty.`
+                                    : "PANIK covers Aave V3, Moonwell, Morpho and Compound V3. The dimmed marks are covered but hold no position."
                                 }
                               />
                             </>
@@ -2364,25 +2381,25 @@ export function AppDemo() {
                              icons name WHICH protocols, which no arrangement of
                              that sentence ever did.
 
-                             32px, not 24px. These marks ARE this card's value,
+                             36px, not 24px. These marks ARE this card's value,
                              and at 24px they read as decoration sitting beside
                              three siblings whose values are a 28px numeral —
                              the smallest thing in the row was the only thing in
-                             the row carrying the answer. 32px fits inside the
-                             34px text line-box the other three values occupy,
-                             so the row keeps ONE baseline and the card heights
-                             do not move. */
+                             the row carrying the answer. The row box grows with
+                             them so all four cards still share one baseline.
+
+                             No subline. The position count moved onto the
+                             Positions card's own header, where the list that
+                             the number describes actually is; stating it here
+                             meant two cards counting the same array through
+                             different props, which is a disagreement waiting
+                             to happen. */
                           value={
-                            <span className="flex h-[34px] items-center">
+                            <span className="flex h-9 items-center">
                               <ProtocolMarks
                                 protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]}
                               />
                             </span>
-                          }
-                          sub={
-                            liveMacro
-                              ? `${liveMacro.positions} ${liveMacro.positions === 1 ? "position" : "positions"}`
-                              : "4 positions"
                           }
                         />
                       </Card>
@@ -2396,7 +2413,17 @@ export function AppDemo() {
                             </>
                           }
                           value={`${aggregate} / 100`}
-                          sub={aggregateVerdict}
+                          sub={
+                            <span className="flex items-center gap-1.5">
+                              {aggregateAlarming && (
+                                <AlertTriangle
+                                  className={`h-3.5 w-3.5 shrink-0 ${RISK_TEXT[aggregateBand]}`}
+                                  aria-hidden="true"
+                                />
+                              )}
+                              <span className="truncate">{aggregateVerdict}</span>
+                            </span>
+                          }
                         />
                       </Card>
                     </div>

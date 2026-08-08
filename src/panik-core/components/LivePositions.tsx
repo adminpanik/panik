@@ -71,8 +71,19 @@ export function LivePositions({ positions, offline, onStressTest }: LivePosition
           question asked once, not a caption you need on every glance. It also
           gives this card the same titled header its three siblings on the
           Portfolio grid already have. */}
+      {/* The count lives HERE, not in a grey subline on the "Protocols
+          watched" card three columns away. It is a fact about this list, and a
+          list that states its own length needs no second card to do it — that
+          subline was also the one place the two cards could disagree, because
+          they were reading the same array through different props.
+
+          Only rendered once the array has arrived: "0 Positions" while the
+          first fetch is still in flight is a claim we cannot make yet, and it
+          is the exact claim this product must never make by accident. */}
       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
-        Positions
+        {positions === null
+          ? "Positions"
+          : `${positions.length} ${positions.length === 1 ? "Position" : "Positions"}`}
         <InfoTip text="Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF) + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s." />
       </h3>
 

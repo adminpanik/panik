@@ -206,29 +206,46 @@ export function ProtocolLogo({ protocol, size = "w-6 h-6", pad = TILE_PAD, label
 }
 
 /**
- * A row of brand marks naming the protocols a wallet is actually in.
+ * Every protocol PANIK can read, with the ones this wallet actually holds a
+ * position in at full strength and the rest dimmed.
  *
- * This is CONTENT, not decoration - it is the VALUE of the "Protocols watched"
- * card, which previously showed a position count under a label promising
- * protocols. So every mark carries an accessible name.
+ * Showing only the hits made the card's answer ambiguous in the one direction
+ * that matters: two marks could mean "you are in two protocols" or "we only
+ * look at two". Coverage and holdings are different facts, and a risk product
+ * that quietly renders the second as the first is understating what it does
+ * not know. The dimmed marks are the coverage; the bright ones are the answer.
  *
- * No truncation and no "+N" chip. The list is a Set over `LiveProtocol`, which
- * has four members, and this component drew four marks, so the overflow branch
- * could not run - it was a fixed cost paid for a case the type system already
- * ruled out. If a fifth protocol is ever integrated, four marks on one line is
- * what has to be re-argued, not a chip nobody ever saw.
+ * Dimming is opacity plus grayscale, never a hue change - an inactive tile is
+ * absence, and absence is not a band. The distinction is not carried by that
+ * alone: each mark states its own status in its accessible name, so it
+ * survives for a screen reader and at any contrast setting.
  *
- * Geometry is fixed here rather than passed: 32px marks at a 4px inset is what
- * fits inside the 34px value line-box the three sibling cards' numerals sit on,
- * and that is a fact about the card, not a choice its one caller should keep
- * restating.
+ * Geometry is fixed here rather than passed: 36px marks at a 4px inset. The
+ * four marks are this card's VALUE, sitting where its three siblings put a
+ * 28px numeral, and at 32px they still read as a row of icons beside three
+ * figures rather than as a figure themselves.
  */
+const ALL_PROTOCOLS = ["Aave V3", "Moonwell", "Morpho", "Compound V3"];
+
 export function ProtocolMarks({ protocols }: { protocols: string[] }) {
+  const held = new Set(protocols.map((p) => p.toLowerCase()));
   return (
     <span className="flex items-center gap-1.5">
-      {protocols.map((p) => (
-        <ProtocolLogo key={p} protocol={p} size="w-8 h-8" pad="p-1" label={p} />
-      ))}
+      {ALL_PROTOCOLS.map((p) => {
+        const active = held.has(p.toLowerCase());
+        return (
+          // The dimming wrapper carries no `title`: ProtocolLogo sets one
+          // already, and two nested titles render as two competing tooltips.
+          <span key={p} className={active ? "" : "opacity-35 grayscale"}>
+            <ProtocolLogo
+              protocol={p}
+              size="w-9 h-9"
+              pad="p-1"
+              label={active ? `${p}, position held` : `${p}, covered, no position`}
+            />
+          </span>
+        );
+      })}
     </span>
   );
 }
