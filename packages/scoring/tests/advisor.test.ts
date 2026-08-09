@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ActiveScore } from "../src/adapters/active";
 import type { ActiveReading } from "../src/adapters/activeAave";
-import { fallbackSections, overallHeadline } from "../src/advisor/fallback";
+import { fallbackSections, fmtBps, fmtGasUnits, overallHeadline } from "../src/advisor/fallback";
+import {
+  DEFAULT_SWAP_SLIPPAGE_BPS,
+  DELEVERAGE_FLASH_FEE_BPS,
+  DELEVERAGE_GAS_UNITS,
+} from "../src/advisor/economicFloor";
 import { findOpportunities } from "../src/advisor/opportunities";
 import {
   collateralFundedRepayToTargetHf,
@@ -41,6 +46,10 @@ function leg(overrides: Partial<ActiveScore> = {}): ActiveScore {
     collateralValueUsd: 20_000,
     borrowValueUsd: 8_000,
     usdValuesUnavailable: false,
+    // Null by default: the collateral-funded option must be OMITTED on a leg
+    // whose threshold was not read, and a fixture that always supplied one
+    // would never exercise that. Tests that want the option set it.
+    weightedLiquidationThreshold: null,
     marketContextUnavailable: false,
     dominantCollateralUnpriced: false,
     scoredCollateralSymbol: "WETH",
@@ -1012,5 +1021,247 @@ describe("fallbackSections", () => {
     const s = fallbackSections(rec);
     expect(s.execution).toContain("Reduce");
     expect(s.execution).toContain("USDC");
+  });
+});
+
+describe("cost formatting", () => {
+  it("keeps two decimals of a percent, which is what bps carry", () => {
+    // fmtPct would round a 5 bps flash fee to "0.1%" - twice the real charge,
+    // on a figure the user is about to sign against.
+    expect(fmtBps(5)).toBe("0.05%");
+    expect(fmtBps(100)).toBe("1%");
+    expect(fmtBps(750)).toBe("7.5%");
+    expect(fmtBps(0)).toBe("0%");
+    expect(fmtBps(Number.NaN)).toBe("—");
+  });
+
+  it("rounds gas to the nearest thousand, and never to dollars", () => {
+    expect(fmtGasUnits(693_320)).toBe("693,000");
+    expect(fmtGasUnits(1_167_280)).toBe("1,167,000");
+    expect(fmtGasUnits(348_959)).toBe("349,000");
+    expect(fmtGasUnits(Number.NaN)).toBe("—");
+  });
+});
+
+/**
+ * The collateral-funded repay, as the advisor emits it.
+ *
+ * The behaviour that matters is not the arithmetic (that is covered on
+ * `collateralFundedRepayToTargetHf` above) but the OFFER: which legs get a
+ * second route, which do not, and that the two plans always describe the same
+ * position rather than competing for the primary slot.
+ */
+describe("collateral-funded alternative", () => {
+  const reducible = { total: 55, band: "HIGH" as Band, healthFactor: 1.31 };
+
+  it("is emitted beside the wallet-funded plan, never instead of it", () => {
+    const rec = adviseLeg(
+      leg({ ...reducible, weightedLiquidationThreshold: 0.83 }),
+      "moderate",
+    );
+    expect(rec.action).toBe("REDUCE");
+    expect(rec.repayPlan?.mode).toBe("wallet_funded");
+    expect(rec.collateralFundedAlternative?.mode).toBe("collateral_funded");
+    expect(rec.triggers).toContain("repay:collateral_funded_available");
+  });
+
+  it("is OMITTED when the liquidation threshold was not read", () => {
+    // Not defaulted, not guessed. Fed a 0 the sizing collapses to the
+    // wallet-funded answer and under-sizes a real transaction.
+    const rec = adviseLeg(leg({ ...reducible, weightedLiquidationThreshold: null }), "moderate");
+    expect(rec.action).toBe("REDUCE");
+    expect(rec.repayPlan).toBeDefined();
+    expect(rec.collateralFundedAlternative).toBeUndefined();
+    expect(rec.triggers).not.toContain("repay:collateral_funded_available");
+  });
+
+  it("is OMITTED when the target cannot be reached by selling collateral", () => {
+    // targetHf 1.75 <= WLT is impossible for a real threshold, but a threshold
+    // at or above the target is exactly the degenerate case the sizing refuses.
+    const rec = adviseLeg(
+      leg({ ...reducible, weightedLiquidationThreshold: 1.8 }),
+      "moderate",
+    );
+    expect(rec.collateralFundedAlternative).toBeUndefined();
+  });
+
+  it("repays MORE than the wallet-funded plan for the same target", () => {
+    // Selling collateral shrinks both sides of HF = L / D, so more debt has to
+    // go to reach the same ratio. That is the price of needing no capital.
+    const rec = adviseLeg(
+      leg({ ...reducible, weightedLiquidationThreshold: 0.83 }),
+      "moderate",
+    );
+    const wallet = rec.repayPlan as NonNullable<AdvisorRecommendation["repayPlan"]>;
+    const collateral = rec.collateralFundedAlternative as NonNullable<
+      AdvisorRecommendation["collateralFundedAlternative"]
+    >;
+    expect(collateral.repayUsd).toBeGreaterThan(wallet.repayUsd);
+    expect(collateral.repayFraction).toBeGreaterThan(wallet.repayFraction);
+    // Same target, same debt asset: two routes to one outcome, not two outcomes.
+    expect(collateral.targetHf).toBe(wallet.targetHf);
+    expect(collateral.repayAssetSymbol).toBe(wallet.repayAssetSymbol);
+    expect(collateral.projectedHf).toBe(wallet.targetHf);
+  });
+
+  it("carries the costs the wallet-funded plan does not pay", () => {
+    const rec = adviseLeg(
+      leg({ ...reducible, weightedLiquidationThreshold: 0.83 }),
+      "moderate",
+    );
+    expect(rec.repayPlan?.costs).toBeUndefined();
+    expect(rec.collateralFundedAlternative?.costs).toEqual({
+      flashFeeBps: DELEVERAGE_FLASH_FEE_BPS.aave_v3,
+      slippageBps: DEFAULT_SWAP_SLIPPAGE_BPS,
+      gasUnits: DELEVERAGE_GAS_UNITS.aave_v3,
+    });
+  });
+
+  it("takes the caller's slippage allowance when it has one", () => {
+    const rec = adviseLeg(
+      leg({ ...reducible, weightedLiquidationThreshold: 0.83 }),
+      "moderate",
+      undefined,
+      { swapSlippageBps: 25 },
+    );
+    expect(rec.collateralFundedAlternative?.costs?.slippageBps).toBe(25);
+  });
+
+  it("is OMITTED below its own floor even where the wallet-funded plan clears", () => {
+    // The two floors move independently, and so do the two repays. Selling
+    // collateral repays T/(T-WLT) times as much as the wallet does - 1.9x at
+    // these numbers - which usually outruns the higher floor, so the gate only
+    // bites where the costs are large relative to the penalty. A 4% slippage
+    // allowance against a 5% penalty is that case: the floor multiplies by 5.3
+    // while the repay multiplies by 1.9.
+    const small = leg({
+      ...reducible,
+      weightedLiquidationThreshold: 0.83,
+      borrowValueUsd: 500,
+      collateralValueUsd: 2_000,
+    });
+    const rec = adviseLeg(small, "moderate", undefined, { gasUsd: 5, swapSlippageBps: 400 });
+    expect(rec.action).toBe("REDUCE");
+    expect(rec.repayPlan).toBeDefined();
+    expect(rec.collateralFundedAlternative).toBeUndefined();
+    expect(rec.triggers).not.toContain("repay:collateral_funded_available");
+  });
+
+  it("never reaches a CRITICAL leg, which rule 1 exits before sizing anything", () => {
+    const rec = adviseLeg(
+      leg({ total: 80, band: "CRITICAL", healthFactor: 1.05, weightedLiquidationThreshold: 0.83 }),
+      "moderate",
+    );
+    expect(rec.action).toBe("EXIT");
+    expect(rec.collateralFundedAlternative).toBeUndefined();
+  });
+});
+
+/**
+ * Issue #28, re-measured against collateral-funded sizing.
+ *
+ * The promotion to a full EXIT was proven unreachable under wallet-funded
+ * sizing (ceiling 0.4495 against a gate of 0.9). The open question was whether
+ * the deleverager's sizing, which repays a much larger fraction, brings the
+ * branch to life. It does not, and the reason is structural rather than
+ * incidental:
+ *
+ *   R/D = (T - HF)/(T - WLT)
+ *
+ * The engine floors HF <= 1.10 to CRITICAL, so the numerator cannot exceed
+ * T - 1.100. WLT is a fraction of collateral, so the denominator cannot fall
+ * below T - 1. At the largest target (2.0, conservative) the supremum is
+ * therefore exactly 0.9, approached only as WLT tends to 1, and the branch
+ * tests strictly greater than.
+ *
+ * The full sweep (100,082,022 engine-reachable states, all four protocols, all
+ * three profiles, HF 1.001-2.500 at 0.001, WLT 0.01-0.9999) measured a ceiling
+ * of 0.89891 and ZERO promotions. What runs here is the corner that sweep found
+ * plus enough of its neighbourhood to catch a regression, because a hundred
+ * million states do not belong in a unit suite.
+ */
+describe("issue #28 - the promotion gate stays out of reach", () => {
+  const CONSERVATIVE_TARGET = TARGET_HF.conservative;
+
+  it("cannot be reached even at the corner the sweep found", () => {
+    // HF one thousandth above the CRITICAL floor, and a threshold above every
+    // one that exists on Base (Morpho's highest LLTV there is 0.965).
+    const rec = adviseLeg(
+      leg({
+        total: 50,
+        band: "HIGH",
+        healthFactor: 1.101,
+        weightedLiquidationThreshold: 0.9999,
+        borrowValueUsd: 100_000,
+        collateralValueUsd: 1_000_000,
+      }),
+      "conservative",
+    );
+    const plan = rec.collateralFundedAlternative;
+    expect(plan).toBeDefined();
+    expect(plan?.targetHf).toBe(CONSERVATIVE_TARGET);
+    expect(plan?.repayFraction).toBeCloseTo(0.89891, 5);
+    expect(plan?.repayFraction).toBeLessThan(REDUCE_TO_EXIT_RATIO);
+    expect(rec.triggers).not.toContain("promoted:reduce_to_exit");
+  });
+
+  it("tops out at 0.8686 on the highest threshold that actually exists", () => {
+    const rec = adviseLeg(
+      leg({
+        total: 50,
+        band: "HIGH",
+        healthFactor: 1.101,
+        weightedLiquidationThreshold: 0.965,
+        borrowValueUsd: 100_000,
+        collateralValueUsd: 1_000_000,
+      }),
+      "conservative",
+    );
+    expect(rec.collateralFundedAlternative?.repayFraction).toBeCloseTo(0.8686, 4);
+  });
+
+  it("has a supremum of exactly the gate, which it never attains", () => {
+    // The bound, straight from the formula at the extremes the engine allows.
+    // If a floor or a target moves, this is the line that should fail first.
+    const supremum = (CONSERVATIVE_TARGET - 1.1) / (CONSERVATIVE_TARGET - 1.0);
+    expect(supremum).toBeCloseTo(REDUCE_TO_EXIT_RATIO, 12);
+    expect(collateralFundedRepayToTargetHf(1, 1.101, CONSERVATIVE_TARGET, 0.9999)).toBeLessThan(
+      REDUCE_TO_EXIT_RATIO,
+    );
+  });
+
+  it("promotes on no reachable state in a bounded re-sweep", () => {
+    let promotions = 0;
+    let states = 0;
+    let ceiling = 0;
+    for (const protocol of ["aave_v3", "moonwell", "compound_v3", "morpho"] as Protocol[]) {
+      for (const profile of ["conservative", "moderate", "aggressive"] as const) {
+        for (let hfi = 1101; hfi <= 2000; hfi += 7) {
+          for (const wlt of [0.5, 0.75, 0.83, 0.93, 0.965, 0.99, 0.9999]) {
+            const hf = hfi / 1000;
+            states++;
+            const rec = adviseLeg(
+              leg({
+                protocol,
+                // Engine-reachable pairing: the HF <= 1.25 proximity floor puts
+                // any of these at HIGH or above, which is what opens rule 3.
+                total: hf <= 1.1 ? 75 : 50,
+                band: hf <= 1.1 ? "CRITICAL" : "HIGH",
+                healthFactor: hf,
+                weightedLiquidationThreshold: wlt,
+                borrowValueUsd: 100_000,
+                collateralValueUsd: 1_000_000,
+              }),
+              profile,
+            );
+            if (rec.triggers.includes("promoted:reduce_to_exit")) promotions++;
+            ceiling = Math.max(ceiling, rec.collateralFundedAlternative?.repayFraction ?? 0);
+          }
+        }
+      }
+    }
+    expect(states).toBeGreaterThan(10_000);
+    expect(promotions).toBe(0);
+    expect(ceiling).toBeLessThan(REDUCE_TO_EXIT_RATIO);
   });
 });

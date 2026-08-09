@@ -1,14 +1,20 @@
 /**
- * Partial-repay math for the Advisor (wallet-funded model, Phase 2).
+ * Partial-repay math for the Advisor, in both of the ways a repay can be
+ * funded.
  *
  * HF = L / D where L = liquidation-weighted collateral (Aave: totalCollateralBase
- * x currentLiquidationThreshold) and D = total debt. Repaying R dollars of debt
- * without touching collateral gives HF' = L / (D - R). Solving L/(D-R) = T:
+ * x currentLiquidationThreshold) and D = total debt.
+ *
+ * WALLET-FUNDED: the money comes from the user's wallet, so collateral is
+ * untouched and L is invariant. HF' = L / (D - R) = T gives
  *
  *   R = D * (1 - HF_now / T)
  *
- * Only HF and borrowUsd are needed - both already on every ActiveScore leg -
- * so no per-asset liquidation-threshold decomposition is required.
+ * Only HF and borrowUsd are needed - both already on every ActiveScore leg.
+ *
+ * COLLATERAL-FUNDED: the position's own collateral is sold to fund the repay,
+ * so both sides move. See `collateralFundedRepayToTargetHf`, which additionally
+ * needs the weighted liquidation threshold.
  */
 
 import type { RiskProfile } from "../types";
@@ -23,7 +29,34 @@ export const TARGET_HF: Record<RiskProfile, number> = {
   aggressive: 1.5,
 };
 
-/** Above this fraction of total debt, a REDUCE is promoted to a full EXIT. */
+/**
+ * Above this fraction of total debt, a REDUCE is promoted to a full EXIT.
+ *
+ * MEASURED UNREACHABLE, under BOTH funding modes. Do not re-derive this; the
+ * sweep has now been run twice and both runs drive the real `adviseLeg` over
+ * engine-reachable states rather than reasoning about the algebra.
+ *
+ * Wallet-funded (issue #28, 2026-08-09): R/D = 1 - HF/T, so R/D > 0.9 needs
+ * HF < 0.1*T. The engine floors HF <= 1.10 to score >= 75 = CRITICAL, where
+ * rule 1 returns a plain EXIT before the promotion branch is reached.
+ * Measured ceiling 0.4495, at HF 1.101 / conservative.
+ *
+ * Collateral-funded (this branch, 2026-08-10): R/D = (T - HF)/(T - WLT), which
+ * is much larger but still short. Same HF floor caps the numerator at
+ * T - 1.100, and WLT is a fraction of collateral so the denominator cannot go
+ * below T - 1. The supremum is therefore (2.0 - 1.100)/(2.0 - 1.0) = 0.9
+ * EXACTLY, approached only as WLT tends to 1, and the branch tests strictly
+ * greater than. Measured ceiling 0.89891 over 100,082,022 states, at HF 1.101 /
+ * conservative / WLT 0.9999 - a probe above every threshold that exists on
+ * Base. At the highest REAL one (Morpho LLTV 0.965) the ceiling is 0.8686.
+ * Zero promotions in the whole sweep.
+ *
+ * So the deleverager did NOT bring the branch to life, which is what issue #28
+ * expected it to do. Lowering the constant is a live-risk-parameter change and
+ * a founder decision, not an engineering one; the measurement is recorded here
+ * and on the issue so the next reader inherits the numbers instead of the
+ * question. `tests/advisor.test.ts` locks the ceiling as a regression.
+ */
 export const REDUCE_TO_EXIT_RATIO = 0.9;
 
 /**
@@ -189,11 +222,24 @@ export function repayAmountFromFraction(debt: bigint, fraction: number): bigint 
 }
 
 /**
- * Phase 3 (flash-loan / collateral-funded) variant, documented for the
- * Deleverager: selling collateral to repay changes both numerator and
- * denominator - HF' = (L - LT_w*R) / (D - R) = T gives R = (T*D - L)/(T - LT_w),
- * with L = HF_now * D and LT_w the weighted liquidation threshold.
- * Unused in Phase 2 (wallet-funded repays leave collateral untouched).
+ * The COLLATERAL-FUNDED variant: dollars of debt to repay by selling the
+ * position's own collateral, to lift HF to `targetHf`.
+ *
+ * Selling collateral to repay moves both sides of HF = L / D, which is the
+ * whole reason it needs its own formula. Repaying R by selling R dollars of
+ * collateral removes LT_w * R of liquidation-weighted collateral, so
+ * HF' = (L - LT_w*R) / (D - R) = T gives R = (T*D - L) / (T - LT_w), with
+ * L = HF_now * D and LT_w the weighted liquidation threshold.
+ *
+ * The result is strictly larger than `repayToTargetHf` for the same target -
+ * the collateral shrinks too, so more debt has to go - which is the cost of
+ * needing no capital in the wallet.
+ *
+ * `weightedLiquidationThreshold` must be a real reading. Fed 0 for an unknown
+ * this silently collapses to the wallet-funded answer and under-sizes the
+ * repay, so `rules.ts` omits the option on a leg whose WLT is null rather than
+ * substituting one. Returns 0 (no plan) when the target is at or below the
+ * threshold, which is a target selling collateral can never reach.
  */
 export function collateralFundedRepayToTargetHf(
   borrowUsd: number,

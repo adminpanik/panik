@@ -11,9 +11,16 @@ import { ALERT_POLICY, CRASH_REGIME, LIQUIDATION_PROXIMITY_FLOORS, PROTO_FLOOR }
 import { statusFor } from "../profile";
 import { scoreProtocolSafety } from "../subscores/protocolSafety";
 import type { Protocol, RiskProfile } from "../types";
-import { protocolRepayUsdFloor } from "./economicFloor";
+import {
+  collateralFundedRepayUsdFloor,
+  DEFAULT_SWAP_SLIPPAGE_BPS,
+  DELEVERAGE_FLASH_FEE_BPS,
+  DELEVERAGE_GAS_UNITS,
+  protocolRepayUsdFloor,
+} from "./economicFloor";
 import { fallbackSections, overallHeadline, PROTOCOL_LABEL, fmtPct } from "./fallback";
 import {
+  collateralFundedRepayToTargetHf,
   REDUCE_TO_EXIT_RATIO,
   repayFractionOfDebt,
   repayToTargetHf,
@@ -26,6 +33,7 @@ import {
   type AdvisorOverall,
   type AdvisorRecommendation,
   type LegMarketContext,
+  type RepayPlan,
   type Urgency,
 } from "./types";
 
@@ -41,6 +49,68 @@ export const REBALANCE_SAFETY_GATE = 60;
  */
 export interface AdviseOptions {
   gasUsd?: number;
+  /**
+   * Swap slippage allowance for a collateral-funded repay, in bps. Omitted,
+   * `economicFloor.DEFAULT_SWAP_SLIPPAGE_BPS` stands in, which is the same 1%
+   * a fresh standing permission is granted with. A caller that has read the
+   * user's actual permission should pass its figure so the quoted cost is the
+   * one the transaction will be held to.
+   */
+  swapSlippageBps?: number;
+}
+
+/**
+ * The same protection as the wallet-funded repay, funded by selling the user's
+ * own collateral - or undefined when this leg cannot offer one.
+ *
+ * Three reasons to return undefined, and none of them is a number:
+ *  1. the weighted liquidation threshold is unknown. The sizing divides by
+ *     `targetHf - WLT`, so a missing WLT cannot be stood in for; a 0 would
+ *     silently answer the wallet-funded question and under-size the repay, and
+ *     any other guess would size a real transaction off a fabricated chain
+ *     parameter. No reading, no option.
+ *  2. the target is not reachable by selling collateral (`targetHf <= WLT`, or
+ *     the position is already at target), which `collateralFundedRepayToTargetHf`
+ *     reports as a repay of 0.
+ *  3. the repay does not clear its own economic floor. This route pays a flash
+ *     fee, swap slippage and several times the gas of a plain repay, so its
+ *     floor is strictly higher than the wallet-funded one and a repay can clear
+ *     that one while failing this.
+ */
+function collateralFundedPlan(
+  score: ActiveScore,
+  hf: number,
+  borrowUsd: number,
+  targetHf: number,
+  opts?: AdviseOptions,
+): RepayPlan | undefined {
+  const wlt = score.weightedLiquidationThreshold;
+  if (wlt === null || !Number.isFinite(wlt)) return undefined;
+  const repayUsd = collateralFundedRepayToTargetHf(borrowUsd, hf, targetHf, wlt);
+  if (repayUsd <= 0) return undefined;
+  const slippageBps = opts?.swapSlippageBps ?? DEFAULT_SWAP_SLIPPAGE_BPS;
+  const floorUsd = collateralFundedRepayUsdFloor(score.protocol, opts?.gasUsd, slippageBps);
+  if (floorUsd === null || repayUsd < floorUsd) return undefined;
+  // The fraction comes off the UNROUNDED repay, the same rule the wallet-funded
+  // plan follows: a display rounding must not reach the executable amount.
+  const repayFraction = repayFractionOfDebt(repayUsd, borrowUsd);
+  if (repayFraction === null) return undefined;
+  return {
+    repayUsd: Math.round(repayUsd),
+    repayAssetSymbol: score.dominantBorrowSymbol,
+    repayFraction,
+    targetHf,
+    // A repay that clears the whole debt leaves no health factor at all, which
+    // is what a null says here and on `ActiveScore.healthFactor`. Echoing
+    // `targetHf` would print a ratio the position will never hold.
+    projectedHf: repayFraction >= 1 ? null : targetHf,
+    mode: "collateral_funded",
+    costs: {
+      flashFeeBps: DELEVERAGE_FLASH_FEE_BPS[score.protocol],
+      slippageBps,
+      gasUnits: DELEVERAGE_GAS_UNITS[score.protocol],
+    },
+  };
 }
 
 function numbersOf(score: ActiveScore): AdvisorRecommendation["numbers"] {
@@ -190,6 +260,19 @@ export function adviseLeg(
     // for "there is no repay worth quoting here".
     const floorUsd = protocolRepayUsdFloor(score.protocol, opts?.gasUsd);
     if (repayUsd > 0 && repayFraction !== null && floorUsd !== null && repayUsd >= floorUsd) {
+      // The same protection, funded by the user's own collateral rather than
+      // their wallet. Emitted BESIDE the wallet-funded plan, never instead of
+      // it: the choice between them turns on a wallet balance this engine
+      // cannot see. See `AdvisorRecommendation.collateralFundedAlternative`.
+      //
+      // Scoped to the branch that already recommends a repay. A leg whose
+      // wallet-funded repay falls below its floor falls through to MONITOR, and
+      // hanging a sized deleverage off "no action needed yet" would be the
+      // advisor recommending, in a second field, the thing its action says not
+      // to do.
+      const collateralFundedAlternative =
+        hf !== null ? collateralFundedPlan(score, hf, borrowUsd, targetHf, opts) : undefined;
+      if (collateralFundedAlternative) triggers.push("repay:collateral_funded_available");
       const repayPlan = {
         repayUsd: Math.round(repayUsd),
         // The leg's own debt asset, never an assumed stablecoin. Null when the
@@ -207,6 +290,14 @@ export function adviseLeg(
       // intents, and a user who wants to be unlevered while leaving collateral
       // deposited was previously offered only the door. Both outcomes are named,
       // neither is hidden.
+      //
+      // This branch is MEASURED UNREACHABLE from a live position, and it stayed
+      // unreachable when the deleverager landed: collateral-funded sizing tops
+      // out at 0.89891 against a gate of 0.9, with a supremum of exactly 0.9.
+      // The numbers and the method are on REDUCE_TO_EXIT_RATIO in repayMath.ts
+      // and on issue #28 - do not re-derive them from the algebra. It is kept
+      // rather than deleted because the threshold is a live risk constant and
+      // moving it is the founder's call, not this branch's.
       if (repayUsd > REDUCE_TO_EXIT_RATIO * borrowUsd) {
         triggers.push("promoted:reduce_to_exit");
         // The WHOLE debt as a fraction of itself. Routed through the engine's
@@ -234,11 +325,13 @@ export function adviseLeg(
           repayPlan,
           exitPrefill: { protocol: score.protocol, kind: "full" },
           alternative,
+          collateralFundedAlternative,
         });
       }
       triggers.push(`target:hf=${targetHf}`);
       return finish("REDUCE", "warning", {
         repayPlan,
+        collateralFundedAlternative,
         exitPrefill: {
           protocol: score.protocol,
           kind: "partial",

@@ -209,6 +209,26 @@ describe("dev:mock fixtures — advisor invariants", () => {
       expect(rec.numbers.borrowValueUsd).toBe(p?.borrowValueUsd);
     }
   });
+
+  it("offers a collateral-funded route the engine could really size", () => {
+    const rec = MOCK_ADVISOR_RECOMMENDATIONS.find((r) => r.collateralFundedAlternative);
+    expect(rec, "no leg carries a collateral-funded alternative").toBeDefined();
+    const wallet = rec?.repayPlan;
+    const collateral = rec?.collateralFundedAlternative;
+    // Both routes, never one instead of the other: the engine cannot see a
+    // wallet balance, so it emits each and the client picks.
+    expect(wallet?.mode).toBe("wallet_funded");
+    expect(collateral?.mode).toBe("collateral_funded");
+    expect(rec?.triggers).toContain("repay:collateral_funded_available");
+    // Selling collateral shrinks both sides of HF, so it always repays more.
+    expect(collateral?.repayUsd).toBeGreaterThan(wallet?.repayUsd ?? 0);
+    expect(collateral?.targetHf).toBe(wallet?.targetHf);
+    // The costs are what makes this route a choice rather than a free lunch,
+    // and the wallet-funded plan pays none of them - so it carries none.
+    expect(wallet?.costs).toBeUndefined();
+    expect(collateral?.costs?.flashFeeBps).toBeGreaterThanOrEqual(0);
+    expect(collateral?.costs?.gasUnits).toBeGreaterThan(0);
+  });
 });
 
 /**

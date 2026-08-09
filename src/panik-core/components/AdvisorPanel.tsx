@@ -54,7 +54,8 @@ import { EXIT_ENV } from "../lib/exit";
  * repay. One rounding rule per quantity, and the rule belongs to the layer that
  * owns the number.
  */
-import { fmtUsd } from "../../../packages/scoring/src/advisor/fallback";
+import { fmtBps, fmtGasUnits, fmtUsd } from "../../../packages/scoring/src/advisor/fallback";
+import { isDeleverageExecutable } from "../lib/exit";
 
 const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
   aave_v3: "Aave V3",
@@ -78,6 +79,17 @@ const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
  */
 const ACTION_CHIP =
   "shrink-0 rounded-md border border-border-subtle bg-white/[0.06] px-2.5 py-1 text-2xs font-sans font-bold text-text-primary";
+
+/**
+ * What the card says about a collateral-funded repay it cannot yet perform.
+ *
+ * The sizing is true and worth reading: it tells a user with none of the debt
+ * asset that a route exists and what it would cost. What the app must not do is
+ * imply they can take it today, so the sentence names the gap rather than the
+ * card quietly offering a dead button. It disappears on its own the moment
+ * `DELEVERAGE_EXECUTABLE_PROTOCOLS` names a chain.
+ */
+const DELEVERAGE_NOT_LIVE = "This route is not available to sign yet.";
 
 function ActionButton({
   rec,
@@ -317,6 +329,12 @@ interface Outcome {
   protection: string;
   /** The exact health factor, on request. */
   hint?: string;
+  /**
+   * A third line, for a caveat about the outcome ITSELF rather than about its
+   * price or its result. Today one thing needs it: an option the app can
+   * describe truthfully but cannot yet execute.
+   */
+  note?: string;
 }
 
 /**
@@ -370,6 +388,47 @@ function outcomesFor(rec: AdvisorRecommendation): Outcome[] {
     });
   }
 
+  // The same protection as the sized repay above, funded the other way. It is
+  // a separate outcome and not a variant of one, because it asks the user for
+  // something different: nothing. The engine emits both plans because it cannot
+  // see a wallet balance, so this card's job is to name what each one needs.
+  const collateralFunded = rec.collateralFundedAlternative;
+  if (collateralFunded) {
+    const outlook = liquidationOutlook(collateralFunded.projectedHf, symbol);
+    const costs = collateralFunded.costs;
+    out.push({
+      key: "collateral_funded",
+      title: "Repay from your collateral",
+      // The repay is the figure the engine sized; the collateral sold is that
+      // plus the fees below it, which is why the sentence names the repay and
+      // says the collateral funds it rather than quoting a sale amount the
+      // engine never computed.
+      cost:
+        `Repays ${fmtUsd(collateralFunded.repayUsd)}` +
+        `${collateralFunded.repayAssetSymbol ? ` of ${collateralFunded.repayAssetSymbol}` : ""} ` +
+        `by selling part of your ${symbol}. You need nothing in your wallet.`,
+      protection: `${outlook.sentence}. The rest of your collateral stays deposited.`,
+      hint: outlook.hover,
+      // The three costs this route pays and the wallet-funded one does not,
+      // stated before anything is signed. Gas is units, because a dollar figure
+      // needs a live gas price and ETH price the app does not hold here, and the
+      // block already tells the user where gas is priced.
+      note: [
+        costs
+          ? `Costs ${fmtBps(costs.flashFeeBps)} to borrow the funds, up to ${fmtBps(costs.slippageBps)} of the sale price, and about ${fmtGasUnits(costs.gasUnits)} gas.`
+          : null,
+        // The honesty gate. The contract that performs this is not deployed on
+        // any chain the app talks to, so the card explains the option and says
+        // plainly that it cannot be signed yet. It gets no button anywhere:
+        // offering a control for something the code cannot do is the exact
+        // failure "never state a fact the code does not know" exists to stop.
+        isDeleverageExecutable(rec.protocol) ? null : DELEVERAGE_NOT_LIVE,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    });
+  }
+
   if (rec.alternative) {
     out.push({
       key: "full_repay",
@@ -410,6 +469,10 @@ function Outcomes({ rec }: { rec: AdvisorRecommendation }) {
             {o.protection}
             {o.hint ? <InfoTip text={o.hint} className="ml-1" /> : null}
           </p>
+          {/* Muted and one step down, because it qualifies the outcome rather
+              than describing it: the reader has already had the answer in the
+              two lines above. Same size as the block's own gas footnote. */}
+          {o.note ? <p className="text-xs font-sans text-text-muted">{o.note}</p> : null}
         </div>
       ))}
       {/* The two costs this screen genuinely does not know. Gas comes from the

@@ -50,6 +50,43 @@ export function fmtPct(p: number): string {
   return `${(p * 100).toFixed(1)}%`;
 }
 
+/**
+ * Basis points as a percent: 5 -> "0.05%", 100 -> "1%", 0 -> "0%".
+ *
+ * `fmtPct` cannot be reused here and the difference is not cosmetic. It takes a
+ * FRACTION and rounds to one decimal, so a 5 bps flash fee would come out of it
+ * as "0.1%" - twice the real charge, on a cost figure a user is about to sign
+ * against. Two decimals of a percent is the resolution bps actually carries,
+ * and trailing zeros are dropped so the common 1% allowance does not render as
+ * the falsely-precise "1.00%".
+ *
+ * Zero renders as "0%", which is a measured fact here and not an unknown: the
+ * Balancer and Morpho flash paths charge nothing, and Morpho Blue takes no
+ * flash loan at all. The rule this does not break is "never render an UNKNOWN
+ * as a zero"; an absent cost is expressed by omitting the field, not by a 0.
+ */
+export function fmtBps(bps: number): string {
+  if (!Number.isFinite(bps)) return "—";
+  return `${(bps / 100).toFixed(2).replace(/\.?0+$/, "")}%`;
+}
+
+/**
+ * Gas in UNITS, rounded to the nearest thousand: 693320 -> "693,000".
+ *
+ * Units, never dollars. Pricing gas needs a live gas price and an ETH price
+ * that this package cannot read, and a plausible-looking dollar figure here
+ * would be a number the code never had. The surface pairs this with "priced
+ * when you sign", which is where the real cost is established.
+ *
+ * The rounding says what the figure is worth: it is one fork measurement of one
+ * position, so the last three digits carry no information a reader should act
+ * on and printing them would claim a precision the number does not have.
+ */
+export function fmtGasUnits(units: number): string {
+  if (!Number.isFinite(units) || units < 0) return "—";
+  return (Math.round(units / 1000) * 1000).toLocaleString("en-US");
+}
+
 /** Name the sub-score (or TVL signal) most responsible for the current score. */
 export function dominantDriver(
   rec: Pick<AdvisorRecommendation, "numbers">,

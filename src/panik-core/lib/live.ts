@@ -318,6 +318,25 @@ export interface AdvisorSections {
   execution: string;
 }
 
+/**
+ * What a collateral-funded repay costs, on top of the debt it clears. Present
+ * only on a `collateral_funded` plan: a wallet-funded repay swaps nothing and
+ * borrows nothing, and printing it a "0% flash fee" would advertise the absence
+ * of a mechanism as a feature. See `packages/scoring/src/advisor/types.ts`.
+ */
+export interface AdvisorRepayCosts {
+  /** Flash-loan fee, bps of the repaid amount, worst case of the route taken. */
+  flashFeeBps: number;
+  /** Swap slippage ALLOWANCE, bps. Enforced on chain; a worse fill reverts. */
+  slippageBps: number;
+  /**
+   * Gas the deleverage burns, in GAS UNITS (fork-measured per protocol). Never
+   * a dollar figure: pricing it needs a live gas price and ETH price the engine
+   * does not have, so a surface without both says gas is priced at signing.
+   */
+  gasUnits: number;
+}
+
 export interface AdvisorRepayPlan {
   /** Display only; a dollar figure is never converted back into token units. */
   repayUsd: number;
@@ -334,7 +353,15 @@ export interface AdvisorRepayPlan {
   targetHf: number;
   /** Null when the plan clears the debt: no debt means no health factor. */
   projectedHf: number | null;
-  mode: "wallet_funded";
+  /**
+   * Where the money comes from. `wallet_funded`: the user pays from their own
+   * wallet in the debt asset, nothing is sold. `collateral_funded`: their own
+   * collateral funds it, so they need no capital in the wallet, and it costs a
+   * flash fee, swap slippage and materially more gas (see `costs`).
+   */
+  mode: "wallet_funded" | "collateral_funded";
+  /** Present iff `mode === "collateral_funded"`. See `AdvisorRepayCosts`. */
+  costs?: AdvisorRepayCosts;
 }
 
 /**
@@ -367,6 +394,14 @@ export interface AdvisorRecommendation {
   repayPlan?: AdvisorRepayPlan;
   /** A declinable second outcome; see `AdvisorAlternative`. */
   alternative?: AdvisorAlternative;
+  /**
+   * The same protection as `repayPlan`, funded by the user's own collateral
+   * rather than their wallet. Both arrive together because the engine has no
+   * wallet-balance input and so cannot know which route the user can actually
+   * take; the client picks. Absent means the leg has no such option, never that
+   * the option is free. See `packages/scoring/src/advisor/types.ts`.
+   */
+  collateralFundedAlternative?: AdvisorRepayPlan;
   openPlan?: AdvisorOpenPlan;
   rebalance?: { toProtocol: LiveProtocol; reason: string };
   sections: AdvisorSections;

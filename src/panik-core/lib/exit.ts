@@ -76,6 +76,36 @@ export function isExitExecutable(protocol: LiveProtocol): boolean {
   return EXECUTABLE_PROTOCOLS[EXIT_ENV].includes(protocol);
 }
 
+/**
+ * Protocols on which a COLLATERAL-FUNDED repay can actually be executed, per
+ * environment. Empty in both, and that is the honest reading rather than a
+ * placeholder: `PanikDeleverager` is proven against a Base mainnet fork and is
+ * DEPLOYED NOWHERE, so there is no address to send a transaction to on either
+ * chain.
+ *
+ * It is a table rather than a bare `false` so the cutover is the same one-line
+ * edit the exit flow already takes, next to the constant it mirrors, instead of
+ * a boolean somebody has to find.
+ */
+export const DELEVERAGE_EXECUTABLE_PROTOCOLS: Record<ExitEnv, LiveProtocol[]> = {
+  testnet: [],
+  mainnet: [],
+};
+
+/**
+ * Whether the app can execute a collateral-funded repay on this protocol today.
+ *
+ * The advisor sizes the option regardless, because the sizing is a true
+ * statement about the position and is worth showing. What a surface must NOT do
+ * is put a button on it: an action the code cannot perform, offered as though it
+ * could, is precisely the "never state a fact the code does not know" failure.
+ * Explain the option, name that it is not live yet, and gate the control on
+ * this.
+ */
+export function isDeleverageExecutable(protocol: LiveProtocol): boolean {
+  return DELEVERAGE_EXECUTABLE_PROTOCOLS[EXIT_ENV].includes(protocol);
+}
+
 // ── Minimal ABIs used by the flow (panik-core-local copies) ────────────────
 
 export const EXIT_ERC20_ABI = [

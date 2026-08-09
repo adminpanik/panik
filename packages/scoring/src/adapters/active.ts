@@ -52,6 +52,22 @@ export interface ActiveScore extends Omit<DegradedScoreResult, "subScores"> {
    * `ActiveReading.dominantCollateralUnpriced`.
    */
   dominantCollateralUnpriced: boolean;
+  /**
+   * Collateral-value-weighted liquidation threshold, a FRACTION in 0..1,
+   * carried straight through from `ActiveReading.weightedLiquidationThreshold`
+   * (which documents the per-protocol source).
+   *
+   * The advisor needs it to size a COLLATERAL-FUNDED repay: selling collateral
+   * to repay moves both sides of HF = L / D, and the solution
+   * `collateralFundedRepayToTargetHf` divides by `targetHf - WLT`.
+   *
+   * null when the protocol read could not establish it - never 0, and never
+   * substituted. Zero is a real threshold, and the sizing function acts on the
+   * number it is handed: fed 0 for an unknown it silently answers the
+   * wallet-funded question instead and under-sizes the repay. The advisor omits
+   * the collateral-funded option on a leg with a null rather than guess one.
+   */
+  weightedLiquidationThreshold: number | null;
   /** Asset whose market risk was scored (dominant collateral). */
   scoredCollateralSymbol: string;
   /**
@@ -141,6 +157,7 @@ export class ActiveAdapter {
         collateralValueUsd: reading.collateralValueUsd,
         borrowValueUsd: reading.borrowValueUsd,
         usdValuesUnavailable: reading.usdValuesUnavailable === true,
+        weightedLiquidationThreshold: reading.weightedLiquidationThreshold,
         marketContextUnavailable: assetRisk === null || systemicRisk === null,
         dominantCollateralUnpriced: reading.dominantCollateralUnpriced === true,
         scoredCollateralSymbol: assetRiskIsProxy ? "WETH (proxy)" : (symbol as string),
