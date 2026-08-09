@@ -12,13 +12,22 @@ import { describe, expect, it } from "vitest";
 import {
   AMOUNT_FULL,
   buildExitLegs,
+  capRepayToWallet,
   formatTokenAmount,
+  maxAmountWithinBuffer,
   PROTOCOL_ID,
   REPAY_FRACTION_SCALE,
   swapAcquisitionNote,
   swapSlippageFloor,
+  withAccrualBuffer,
   type ExitReserveState,
 } from "./exitLegs";
+import {
+  hfAfterRepayFraction,
+  repayAmountFromFraction,
+  repayFractionFloorFromAmount,
+  repayUsdFromFraction,
+} from "../../../packages/scoring/src/advisor/repayMath";
 
 const USDC = "0x0000000000000000000000000000000000000001" as const;
 const WETH = "0x0000000000000000000000000000000000000002" as const;
@@ -292,5 +301,166 @@ describe("swapAcquisitionNote", () => {
     const note = swapAcquisitionNote({ ...base, config: null });
     expect(note).toBe("You need 2 more WETH in your wallet before you can do this.");
     expect(note).not.toContain("%");
+  });
+});
+
+describe("maxAmountWithinBuffer", () => {
+  it("is the largest amount whose 2% approval buffer still fits the balance", () => {
+    // Checked by round trip rather than by restating the formula: the answer
+    // must fit, and one more unit must not.
+    for (const balance of [1n, 101n, 102n, 1_000n, 1_000_000n, 10n ** 18n, 123_456_789n]) {
+      const max = maxAmountWithinBuffer(balance);
+      expect(withAccrualBuffer(max)).toBeLessThanOrEqual(balance);
+      expect(withAccrualBuffer(max + 1n)).toBeGreaterThan(balance);
+    }
+  });
+
+  it("never hands back something the balance cannot cover", () => {
+    expect(maxAmountWithinBuffer(0n)).toBe(0n);
+    expect(maxAmountWithinBuffer(-5n)).toBe(0n);
+    // 102 units of balance funds exactly 100 of repay (100 + 2% = 102).
+    expect(maxAmountWithinBuffer(102n)).toBe(100n);
+  });
+});
+
+/**
+ * The wallet cap.
+ *
+ * A wallet-funded repay is pulled from the user, so the flow used to stop dead
+ * at a shortfall: disabled button, "you need 2 more WETH", no way forward.
+ * These pin the smaller repay it offers instead, and the rule that makes that
+ * safe - it always rounds DOWN, in the token's own units.
+ */
+describe("capRepayToWallet", () => {
+  const M = 10n ** 6n; // one USDC
+
+  it("says nothing when the wallet already covers the request", () => {
+    expect(
+      capRepayToWallet({
+        rows: [{ debt: 1_000n * M, balance: 1_000n * M }],
+        requestedFraction: 0.5,
+        borrowUsd: 1_000,
+        healthFactor: 1.2,
+      }),
+    ).toBeNull();
+  });
+
+  it("cuts the fraction to what the balance funds, after the accrual buffer", () => {
+    // 1,000 USDC of debt, 200 USDC in the wallet. The buffer takes 2% off what
+    // that balance can commit to, so the fraction lands under 0.2.
+    const cap = capRepayToWallet({
+      rows: [{ debt: 1_000n * M, balance: 200n * M }],
+      requestedFraction: 0.5,
+      borrowUsd: 1_000,
+      healthFactor: 1.2,
+    });
+    const fundable = maxAmountWithinBuffer(200n * M);
+    expect(cap?.appliedFraction).toBe(repayFractionFloorFromAmount(fundable, 1_000n * M));
+    expect(cap?.appliedFraction).toBe(0.196078);
+    expect(cap?.requestedFraction).toBe(0.5);
+  });
+
+  it("never executes more than the wallet holds", () => {
+    // The whole point of flooring: rebuild the leg at the capped fraction and
+    // the amount, plus its approval buffer, must still fit the balance.
+    const debt = 3n * 10n ** 18n; // 3 WETH
+    const balance = 10n ** 18n + 7n; // just over 1 WETH
+    const cap = capRepayToWallet({
+      rows: [{ debt, balance }],
+      requestedFraction: 0.9,
+      borrowUsd: 9_000,
+      healthFactor: 1.1,
+    });
+    const amount = repayAmountFromFraction(debt, cap?.appliedFraction as number) as bigint;
+    expect(withAccrualBuffer(amount)).toBeLessThanOrEqual(balance);
+  });
+
+  it("takes the tightest leg, because every leg scales by one fraction", () => {
+    // Health factor is L/D, so a reduce only lands where the advisor promised
+    // if EVERY debt leg moves by the same fraction. The wallet that funds the
+    // least therefore decides the whole plan.
+    const cap = capRepayToWallet({
+      rows: [
+        { debt: 1_000n * M, balance: 1_000n * M }, // covers everything
+        { debt: 1_000n * M, balance: 102n * M }, // covers 100
+      ],
+      requestedFraction: 0.5,
+      borrowUsd: 2_000,
+      healthFactor: 1.2,
+    });
+    expect(cap?.appliedFraction).toBe(0.1);
+  });
+
+  it("ignores legs with no debt rather than capping on them", () => {
+    const cap = capRepayToWallet({
+      rows: [
+        { debt: 0n, balance: 0n },
+        { debt: 1_000n * M, balance: 102n * M },
+      ],
+      requestedFraction: 0.5,
+      borrowUsd: 1_000,
+      healthFactor: 1.2,
+    });
+    expect(cap?.appliedFraction).toBe(0.1);
+  });
+
+  it("declines to cap when a leg cannot fund one step of the grid", () => {
+    // An empty wallet has no smaller repay to offer, only a shortfall, and the
+    // existing "you need X more" message says that better than a repay of
+    // nothing would.
+    expect(
+      capRepayToWallet({
+        rows: [{ debt: 1_000n * M, balance: 0n }],
+        requestedFraction: 0.5,
+        borrowUsd: 1_000,
+        healthFactor: 1.2,
+      }),
+    ).toBeNull();
+  });
+
+  it("quotes the dollars and the protection from the ENGINE, not from here", () => {
+    // $56,800 of debt at health factor 1.20, advisor sizing a repay to 1.75.
+    // The wallet holds 10,000 USDC of the ~17,851 that needs.
+    const debt = 56_800n * M;
+    const cap = capRepayToWallet({
+      rows: [{ debt, balance: 10_000n * M }],
+      requestedFraction: 0.314286,
+      borrowUsd: 56_800,
+      healthFactor: 1.2,
+    }) as NonNullable<ReturnType<typeof capRepayToWallet>>;
+
+    // Every field is an engine function applied to the capped fraction:
+    // nothing here re-derives a dollar figure or a health factor.
+    expect(cap.appliedRepayUsd).toBe(repayUsdFromFraction(56_800, cap.appliedFraction));
+    expect(cap.appliedHf).toBe(hfAfterRepayFraction(1.2, cap.appliedFraction));
+    expect(cap.requestedHf).toBe(hfAfterRepayFraction(1.2, 0.314286));
+    // And the full request really did land on the advisor's target.
+    expect(cap.requestedHf as number).toBeCloseTo(1.75, 4);
+    // The capped repay buys less protection, and says so with a real number.
+    expect(cap.appliedRepayUsd as number).toBeLessThan(17_851);
+    expect(cap.appliedHf as number).toBeLessThan(cap.requestedHf as number);
+    expect(cap.appliedHf as number).toBeGreaterThan(1.2);
+  });
+
+  it("states no dollars for a leg the engine could not price", () => {
+    // Degraded feed: the fraction is still exact, the dollars are not known,
+    // and "$0 of $0 suggested" is the failure this product bans outright.
+    const cap = capRepayToWallet({
+      rows: [{ debt: 1_000n * M, balance: 102n * M }],
+      requestedFraction: 0.5,
+      borrowUsd: null,
+      healthFactor: 1.2,
+    });
+    expect(cap?.appliedFraction).toBe(0.1);
+    expect(cap?.appliedRepayUsd).toBeNull();
+  });
+
+  it("rejects a request that is not a usable fraction", () => {
+    const rows = [{ debt: 1_000n * M, balance: 0n }];
+    for (const bad of [0, -0.5, Number.NaN]) {
+      expect(
+        capRepayToWallet({ rows, requestedFraction: bad, borrowUsd: 1_000, healthFactor: 1.2 }),
+      ).toBeNull();
+    }
   });
 });

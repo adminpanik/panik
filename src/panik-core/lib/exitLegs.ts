@@ -16,7 +16,10 @@
  */
 
 import {
+  hfAfterRepayFraction,
   repayAmountFromFraction,
+  repayFractionFloorFromAmount,
+  repayUsdFromFraction,
   REPAY_FRACTION_SCALE,
 } from "../../../packages/scoring/src/advisor/repayMath";
 import { fmtPct } from "../../../packages/scoring/src/advisor/fallback";
@@ -197,6 +200,110 @@ export function formatTokenAmount(value: bigint, decimals: number, dp = 2): stri
   const whole = scaled / scale;
   const fraction = dp > 0 ? (scaled % scale).toString().padStart(dp, "0").replace(/0+$/, "") : "";
   return fraction ? `${whole.toLocaleString("en-US")}.${fraction}` : whole.toLocaleString("en-US");
+}
+
+/**
+ * Interest-accrual headroom on every amount the user approves, in percent.
+ *
+ * Debt accrues between the read and the signature, so an approval sized to the
+ * amount read can come up a few units short at execution. 2% is the buffer the
+ * approval runner has always applied; it lives here because the wallet cap has
+ * to invert it, and a second literal 2% in the cap would be free to drift.
+ */
+export const ACCRUAL_BUFFER_PCT = 2n;
+
+/** amount + 2% (interest can accrue between approval and execution). */
+export function withAccrualBuffer(amount: bigint): bigint {
+  return amount + (amount * ACCRUAL_BUFFER_PCT) / 100n;
+}
+
+/**
+ * The largest repay a balance can fund once the accrual buffer is taken out:
+ * the greatest `a` with `withAccrualBuffer(a) <= balance`.
+ *
+ * Solved rather than approximated. `balance * 100 / 102` floors, and the floor
+ * of the buffer itself means that quotient can land one unit either side of the
+ * true answer, so both directions are walked. Each loop runs at most a couple
+ * of times, and the result is exact in the token's own units, which is what the
+ * "never execute more than the wallet holds" rule needs.
+ */
+export function maxAmountWithinBuffer(balance: bigint): bigint {
+  if (balance <= 0n) return 0n;
+  let amount = (balance * 100n) / (100n + ACCRUAL_BUFFER_PCT);
+  while (amount > 0n && withAccrualBuffer(amount) > balance) amount -= 1n;
+  while (withAccrualBuffer(amount + 1n) <= balance) amount += 1n;
+  return amount;
+}
+
+/** One debt leg's live debt and what the wallet holds of that same asset. */
+export interface RepayFundingBalance {
+  /** Live debt on this leg, in the debt asset's own units. */
+  debt: bigint;
+  /** Wallet balance of that asset, same units. */
+  balance: bigint;
+}
+
+/**
+ * The advisor's repay, cut down to what the wallet can actually pay for.
+ *
+ * A wallet-funded repay is pulled from the user, so a shortfall in ANY debt
+ * asset blocks the whole atomic transaction. The flow used to stop there: a
+ * disabled button, a line saying how much was missing, and no way forward. But
+ * a smaller repay is still a real reduction, and the user is entitled to know
+ * exactly how much protection the money they DO hold buys.
+ *
+ * Every debt leg is scaled by the SAME fraction, for the reason `buildExitLegs`
+ * gives: health factor is L/D, so scaling every leg by f scales D by f and
+ * lands the health factor where the arithmetic says. So the cap is the minimum
+ * over the legs, and it floors at every step (`repayFractionFloorFromAmount`,
+ * then `repayAmountFromFraction` again when the legs are rebuilt) so the
+ * executed amount can never exceed the balance it was derived from.
+ *
+ * Returns null when there is no cap to apply: the wallet already covers the
+ * request, or some leg cannot fund even one step of the fraction grid, which is
+ * a shortfall the existing "you need more X" message already explains better
+ * than a repay of nothing would.
+ */
+export interface WalletRepayCap {
+  /** What the advisor sized, unchanged. */
+  requestedFraction: number;
+  /** The largest fraction the wallet funds, on the engine's grid. */
+  appliedFraction: number;
+  /** Dollars the applied fraction repays. Null when the leg is unpriced. */
+  appliedRepayUsd: number | null;
+  /** Health factor after the capped repay. Null when it clears the debt. */
+  appliedHf: number | null;
+  /** Health factor the full suggestion would have reached. */
+  requestedHf: number | null;
+}
+
+export function capRepayToWallet(input: {
+  rows: readonly RepayFundingBalance[];
+  requestedFraction: number;
+  /** The leg's total debt in USD, from the engine. Null when unpriced. */
+  borrowUsd: number | null;
+  /** Health factor before the repay, from the engine. */
+  healthFactor: number | null;
+}): WalletRepayCap | null {
+  const { rows, requestedFraction, borrowUsd, healthFactor } = input;
+  if (!Number.isFinite(requestedFraction) || requestedFraction <= 0) return null;
+
+  let applied = requestedFraction;
+  for (const { debt, balance } of rows) {
+    if (debt <= 0n) continue;
+    const fundable = repayFractionFloorFromAmount(maxAmountWithinBuffer(balance), debt);
+    if (fundable === null) return null;
+    if (fundable < applied) applied = fundable;
+  }
+  if (applied >= requestedFraction) return null;
+
+  return {
+    requestedFraction,
+    appliedFraction: applied,
+    appliedRepayUsd: repayUsdFromFraction(borrowUsd, applied),
+    appliedHf: hfAfterRepayFraction(healthFactor, applied),
+    requestedHf: hfAfterRepayFraction(healthFactor, requestedFraction),
+  };
 }
 
 /** `getSwapConfig(asset)` as the executor reports it, narrowed to what is shown. */
