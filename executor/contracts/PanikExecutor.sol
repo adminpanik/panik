@@ -305,7 +305,10 @@ contract PanikExecutor is ReentrancyGuard {
         mockOracle = IAssetOracle(mockOracle_);
         lockChecker = LockChecker(lockChecker_);
         aaveAdapter = AaveAdapter(adapters_.aave);
-        moonwellAdapter = MoonwellAdapter(adapters_.moonwell);
+        // payable(): MoonwellAdapter has a receive() so Moonwell's mWETH redeem
+        // (which pays NATIVE ETH) does not revert. Compile-time cast only - it
+        // emits no code and leaves this contract's bytecode unchanged.
+        moonwellAdapter = MoonwellAdapter(payable(adapters_.moonwell));
         compoundAdapter = CompoundV3Adapter(adapters_.compound);
         morphoAdapter = MorphoAdapter(adapters_.morpho);
         swapAdapter = SwapAdapter(adapters_.swap);
