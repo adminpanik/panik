@@ -77,6 +77,7 @@ import {
 } from "./lib/live";
 import { AdvisorPanel } from "./components/AdvisorPanel";
 import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
+import { DelegationManager } from "./components/DelegationManager";
 import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
@@ -2963,6 +2964,11 @@ export function AppDemo() {
                         <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
                       )}
                     </div>
+
+                    {/* Standing exit permission (Phase 2.C) - grant/disclose/revoke
+                        a scoped ExitPermit the user signs; the relayer that uses
+                        it is Phase 4. */}
+                    <DelegationManager riskProfile={selectedRiskProfile} />
 
                     {/* Emergency auto repayment trigger (interactive preference).
                         Hidden per business-dev QA (2026-07-03) until the
