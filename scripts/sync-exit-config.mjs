@@ -3,21 +3,36 @@
  * src/panik-core/lib/exit.generated.ts.
  *
  * Usage:  npm run sync:exit-config
- * Source: EXIT_CONFIG_SOURCE env, or the sibling Desktop/Panik checkout.
+ * Source: EXIT_CONFIG_SOURCE env var (required, no default).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const source =
-  process.env.EXIT_CONFIG_SOURCE ??
-  "C:/Users/ASUS/Desktop/Panik/deploy/onchain-config.json";
+const source = process.env.EXIT_CONFIG_SOURCE;
 const target = path.resolve(here, "../src/panik-core/lib/exit.generated.ts");
+
+if (!source) {
+  console.error(
+    [
+      "EXIT_CONFIG_SOURCE is not set.",
+      "",
+      "This script reads onchain-config.json, the deployment manifest written by",
+      "the executor repo's `npm run deploy:base-sepolia` (addresses + ABIs for the",
+      "exit executor, lock checker and adapters). That file lives outside this",
+      "repo, in the executor repo's deploy/ directory - there is no default path.",
+      "",
+      "Set EXIT_CONFIG_SOURCE to the absolute path of that file and re-run, e.g.:",
+      "  EXIT_CONFIG_SOURCE=/path/to/executor-repo/deploy/onchain-config.json npm run sync:exit-config",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
 
 if (!fs.existsSync(source)) {
   console.error(`exit config source not found: ${source}`);
-  console.error("Deploy the executor repo first (npm run deploy:base-sepolia), or set EXIT_CONFIG_SOURCE.");
+  console.error("Deploy the executor repo first (npm run deploy:base-sepolia), or check EXIT_CONFIG_SOURCE.");
   process.exit(1);
 }
 
