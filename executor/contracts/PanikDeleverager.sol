@@ -401,14 +401,20 @@ contract PanikDeleverager is
             address comptroller = IMToken(debtMToken).comptroller();
             uint256 shortfallBefore = _moonwellShortfall(comptroller, user);
             _moonwellRepay(debtMToken, p.debtAsset, p.repayAmount, user);
+            uint256 ethBefore = address(this).balance;
             _moonwellWithdraw(collMToken, p.collateralToken, p.collateralWithdraw, user);
             // Moonwell's native-asset mToken (mWETH) redeems to NATIVE ETH, not
-            // the ERC-20 wrapper (verified on a Base fork). Re-wrap it so the
-            // collateral we sell is the token the swap path expects. Only the
-            // ETH market ever leaves a balance here, and there collateralToken
-            // IS the WETH wrapper.
-            if (address(this).balance > 0) {
-                IWETH(p.collateralToken).deposit{value: address(this).balance}();
+            // the ERC-20 wrapper (verified on a Base fork). Wrap ONLY the ETH
+            // THIS redeem produced (the delta) - never the absolute balance. A
+            // stray ETH donation (receive() accepts ETH from anyone) must not be
+            // foldable into the user's proceeds, nor able to brick a non-native
+            // Moonwell market: there redeem yields an ERC-20 and no ETH, so the
+            // delta is zero and this branch is skipped entirely (calling
+            // deposit() on a non-WETH collateral would otherwise revert). On the
+            // only market that redeems ETH, collateralToken IS the WETH wrapper.
+            uint256 ethReceived = address(this).balance - ethBefore;
+            if (ethReceived > 0) {
+                IWETH(p.collateralToken).deposit{value: ethReceived}();
             }
             uint256 shortfallAfter = _moonwellShortfall(comptroller, user);
             if (shortfallAfter > shortfallBefore) revert HealthNotImproved();
