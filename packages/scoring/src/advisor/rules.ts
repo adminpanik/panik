@@ -11,6 +11,7 @@ import { ALERT_POLICY, CRASH_REGIME, LIQUIDATION_PROXIMITY_FLOORS, PROTO_FLOOR }
 import { statusFor } from "../profile";
 import { scoreProtocolSafety } from "../subscores/protocolSafety";
 import type { Protocol, RiskProfile } from "../types";
+import { protocolRepayUsdFloor } from "./economicFloor";
 import { fallbackSections, overallHeadline, PROTOCOL_LABEL, fmtPct } from "./fallback";
 import {
   REDUCE_TO_EXIT_RATIO,
@@ -30,6 +31,17 @@ import {
 
 /** Protocol-safety sub-score at/above which a rebalance is suggested. */
 export const REBALANCE_SAFETY_GATE = 60;
+
+/**
+ * Per-call inputs the engine cannot read for itself.
+ *
+ * `gasUsd` is the cost of one repay transaction, and it exists because the
+ * economic floor is meaningless without it while the engine has no chain
+ * access. Omitted, `economicFloor.DEFAULT_GAS_USD` stands in.
+ */
+export interface AdviseOptions {
+  gasUsd?: number;
+}
 
 function numbersOf(score: ActiveScore): AdvisorRecommendation["numbers"] {
   return {
@@ -65,6 +77,7 @@ export function adviseLeg(
   score: ActiveScore,
   profile: RiskProfile,
   ctx?: LegMarketContext,
+  opts?: AdviseOptions,
 ): AdvisorRecommendation {
   const status = statusFor(profile, score.total);
   const triggers: string[] = [`band:${score.band}`, `profile:${status}`];
@@ -169,7 +182,14 @@ export function adviseLeg(
     // display, and letting a display rounding into the executable amount is how
     // the two quietly stop describing the same repay.
     const repayFraction = repayFractionOfDebt(repayUsd, borrowUsd);
-    if (repayUsd > 0 && repayFraction !== null) {
+    // Below the economic floor the repay costs more gas than the liquidation
+    // penalty it avoids, so recommending it is advice that loses money. The
+    // leg is not silenced, it just stops being a REDUCE: it carries on through
+    // the rebalance and MONITOR rules exactly as a leg whose health factor was
+    // already at target does, which is the shape the advisor has always used
+    // for "there is no repay worth quoting here".
+    const floorUsd = protocolRepayUsdFloor(score.protocol, opts?.gasUsd);
+    if (repayUsd > 0 && repayFraction !== null && floorUsd !== null && repayUsd >= floorUsd) {
       const repayPlan = {
         repayUsd: Math.round(repayUsd),
         // The leg's own debt asset, never an assumed stablecoin. Null when the
@@ -227,8 +247,16 @@ export function adviseLeg(
         },
       });
     }
-    // HF already at/above target - the score is driven by non-position risk.
-    triggers.push("hf:above_target");
+    // Two different reasons to arrive here, and they are not the same fact.
+    // A sized repay that exists but does not pay for itself is NOT a health
+    // factor at target, and labelling it as one would tell a later reader (and
+    // the narrator) something untrue about the position.
+    if (repayUsd > 0 && repayFraction !== null) {
+      triggers.push("repay:below_floor");
+    } else {
+      // HF already at/above target - the score is driven by non-position risk.
+      triggers.push("hf:above_target");
+    }
   }
 
   // Rule 4 - approaching + protocol-specific stress: suggest a rebalance.
@@ -267,8 +295,11 @@ export function adviseWallet(
   scores: ActiveScore[],
   profile: RiskProfile,
   ctxByProtocol?: Partial<Record<Protocol, LegMarketContext>>,
+  opts?: AdviseOptions,
 ): { overall: AdvisorOverall; recommendations: AdvisorRecommendation[] } {
-  const recommendations = scores.map((s) => adviseLeg(s, profile, ctxByProtocol?.[s.protocol]));
+  const recommendations = scores.map((s) =>
+    adviseLeg(s, profile, ctxByProtocol?.[s.protocol], opts),
+  );
   const worst = recommendations.reduce<AdvisorRecommendation | null>(
     (acc, r) => (acc === null || ACTION_SEVERITY[r.action] > ACTION_SEVERITY[acc.action] ? r : acc),
     null,
