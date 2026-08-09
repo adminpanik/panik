@@ -32,22 +32,8 @@ jobs:
       # strict `npm ci` cannot ERESOLVE if that file ever moves.
       - run: npm ci --legacy-peer-deps
 
-      # Typecheck is EXPECTED to report exactly 3 pre-existing wagmi
-      # `chain`/`account` errors in src/panik-founding. Gate on the count so a
-      # 4th fails the build but the known 3 don't block every PR. Drive this to
-      # zero and flip the check to `npm run lint` outright.
-      - name: Typecheck (baseline = 3 known errors)
-        run: |
-          set +e
-          npm run lint > lint.log 2>&1
-          set -e
-          count=$(grep -cE "error TS" lint.log || true)
-          echo "TypeScript errors: $count (baseline 3)"
-          cat lint.log
-          if [ "$count" -gt 3 ]; then
-            echo "::error::Typecheck regressed: $count errors, baseline is 3"
-            exit 1
-          fi
+      - name: Typecheck
+        run: npm run lint
 
       - name: API + app tests
         run: npm test
