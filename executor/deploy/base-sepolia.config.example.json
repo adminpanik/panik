@@ -16,5 +16,30 @@
       "minOutBps": 9500
     }
   ],
-  "mockOracleAssets": []
+  "mockOracleAssets": [],
+
+  "_delegated": "v2 (atomicExitFor). Every field below is immutable at construction.",
+
+  "_priceFeeds": "Chainlink AggregatorV3 feed per swappable asset. The delegated slippage floor is priced off THESE, not off aaveOracle, because getAssetPrice() carries no timestamp. An asset with a swap route but no feed reverts MissingPriceFeed on the delegated path (the self-serve path is unaffected). Testnet demo assets listed in mockOracleAssets keep the mock-oracle escape hatch instead.",
+  "priceFeeds": [
+    {
+      "asset": "0x0000000000000000000000000000000000000000",
+      "feed": "0x0000000000000000000000000000000000000000"
+    }
+  ],
+
+  "_oracleStalenessSeconds": "Max age of a feed answer, in seconds. Deploy script accepts 60-86400; set it to the feed's heartbeat plus a margin.",
+  "oracleStalenessSeconds": 3600,
+
+  "_sequencerUptimeFeed": "Chainlink L2 sequencer-uptime feed. Base mainnet: 0xBCF85224fc0756B9Fa45aA7892530B47e10b6433. Base Sepolia does not publish one - leave it as the zero address there, which SKIPS the check.",
+  "sequencerUptimeFeed": "0x0000000000000000000000000000000000000000",
+
+  "_sequencerGracePeriodSeconds": "Cooldown after the sequencer comes back before delegated exits resume (queued orders land first and move the price).",
+  "sequencerGracePeriodSeconds": 3600,
+
+  "_maxPermitSlippageBps": "Ceiling on ExitPermit.maxSlippageBps. Deploy script accepts 1-2000; past 20% it stops being slippage tolerance.",
+  "maxPermitSlippageBps": 1000,
+
+  "_delegatedMarkets": "Moonwell mTokens and Comet instances a permit may name. The executor calls these with permit-supplied calldata and approves tokens to them, so an unregistered address is a theft vector - only what is listed here is reachable. Aave and Morpho need no entries.",
+  "delegatedMarkets": []
 }
