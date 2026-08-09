@@ -1,0 +1,4 @@
+# Solidity sources compile to bytecode whose metadata hash covers the exact
+# source bytes. CRLF churn from autocrlf changes that hash and breaks
+# reproducible builds (proven while verifying the Sepolia deployment).
+*.sol text eol=lf

@@ -1,0 +1,7 @@
+{
+  "chainId": 84532,
+  "network": "baseSepolia",
+  "deployedAt": "2026-04-04T13:49:56.225Z",
+  "deployer": "0xFE3EbAC628dCD84Ac87f75b12114B8D36cD47E62",
+  "mockOracle": "0x461B6f2Cf77AD1D4A2C51A33BB9a8C6449196D2a"
+}

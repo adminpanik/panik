@@ -1,38 +1,40 @@
 /**
- * Sync the executor deployment (addresses + ABIs) from the contracts repo into
+ * Sync the executor deployment (addresses + ABIs) into
  * src/panik-core/lib/exit.generated.ts.
  *
  * Usage:  npm run sync:exit-config
- * Source: EXIT_CONFIG_SOURCE env var (required, no default).
+ * Source: executor/deploy/onchain-config.json in this repo by default. The
+ *         executor now lives here, so the default is the in-repo manifest;
+ *         set EXIT_CONFIG_SOURCE to point at a deployment somewhere else
+ *         (a checkout of panik-executor-archive, a staging deploy) instead.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const source = process.env.EXIT_CONFIG_SOURCE;
+const DEFAULT_SOURCE = path.resolve(here, "../executor/deploy/onchain-config.json");
+const source = process.env.EXIT_CONFIG_SOURCE ?? DEFAULT_SOURCE;
 const target = path.resolve(here, "../src/panik-core/lib/exit.generated.ts");
 
-if (!source) {
+if (!fs.existsSync(source)) {
+  const fromEnv = Boolean(process.env.EXIT_CONFIG_SOURCE);
   console.error(
     [
-      "EXIT_CONFIG_SOURCE is not set.",
+      `exit config source not found: ${source}`,
       "",
       "This script reads onchain-config.json, the deployment manifest written by",
-      "the executor repo's `npm run deploy:base-sepolia` (addresses + ABIs for the",
-      "exit executor, lock checker and adapters). That file lives outside this",
-      "repo, in the executor repo's deploy/ directory - there is no default path.",
+      "`npm run deploy:base-sepolia` in executor/ (addresses + ABIs for the exit",
+      "executor, lock checker and adapters).",
       "",
-      "Set EXIT_CONFIG_SOURCE to the absolute path of that file and re-run, e.g.:",
-      "  EXIT_CONFIG_SOURCE=/path/to/executor-repo/deploy/onchain-config.json npm run sync:exit-config",
+      fromEnv
+        ? "EXIT_CONFIG_SOURCE is set, so the default in-repo path was not used. Check it, or unset it to read executor/deploy/onchain-config.json."
+        : "Redeploy the executor (cd executor && npm run deploy:base-sepolia), or set EXIT_CONFIG_SOURCE to a manifest elsewhere:",
+      fromEnv
+        ? ""
+        : "  EXIT_CONFIG_SOURCE=/path/to/onchain-config.json npm run sync:exit-config",
     ].join("\n"),
   );
-  process.exit(1);
-}
-
-if (!fs.existsSync(source)) {
-  console.error(`exit config source not found: ${source}`);
-  console.error("Deploy the executor repo first (npm run deploy:base-sepolia), or check EXIT_CONFIG_SOURCE.");
   process.exit(1);
 }
 
