@@ -249,7 +249,21 @@ async function main(): Promise<void> {
       throw new Error(`PRICE_FEEDS ${feed} for ${asset}: non-positive answer ${answer}`);
     }
     const humanPrice = Number(ethers.formatUnits(answer, decimals));
-    console.log(`  feed ${asset} -> ${feed}  "${description}"  ~$${humanPrice}`);
+    // F4: this confirms "a USD feed", not "the RIGHT USD feed" - a EUR/USD feed
+    // (~$1.08, in-band) wired to WETH passes every automated check. Printing the
+    // asset's own symbol next to the decoded price lets an operator eyeball the
+    // mismatch (WETH ~$1.08 is obviously wrong). Per-asset price plausibility is
+    // an OPERATOR responsibility; the script cannot know the intended asset.
+    let assetSymbol = "?";
+    try {
+      const token = new ethers.Contract(asset, ["function symbol() view returns (string)"], ethers.provider);
+      assetSymbol = await token.symbol();
+    } catch {
+      // non-standard token; leave as "?"
+    }
+    console.log(
+      `  feed ${assetSymbol} (${asset}) -> ${feed}  "${description}"  ~$${humanPrice}  [verify this price matches ${assetSymbol}]`
+    );
     if (humanPrice < PRICE_MIN_USD || humanPrice > PRICE_MAX_USD) {
       throw new Error(
         `PRICE_FEEDS ${feed} for ${asset}: decoded price $${humanPrice} outside [${PRICE_MIN_USD}, ${PRICE_MAX_USD}] - wrong feed or wrong decimals.`
