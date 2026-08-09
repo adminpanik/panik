@@ -226,8 +226,8 @@ Deployed via `forge script`; the deploy script resolves the USDC address from th
 **Prerequisites:** Node.js 24+, and [Foundry](https://book.getfoundry.sh/getting-started/installation) if you're touching contracts.
 
 ```bash
-git clone --recursive https://github.com/panik-fi/panik-landing_page_waitlist
-cd panik-landing_page_waitlist
+git clone --recursive https://github.com/panik-fi/panik_fi
+cd panik_fi
 npm install --legacy-peer-deps
 cp .env.example .env    # fill in the keys you need; only VITE_* reach the browser
 ```
