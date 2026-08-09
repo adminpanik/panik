@@ -16,9 +16,9 @@ import {
 } from "./fixtures";
 import type {
   Band,
+  DegradableSubScores,
   HistorySnapshot,
   LiveWalletPosition,
-  SubScores,
 } from "../src/panik-core/lib/live";
 
 // Mirrors of packages/scoring — deliberately restated so a fixture edit is
@@ -28,13 +28,25 @@ const bandFor = (s: number): Band =>
 
 const WEIGHTS = { positionHealth: 0.4, assetRisk: 0.25, protocolSafety: 0.2, systemicRisk: 0.15 };
 
-/** computeScore.ts: composite, then lifted by the liquidation-proximity floors. */
-function expectedTotal(sub: SubScores, hf: number | null): number {
+/**
+ * computeScore.ts: composite, then lifted by the liquidation-proximity floors.
+ *
+ * A null sub-score is DROPPED and the surviving weights renormalise, exactly as
+ * `composite()` does. Treating it as 0 instead is the bug this whole path exists
+ * to prevent, so the mirror has to reproduce the real rule and not a convenient
+ * one. The undegraded branch skips the division for the same reason the engine
+ * does: the four weights sum to 1.0000000000000002 in binary floating point.
+ */
+function expectedTotal(sub: DegradableSubScores, hf: number | null): number {
+  const terms = (Object.keys(WEIGHTS) as (keyof typeof WEIGHTS)[]).map((k) => ({
+    weight: WEIGHTS[k],
+    value: sub[k],
+  }));
+  const measured = terms.filter((t) => t.value !== null);
+  const sum = measured.reduce((a, t) => a + t.weight * (t.value as number), 0);
+  const availableWeight = measured.reduce((a, t) => a + t.weight, 0);
   const weighted = Math.round(
-    WEIGHTS.positionHealth * sub.positionHealth +
-      WEIGHTS.assetRisk * sub.assetRisk +
-      WEIGHTS.protocolSafety * sub.protocolSafety +
-      WEIGHTS.systemicRisk * sub.systemicRisk,
+    measured.length === terms.length ? sum : sum / availableWeight,
   );
   if (hf === null) return weighted;
   if (hf <= 1.1) return Math.max(weighted, 75);
@@ -122,6 +134,44 @@ describe("dev:mock fixtures — render paths", () => {
     // The ratios are still exact, so the score and HF must be real numbers.
     expect(degraded[0]?.healthFactor).toBeGreaterThan(1);
     expect(degraded[0]?.total).toBeGreaterThan(0);
+  });
+
+  it("has a position whose market context could not be read", () => {
+    const degraded = MOCK_POSITIONS.filter((p) => p.marketContextUnavailable);
+    expect(degraded).toHaveLength(1);
+    const p = degraded[0]!;
+    // At least one market-context term is null, and null is the ONLY
+    // representation of "not measured": a 0 here is a real sub-score meaning
+    // "as calm as this term gets", which is what made a dead feed read as good
+    // news. The two terms that need no I/O can never be null.
+    expect(p.subScores.assetRisk === null || p.subScores.systemicRisk === null).toBe(true);
+    expect(p.subScores.positionHealth).not.toBeNull();
+    expect(p.subScores.protocolSafety).not.toBeNull();
+    // The composite is renormalised over the surviving weights, so the headline
+    // number stays real and printable — only the sub-score is unknown.
+    expect(p.total).toBeGreaterThan(0);
+    expect(p.band).toBe(bandFor(p.total));
+  });
+
+  it("degrades market context and USD pricing on different legs", () => {
+    // The two failures are independent in the engine (one is a provider
+    // lookup, the other a price feed), so the fixtures must exercise them
+    // apart. Merged onto one leg, no surface ever renders either alone.
+    const marketOnly = MOCK_POSITIONS.filter(
+      (p) => p.marketContextUnavailable && !p.usdValuesUnavailable,
+    );
+    const usdOnly = MOCK_POSITIONS.filter(
+      (p) => p.usdValuesUnavailable && !p.marketContextUnavailable,
+    );
+    expect(marketOnly).toHaveLength(1);
+    expect(usdOnly).toHaveLength(1);
+  });
+
+  it("keeps every sub-score of an undegraded leg a number", () => {
+    for (const p of MOCK_POSITIONS.filter((x) => !x.marketContextUnavailable)) {
+      expect(p.subScores.assetRisk).not.toBeNull();
+      expect(p.subScores.systemicRisk).not.toBeNull();
+    }
   });
 });
 
