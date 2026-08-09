@@ -44,6 +44,32 @@ function uniqueAddresses(values: string[]): string[] {
   return output;
 }
 
+function requiredNumberEnv(
+  name: string,
+  fallback: string,
+  min: number,
+  max: number
+): number {
+  const raw = (process.env[name] ?? fallback).trim();
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`Invalid ${name}: ${raw} (must be an integer in [${min}, ${max}])`);
+  }
+  return parsed;
+}
+
+async function assertIsContract(label: string, address: string): Promise<void> {
+  const code = await ethers.provider.getCode(address);
+  if (code === "0x") {
+    throw new Error(`${label} has no code at ${address} on this network`);
+  }
+}
+
+function row(label: string, expected: string, actual: string): string {
+  const ok = expected.toLowerCase() === actual.toLowerCase();
+  return `${ok ? "  ok  " : " FAIL "} | ${label.padEnd(34)} | ${actual}`;
+}
+
 async function main(): Promise<void> {
   const [deployer] = await ethers.getSigners();
   console.log(`Deployer: ${deployer.address}`);
@@ -99,12 +125,154 @@ async function main(): Promise<void> {
     return parsed;
   });
 
+  // --- Delegated (v2) config ---------------------------------------------
+  const BASE_MAINNET_CHAIN_ID = 8453n;
+  const targetChainId = (await ethers.provider.getNetwork()).chainId;
+  const isMainnet = targetChainId === BASE_MAINNET_CHAIN_ID;
+
+  const priceFeedAssets = uniqueAddresses(csv("PRICE_FEED_ASSETS"));
+  const priceFeeds = uniqueAddresses(csv("PRICE_FEEDS"));
+  if (priceFeedAssets.length !== priceFeeds.length) {
+    throw new Error(
+      "Price feed config length mismatch: PRICE_FEED_ASSETS and PRICE_FEEDS must match."
+    );
+  }
+
+  const mockOracleAssetsNorm = mockOracleAssets.map((value) => ethers.getAddress(value));
+  // M-3: the mock oracle is an unguarded, hand-set price source (no staleness,
+  // no positivity). The constructor reverts if it ships to Base mainnet; catch
+  // it here first with a message that names the offending assets.
+  if (isMainnet && mockOracleAssetsNorm.length > 0) {
+    throw new Error(
+      `MOCK_ORACLE_ASSETS must be empty on Base mainnet (chainId 8453). Offending: ${mockOracleAssetsNorm.join(", ")}`
+    );
+  }
+  // A single asset must have ONE price source, or the mock (unguarded) branch
+  // silently wins over its real feed. The constructor enforces this too.
+  const overlap = priceFeedAssets.filter((asset) => mockOracleAssetsNorm.includes(asset));
+  if (overlap.length > 0) {
+    throw new Error(
+      `Assets appear in both PRICE_FEED_ASSETS and MOCK_ORACLE_ASSETS: ${overlap.join(", ")}`
+    );
+  }
+
+  // Every asset a delegated exit can swap needs a dateable feed, or the exit
+  // reverts MissingPriceFeed at execution time. Catch that here, not on-chain.
+  for (const asset of swapAssets.map((value) => ethers.getAddress(value))) {
+    const hasFeed = priceFeedAssets.includes(asset);
+    const isMockOracleAsset = mockOracleAssetsNorm.includes(asset);
+    if (!hasFeed && !isMockOracleAsset) {
+      console.warn(
+        `WARNING: ${asset} has a swap route but no PRICE_FEEDS entry - delegated exits touching it will revert MissingPriceFeed.`
+      );
+    }
+  }
+
+  // An hour is already generous for a Chainlink heartbeat; a day is not a
+  // staleness bound, it is a formality.
+  const oracleStalenessSeconds = requiredNumberEnv(
+    "ORACLE_STALENESS_SECONDS",
+    "3600",
+    60,
+    86_400
+  );
+  const sequencerGracePeriod = requiredNumberEnv(
+    "SEQUENCER_GRACE_PERIOD_SECONDS",
+    "3600",
+    0,
+    86_400
+  );
+  // Default 200 bps (2%). The route is a fixed, submitter-sandwichable path, so
+  // a wide default would make a large haircut the modelled norm; anything above
+  // 2% must be an explicit, deliberate MAX_PERMIT_SLIPPAGE_BPS override. The
+  // contract ceiling still caps it at 2000 (private-orderflow routing that would
+  // justify going higher is a Phase-4 relayer concern, not built here).
+  const maxPermitSlippageBps = requiredNumberEnv("MAX_PERMIT_SLIPPAGE_BPS", "200", 1, 2_000);
+  const sequencerUptimeFeedRaw = (process.env.SEQUENCER_UPTIME_FEED ?? "").trim();
+  const sequencerUptimeFeed =
+    sequencerUptimeFeedRaw === "" || sequencerUptimeFeedRaw === ethers.ZeroAddress
+      ? ethers.ZeroAddress
+      : ethers.getAddress(sequencerUptimeFeedRaw);
+  const delegatedMarkets = uniqueAddresses(csv("DELEGATED_MARKETS"));
+
   const trackedAssets = uniqueAddresses([
     usdc,
     ...swapAssets,
     ...mockOracleAssets,
     ...trackedAssetsRaw,
+    ...priceFeedAssets,
   ]);
+
+  console.log("Validating delegated config against the network...");
+  if (sequencerUptimeFeed === ethers.ZeroAddress) {
+    console.warn(
+      "WARNING: SEQUENCER_UPTIME_FEED is unset - delegated exits will NOT check sequencer uptime. Acceptable on Base Sepolia only."
+    );
+  } else {
+    await assertIsContract("SEQUENCER_UPTIME_FEED", sequencerUptimeFeed);
+  }
+  // M-2: a wrong-base or wrong-decimals feed produces a near-zero slippage
+  // floor and the delegated swap then succeeds at a robbery price. The contract
+  // reads and bounds decimals at construction, but base currency and sane value
+  // can only be checked off-chain, so it happens here and HARD-FAILS.
+  const feedAbi = [
+    "function decimals() view returns (uint8)",
+    "function description() view returns (string)",
+    "function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)",
+  ];
+  // Plausible USD price band per asset, in whole dollars. Anything outside is
+  // almost certainly a wrong feed (wrong base, wrong decimals, wrong asset).
+  const PRICE_MIN_USD = 0.1;
+  const PRICE_MAX_USD = 5_000_000;
+  for (let i = 0; i < priceFeeds.length; i++) {
+    const asset = priceFeedAssets[i];
+    const feed = priceFeeds[i];
+    await assertIsContract("PRICE_FEEDS entry", feed);
+    const feedContract = new ethers.Contract(feed, feedAbi, ethers.provider);
+    const decimals = Number(await feedContract.decimals());
+    if (decimals > 18) {
+      throw new Error(`PRICE_FEEDS ${feed} for ${asset}: decimals ${decimals} > 18`);
+    }
+    let description = "";
+    try {
+      description = await feedContract.description();
+    } catch {
+      throw new Error(`PRICE_FEEDS ${feed} for ${asset}: description() reverted - not a Chainlink feed?`);
+    }
+    if (!/\/\s*USD$/i.test(description.trim())) {
+      throw new Error(
+        `PRICE_FEEDS ${feed} for ${asset}: description "${description}" is not a "/ USD" feed. The floor math assumes a shared USD base.`
+      );
+    }
+    const [, answer] = await feedContract.latestRoundData();
+    if (answer <= 0n) {
+      throw new Error(`PRICE_FEEDS ${feed} for ${asset}: non-positive answer ${answer}`);
+    }
+    const humanPrice = Number(ethers.formatUnits(answer, decimals));
+    // F4: this confirms "a USD feed", not "the RIGHT USD feed" - a EUR/USD feed
+    // (~$1.08, in-band) wired to WETH passes every automated check. Printing the
+    // asset's own symbol next to the decoded price lets an operator eyeball the
+    // mismatch (WETH ~$1.08 is obviously wrong). Per-asset price plausibility is
+    // an OPERATOR responsibility; the script cannot know the intended asset.
+    let assetSymbol = "?";
+    try {
+      const token = new ethers.Contract(asset, ["function symbol() view returns (string)"], ethers.provider);
+      assetSymbol = await token.symbol();
+    } catch {
+      // non-standard token; leave as "?"
+    }
+    console.log(
+      `  feed ${assetSymbol} (${asset}) -> ${feed}  "${description}"  ~$${humanPrice}  [verify this price matches ${assetSymbol}]`
+    );
+    if (humanPrice < PRICE_MIN_USD || humanPrice > PRICE_MAX_USD) {
+      throw new Error(
+        `PRICE_FEEDS ${feed} for ${asset}: decoded price $${humanPrice} outside [${PRICE_MIN_USD}, ${PRICE_MAX_USD}] - wrong feed or wrong decimals.`
+      );
+    }
+  }
+  for (const market of delegatedMarkets) {
+    await assertIsContract("DELEGATED_MARKETS entry", market);
+  }
 
   console.log("Deploying LockChecker...");
   const LockChecker = await ethers.getContractFactory("LockChecker");
@@ -174,6 +342,15 @@ async function main(): Promise<void> {
     mockOracleAssets,
     trackedAssets,
     swapDeadlineBufferSeconds,
+    {
+      priceFeedAssets,
+      priceFeeds,
+      oracleStalenessSeconds,
+      sequencerUptimeFeed,
+      sequencerGracePeriod,
+      maxPermitSlippageBps,
+      markets: delegatedMarkets,
+    },
     { nonce: nextNonce++ }
   );
   await panikExecutor.waitForDeployment();
@@ -193,6 +370,108 @@ async function main(): Promise<void> {
     });
     await tx.wait();
   }
+
+  // --- Post-deploy read-back ----------------------------------------------
+  // v1 deployed and hoped. Everything below is read BACK off the chain and
+  // compared with what was asked for, because a swap route or an adapter
+  // binding that silently did not take is only discovered by a user's exit
+  // reverting - or worse, not reverting.
+  console.log("\nVerifying deployed state (read-back)...");
+  const failures: string[] = [];
+  const check = (label: string, expected: string, actual: string) => {
+    const line = row(label, expected, actual);
+    console.log(line);
+    if (line.startsWith(" FAIL")) {
+      failures.push(`${label}: expected ${expected}, got ${actual}`);
+    }
+  };
+
+  console.log("  ---- swap routes ----");
+  for (let i = 0; i < swapAssets.length; i++) {
+    const asset = ethers.getAddress(swapAssets[i]);
+    const [enabled, path, minOutBps, useMockOracle] = await panikExecutor.getSwapConfig(asset);
+    check(`swap.enabled ${asset}`, "true", String(enabled));
+    check(`swap.path ${asset}`, swapPaths[i].toLowerCase(), String(path).toLowerCase());
+    check(`swap.minOutBps ${asset}`, String(swapMinOutBps[i]), String(minOutBps));
+    check(
+      `swap.useMockOracle ${asset}`,
+      String(
+        mockOracleAssets.map((value) => ethers.getAddress(value)).includes(asset)
+      ),
+      String(useMockOracle)
+    );
+  }
+
+  console.log("  ---- adapter bindings ----");
+  const adapterBindings: Array<[string, any]> = [
+    ["aaveAdapter.executor", aaveAdapter],
+    ["moonwellAdapter.executor", moonwellAdapter],
+    ["compoundAdapter.executor", compoundAdapter],
+    ["morphoAdapter.executor", morphoAdapter],
+    ["swapAdapter.executor", swapAdapter],
+    ["uniswapAdapter.executor", uniswapAdapter],
+  ];
+  for (const [label, adapter] of adapterBindings) {
+    check(label, panikExecutorAddress, await (adapter as any).executor());
+  }
+
+  console.log("  ---- delegated config ----");
+  check("usdc", ethers.getAddress(usdc), await panikExecutor.usdc());
+  check(
+    "oracleStalenessSeconds",
+    String(oracleStalenessSeconds),
+    String(await panikExecutor.oracleStalenessSeconds())
+  );
+  check(
+    "sequencerUptimeFeed",
+    sequencerUptimeFeed,
+    await panikExecutor.sequencerUptimeFeed()
+  );
+  check(
+    "sequencerGracePeriod",
+    String(sequencerGracePeriod),
+    String(await panikExecutor.sequencerGracePeriod())
+  );
+  check(
+    "maxPermitSlippageBps",
+    String(maxPermitSlippageBps),
+    String(await panikExecutor.maxPermitSlippageBps())
+  );
+  for (let i = 0; i < priceFeedAssets.length; i++) {
+    check(
+      `priceFeed ${priceFeedAssets[i]}`,
+      priceFeeds[i],
+      await panikExecutor.getPriceFeed(priceFeedAssets[i])
+    );
+    const feedContract = new ethers.Contract(
+      priceFeeds[i],
+      ["function decimals() view returns (uint8)"],
+      ethers.provider
+    );
+    check(
+      `priceFeed.decimals ${priceFeedAssets[i]}`,
+      String(Number(await feedContract.decimals())),
+      String(await panikExecutor.getPriceFeedDecimals(priceFeedAssets[i]))
+    );
+  }
+  for (const market of delegatedMarkets) {
+    check(`delegatedMarket ${market}`, "true", String(await panikExecutor.isDelegatedMarket(market)));
+  }
+
+  console.log("  ---- tracked assets ----");
+  const onChainTracked = (await panikExecutor.getTrackedAssets()).map((value: string) =>
+    ethers.getAddress(value)
+  );
+  for (const asset of trackedAssets) {
+    check(`tracked ${asset}`, "true", String(onChainTracked.includes(asset)));
+  }
+
+  if (failures.length > 0) {
+    throw new Error(
+      `Post-deploy verification failed (${failures.length}):\n - ${failures.join("\n - ")}`
+    );
+  }
+  console.log("Read-back verification passed.\n");
 
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
   const deployment = {
@@ -226,6 +505,13 @@ async function main(): Promise<void> {
       swapMinOutBps,
       mockOracleAssets,
       trackedAssets,
+      priceFeedAssets,
+      priceFeeds,
+      oracleStalenessSeconds,
+      sequencerUptimeFeed,
+      sequencerGracePeriod,
+      maxPermitSlippageBps,
+      delegatedMarkets,
     },
   };
 

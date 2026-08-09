@@ -252,7 +252,18 @@ describe("PanikExecutor - multi-protocol atomic exit (Phase 2)", function () {
       },
       [],
       [await weth.getAddress(), await usdc.getAddress()],
-      3_600
+      3_600,
+      // Delegated (v2) config. The self-serve path this suite exercises never
+      // reads it; test/executor-v2.spec.ts covers the delegated one.
+      {
+        priceFeedAssets: [],
+        priceFeeds: [],
+        oracleStalenessSeconds: 3_600,
+        sequencerUptimeFeed: ethers.ZeroAddress,
+        sequencerGracePeriod: 3_600,
+        maxPermitSlippageBps: 2_000,
+        markets: [],
+      }
     );
 
     await aaveAdapter.setExecutor(await executor.getAddress());

@@ -60,12 +60,15 @@ contract MorphoAdapter {
         IMorpho.MarketParams calldata mp,
         address user
     ) external onlyExecutor returns (uint256 assets) {
-        morpho.accrueInterest(mp);
         bytes32 id = marketId(mp);
-        IMorpho.Position memory pos = morpho.position(id, user);
-        if (pos.borrowShares == 0) return 0;
+        // Read borrowShares BEFORE accruing: a user with no debt gets a clean
+        // early return with no state-changing accrueInterest call. accrueInterest
+        // does not touch a borrower's own shares, so accruing after is exact.
+        uint128 borrowShares = morpho.position(id, user).borrowShares;
+        if (borrowShares == 0) return 0;
+        morpho.accrueInterest(mp);
         IMorpho.Market memory m = morpho.market(id);
-        assets = _toAssetsUp(pos.borrowShares, m.totalBorrowAssets, m.totalBorrowShares);
+        assets = _toAssetsUp(borrowShares, m.totalBorrowAssets, m.totalBorrowShares);
     }
 
     /// @notice Repay the user's debt. The loan token must already sit on this
