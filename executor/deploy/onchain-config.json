@@ -1,17 +1,17 @@
 {
   "chainId": 84532,
   "network": "baseSepolia",
-  "deployedAt": "2026-07-20T06:22:38.203Z",
-  "executor": "0xfaae2d3bdbAB24D645C71618eacCA7A3c81c65cf",
+  "deployedAt": "2026-08-09T15:23:20.031Z",
+  "executor": "0x554530E0a5C428Bd7f617F875a3C5570803842E4",
   "adapters": {
-    "lockChecker": "0x4518c4F6acC9ab3B3Ba5ED69c4Cd110AE55B8E85",
-    "aaveAdapter": "0xC32BA88AbBb4DB914C928BC57A38C324c6A4c168",
-    "moonwellAdapter": "0x6A7AC962a941442738Eeb132380BBb97a05be04E",
-    "compoundAdapter": "0x00210736e7E79640546D7E505097429E6A9816Ef",
-    "morphoAdapter": "0x7211cb25746A21f375735c73d9E6f629EF710f41",
-    "swapAdapter": "0x5f0D6D36Ab76639eA05415dA46c50f90Bb044A72",
-    "uniswapAdapter": "0x06a865f8EE8481B796c5C1537433DEa19a5482b8",
-    "panikExecutor": "0xfaae2d3bdbAB24D645C71618eacCA7A3c81c65cf"
+    "lockChecker": "0x9a1bfCAf7779d2b00B48d079Dc6B7d40EA33073E",
+    "aaveAdapter": "0x10f0BEf49e83996Fef0827222E445be3A7859e34",
+    "moonwellAdapter": "0x69c0A81cD0Ad8fCEBB6d9ddA7F409688a0c9c866",
+    "compoundAdapter": "0xAaA678F1AD405005521a662902F6017315eb59dF",
+    "morphoAdapter": "0xDA4B5871F8E4072FDEC2D448a5676EcCEdabc666",
+    "swapAdapter": "0x6461e7e291843257a94d4D48bfE33f8435436065",
+    "uniswapAdapter": "0xD375c405daEFC0f98178388b87Ff3b3B7E7202ef",
+    "panikExecutor": "0x554530E0a5C428Bd7f617F875a3C5570803842E4"
   },
   "tokens": {
     "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
@@ -48,7 +48,13 @@
       9500,
       9500
     ],
-    "mockOracleAssets": [],
+    "mockOracleAssets": [
+      "0x4200000000000000000000000000000000000006",
+      "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f",
+      "0x0a215D8ba66387DCA84B284D18c3B4ec3de6E54a",
+      "0x810D46F9a9027E28F9B01F75E2bdde839dA61115",
+      "0xD171b9694f7A2597Ed006D41f7509aaD4B485c4B"
+    ],
     "trackedAssets": [
       "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
       "0x4200000000000000000000000000000000000006",
@@ -57,7 +63,14 @@
       "0x810D46F9a9027E28F9B01F75E2bdde839dA61115",
       "0xD171b9694f7A2597Ed006D41f7509aaD4B485c4B",
       "0x54114591963CF60EF3aA63bEfD6eC263D98145a4"
-    ]
+    ],
+    "priceFeedAssets": [],
+    "priceFeeds": [],
+    "oracleStalenessSeconds": 3600,
+    "sequencerUptimeFeed": "0x0000000000000000000000000000000000000000",
+    "sequencerGracePeriod": 3600,
+    "maxPermitSlippageBps": 1000,
+    "delegatedMarkets": []
   },
   "abi": {
     "executor": [
@@ -166,10 +179,63 @@
             "internalType": "uint256",
             "name": "swapDeadlineBuffer_",
             "type": "uint256"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address[]",
+                "name": "priceFeedAssets",
+                "type": "address[]"
+              },
+              {
+                "internalType": "address[]",
+                "name": "priceFeeds",
+                "type": "address[]"
+              },
+              {
+                "internalType": "uint256",
+                "name": "oracleStalenessSeconds",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "sequencerUptimeFeed",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "sequencerGracePeriod",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint16",
+                "name": "maxPermitSlippageBps",
+                "type": "uint16"
+              },
+              {
+                "internalType": "address[]",
+                "name": "markets",
+                "type": "address[]"
+              }
+            ],
+            "internalType": "struct PanikExecutor.DelegatedConfig",
+            "name": "delegated_",
+            "type": "tuple"
           }
         ],
         "stateMutability": "nonpayable",
         "type": "constructor"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          }
+        ],
+        "name": "AssetNotTracked",
+        "type": "error"
       },
       {
         "inputs": [],
@@ -190,6 +256,22 @@
       {
         "inputs": [],
         "name": "EmptyExit",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint8",
+            "name": "protocol",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          }
+        ],
+        "name": "EmptyLeg",
         "type": "error"
       },
       {
@@ -243,6 +325,33 @@
       {
         "inputs": [
           {
+            "internalType": "uint8",
+            "name": "kind",
+            "type": "uint8"
+          }
+        ],
+        "name": "InvalidPermitKind",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint16",
+            "name": "maxSlippageBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "maxAllowedBps",
+            "type": "uint16"
+          }
+        ],
+        "name": "InvalidPermitSlippage",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
             "internalType": "address",
             "name": "asset",
             "type": "address"
@@ -259,6 +368,22 @@
           }
         ],
         "name": "InvalidRepayAmount",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint16",
+            "name": "maxRepayFractionBps",
+            "type": "uint16"
+          }
+        ],
+        "name": "InvalidRepayFraction",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "InvalidSignature",
         "type": "error"
       },
       {
@@ -287,11 +412,33 @@
         "inputs": [
           {
             "internalType": "address",
+            "name": "market",
+            "type": "address"
+          }
+        ],
+        "name": "MarketNotPermitted",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
             "name": "asset",
             "type": "address"
           }
         ],
         "name": "MissingAToken",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          }
+        ],
+        "name": "MissingPriceFeed",
         "type": "error"
       },
       {
@@ -308,6 +455,86 @@
       {
         "inputs": [
           {
+            "internalType": "uint8",
+            "name": "protocol",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          }
+        ],
+        "name": "NoWorkDone",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "nonce",
+            "type": "uint256"
+          }
+        ],
+        "name": "NonceAlreadyUsed",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "deadline",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "currentTimestamp",
+            "type": "uint256"
+          }
+        ],
+        "name": "PermitExpired",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "permitEpoch",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "currentEpoch",
+            "type": "uint256"
+          }
+        ],
+        "name": "PermitRevoked",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "permitUser",
+            "type": "address"
+          }
+        ],
+        "name": "PermitUserMismatch",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
             "internalType": "address",
             "name": "asset",
             "type": "address"
@@ -317,8 +544,45 @@
         "type": "error"
       },
       {
+        "inputs": [
+          {
+            "internalType": "uint8",
+            "name": "protocol",
+            "type": "uint8"
+          }
+        ],
+        "name": "ProtocolNotPermitted",
+        "type": "error"
+      },
+      {
         "inputs": [],
         "name": "ReentrancyGuardReentrantCall",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint8",
+            "name": "protocol",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "repaid",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "required",
+            "type": "uint256"
+          }
+        ],
+        "name": "RepayFloorNotMet",
         "type": "error"
       },
       {
@@ -331,6 +595,178 @@
         ],
         "name": "SafeERC20FailedOperation",
         "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "int256",
+            "name": "answer",
+            "type": "int256"
+          }
+        ],
+        "name": "SequencerDown",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "startedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "readyAt",
+            "type": "uint256"
+          }
+        ],
+        "name": "SequencerGracePeriodNotOver",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "updatedAt",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "currentTimestamp",
+            "type": "uint256"
+          }
+        ],
+        "name": "StalePrice",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint8",
+            "name": "protocol",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "liveHf",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "trigger",
+            "type": "uint256"
+          }
+        ],
+        "name": "TriggerNotMet",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint8",
+            "name": "protocol",
+            "type": "uint8"
+          }
+        ],
+        "name": "TriggerUnsupported",
+        "type": "error"
+      },
+      {
+        "inputs": [],
+        "name": "UniswapLegNotPermitted",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint8",
+            "name": "protocol",
+            "type": "uint8"
+          },
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "withdrawn",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "required",
+            "type": "uint256"
+          }
+        ],
+        "name": "WithdrawFloorNotMet",
+        "type": "error"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint8",
+            "name": "kind",
+            "type": "uint8"
+          }
+        ],
+        "name": "WithdrawNotPermitted",
+        "type": "error"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "epoch",
+            "type": "uint256"
+          }
+        ],
+        "name": "AllPermitsRevoked",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "submitter",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "nonce",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "usdcReceived",
+            "type": "uint256"
+          }
+        ],
+        "name": "DelegatedExitExecuted",
+        "type": "event"
       },
       {
         "anonymous": false,
@@ -389,6 +825,31 @@
         "type": "event"
       },
       {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "wordPos",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "mask",
+            "type": "uint256"
+          }
+        ],
+        "name": "UnorderedNonceInvalidation",
+        "type": "event"
+      },
+      {
         "inputs": [],
         "name": "AMOUNT_FULL",
         "outputs": [
@@ -396,6 +857,32 @@
             "internalType": "uint256",
             "name": "",
             "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "BPS_DENOMINATOR",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "DOMAIN_SEPARATOR",
+        "outputs": [
+          {
+            "internalType": "bytes32",
+            "name": "",
+            "type": "bytes32"
           }
         ],
         "stateMutability": "view",
@@ -460,6 +947,113 @@
         "type": "function"
       },
       {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "components": [
+              {
+                "internalType": "enum ExitTypes.ProtocolId",
+                "name": "protocol",
+                "type": "uint8"
+              },
+              {
+                "internalType": "address",
+                "name": "asset",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "repayAmount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "withdrawAmount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "bytes",
+                "name": "data",
+                "type": "bytes"
+              }
+            ],
+            "internalType": "struct ExitTypes.ExitLeg[]",
+            "name": "legs",
+            "type": "tuple[]"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "uniswapTokenIds",
+            "type": "uint256[]"
+          },
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "user",
+                "type": "address"
+              },
+              {
+                "internalType": "uint8",
+                "name": "kind",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint16",
+                "name": "maxRepayFractionBps",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint256",
+                "name": "triggerHealthFactorWad",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint16",
+                "name": "maxSlippageBps",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint8",
+                "name": "protocolsMask",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint256",
+                "name": "epoch",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "nonce",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "deadline",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct ExitTypes.ExitPermit",
+            "name": "permit",
+            "type": "tuple"
+          },
+          {
+            "internalType": "bytes",
+            "name": "signature",
+            "type": "bytes"
+          }
+        ],
+        "name": "atomicExitFor",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
         "inputs": [],
         "name": "compoundAdapter",
         "outputs": [
@@ -480,6 +1074,100 @@
             "internalType": "contract IAaveProtocolDataProvider",
             "name": "",
             "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "eip712Domain",
+        "outputs": [
+          {
+            "internalType": "bytes1",
+            "name": "fields",
+            "type": "bytes1"
+          },
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "version",
+            "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "chainId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "verifyingContract",
+            "type": "address"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "salt",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256[]",
+            "name": "extensions",
+            "type": "uint256[]"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "getDelegatedMarkets",
+        "outputs": [
+          {
+            "internalType": "address[]",
+            "name": "",
+            "type": "address[]"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          }
+        ],
+        "name": "getPriceFeed",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "asset",
+            "type": "address"
+          }
+        ],
+        "name": "getPriceFeedDecimals",
+        "outputs": [
+          {
+            "internalType": "uint8",
+            "name": "",
+            "type": "uint8"
           }
         ],
         "stateMutability": "view",
@@ -533,6 +1221,133 @@
         "type": "function"
       },
       {
+        "inputs": [
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "user",
+                "type": "address"
+              },
+              {
+                "internalType": "uint8",
+                "name": "kind",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint16",
+                "name": "maxRepayFractionBps",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint256",
+                "name": "triggerHealthFactorWad",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint16",
+                "name": "maxSlippageBps",
+                "type": "uint16"
+              },
+              {
+                "internalType": "uint8",
+                "name": "protocolsMask",
+                "type": "uint8"
+              },
+              {
+                "internalType": "uint256",
+                "name": "epoch",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "nonce",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "deadline",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct ExitTypes.ExitPermit",
+            "name": "permit",
+            "type": "tuple"
+          }
+        ],
+        "name": "hashExitPermit",
+        "outputs": [
+          {
+            "internalType": "bytes32",
+            "name": "",
+            "type": "bytes32"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "wordPos",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mask",
+            "type": "uint256"
+          }
+        ],
+        "name": "invalidateUnorderedNonces",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "market",
+            "type": "address"
+          }
+        ],
+        "name": "isDelegatedMarket",
+        "outputs": [
+          {
+            "internalType": "bool",
+            "name": "",
+            "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "nonce",
+            "type": "uint256"
+          }
+        ],
+        "name": "isNonceUsed",
+        "outputs": [
+          {
+            "internalType": "bool",
+            "name": "",
+            "type": "bool"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
         "inputs": [],
         "name": "lockChecker",
         "outputs": [
@@ -553,6 +1368,19 @@
             "internalType": "contract IAssetOracle",
             "name": "",
             "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "maxPermitSlippageBps",
+        "outputs": [
+          {
+            "internalType": "uint16",
+            "name": "",
+            "type": "uint16"
           }
         ],
         "stateMutability": "view",
@@ -603,6 +1431,95 @@
         "outputs": [
           {
             "internalType": "contract INonfungiblePositionManager",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "wordPos",
+            "type": "uint256"
+          }
+        ],
+        "name": "nonceBitmap",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "bitmap",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "oracleStalenessSeconds",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address"
+          }
+        ],
+        "name": "revocationEpoch",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "epoch",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "revokeAll",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "sequencerGracePeriod",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "sequencerUptimeFeed",
+        "outputs": [
+          {
+            "internalType": "address",
             "name": "",
             "type": "address"
           }

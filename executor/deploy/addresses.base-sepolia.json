@@ -1,17 +1,17 @@
 {
   "chainId": 84532,
   "network": "baseSepolia",
-  "deployedAt": "2026-07-20T06:22:38.203Z",
+  "deployedAt": "2026-08-09T15:23:20.031Z",
   "deployer": "0xFE3EbAC628dCD84Ac87f75b12114B8D36cD47E62",
   "addresses": {
-    "lockChecker": "0x4518c4F6acC9ab3B3Ba5ED69c4Cd110AE55B8E85",
-    "aaveAdapter": "0xC32BA88AbBb4DB914C928BC57A38C324c6A4c168",
-    "moonwellAdapter": "0x6A7AC962a941442738Eeb132380BBb97a05be04E",
-    "compoundAdapter": "0x00210736e7E79640546D7E505097429E6A9816Ef",
-    "morphoAdapter": "0x7211cb25746A21f375735c73d9E6f629EF710f41",
-    "swapAdapter": "0x5f0D6D36Ab76639eA05415dA46c50f90Bb044A72",
-    "uniswapAdapter": "0x06a865f8EE8481B796c5C1537433DEa19a5482b8",
-    "panikExecutor": "0xfaae2d3bdbAB24D645C71618eacCA7A3c81c65cf"
+    "lockChecker": "0x9a1bfCAf7779d2b00B48d079Dc6B7d40EA33073E",
+    "aaveAdapter": "0x10f0BEf49e83996Fef0827222E445be3A7859e34",
+    "moonwellAdapter": "0x69c0A81cD0Ad8fCEBB6d9ddA7F409688a0c9c866",
+    "compoundAdapter": "0xAaA678F1AD405005521a662902F6017315eb59dF",
+    "morphoAdapter": "0xDA4B5871F8E4072FDEC2D448a5676EcCEdabc666",
+    "swapAdapter": "0x6461e7e291843257a94d4D48bfE33f8435436065",
+    "uniswapAdapter": "0xD375c405daEFC0f98178388b87Ff3b3B7E7202ef",
+    "panikExecutor": "0x554530E0a5C428Bd7f617F875a3C5570803842E4"
   },
   "config": {
     "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
@@ -45,7 +45,13 @@
       9500,
       9500
     ],
-    "mockOracleAssets": [],
+    "mockOracleAssets": [
+      "0x4200000000000000000000000000000000000006",
+      "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f",
+      "0x0a215D8ba66387DCA84B284D18c3B4ec3de6E54a",
+      "0x810D46F9a9027E28F9B01F75E2bdde839dA61115",
+      "0xD171b9694f7A2597Ed006D41f7509aaD4B485c4B"
+    ],
     "trackedAssets": [
       "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
       "0x4200000000000000000000000000000000000006",
@@ -54,6 +60,13 @@
       "0x810D46F9a9027E28F9B01F75E2bdde839dA61115",
       "0xD171b9694f7A2597Ed006D41f7509aaD4B485c4B",
       "0x54114591963CF60EF3aA63bEfD6eC263D98145a4"
-    ]
+    ],
+    "priceFeedAssets": [],
+    "priceFeeds": [],
+    "oracleStalenessSeconds": 3600,
+    "sequencerUptimeFeed": "0x0000000000000000000000000000000000000000",
+    "sequencerGracePeriod": 3600,
+    "maxPermitSlippageBps": 1000,
+    "delegatedMarkets": []
   }
 }
