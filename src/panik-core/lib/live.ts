@@ -20,11 +20,39 @@ import { useEffect, useRef, useState } from "react";
 export type { Band } from "../../../packages/scoring/src/types";
 import type { Band } from "../../../packages/scoring/src/types";
 
+/**
+ * Sub-scores from the PROSPECTIVE path (/api/compass, /api/prospective).
+ * All four are numbers there and always will be: `scoreProspective` awaits both
+ * market-context providers with `Promise.all`, so a failed lookup rejects the
+ * whole request and the route answers 5xx rather than a partial score. Nothing
+ * on those two endpoints can be null, and typing them as if they could would
+ * push a "not measured" branch onto surfaces that can never reach it.
+ */
 export interface SubScores {
   positionHealth: number;
   assetRisk: number;
   protocolSafety: number;
   systemicRisk: number;
+}
+
+/**
+ * Sub-scores from the ACTIVE path (/api/scores, /api/positions, /api/advisor),
+ * mirroring `DegradableSubScores` in packages/scoring/src/types.ts.
+ *
+ * The two market-context terms are null when their provider lookup failed for
+ * this leg. Null means NOT MEASURED and never 0: 0 is a real score meaning "as
+ * calm as this term gets", so `Math.round(null)` renders a degraded feed as the
+ * best possible reading. Position health comes from the chain read and protocol
+ * safety from a static table, so neither can go missing.
+ *
+ * The composite is renormalised over the surviving weights (computeScore.ts),
+ * so `total` stays a real number even when a term here is null.
+ */
+export interface DegradableSubScores {
+  positionHealth: number;
+  assetRisk: number | null;
+  protocolSafety: number;
+  systemicRisk: number | null;
 }
 
 export type LiveProtocol = "aave_v3" | "moonwell" | "morpho" | "compound_v3";
@@ -41,7 +69,7 @@ export interface LiveWalletPosition {
   wallet: string;
   total: number;
   band: Band;
-  subScores: SubScores;
+  subScores: DegradableSubScores;
   healthFactor: number | null;
   /** null when the engine could not price the position in USD — see below. */
   collateralValueUsd: number | null;
@@ -52,6 +80,15 @@ export interface LiveWalletPosition {
    * the dollar magnitudes are unknown. Must be surfaced, never rendered as $0.
    */
   usdValuesUnavailable?: boolean;
+  /**
+   * True when a market-context provider failed for THIS leg, so `subScores`
+   * carries a null. The composite is weighted over what was measured, which
+   * makes it a real number the UI may print; the null sub-scores are not.
+   * Optional because a payload cached before the field existed omits it — read
+   * it through `marketContextMissing()`, which derives the same condition from
+   * the sub-scores themselves.
+   */
+  marketContextUnavailable?: boolean;
   scoredCollateralSymbol: string;
   label: string | null;
   riskProfile: string;
@@ -317,7 +354,13 @@ export interface AdvisorRecommendation {
     collateralValueUsd: number | null;
     borrowValueUsd: number | null;
     usdValuesUnavailable?: boolean;
-    subScores: SubScores;
+    /**
+     * Degradable, same as the position rows: the advisor's `numbers` is a
+     * `Pick` of the engine's ActiveScore, so a null market-context term arrives
+     * here too. The engine does not include `marketContextUnavailable` in that
+     * Pick, which is why `marketContextMissing()` derives it from these.
+     */
+    subScores: DegradableSubScores;
     scoredCollateralSymbol: string;
   };
   exitPrefill?: { protocol: LiveProtocol; kind: "full" | "partial"; repayUsd?: number };

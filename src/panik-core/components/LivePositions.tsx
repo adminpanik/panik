@@ -10,7 +10,15 @@ import { AlertTriangle, SlidersHorizontal } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
-import { formatUsd, limitStateCopy, liquidationOutlook, RISK_CHIP } from "../lib/utils";
+import {
+  formatUsd,
+  limitStateCopy,
+  liquidationOutlook,
+  MARKET_CONTEXT_MISSING_HINT,
+  MARKET_CONTEXT_MISSING_LABEL,
+  marketContextMissing,
+  RISK_CHIP,
+} from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
 const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
@@ -226,6 +234,35 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
                           {formatUsd(p.borrowValueUsd)}
                         </span>{" "}
                         debt
+                      </span>
+                    </div>
+                  )}
+
+                  {/* A market-context term the engine could not read. Separate
+                      from the USD marker above and never merged with it: the
+                      two failures are independent (a leg can be priced exactly
+                      and still lose its asset-risk lookup), and they withhold
+                      different things — that one withholds the dollars, this
+                      one withholds part of the score.
+
+                      Same treatment as the USD marker, from the same
+                      `RISK_CHIP.UNKNOWN`: unfilled, dashed edge, icon and
+                      words, so "not measured" survives greyscale and is
+                      distinguishable from a healthy row on four axes. The grey
+                      is `risk-unknown`, which is not a band, so this row still
+                      spends exactly one risk hue (its dial).
+
+                      `text-xs`, one step under the money line it sits below:
+                      this is a caveat about the score on the rail, not the
+                      row's headline. */}
+                  {marketContextMissing(p.subScores) && (
+                    <div className="flex">
+                      <span
+                        title={MARKET_CONTEXT_MISSING_HINT}
+                        className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        {MARKET_CONTEXT_MISSING_LABEL}
                       </span>
                     </div>
                   )}
