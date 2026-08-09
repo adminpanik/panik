@@ -77,6 +77,36 @@ jobs:
         working-directory: contracts
         run: forge test -vvv
 
+  executor:
+    name: Executor (Hardhat)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' # schedule trigger exists only for exit-config-drift
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: executor/package-lock.json
+
+      # executor/ is its own npm package with its own lockfile — no workspace
+      # link to the app, and no .npmrc legacy-peer-deps needed here.
+      - name: Install
+        working-directory: executor
+        run: npm ci
+
+      - name: Compile
+        working-directory: executor
+        run: npx hardhat compile
+
+      # Only the mock suite. test/fork/ forks Base mainnet and needs
+      # BASE_MAINNET_RPC (an archive-node key), so it cannot run on a PR from
+      # a fork; run it manually before a mainnet deploy.
+      - name: Test (mock suite)
+        working-directory: executor
+        run: npx hardhat test test/executor.spec.ts
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
@@ -123,7 +153,7 @@ jobs:
           changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
           echo "Changed files:"
           echo "$changed"
-          if echo "$changed" | grep -qE '^(src/panik-core/lib/exit\.generated\.ts|scripts/.*exit-config.*)$'; then
+          if echo "$changed" | grep -qE '^(src/panik-core/lib/exit\.generated\.ts|scripts/.*exit-config.*|executor/deploy/onchain-config\.json)$'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No exit-config-relevant paths changed — skipping."
