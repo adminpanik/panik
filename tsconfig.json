@@ -23,5 +23,11 @@
     "allowImportingTsExtensions": true,
     "strictNullChecks": true,
     "noEmit": true
-  }
+  },
+  // executor/ is a self-contained Hardhat package with its own tsconfig
+  // (CommonJS, `types: ["node", "hardhat"]`). Without this it would be swept
+  // into the app's `tsc --noEmit` under bundler resolution and fail on
+  // `import { ethers } from "hardhat"`. Run its typecheck from executor/.
+  // node_modules is restated because setting `exclude` replaces the default.
+  "exclude": ["node_modules", "executor"]
 }

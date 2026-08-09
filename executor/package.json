@@ -1,0 +1,42 @@
+{
+  "name": "panik-phase0-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PANIK Phase 0 smart contract layer for Base Sepolia",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "clean": "hardhat clean",
+    "typecheck": "tsc --noEmit",
+    "deploy:mock-oracle": "hardhat run scripts/deploy-mock-oracle.ts --network baseSepolia",
+    "deploy:executor-only": "hardhat run scripts/deploy-executor-only.ts --network baseSepolia",
+    "seed:pools": "hardhat run scripts/seed-uniswap-pools.ts --network baseSepolia",
+    "seed:cbeth-pool": "hardhat run scripts/seed-cbeth-pool.ts --network baseSepolia",
+    "seed:weth-pool": "hardhat run scripts/seed-weth-pool.ts --network baseSepolia",
+    "approve:debt": "hardhat run scripts/approve-debt-tokens.ts --network baseSepolia",
+    "approve:atokens": "hardhat run scripts/approve-atokens.ts --network baseSepolia",
+    "oracle:set-prices": "hardhat run scripts/set-mock-prices.ts --network baseSepolia",
+    "deploy:base-sepolia": "hardhat run scripts/deploy.ts --network baseSepolia",
+    "relink:adapters": "hardhat run scripts/relink-adapters.ts --network baseSepolia",
+    "export:abi": "ts-node scripts/export-abi.ts"
+  },
+  "keywords": [
+    "solidity",
+    "hardhat",
+    "aave",
+    "base-sepolia"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.2",
+    "@types/node": "^25.5.2",
+    "dotenv": "^17.4.0",
+    "hardhat": "^2.28.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1"
+  }
+}

@@ -35,6 +35,16 @@ contracts/cache/
 # submodule gitlink in .gitmodules/.git is the real pin.
 contracts/foundry.lock
 
+# Hardhat (executor/ build output — same treatment as contracts/ above: the
+# generated trees are ignored, the sources and the lockfile are tracked).
+# executor/abi/ is regenerable output of `npm run export:abi`, which reads
+# executor/artifacts/ — it is not a source of truth and is not imported here.
+executor/node_modules/
+executor/artifacts/
+executor/cache/
+executor/typechain-types/
+executor/abi/
+
 # Playwright MCP snapshots and local screenshots. `/*.png` already covers the
 # `phase*.png` / `baseline.png` names verification passes keep producing, so
 # they are not listed again — a second pattern for a subset of the first only
