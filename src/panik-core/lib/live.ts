@@ -395,6 +395,14 @@ export interface AdvisorRecommendation {
     repayUsd?: number;
     /** What a partial exit is actually sized from; see `AdvisorRepayPlan`. */
     repayFraction?: number;
+    /**
+     * Engine readings the exit flow cannot make for itself, carried so a repay
+     * capped to the wallet balance can state what protection it actually buys.
+     * Display only. See `packages/scoring/src/advisor/types.ts`.
+     */
+    borrowUsd?: number | null;
+    healthFactor?: number | null;
+    collateralSymbol?: string;
   };
   openPrefill?: AdvisorOpenPlan;
 }

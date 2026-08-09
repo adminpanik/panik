@@ -5,12 +5,15 @@ import { fallbackSections, overallHeadline } from "../src/advisor/fallback";
 import { findOpportunities } from "../src/advisor/opportunities";
 import {
   collateralFundedRepayToTargetHf,
+  hfAfterRepayFraction,
   REDUCE_TO_EXIT_RATIO,
   REPAY_FRACTION_SCALE,
   repayAmountFromFraction,
+  repayFractionFloorFromAmount,
   repayFractionNumerator,
   repayFractionOfDebt,
   repayToTargetHf,
+  repayUsdFromFraction,
   TARGET_HF,
 } from "../src/advisor/repayMath";
 import { drawdownToLiquidation } from "../src/prospective";
@@ -118,6 +121,68 @@ describe("repayMath", () => {
     expect(repayAmountFromFraction(1n, 0.4)).toBeNull();
     expect(repayAmountFromFraction(0n, 0.5)).toBeNull();
     expect(repayAmountFromFraction(1_000n, 0)).toBeNull();
+  });
+
+  it("repayFractionFloorFromAmount: floors, so a balance is never overstated", () => {
+    // 7 units against a debt of 10 is 0.7 exactly.
+    expect(repayFractionFloorFromAmount(7n, 10n)).toBe(0.7);
+    // 1 of 3 floors to 0.333333, NOT the 0.333333 that half-up rounding
+    // would also give here - the case that separates them is the next one.
+    expect(repayFractionFloorFromAmount(1n, 3n)).toBe(0.333333);
+    // 2 of 3 is 0.6666666...: half-up would emit 0.666667, which buys more
+    // than the balance can pay for. This must floor.
+    expect(repayFractionFloorFromAmount(2n, 3n)).toBe(0.666666);
+    expect(repayFractionOfDebt(2, 3)).toBe(0.666667);
+    // Exact on an 18-decimal debt, where Number() would have lost the tail.
+    const debt = 4_000_000_000_000_000_000n; // 4 WETH, well above 2^53
+    expect(repayFractionFloorFromAmount(debt / 4n, debt)).toBe(0.25);
+    // One unit short of a quarter still floors to the step below it, because
+    // the wallet really cannot fund that last unit.
+    expect(repayFractionFloorFromAmount(debt / 4n - 1n, debt)).toBe(0.249999);
+    // A balance above the debt is a whole repay, never more.
+    expect(repayFractionFloorFromAmount(debt * 3n, debt)).toBe(1);
+    // Null, never 0: below one step of the grid there is no repay to make.
+    expect(repayFractionFloorFromAmount(1n, 10_000_000n)).toBeNull();
+    expect(repayFractionFloorFromAmount(0n, 10n)).toBeNull();
+    expect(repayFractionFloorFromAmount(5n, 0n)).toBeNull();
+  });
+
+  it("repayUsdFromFraction: whole dollars, the same rounding RepayPlan carries", () => {
+    expect(repayUsdFromFraction(10_000, 0.251429)).toBe(2514);
+    // Half up, matching `Math.round(repayUsd)` in the rules.
+    expect(repayUsdFromFraction(1_000, 0.0025)).toBe(3);
+    expect(repayUsdFromFraction(10_000, 1)).toBe(10_000);
+    // A fraction above contract cannot quote more than the whole debt.
+    expect(repayUsdFromFraction(10_000, 1.5)).toBe(10_000);
+    // Unpriced leg: no dollars to quote, and 0 would be a lie about the size.
+    expect(repayUsdFromFraction(null, 0.5)).toBeNull();
+    expect(repayUsdFromFraction(0, 0.5)).toBeNull();
+    expect(repayUsdFromFraction(10_000, 0)).toBeNull();
+    expect(repayUsdFromFraction(10_000, Number.NaN)).toBeNull();
+  });
+
+  it("hfAfterRepayFraction: HF / (1 - f), the inverse of repayToTargetHf", () => {
+    // Round trip: size a repay to a target, then re-derive the target from it.
+    const borrow = 10_000;
+    const hf = 1.31;
+    const target = TARGET_HF.moderate;
+    const repay = repayToTargetHf(borrow, hf, target);
+    expect(hfAfterRepayFraction(hf, repay / borrow)).toBeCloseTo(target, 9);
+    // Half the debt doubles the health factor.
+    expect(hfAfterRepayFraction(1.2, 0.5)).toBeCloseTo(2.4, 12);
+    expect(hfAfterRepayFraction(1.2, 0)).toBe(1.2);
+  });
+
+  it("hfAfterRepayFraction: clearing the debt has no health factor at all", () => {
+    // Null rather than a very large ratio, the same answer ActiveScore gives
+    // for a position with no debt.
+    expect(hfAfterRepayFraction(1.2, 1)).toBeNull();
+    expect(hfAfterRepayFraction(1.2, 1.5)).toBeNull();
+    expect(hfAfterRepayFraction(null, 0.5)).toBeNull();
+    expect(hfAfterRepayFraction(0, 0.5)).toBeNull();
+    expect(hfAfterRepayFraction(-1, 0.5)).toBeNull();
+    expect(hfAfterRepayFraction(1.2, -0.1)).toBeNull();
+    expect(hfAfterRepayFraction(1.2, Number.NaN)).toBeNull();
   });
 
   it("drawdownToLiquidation: HF 2.0 -> 50% drop; null when no debt", () => {
@@ -251,6 +316,12 @@ describe("adviseLeg decision table", () => {
       kind: "partial",
       repayUsd: expected,
       repayFraction: fraction,
+      // Carried for the exit flow, which reads the chain and so knows this
+      // leg's debt in token units and none of these three. They are what let a
+      // repay capped to the wallet balance state the protection it buys.
+      borrowUsd: 10_000,
+      healthFactor: 1.31,
+      collateralSymbol: "WETH",
     });
   });
 

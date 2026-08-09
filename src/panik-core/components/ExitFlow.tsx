@@ -36,12 +36,17 @@ import {
 import {
   AMOUNT_FULL,
   buildExitLegs,
+  capRepayToWallet,
   formatTokenAmount,
   swapAcquisitionNote,
+  withAccrualBuffer,
   type ExitLegView,
   type ExitReserveState,
   type SwapConfigRead,
+  type WalletRepayCap,
 } from "../lib/exitLegs";
+import { liquidationOutlook } from "../lib/utils";
+import { fmtUsd } from "../../../packages/scoring/src/advisor/fallback";
 import {
   EXECUTOR_ABI,
   EXECUTOR_ADDRESS,
@@ -52,7 +57,7 @@ import {
   LOCK_CHECKER_ABI,
   LOCK_CHECKER_ADDRESS,
 } from "../lib/exit.generated";
-import { useExitApprovals, withAccrualBuffer, type ApprovalStep } from "../lib/useExitApprovals";
+import { useExitApprovals, type ApprovalStep } from "../lib/useExitApprovals";
 
 export interface ExitPrefill {
   protocol: LiveProtocol;
@@ -70,6 +75,16 @@ export interface ExitPrefill {
    * token units without a price, and the debt is not always USDC.
    */
   repayFraction?: number;
+  /**
+   * Engine readings this flow cannot make for itself. It reads the chain, so it
+   * knows the debt in token units and nothing about the dollars, the health
+   * factor, or the collateral those dollars are levered against. They are what
+   * lets a repay CAPPED to the wallet balance say what protection it buys
+   * instead of only how much smaller it got. Display only.
+   */
+  borrowUsd?: number | null;
+  healthFactor?: number | null;
+  collateralSymbol?: string;
 }
 
 /**
@@ -140,6 +155,12 @@ interface LoadedPosition {
   views: ExitLegView[];
   approvals: ApprovalStep[];
   funding: FundingRow[];
+  /**
+   * Set when the wallet could not fund the whole sized repay and the legs were
+   * rebuilt smaller. Null on every other load, including a shortfall too deep
+   * to cap. What is on screen is always what these legs execute.
+   */
+  cap: WalletRepayCap | null;
   /** For the receipt line only: the executor sweeps proceeds as USDC. */
   usdcDecimals: number;
 }
@@ -206,11 +227,14 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       const usdcDecimals =
         reserves.find((r) => r.reserve === EXIT_USDC_ADDRESS)?.decimals ?? 6;
 
-      const { legs, views, dust } = buildExitLegs(reserves, {
-        protocol: prefill.protocol,
-        kind: prefill.kind,
-        repayFraction: prefill.repayFraction,
-      });
+      const build = (repayFraction: number | undefined) =>
+        buildExitLegs(reserves, {
+          protocol: prefill.protocol,
+          kind: prefill.kind,
+          repayFraction,
+        });
+
+      let { legs, views, dust } = build(prefill.repayFraction);
 
       if (legs.length === 0) {
         setError(
@@ -240,6 +264,70 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         return;
       }
 
+      // Wallet balances first, before the legs are final: a wallet-funded repay
+      // is decided BY these numbers, and a repay the wallet cannot cover is
+      // rebuilt smaller rather than simply refused.
+      const wallet = new Map<
+        `0x${string}`,
+        { balance: bigint; swapConfig: SwapConfigRead | null }
+      >();
+      for (const v of views) {
+        if (v.repayFunding <= 0n) continue;
+        const [balance, swapConfig] = await Promise.all([
+          client.readContract({
+            address: v.reserve,
+            abi: EXIT_ERC20_ABI,
+            functionName: "balanceOf",
+            args: [address],
+          }) as Promise<bigint>,
+          // Display only: the deployed slippage floor for this asset, so a
+          // user who has to go get the token knows what that will cost.
+          // A failed read shows no figure rather than a made-up one.
+          client
+            .readContract({
+              address: EXECUTOR_ADDRESS,
+              abi: EXECUTOR_ABI,
+              functionName: "getSwapConfig",
+              args: [v.reserve],
+            })
+            .then((res) => {
+              const [enabled, , minOutBps] = res as [boolean, `0x${string}`, number, boolean];
+              return { enabled, minOutBps: Number(minOutBps) } satisfies SwapConfigRead;
+            })
+            .catch(() => null),
+        ]);
+        wallet.set(v.reserve, { balance, swapConfig });
+      }
+
+      // Cap a SIZED repay to what the wallet holds. A full exit and a full
+      // repay are all-or-nothing by definition (both carry the AMOUNT_FULL
+      // sentinel, and half a close is not a close), so only `partial` can be
+      // cut down.
+      let cap: WalletRepayCap | null = null;
+      if (prefill.kind === "partial" && prefill.repayFraction !== undefined) {
+        const candidate = capRepayToWallet({
+          rows: views
+            .filter((v) => v.repayFunding > 0n)
+            .map((v) => ({ debt: v.debt, balance: wallet.get(v.reserve)?.balance ?? 0n })),
+          requestedFraction: prefill.repayFraction,
+          borrowUsd: prefill.borrowUsd ?? null,
+          healthFactor: prefill.healthFactor ?? null,
+        });
+        if (candidate !== null) {
+          const rebuilt = build(candidate.appliedFraction);
+          // A smaller fraction can round a small leg out of the plan entirely,
+          // and legs that no longer scale together no longer land the health
+          // factor this cap is about to promise. Drop the cap in that case and
+          // let the shortfall message stand: a wrong promise is worse than a
+          // blocked button.
+          if (rebuilt.legs.length === legs.length) {
+            legs = rebuilt.legs;
+            views = rebuilt.views;
+            cap = candidate;
+          }
+        }
+      }
+
       const approvals: ApprovalStep[] = [];
       const funding: FundingRow[] = [];
       for (const v of views) {
@@ -250,36 +338,14 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
             amount: v.repayFunding,
             label: `Approve ${v.symbol} for debt repayment`,
           });
-          const [balance, swapConfig] = await Promise.all([
-            client.readContract({
-              address: v.reserve,
-              abi: EXIT_ERC20_ABI,
-              functionName: "balanceOf",
-              args: [address],
-            }) as Promise<bigint>,
-            // Display only: the deployed slippage floor for this asset, so a
-            // user who has to go get the token knows what that will cost.
-            // A failed read shows no figure rather than a made-up one.
-            client
-              .readContract({
-                address: EXECUTOR_ADDRESS,
-                abi: EXECUTOR_ABI,
-                functionName: "getSwapConfig",
-                args: [v.reserve],
-              })
-              .then((res) => {
-                const [enabled, , minOutBps] = res as [boolean, `0x${string}`, number, boolean];
-                return { enabled, minOutBps: Number(minOutBps) } satisfies SwapConfigRead;
-              })
-              .catch(() => null),
-          ]);
+          const held = wallet.get(v.reserve);
           funding.push({
             token: v.reserve,
             symbol: v.symbol,
             decimals: v.decimals,
             required: withAccrualBuffer(v.repayFunding),
-            balance,
-            swapConfig,
+            balance: held?.balance ?? 0n,
+            swapConfig: held?.swapConfig ?? null,
           });
         }
         if (v.withdraw > 0n) {
@@ -298,7 +364,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         }
       }
 
-      setPosition({ legs, views, approvals, funding, usdcDecimals });
+      setPosition({ legs, views, approvals, funding, cap, usdcDecimals });
       setStep("review");
     } catch (err) {
       setError((err as Error).message.slice(0, 300));
@@ -376,6 +442,34 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
     )
     .filter((note): note is string => note !== null);
 
+  /**
+   * What a capped repay actually buys, in two sentences.
+   *
+   * Every number in them is the engine's: the dollars come from
+   * `repayUsdFromFraction` against the fraction that will execute, and both
+   * outlooks come from `liquidationOutlook`, the one helper that turns a health
+   * factor into the price drop it means. The component picks no rounding and
+   * runs no arithmetic of its own, so this line and the Advisor card that sent
+   * the user here cannot state the same quantity two different ways.
+   *
+   * Skipped entirely when the leg was unpriced: a repay whose dollars the
+   * engine never established is stated as a token amount by the rows above, and
+   * inventing "$0 of $0 suggested" is the exact failure this product bans.
+   */
+  const cap = position?.cap ?? null;
+  const capNotice =
+    cap === null ||
+    cap.appliedRepayUsd === null ||
+    cap.appliedHf === null ||
+    cap.requestedHf === null ||
+    prefill.repayUsd === undefined ||
+    prefill.collateralSymbol === undefined
+      ? null
+      : {
+          amounts: `Your wallet covers ${fmtUsd(cap.appliedRepayUsd)} of the ${fmtUsd(prefill.repayUsd)} suggested repay, so that is what this will repay.`,
+          outcome: `${liquidationOutlook(cap.appliedHf, prefill.collateralSymbol).sentence} after it, instead of ${liquidationOutlook(cap.requestedHf, prefill.collateralSymbol).strip}.`,
+        };
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
@@ -450,6 +544,22 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
             {/* The outcome, before the amounts: what you still own after this
                 transaction is the thing the amounts do not tell you. */}
             <p className="text-sm font-sans leading-relaxed text-text-secondary">{copy.outcome}</p>
+
+            {/* The cap, above the amounts it explains. Neutral ink and a plain
+                inset: a repay that had to be trimmed is a fact about the
+                wallet, not a risk band, and painting it would spend a hue the
+                Advisor card that sent the user here already spends on the
+                dial. */}
+            {capNotice ? (
+              <div className="rounded-md border border-border-subtle bg-white/[0.02] p-3 space-y-1">
+                <p className="text-sm font-sans leading-relaxed text-text-primary">
+                  {capNotice.amounts}
+                </p>
+                <p className="text-xs font-sans leading-relaxed text-text-secondary">
+                  {capNotice.outcome}
+                </p>
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               {position.views.map((v) => (

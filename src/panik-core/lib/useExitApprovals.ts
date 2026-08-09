@@ -9,6 +9,10 @@ import { useCallback } from "react";
 import { usePublicClient, useWriteContract } from "wagmi";
 import { EXIT_CHAIN_ID } from "./exit.generated";
 import { asContractClient, EXIT_ERC20_ABI } from "./exit";
+// The buffer moved to `exitLegs` when the wallet cap needed to INVERT it (how
+// much can a balance fund once the buffer is taken out). One definition, in the
+// module that owns the BigInt money math, rather than a second 2% living here.
+import { withAccrualBuffer } from "./exitLegs";
 
 export interface ApprovalStep {
   token: `0x${string}`;
@@ -16,11 +20,6 @@ export interface ApprovalStep {
   /** Exact amount needed; the runner approves amount + 2% buffer. */
   amount: bigint;
   label: string;
-}
-
-/** amount + 2% (interest can accrue between approval and execution). */
-export function withAccrualBuffer(amount: bigint): bigint {
-  return amount + (amount * 2n) / 100n;
 }
 
 export function useExitApprovals(owner: `0x${string}` | undefined) {
