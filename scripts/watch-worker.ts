@@ -46,10 +46,12 @@ import {
   CoinGeckoProvider,
   DefiLlamaProvider,
   WatchService,
+  adviseLeg,
   decideSend,
   formatAlert,
   statusFor,
   type ActiveScore,
+  type AlertExtras,
   type ProfileStatus,
   type Protocol,
   type RiskProfile,
@@ -350,6 +352,7 @@ interface PendingRow {
   risk_profile: RiskProfile;
   score: number;
   band: WatchTransition["band"];
+  from_status: ProfileStatus | null;
   to_status: ProfileStatus;
   created_at: string;
   chat_id: string;
@@ -376,6 +379,24 @@ async function stamp(id: string, channel: string): Promise<void> {
   );
 }
 
+/**
+ * The advisor's own triggers for this leg, plus the facts that phrase them, so
+ * the alert can state WHY it fired (7.1). Read from the in-memory ActiveScore of
+ * the tick that produced the transition - the same object the snapshot row was
+ * written from. Undefined right after a restart (the map is cold until the first
+ * tick), and the message then simply omits the why-now line rather than
+ * reconstructing one from a stale row.
+ */
+function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): AlertExtras["why"] {
+  const scored = lastScored.get(key(wallet, protocol));
+  if (!scored) return undefined;
+  const rec = adviseLeg(scored, profile);
+  return {
+    triggers: rec.triggers,
+    facts: { ...rec.numbers, protocol: rec.protocol, profile },
+  };
+}
+
 async function dispatchPending(): Promise<void> {
   // First, mark recovery transitions (to_status = within) as seen so the queue
   // never accumulates them. They never notify.
@@ -384,8 +405,9 @@ async function dispatchPending(): Promise<void> {
   );
 
   const { rows } = await db.query<PendingRow>(
-    `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band, t.to_status,
-            t.created_at, t.simulation_id, t.simulation_label, l.chat_id,
+    `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band,
+            t.from_status, t.to_status, t.created_at,
+            t.simulation_id, t.simulation_label, l.chat_id,
             s.health_factor, s.collateral_usd, s.borrow_usd, s.usd_values_unavailable
        from public.watch_transitions t
        join public.telegram_links l on l.wallet = t.wallet and l.enabled
@@ -426,32 +448,35 @@ async function dispatchPending(): Promise<void> {
       continue;
     }
 
-    const text = formatAlert(
-      {
-        wallet: r.wallet,
-        protocol: r.protocol,
-        profile: r.risk_profile,
-        score: r.score,
-        band: r.band,
-        from: priorRow?.to_status ?? null,
-        to: r.to_status,
-        // The stamp itself is not recoverable from a row (it carries
-        // multipliers and an expiry the table does not keep), so the marker
-        // travels as `extras.simulation`, which asks only for what WAS
-        // persisted. `formatAlert` refuses to build an unmarked body once
-        // either is set, which makes "a simulated alert says so" a property of
-        // the message builder rather than of this caller remembering.
-        simulation: null,
-      },
-      {
-        healthFactor: r.health_factor == null ? null : Number(r.health_factor),
-        collateralUsd: r.collateral_usd == null ? null : Number(r.collateral_usd),
-        borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
-        simulation: r.simulation_id
-          ? { label: r.simulation_label ?? "Simulated market event" }
-          : null,
-      },
-    );
+    const transition: WatchTransition = {
+      wallet: r.wallet,
+      protocol: r.protocol,
+      profile: r.risk_profile,
+      score: r.score,
+      band: r.band,
+      // The row's own record of where the position came from, not the last
+      // thing we happened to SEND. A wallet whose prior alert was suppressed
+      // would otherwise be described as moving from a status it never left.
+      from: r.from_status,
+      to: r.to_status,
+      // The stamp itself is not recoverable from a row (it carries
+      // multipliers and an expiry the table does not keep), so the marker
+      // travels as `extras.simulation`, which asks only for what WAS
+      // persisted. `formatAlert` refuses to build an unmarked body once
+      // either is set, which makes "a simulated alert says so" a property of
+      // the message builder rather than of this caller remembering.
+      simulation: null,
+    };
+    const extras: AlertExtras = {
+      healthFactor: r.health_factor == null ? null : Number(r.health_factor),
+      collateralUsd: r.collateral_usd == null ? null : Number(r.collateral_usd),
+      borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
+      simulation: r.simulation_id
+        ? { label: r.simulation_label ?? "Simulated market event" }
+        : null,
+      why: whyNowFor(r.wallet, r.protocol, r.risk_profile),
+    };
+    const text = formatAlert(transition, extras);
 
     const result = await sendMessage(botToken!, Number(r.chat_id), text);
     if (result.ok) {

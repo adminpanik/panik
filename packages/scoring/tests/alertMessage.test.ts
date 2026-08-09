@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { formatAlert, formatWelcome, truncateWallet } from "../src/watch/alertMessage";
+import {
+  formatAlert,
+  formatSubScores,
+  formatWelcome,
+  truncateWallet,
+  whyNow,
+  type WhyNowFacts,
+  type WhyNowInput,
+} from "../src/watch/alertMessage";
 import type { WatchTransition } from "../src/watch/loop";
 
 const base: WatchTransition = {
@@ -16,6 +24,16 @@ const base: WatchTransition = {
 // Em dash (U+2014) and en dash (U+2013) are banned by house style. Built from
 // char codes so this test file itself contains no literal long dash.
 const LONG_DASH = new RegExp("[" + String.fromCharCode(0x2014, 0x2013) + "]");
+
+const facts: WhyNowFacts = {
+  healthFactor: 1.08,
+  scoredCollateralSymbol: "cbBTC",
+  subScores: { positionHealth: 88, assetRisk: 52, protocolSafety: 30, systemicRisk: 22 },
+  protocol: "moonwell",
+  profile: "moderate",
+};
+
+const why: WhyNowInput = { triggers: ["band:HIGH", "profile:outside", "floor:hf<=1.1"], facts };
 
 describe("formatAlert", () => {
   it("contains no em dash or en dash (house style)", () => {
@@ -45,7 +63,19 @@ describe("formatAlert", () => {
 
   it("uses the approaching copy for an approaching transition", () => {
     const msg = formatAlert({ ...base, to: "approaching", score: 44, band: "ELEVATED" }, { healthFactor: 1.3, borrowUsd: 800 });
-    expect(msg).toContain("approaching your risk limit");
+    expect(msg).toContain("nearing your risk limit");
+  });
+
+  // DESIGN_SYSTEM: the LIMIT_STATE wording is chosen so an enum token never
+  // appears as a substring, which makes this check a mechanical grep.
+  it("leaks no ProfileStatus enum token into the copy", () => {
+    const msgs = [
+      formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600, why }),
+      formatAlert({ ...base, to: "approaching" }, { healthFactor: 1.3, borrowUsd: 800, why }),
+    ];
+    for (const m of msgs) {
+      expect(m).not.toMatch(/within|approaching|outside/);
+    }
   });
 
   it("leads with the severity emoji (push-preview signal)", () => {
@@ -88,6 +118,95 @@ describe("formatWelcome", () => {
     const msg = formatWelcome(wallet);
     expect(msg.startsWith("👋")).toBe(true);
     expect(msg).toContain("🔕 /stop");
+  });
+});
+
+// 7.1 - every alert says which input fired it, and with what value.
+describe("whyNow", () => {
+  it("picks the severity-dominant trigger, not the first one pushed", () => {
+    // Both orderings resolve to the proximity floor: the table is the severity
+    // order, so the advisor's own push order cannot change the answer.
+    const forward = whyNow({ triggers: ["floor:hf<=1.1", "protocol:safety"], facts });
+    const reversed = whyNow({ triggers: ["protocol:safety", "floor:hf<=1.1"], facts });
+    expect(forward?.trigger).toBe("floor:hf<=1.1");
+    expect(reversed).toEqual(forward);
+  });
+
+  it("crash regime outranks the proximity floor", () => {
+    const w = whyNow({ triggers: ["floor:hf<=1.1", "regime:crash"], facts: { ...facts, subScores: { ...facts.subScores, assetRisk: 78 } } });
+    expect(w?.trigger).toBe("regime:crash");
+    expect(w?.text).toContain("78 / 100");
+    expect(w?.text).toContain("cbBTC");
+  });
+
+  it("states the value that fired it, led by the price-drop buffer", () => {
+    const w = whyNow(why);
+    // 1 - 1/1.08 = 7.4%
+    expect(w?.text).toBe(
+      "Liquidation is a 7.4% cbBTC drop away, at a health factor of 1.08.",
+    );
+  });
+
+  it("falls through to the next trigger when the dominant one has no value", () => {
+    // Same crash regime, but asset risk was never measured. Rather than print a
+    // missing number it drops to the proximity floor, which it can state.
+    const w = whyNow({
+      triggers: ["regime:crash", "floor:hf<=1.1"],
+      facts: { ...facts, subScores: { ...facts.subScores, assetRisk: null } },
+    });
+    expect(w?.trigger).toBe("floor:hf<=1.1");
+  });
+
+  it("names the degraded price feed and claims no dollar value", () => {
+    const w = whyNow({
+      triggers: ["band:HIGH", "profile:outside", "prices:degraded", "target:hf=1.75"],
+      facts: { ...facts, healthFactor: null },
+    });
+    expect(w?.trigger).toBe("prices:degraded");
+    expect(w?.text).toContain("degraded");
+    expect(w?.text).not.toMatch(/\$|0%/);
+  });
+
+  it("falls back to the largest weighted sub-score contribution", () => {
+    const w = whyNow({ triggers: ["band:HIGH", "profile:outside"], facts });
+    expect(w?.trigger).toBe("driver:positionHealth");
+    expect(w?.text).toBe("position health is the largest contributor to this score, at 88 / 100.");
+  });
+
+  it("returns nothing when there is nothing measured to report", () => {
+    expect(
+      whyNow({
+        triggers: [],
+        facts: {
+          ...facts,
+          subScores: { positionHealth: null, assetRisk: null, protocolSafety: null, systemicRisk: null } as unknown as WhyNowFacts["subScores"],
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("never puts a raw trigger string in the copy", () => {
+    const msg = formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600, why });
+    expect(msg).toContain("🔎 Why now:");
+    expect(msg).not.toContain("floor:hf<=");
+    expect(msg).not.toContain("band:");
+  });
+
+  it("omits the why-now line entirely when the dispatcher has no facts", () => {
+    expect(formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600 })).not.toContain("Why now");
+  });
+});
+
+describe("formatSubScores", () => {
+  it("orders by share of the composite and omits unmeasured terms", () => {
+    expect(formatSubScores(facts.subScores)).toBe(
+      "🧩 Risk drivers: position health 88, asset volatility 52, protocol risk 30, market stress 22",
+    );
+    // Unmeasured is not zero: the term is dropped, never printed as 0.
+    const degraded = formatSubScores({ ...facts.subScores, assetRisk: null, systemicRisk: null });
+    expect(degraded).toBe("🧩 Risk drivers: position health 88, protocol risk 30");
+    expect(degraded).not.toContain("asset volatility");
+    expect(degraded).not.toContain("market stress");
   });
 });
 

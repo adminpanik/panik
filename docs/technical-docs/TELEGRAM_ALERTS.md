@@ -106,6 +106,13 @@ Knobs live in `ALERT_POLICY` (`packages/scoring/src/params.ts`):
 (user blocked the bot). Honest scope: these cut nuisance volume and
 safe-position noise, not the calibrated precision/recall point.
 
+**Why now (P2 7.1).** Every alert carries a `🔎 Why now:` line naming the
+dominant trigger and the value that fired it, plus a one-line sub-score
+breakdown. Triggers are the advisor's own (`advisor/rules.ts`); `whyNow()` in
+`watch/alertMessage.ts` holds the severity order and the copy. A trigger whose
+value is unavailable falls through to the next one, so the alert says less
+rather than inventing a number, and raw trigger strings never reach a user.
+
 ## Setup
 
 1. Apply the migrations in the Supabase SQL Editor, **in order**:

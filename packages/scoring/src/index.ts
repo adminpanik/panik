@@ -19,7 +19,17 @@ export { CompoundActiveReader, type CompoundReaderOptions } from "./adapters/act
 export { MorphoActiveReader } from "./adapters/activeMorpho";
 export * from "./adapters/active";
 export * from "./watch/loop";
-export { formatAlert, formatWelcome, truncateWallet, type AlertExtras } from "./watch/alertMessage";
+export {
+  formatAlert,
+  formatSubScores,
+  formatWelcome,
+  truncateWallet,
+  whyNow,
+  type AlertExtras,
+  type WhyNow,
+  type WhyNowFacts,
+  type WhyNowInput,
+} from "./watch/alertMessage";
 export {
   decideSend,
   type SendReason,
