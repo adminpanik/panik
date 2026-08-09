@@ -58,7 +58,28 @@ export {
 } from "./advisor/opportunities";
 export { fallbackSections, overallHeadline, PROTOCOL_LABEL } from "./advisor/fallback";
 export { insightsFromClassification } from "./advisor/insights";
-export { AdvisorNarrator, type AdvisorNarratorOptions } from "./providers/advisorNarrator";
+export {
+  AdvisorNarrator,
+  DEFAULT_COOLDOWN_MS,
+  DEFAULT_FAILURE_THRESHOLD,
+  type AdvisorNarratorOptions,
+  type NarrationFallbackReason,
+  type NarrationOutcome,
+} from "./providers/advisorNarrator";
+export {
+  buildWhitelist,
+  extractNumbers,
+  fencePayload,
+  hedgesOnVerdict,
+  sanitizeSymbol,
+  SYMBOL_MAX_LEN,
+  UNKNOWN_TOKEN,
+  verifyNarration,
+  type NarrationVerdict,
+  type NumberWhitelist,
+  type NumericToken,
+  type SanitizedSymbol,
+} from "./providers/narrationGuard";
 // DeFi-persona classifier (deterministic) — see docs/technical-docs/WALLET_PROFILER.md
 export * from "./classify/types";
 export * from "./classify/params";
