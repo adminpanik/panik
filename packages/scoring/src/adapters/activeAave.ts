@@ -78,6 +78,21 @@ export interface ActiveReading {
   /** Dominant collateral symbol, or null when discovery failed. */
   dominantCollateralSymbol: string | null;
   /**
+   * Symbol of the largest BORROW on this leg - the asset a repay is actually
+   * denominated in - or null when the reader could not establish one.
+   *
+   * Null is not "USDC". The advisor used to hardcode that symbol, which named
+   * the wrong token the moment a wallet borrowed anything else, and the repay
+   * flow acts on this: it decides which token the user is told to hold, and
+   * which token the approval is for. An unknown stays unknown.
+   *
+   * Ranked by the same rule as the collateral side (value at the protocol's own
+   * oracle, degrading to decimal-normalised amounts when a competing leg has
+   * lost its price), so the two picks cannot disagree about what "dominant"
+   * means.
+   */
+  dominantBorrowSymbol: string | null;
+  /**
    * True when the dominant collateral was picked WITHOUT per-asset prices, by
    * ranking decimal-normalised token amounts instead. The pick may then favour
    * a large balance of a cheap asset, and it drives the scored asset,
@@ -87,13 +102,34 @@ export interface ActiveReading {
   dominantCollateralUnpriced?: boolean;
 }
 
-/** One reserve's aToken position, in the units the ranking compares. */
-interface CollateralLeg {
+/**
+ * One reserve's position on one side of the book, in the units the ranking
+ * compares. Collateral and debt use the SAME shape and the same `dominantOf`
+ * rule, so the two sides cannot drift into different definitions of "largest".
+ */
+interface RankedLeg {
   symbol: string;
   /** balance × 10^(RANK_DECIMALS − decimals). Zero-balance legs are dropped. */
   amount: bigint;
   /** Oracle price in base-currency units (1e8 = $1), or null when unreadable. */
   price: bigint | null;
+}
+
+/**
+ * Largest leg by oracle value, with the ranking degrading to decimal-normalised
+ * token AMOUNTS when any competing leg has lost its price - a stated, uniform
+ * rule, rather than a made-up constant standing in for the missing price. A
+ * single candidate needs no comparison, so it is not a degraded pick.
+ */
+function dominantOf(legs: RankedLeg[]): { symbol: string | null; unpriced: boolean } {
+  const anyUnpriced = legs.some((l) => l.price === null);
+  const rankOf = (leg: RankedLeg): bigint =>
+    anyUnpriced ? leg.amount : leg.amount * (leg.price as bigint);
+  const best = legs.reduce<RankedLeg | null>(
+    (acc, leg) => (acc === null || rankOf(leg) > rankOf(acc) ? leg : acc),
+    null,
+  );
+  return { symbol: best?.symbol ?? null, unpriced: anyUnpriced && legs.length > 1 };
 }
 
 export class AaveActiveReader {
@@ -144,74 +180,103 @@ export class AaveActiveReader {
     const collateralValueUsd = Number(totalCollateralBase) / 1e8;
     const borrowValueUsd = Number(totalDebtBase) / 1e8;
 
-    // Collateral discovery: aToken balances on the known reserves.
-    const aTokens = KNOWN_AAVE_RESERVES.map((reserve, i) => {
+    // Position discovery: aToken and debt-token balances on the known reserves.
+    const tokens = KNOWN_AAVE_RESERVES.map((reserve, i) => {
       const res = first[i + 1];
       if (!res || res.status !== "success") return null;
-      const data = res.result as { aTokenAddress: string };
-      return { reserve, aToken: data.aTokenAddress };
+      const data = res.result as {
+        aTokenAddress: string;
+        stableDebtTokenAddress: string;
+        variableDebtTokenAddress: string;
+      };
+      return {
+        reserve,
+        aToken: data.aTokenAddress,
+        stableDebt: data.stableDebtTokenAddress,
+        variableDebt: data.variableDebtTokenAddress,
+      };
     }).filter((x): x is NonNullable<typeof x> => x !== null);
 
     let dominantCollateralSymbol: string | null = null;
     let dominantCollateralUnpriced = false;
-    if (aTokens.length > 0) {
+    let dominantBorrowSymbol: string | null = null;
+    if (tokens.length > 0) {
       // Balances and prices ride the SAME multicall: the price is a read on the
-      // AaveOracle the pool itself names, so ranking costs one extra call per
-      // reserve in a batch that was already round-tripping, and no HTTP call.
+      // AaveOracle the pool itself names, so ranking costs a few extra calls in
+      // a batch that was already round-tripping, and no HTTP call. The debt
+      // balances are appended LAST so the collateral block's indices are the
+      // ones they always were.
+      const n = tokens.length;
       const reads = await this.client.multicall({
         allowFailure: true,
         contracts: [
-          ...aTokens.map(({ aToken }) => ({
+          ...tokens.map(({ aToken }) => ({
             address: aToken,
             abi: erc20Abi,
             functionName: "balanceOf",
             args: [wallet],
           })),
-          ...aTokens.map(({ reserve }) => ({
+          ...tokens.map(({ reserve }) => ({
             address: this.oracle,
             abi: aaveOracleAbi,
             functionName: "getAssetPrice",
             args: [reserve.address],
           })),
+          ...tokens.map(({ variableDebt }) => ({
+            address: variableDebt,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [wallet],
+          })),
+          ...tokens.map(({ stableDebt }) => ({
+            address: stableDebt,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [wallet],
+          })),
         ],
       });
 
-      const legs: CollateralLeg[] = [];
-      aTokens.forEach(({ reserve }, i) => {
-        const balance = reads[i];
-        if (!balance || balance.status !== "success") return;
-        const raw = balance.result as bigint;
-        if (raw === 0n) return;
-        const price = reads[aTokens.length + i];
-        legs.push({
-          symbol: reserve.symbol,
-          amount: raw * 10n ** BigInt(RANK_DECIMALS - reserve.decimals),
-          price:
-            price && price.status === "success" && (price.result as bigint) > 0n
-              ? (price.result as bigint)
-              : null,
-        });
+      const balanceAt = (i: number): bigint | null => {
+        const r = reads[i];
+        return r && r.status === "success" ? (r.result as bigint) : null;
+      };
+      const priceAt = (i: number): bigint | null => {
+        const p = reads[n + i];
+        return p && p.status === "success" && (p.result as bigint) > 0n
+          ? (p.result as bigint)
+          : null;
+      };
+
+      const collateral: RankedLeg[] = [];
+      const debt: RankedLeg[] = [];
+      tokens.forEach(({ reserve }, i) => {
+        const scale = 10n ** BigInt(RANK_DECIMALS - reserve.decimals);
+        const price = priceAt(i);
+        const aBalance = balanceAt(i);
+        if (aBalance !== null && aBalance > 0n) {
+          collateral.push({ symbol: reserve.symbol, amount: aBalance * scale, price });
+        }
+        // Aave splits a reserve's debt across two tokens; the borrow is their
+        // sum, and a reserve where BOTH reads failed contributes nothing rather
+        // than a zero that would read as "no debt here".
+        const variable = balanceAt(2 * n + i);
+        const stable = balanceAt(3 * n + i);
+        if (variable === null && stable === null) return;
+        const owed = (variable ?? 0n) + (stable ?? 0n);
+        if (owed > 0n) {
+          debt.push({ symbol: reserve.symbol, amount: owed * scale, price });
+        }
       });
 
       // Ranking is by real oracle value: balance × price, in BigInt, on one
       // decimal scale. The hardcoded price classes this replaced could not
       // separate wstETH from WETH at all (they shared a class, though wstETH
       // trades ~1.24× WETH) and drifted arbitrarily far across classes.
-      //
-      // When any competing leg has lost its price the value comparison is not
-      // available, so the whole ranking falls back to decimal-normalised token
-      // AMOUNTS - a stated, uniform rule - and the reading says so. Inventing a
-      // constant for the missing price would be a guess presented as a fact.
-      // A single candidate needs no comparison, so it is not a degraded pick.
-      const anyUnpriced = legs.some((l) => l.price === null);
-      dominantCollateralUnpriced = anyUnpriced && legs.length > 1;
-      const rankOf = (leg: CollateralLeg): bigint =>
-        anyUnpriced ? leg.amount : leg.amount * (leg.price as bigint);
-      dominantCollateralSymbol =
-        legs.reduce<CollateralLeg | null>(
-          (best, leg) => (best === null || rankOf(leg) > rankOf(best) ? leg : best),
-          null,
-        )?.symbol ?? null;
+      const top = dominantOf(collateral);
+      dominantCollateralSymbol = top.symbol;
+      dominantCollateralUnpriced = top.unpriced;
+      dominantBorrowSymbol = dominantOf(debt).symbol;
     }
 
     return {
@@ -229,6 +294,7 @@ export class AaveActiveReader {
       weightedLiquidationThreshold:
         liqThresholdBps > 0n ? Number(liqThresholdBps) / 10_000 : null,
       dominantCollateralSymbol,
+      dominantBorrowSymbol,
       ...(dominantCollateralUnpriced ? { dominantCollateralUnpriced: true } : {}),
     };
   }

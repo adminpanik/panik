@@ -14,10 +14,27 @@ export type Urgency = "info" | "warning" | "critical";
 
 /** Wallet-funded partial-repay plan (Phase 2; flash-loan funding is Phase 3). */
 export interface RepayPlan {
-  /** Dollars of debt to repay to reach targetHf. */
+  /**
+   * Dollars of debt to repay to reach targetHf. FOR DISPLAY ONLY. The dollar
+   * figure cannot be turned back into token units without a price, so nothing
+   * that moves money may derive an amount from it - use `repayFraction`.
+   */
   repayUsd: number;
-  /** Dominant borrow asset to repay with (USDC in practice). */
-  repayAssetSymbol: string;
+  /**
+   * The leg's largest borrow asset, which is what the repay is denominated in.
+   * Null when the reader could not establish one: this used to be hardcoded to
+   * "USDC", which named the wrong token for every wallet that borrowed anything
+   * else. Prose must omit the asset rather than guess it.
+   */
+  repayAssetSymbol: string | null;
+  /**
+   * The same repay expressed as a fraction of THIS leg's debt, in (0, 1],
+   * quantised to 1/`REPAY_FRACTION_SCALE`. This is the executable form: an
+   * execution path multiplies it by the live on-chain debt to get an amount in
+   * the debt asset's own units, in BigInt, with no price and no float.
+   * See `repayFractionOfDebt` for the rounding and clamping rule.
+   */
+  repayFraction: number;
   /** Profile-derived health-factor target. */
   targetHf: number;
   /** HF after the repay (== targetHf by construction; echoed for the UI). */
@@ -103,8 +120,17 @@ export interface AdvisorRecommendation {
     | "subScores"
     | "scoredCollateralSymbol"
   >;
-  /** Prefill for the ExitFlow modal (EXIT / REDUCE actions). */
-  exitPrefill?: { protocol: Protocol; kind: "full" | "partial"; repayUsd?: number };
+  /**
+   * Prefill for the ExitFlow modal (EXIT / REDUCE actions). `repayUsd` is the
+   * display figure; `repayFraction` is the one the transaction is built from
+   * (see `RepayPlan`), and a partial prefill without it cannot be sized.
+   */
+  exitPrefill?: {
+    protocol: Protocol;
+    kind: "full" | "partial";
+    repayUsd?: number;
+    repayFraction?: number;
+  };
   /** Prefill for the OpenFlow modal (OPEN actions). */
   openPrefill?: OpenPlan;
 }

@@ -25,17 +25,23 @@ import {
 import { injected } from "wagmi/connectors";
 import type { LiveProtocol } from "../lib/live";
 import {
-  AMOUNT_FULL,
   asContractClient,
   EXIT_DATA_PROVIDER_ABI,
   EXIT_ENV,
   EXIT_ERC20_ABI,
-  PROTOCOL_ID,
   exitExplorerTxUrl,
   getExitChain,
   isExitExecutable,
-  type ExitLegInput,
 } from "../lib/exit";
+import {
+  AMOUNT_FULL,
+  buildExitLegs,
+  formatTokenAmount,
+  swapAcquisitionNote,
+  type ExitLegView,
+  type ExitReserveState,
+  type SwapConfigRead,
+} from "../lib/exitLegs";
 import {
   EXECUTOR_ABI,
   EXECUTOR_ADDRESS,
@@ -51,7 +57,14 @@ import { useExitApprovals, withAccrualBuffer, type ApprovalStep } from "../lib/u
 export interface ExitPrefill {
   protocol: LiveProtocol;
   kind: "full" | "partial";
+  /** Display only. Never converted back into a token amount. */
   repayUsd?: number;
+  /**
+   * Fraction of each debt leg to repay, from the advisor's `RepayPlan`. This is
+   * what a partial exit is sized from: the dollar figure cannot be turned into
+   * token units without a price, and the debt is not always USDC.
+   */
+  repayFraction?: number;
 }
 
 type Step =
@@ -64,29 +77,30 @@ type Step =
   | "unavailable"
   | "error";
 
-interface LegView {
-  reserve: `0x${string}`;
+/**
+ * What the wallet must hold to fund one repay leg, in that debt asset's own
+ * units. The old shape assumed a single USDC requirement; a WETH borrower then
+ * saw a USDC number that had nothing to do with their position.
+ */
+interface FundingRow {
+  token: `0x${string}`;
   symbol: string;
-  repay: bigint;
-  withdraw: bigint;
-  debt: bigint;
-  aBalance: bigint;
   decimals: number;
+  /** Repay + accrual buffer, in the debt asset's units. */
+  required: bigint;
+  balance: bigint;
+  /** `getSwapConfig(token)`; null when the read failed. */
+  swapConfig: SwapConfigRead | null;
 }
 
 interface LoadedPosition {
-  legs: ExitLegInput[];
-  views: LegView[];
+  legs: ReturnType<typeof buildExitLegs>["legs"];
+  views: ExitLegView[];
   approvals: ApprovalStep[];
-  requiredUsdc: bigint;
-  usdcBalance: bigint;
+  funding: FundingRow[];
+  /** For the receipt line only: the executor sweeps proceeds as USDC. */
   usdcDecimals: number;
 }
-
-const fmtUnits = (v: bigint, decimals: number, dp = 2): string => {
-  const s = Number(v) / 10 ** decimals;
-  return s.toLocaleString("en-US", { maximumFractionDigits: dp });
-};
 
 export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: () => void }) {
   const { address, isConnected, chainId } = useAccount();
@@ -116,101 +130,60 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
     const client = asContractClient(publicClient);
     setError(null);
     try {
-      const reserves: { reserve: `0x${string}`; symbol: string }[] = [
+      const known: { reserve: `0x${string}`; symbol: string }[] = [
         { reserve: EXIT_USDC_ADDRESS, symbol: "USDC" },
         { reserve: EXIT_WETH_ADDRESS, symbol: "WETH" },
       ];
 
-      const usdcDecimals = Number(
-        await client.readContract({
-          address: EXIT_USDC_ADDRESS,
-          abi: EXIT_ERC20_ABI,
-          functionName: "decimals",
-        }),
-      );
-
-      const views: LegView[] = [];
-      const legs: ExitLegInput[] = [];
-      const approvals: ApprovalStep[] = [];
-      let requiredUsdc = 0n;
-
-      for (const { reserve, symbol } of reserves) {
+      // Decimals come from each token, never from the symbol: the repay is
+      // denominated in the debt asset, and a WETH repay scaled by 10^6 is off
+      // by twelve orders of magnitude.
+      const reserves: ExitReserveState[] = [];
+      for (const { reserve, symbol } of known) {
         const [aBal, stableDebt, varDebt] = (await client.readContract({
           address: EXIT_DATA_PROVIDER_ADDRESS,
           abi: EXIT_DATA_PROVIDER_ABI,
           functionName: "getUserReserveData",
           args: [reserve, address],
         })) as [bigint, bigint, bigint];
-        const debt = stableDebt + varDebt;
-        const decimals =
-          symbol === "USDC"
-            ? usdcDecimals
-            : Number(
-                await client.readContract({
-                  address: reserve,
-                  abi: EXIT_ERC20_ABI,
-                  functionName: "decimals",
-                }),
-              );
-
-        let repay = 0n;
-        let withdraw = 0n;
-        if (prefill.kind === "full") {
-          if (debt > 0n) repay = AMOUNT_FULL;
-          if (aBal > 0n) withdraw = AMOUNT_FULL;
-        } else if (symbol === "USDC" && debt > 0n) {
-          // REDUCE: partial repay of the (USDC) debt, collateral untouched.
-          const requested = BigInt(Math.round((prefill.repayUsd ?? 0) * 10 ** usdcDecimals));
-          repay = requested > 0n ? (requested < debt ? requested : debt) : 0n;
-        }
-        if (repay === 0n && withdraw === 0n) continue;
-
-        legs.push({
-          protocol: PROTOCOL_ID[prefill.protocol],
-          asset: reserve,
-          repayAmount: repay,
-          withdrawAmount: withdraw,
-          data: "0x",
+        const decimals = Number(
+          await client.readContract({
+            address: reserve,
+            abi: EXIT_ERC20_ABI,
+            functionName: "decimals",
+          }),
+        );
+        reserves.push({
+          reserve,
+          symbol,
+          decimals,
+          aBalance: aBal,
+          debt: stableDebt + varDebt,
         });
-        views.push({ reserve, symbol, repay, withdraw, debt, aBalance: aBal, decimals });
-
-        if (repay > 0n) {
-          const amount = repay === AMOUNT_FULL ? debt : repay;
-          if (reserve === EXIT_USDC_ADDRESS) requiredUsdc += withAccrualBuffer(amount);
-          approvals.push({
-            token: reserve,
-            spender: EXECUTOR_ADDRESS,
-            amount,
-            label: `Approve ${symbol} for debt repayment`,
-          });
-        }
-        if (withdraw > 0n) {
-          const [aToken] = (await client.readContract({
-            address: EXIT_DATA_PROVIDER_ADDRESS,
-            abi: EXIT_DATA_PROVIDER_ABI,
-            functionName: "getReserveTokensAddresses",
-            args: [reserve],
-          })) as [`0x${string}`];
-          approvals.push({
-            token: aToken,
-            spender: EXECUTOR_ADDRESS,
-            amount: aBal,
-            label: `Approve a${symbol} collateral transfer`,
-          });
-        }
       }
+      const usdcDecimals =
+        reserves.find((r) => r.reserve === EXIT_USDC_ADDRESS)?.decimals ?? 6;
+
+      const { legs, views, dust } = buildExitLegs(reserves, {
+        protocol: prefill.protocol,
+        kind: prefill.kind,
+        repayFraction: prefill.repayFraction,
+      });
 
       if (legs.length === 0) {
         setError(
           prefill.kind === "partial"
-            ? "This wallet has no USDC debt on the Base Sepolia demo position."
+            ? dust.length > 0
+              ? `The suggested reduction is too small to execute against your ${dust.join(" and ")} debt on the Base Sepolia demo position.`
+              : "This wallet has no debt to reduce on the Base Sepolia demo position."
             : "This wallet has no Aave position on Base Sepolia. Seed a demo position first (see docs).",
         );
         setStep("error");
         return;
       }
 
-      // LockChecker pre-flight (protocol-side pauses / zero liquidity).
+      // LockChecker pre-flight (protocol-side pauses / zero liquidity). It runs
+      // before the funding reads, so a locked position costs no extra calls.
       const locked = (await client.readContract({
         address: LOCK_CHECKER_ADDRESS,
         abi: LOCK_CHECKER_ABI,
@@ -223,14 +196,65 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         return;
       }
 
-      const usdcBalance = (await client.readContract({
-        address: EXIT_USDC_ADDRESS,
-        abi: EXIT_ERC20_ABI,
-        functionName: "balanceOf",
-        args: [address],
-      })) as bigint;
+      const approvals: ApprovalStep[] = [];
+      const funding: FundingRow[] = [];
+      for (const v of views) {
+        if (v.repayFunding > 0n) {
+          approvals.push({
+            token: v.reserve,
+            spender: EXECUTOR_ADDRESS,
+            amount: v.repayFunding,
+            label: `Approve ${v.symbol} for debt repayment`,
+          });
+          const [balance, swapConfig] = await Promise.all([
+            client.readContract({
+              address: v.reserve,
+              abi: EXIT_ERC20_ABI,
+              functionName: "balanceOf",
+              args: [address],
+            }) as Promise<bigint>,
+            // Display only: the deployed slippage floor for this asset, so a
+            // user who has to go get the token knows what that will cost.
+            // A failed read shows no figure rather than a made-up one.
+            client
+              .readContract({
+                address: EXECUTOR_ADDRESS,
+                abi: EXECUTOR_ABI,
+                functionName: "getSwapConfig",
+                args: [v.reserve],
+              })
+              .then((res) => {
+                const [enabled, , minOutBps] = res as [boolean, `0x${string}`, number, boolean];
+                return { enabled, minOutBps: Number(minOutBps) } satisfies SwapConfigRead;
+              })
+              .catch(() => null),
+          ]);
+          funding.push({
+            token: v.reserve,
+            symbol: v.symbol,
+            decimals: v.decimals,
+            required: withAccrualBuffer(v.repayFunding),
+            balance,
+            swapConfig,
+          });
+        }
+        if (v.withdraw > 0n) {
+          const [aToken] = (await client.readContract({
+            address: EXIT_DATA_PROVIDER_ADDRESS,
+            abi: EXIT_DATA_PROVIDER_ABI,
+            functionName: "getReserveTokensAddresses",
+            args: [v.reserve],
+          })) as [`0x${string}`];
+          approvals.push({
+            token: aToken,
+            spender: EXECUTOR_ADDRESS,
+            amount: v.aBalance,
+            label: `Approve a${v.symbol} collateral transfer`,
+          });
+        }
+      }
 
-      setPosition({ legs, views, approvals, requiredUsdc, usdcBalance, usdcDecimals });
+      setPosition({ legs, views, approvals, funding, usdcDecimals });
       setStep("review");
     } catch (err) {
       setError((err as Error).message.slice(0, 300));
@@ -294,6 +318,19 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
   }, [publicClient, address, position, ensureApprovals, writeContractAsync]);
 
   const title = prefill.kind === "full" ? "Atomic Exit" : "Reduce Position";
+  // Wallet-funded: the executor pulls the debt asset from the user, so a
+  // shortfall in ANY debt asset blocks the whole atomic transaction.
+  const underfunded = (position?.funding ?? []).some((f) => f.balance < f.required);
+  const shortfallNotes = (position?.funding ?? [])
+    .map((f) =>
+      swapAcquisitionNote({
+        symbol: f.symbol,
+        decimals: f.decimals,
+        shortfall: f.required - f.balance,
+        config: f.swapConfig,
+      }),
+    )
+    .filter((note): note is string => note !== null);
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
@@ -375,28 +412,45 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
                   <span className="font-sans text-text-primary">{v.symbol}</span>
                   <span className="font-sans text-xs tabular-nums text-text-secondary text-right">
                     {v.repay > 0n
-                      ? `repay ${v.repay === AMOUNT_FULL ? fmtUnits(v.debt, v.decimals) : fmtUnits(v.repay, v.decimals)}`
+                      ? `repay ${formatTokenAmount(v.repayFunding, v.decimals)} ${v.symbol}`
                       : ""}
                     {v.repay > 0n && v.withdraw > 0n ? " · " : ""}
                     {v.withdraw > 0n
-                      ? `withdraw ${v.withdraw === AMOUNT_FULL ? fmtUnits(v.aBalance, v.decimals) : fmtUnits(v.withdraw, v.decimals)}`
+                      ? `withdraw ${formatTokenAmount(v.withdraw === AMOUNT_FULL ? v.aBalance : v.withdraw, v.decimals)} ${v.symbol}`
                       : ""}
                   </span>
                 </div>
               ))}
             </div>
 
-            {position.requiredUsdc > 0n ? (
+            {position.funding.length > 0 ? (
+              // ONE risk-hued element, whatever the debt asset count: the tint
+              // lives on this wrapper and the individual shortfalls are marked
+              // by an icon and words, never by colour alone (SC 1.4.1).
               <div
-                className={`text-xs font-sans tabular-nums flex items-center gap-2 ${
-                  position.usdcBalance >= position.requiredUsdc ? "text-text-muted" : "text-risk-critical"
+                className={`text-xs font-sans space-y-1.5 ${
+                  underfunded ? "text-risk-critical" : "text-text-muted"
                 }`}
               >
-                {position.usdcBalance < position.requiredUsdc ? (
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                ) : null}
-                Wallet-funded repay: needs ~{fmtUnits(position.requiredUsdc, position.usdcDecimals)}{" "}
-                USDC (you have {fmtUnits(position.usdcBalance, position.usdcDecimals)})
+                {position.funding.map((f) => (
+                  <div key={f.token} className="flex items-start gap-2">
+                    {f.balance < f.required ? (
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                    ) : null}
+                    <span className="tabular-nums">
+                      Wallet-funded repay: needs ~{formatTokenAmount(f.required, f.decimals)}{" "}
+                      {f.symbol} (you have {formatTokenAmount(f.balance, f.decimals)})
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {shortfallNotes.length > 0 ? (
+              <div className="text-2xs font-sans text-text-muted leading-relaxed space-y-1">
+                {shortfallNotes.map((note) => (
+                  <p key={note}>{note}</p>
+                ))}
               </div>
             ) : null}
 
@@ -408,10 +462,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
 
             <button
               onClick={() => void execute()}
-              disabled={
-                step === "executing" ||
-                (position.requiredUsdc > 0n && position.usdcBalance < position.requiredUsdc)
-              }
+              disabled={step === "executing" || underfunded}
               className="w-full py-3 rounded-md bg-text-primary text-black font-sans font-bold text-sm hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {step === "executing" ? (
@@ -441,7 +492,8 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
               </p>
               {receipt.usdcReceived > 0n && position ? (
                 <p className="text-sm text-text-secondary font-sans tabular-nums mt-1">
-                  {fmtUnits(receipt.usdcReceived, position.usdcDecimals)} USDC swept to your wallet
+                  {formatTokenAmount(receipt.usdcReceived, position.usdcDecimals)} USDC swept to
+                  your wallet
                 </p>
               ) : null}
             </div>

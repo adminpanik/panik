@@ -525,6 +525,12 @@ const [SUPPLY_ONLY, LEVERED_WETH, CRITICAL_BTC, DEGRADED] = MOCK_POSITIONS;
 
 /** repayToTargetHf(56800, 1.20, 1.75) — moderate targets HF 1.75. */
 const MOONWELL_REPAY_USD = 17_851.43;
+/**
+ * The same repay as a fraction of the leg's $56,800 debt, which is the form the
+ * ExitFlow actually sizes from: 17851.43 / 56800 = 0.3142857…, rounded to the
+ * 1/1e6 grid `repayFractionOfDebt` emits (packages/scoring/advisor/repayMath).
+ */
+const MOONWELL_REPAY_FRACTION = 0.314286;
 
 const RECOMMENDATIONS: AdvisorRecommendation[] = [
   {
@@ -554,6 +560,7 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
     repayPlan: {
       repayUsd: MOONWELL_REPAY_USD,
       repayAssetSymbol: "USDC",
+      repayFraction: MOONWELL_REPAY_FRACTION,
       targetHf: 1.75,
       projectedHf: 1.75,
       mode: "wallet_funded",
@@ -568,7 +575,12 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
         "The Reduce button pre-fills a partial exit repaying ~$17,851 of USDC on Moonwell; you sign the transaction yourself.",
     },
     numbers: numbersOf(LEVERED_WETH),
-    exitPrefill: { protocol: "moonwell", kind: "partial", repayUsd: MOONWELL_REPAY_USD },
+    exitPrefill: {
+      protocol: "moonwell",
+      kind: "partial",
+      repayUsd: MOONWELL_REPAY_USD,
+      repayFraction: MOONWELL_REPAY_FRACTION,
+    },
   },
   {
     protocol: "compound_v3",

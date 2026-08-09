@@ -63,6 +63,9 @@ export class MoonwellActiveReader {
     let bestCollateralUsd = 0;
     let dominantUnderlying: string | null = null;
     let dominantIsNative = false;
+    let bestBorrowUsd = 0;
+    let dominantBorrowUnderlying: string | null = null;
+    let dominantBorrowIsNative = false;
 
     const get = <T>(i: number): T | null => {
       const r = res[i];
@@ -94,6 +97,14 @@ export class MoonwellActiveReader {
         dominantUnderlying = get<string>(base + 5);
         dominantIsNative = dominantUnderlying === null;
       }
+      // Same read, the other side of the book: a Compound-V2 fork borrows the
+      // market's own underlying, so the largest borrow leg names the asset a
+      // repay is denominated in.
+      if (debtUsd > bestBorrowUsd) {
+        bestBorrowUsd = debtUsd;
+        dominantBorrowUnderlying = get<string>(base + 5);
+        dominantBorrowIsNative = dominantBorrowUnderlying === null;
+      }
     });
 
     if (collateralUsd === 0 && borrowUsd === 0) return null;
@@ -112,18 +123,32 @@ export class MoonwellActiveReader {
       maxLtv: weightedLiquidationThreshold ?? 0,
     };
 
-    // Resolve the dominant collateral's symbol (native market = ETH).
-    let dominantCollateralSymbol: string | null = dominantIsNative ? "ETH" : null;
-    if (dominantUnderlying) {
-      const sym = await this.client.multicall({
+    // Resolve both dominant underlyings' symbols in ONE batch (native = ETH).
+    // Distinct addresses only: a wallet that supplies and borrows the same
+    // market is the common case and must not cost a second identical read.
+    // The explicit Set element type is load bearing: both variables are only
+    // ever assigned inside the forEach above, which TS's control flow does not
+    // follow, so it narrows them back to `null` at this line.
+    const underlyings = [
+      ...new Set<string | null>([dominantUnderlying, dominantBorrowUnderlying]),
+    ].filter((a): a is string => a !== null);
+    const symbols = new Map<string, string>();
+    if (underlyings.length > 0) {
+      const res = await this.client.multicall({
         allowFailure: true,
-        contracts: [
-          { address: dominantUnderlying, abi: erc20Abi, functionName: "symbol" },
-        ],
+        contracts: underlyings.map((address) => ({
+          address,
+          abi: erc20Abi,
+          functionName: "symbol",
+        })),
       });
-      dominantCollateralSymbol =
-        sym[0]?.status === "success" ? (sym[0].result as string) : null;
+      underlyings.forEach((address, i) => {
+        const r = res[i];
+        if (r && r.status === "success") symbols.set(address, r.result as string);
+      });
     }
+    const symbolOf = (underlying: string | null, isNative: boolean): string | null =>
+      underlying === null ? (isNative ? "ETH" : null) : (symbols.get(underlying) ?? null);
 
     return {
       protocol: "moonwell",
@@ -131,7 +156,8 @@ export class MoonwellActiveReader {
       collateralValueUsd: collateralUsd,
       borrowValueUsd: borrowUsd,
       weightedLiquidationThreshold,
-      dominantCollateralSymbol,
+      dominantCollateralSymbol: symbolOf(dominantUnderlying, dominantIsNative),
+      dominantBorrowSymbol: symbolOf(dominantBorrowUnderlying, dominantBorrowIsNative),
     };
   }
 }

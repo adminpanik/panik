@@ -6,6 +6,10 @@ import { findOpportunities } from "../src/advisor/opportunities";
 import {
   collateralFundedRepayToTargetHf,
   REDUCE_TO_EXIT_RATIO,
+  REPAY_FRACTION_SCALE,
+  repayAmountFromFraction,
+  repayFractionNumerator,
+  repayFractionOfDebt,
   repayToTargetHf,
   TARGET_HF,
 } from "../src/advisor/repayMath";
@@ -32,6 +36,7 @@ function leg(overrides: Partial<ActiveScore> = {}): ActiveScore {
     marketContextUnavailable: false,
     dominantCollateralUnpriced: false,
     scoredCollateralSymbol: "WETH",
+    dominantBorrowSymbol: "USDC",
     assetRiskIsProxy: false,
     ...overrides,
   };
@@ -63,6 +68,56 @@ describe("repayMath", () => {
 
   it("clamps to total debt for extreme targets", () => {
     expect(repayToTargetHf(10_000, 0.01, 2.0)).toBeLessThanOrEqual(10_000);
+  });
+
+  it("repayFractionOfDebt: repay/debt, quantised to the fixed-point scale", () => {
+    expect(repayFractionOfDebt(2_500, 10_000)).toBe(0.25);
+    // Not representable at 1/1e6: rounds half up, and stays exactly on grid.
+    const third = repayFractionOfDebt(1, 3) as number;
+    expect(third).toBe(0.333333);
+    expect(third * REPAY_FRACTION_SCALE).toBe(333_333);
+  });
+
+  it("repayFractionOfDebt: clamps into (0, 1] and rejects the unusable", () => {
+    // Never above 1: a repay cannot exceed the debt it repays.
+    expect(repayFractionOfDebt(20_000, 10_000)).toBe(1);
+    // Never 0: a repay too small to quantise is pinned to one unit of scale,
+    // because a 0 fraction builds a no-op leg that looks like a success.
+    expect(repayFractionOfDebt(0.0001, 10_000)).toBe(1 / REPAY_FRACTION_SCALE);
+    // Null, not 0, for "there is nothing here to size".
+    expect(repayFractionOfDebt(0, 10_000)).toBeNull();
+    expect(repayFractionOfDebt(500, 0)).toBeNull();
+    expect(repayFractionOfDebt(Number.NaN, 10_000)).toBeNull();
+    expect(repayFractionOfDebt(500, Number.POSITIVE_INFINITY)).toBeNull();
+  });
+
+  it("repayFractionNumerator: recovers the EXACT integer over the scale", () => {
+    for (const n of [1, 2, 333_333, 500_000, 999_999, 1_000_000]) {
+      expect(repayFractionNumerator(n / REPAY_FRACTION_SCALE)).toBe(BigInt(n));
+    }
+    expect(repayFractionNumerator(0)).toBeNull();
+    expect(repayFractionNumerator(Number.NaN)).toBeNull();
+    // Above contract: clamped rather than allowed to over-repay.
+    expect(repayFractionNumerator(1.5)).toBe(BigInt(REPAY_FRACTION_SCALE));
+  });
+
+  it("repayAmountFromFraction: BigInt-exact on an 18-decimal debt", () => {
+    const debt = 12_345_678_901_234_567_890n; // ~12.35 WETH, above 2^53
+    const amount = repayAmountFromFraction(debt, 0.25) as bigint;
+    expect(amount).toBe((debt * 250_000n) / 1_000_000n);
+    // Every unit survives: Number() on this debt loses the low digits entirely.
+    expect(amount).toBe(3_086_419_725_308_641_972n);
+    expect(repayAmountFromFraction(debt, 1)).toBe(debt);
+  });
+
+  it("repayAmountFromFraction: floors, so it never over-repays", () => {
+    // 7 units at one third: 7 * 333333 / 1e6 = 2.333 -> 2, never 3.
+    expect(repayAmountFromFraction(7n, 0.333333)).toBe(2n);
+    // Rounding to nothing is null, not 0n: the caller must be able to tell
+    // "repay nothing here" from "this leg is too small to reduce".
+    expect(repayAmountFromFraction(1n, 0.4)).toBeNull();
+    expect(repayAmountFromFraction(0n, 0.5)).toBeNull();
+    expect(repayAmountFromFraction(1_000n, 0)).toBeNull();
   });
 
   it("drawdownToLiquidation: HF 2.0 -> 50% drop; null when no debt", () => {
@@ -190,7 +245,68 @@ describe("adviseLeg decision table", () => {
     const expected = Math.round(10_000 * (1 - 1.31 / TARGET_HF.moderate));
     expect(rec.repayPlan?.repayUsd).toBe(expected);
     expect(rec.repayPlan?.targetHf).toBe(1.75);
-    expect(rec.exitPrefill).toEqual({ protocol: "aave_v3", kind: "partial", repayUsd: expected });
+    const fraction = repayFractionOfDebt(10_000 * (1 - 1.31 / TARGET_HF.moderate), 10_000);
+    expect(rec.exitPrefill).toEqual({
+      protocol: "aave_v3",
+      kind: "partial",
+      repayUsd: expected,
+      repayFraction: fraction,
+    });
+  });
+
+  // The repay is executed in the debt asset's own units, so the symbol decides
+  // which token the user is told to hold and which token gets approved. It was
+  // hardcoded to "USDC", which was wrong for every wallet borrowing anything
+  // else.
+  it("rule 3: names the leg's ACTUAL borrow asset, not an assumed USDC", () => {
+    const rec = adviseLeg(
+      leg({
+        total: 55,
+        band: "HIGH",
+        healthFactor: 1.31,
+        borrowValueUsd: 10_000,
+        dominantBorrowSymbol: "WETH",
+      }),
+      "moderate",
+    );
+    expect(rec.repayPlan?.repayAssetSymbol).toBe("WETH");
+    expect(rec.sections.recommendation).toContain("WETH");
+    expect(rec.sections.recommendation).not.toContain("USDC");
+    // The fraction is the executable form: repay/debt, in (0, 1].
+    expect(rec.repayPlan?.repayFraction).toBeGreaterThan(0);
+    expect(rec.repayPlan?.repayFraction).toBeLessThanOrEqual(1);
+    expect(rec.repayPlan?.repayFraction).toBeCloseTo(1 - 1.31 / TARGET_HF.moderate, 5);
+  });
+
+  it("rule 3: a USDC borrower is unchanged", () => {
+    const rec = adviseLeg(
+      leg({ total: 55, band: "HIGH", healthFactor: 1.31, borrowValueUsd: 10_000 }),
+      "moderate",
+    );
+    expect(rec.repayPlan?.repayAssetSymbol).toBe("USDC");
+    expect(rec.sections.recommendation).toContain("USDC");
+  });
+
+  // Naming the wrong token is worse than naming none: the sentence is where the
+  // user learns what to hold before pressing Reduce.
+  it("rule 3: an unnamed borrow asset drops the symbol instead of guessing", () => {
+    const rec = adviseLeg(
+      leg({
+        total: 55,
+        band: "HIGH",
+        healthFactor: 1.31,
+        borrowValueUsd: 10_000,
+        dominantBorrowSymbol: null,
+      }),
+      "moderate",
+    );
+    expect(rec.repayPlan?.repayAssetSymbol).toBeNull();
+    expect(rec.sections.recommendation).not.toContain("USDC");
+    expect(rec.sections.recommendation).not.toContain("undefined");
+    expect(rec.sections.recommendation).not.toContain("null");
+    expect(rec.sections.execution).not.toContain("undefined");
+    // The repay is still sized: the amount does not depend on the symbol.
+    expect(rec.repayPlan?.repayFraction).toBeGreaterThan(0);
   });
 
   it("rule 3: outside-profile (conservative) triggers REDUCE below HIGH band", () => {
