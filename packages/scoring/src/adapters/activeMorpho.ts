@@ -82,10 +82,17 @@ export class MorphoActiveReader {
       }
     }
 
+    // Morpho Blue prices one factor per market: lltv IS the liquidation
+    // threshold, and there is no separate borrow LTV to sit below it. So the
+    // collateral-weighted lltv serves as both — computed once and read twice,
+    // rather than written twice and allowed to drift.
+    const weightedLiquidationThreshold =
+      collateralUsd > 0 ? weightedLltvUsd / collateralUsd : null;
+
     const positionHealth: PositionHealthInput = {
       healthFactor: borrowUsd > 0 ? minHf : null,
       currentLtv: collateralUsd > 0 ? borrowUsd / collateralUsd : 0,
-      maxLtv: collateralUsd > 0 ? weightedLltvUsd / collateralUsd : 0,
+      maxLtv: weightedLiquidationThreshold ?? 0,
     };
 
     return {
@@ -93,6 +100,7 @@ export class MorphoActiveReader {
       positionHealth,
       collateralValueUsd: collateralUsd,
       borrowValueUsd: borrowUsd,
+      weightedLiquidationThreshold,
       dominantCollateralSymbol,
     };
   }

@@ -40,7 +40,7 @@ describe("AaveActiveReader", () => {
           10_000_00000000n, // $10,000 collateral (8 dec)
           4_000_00000000n, // $4,000 debt
           0n,
-          8300n,
+          8300n, // liquidation threshold 83.00%
           8000n, // maxLtv 80.00%
           1_660000000000000000n, // HF 1.66
         ]),
@@ -68,6 +68,32 @@ describe("AaveActiveReader", () => {
     expect(r?.positionHealth.maxLtv).toBeCloseTo(0.8, 9);
     expect(r?.collateralValueUsd).toBeCloseTo(10_000, 6);
     expect(r?.dominantCollateralSymbol).toBe("WETH");
+    // Aave's own weighted threshold, in bps, from the tuple slot the reader
+    // used to discard. It is the slot BEFORE ltv and must not collapse onto it.
+    expect(r?.weightedLiquidationThreshold).toBeCloseTo(0.83, 9);
+    expect(r?.weightedLiquidationThreshold).not.toBe(r?.positionHealth.maxLtv);
+  });
+
+  it("reports an absent liquidation threshold as null, never 0", async () => {
+    // Aave answers 0 bps when the account has no collateral configured as
+    // such. Zero is a real threshold ("liquidates against any debt"), so
+    // passing it on would let the deleverage math size a repay off a fiction.
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([1_000_00000000n, 500_00000000n, 0n, 0n, 0n, 2_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      .mockResolvedValueOnce([ok(1n * 10n ** 18n), ok(0n), ok(0n), ok(0n), ...allPrices]);
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    expect(r?.weightedLiquidationThreshold).toBeNull();
+    // The rest of the read is unaffected — degrade one field, not the leg.
+    expect(r?.positionHealth.healthFactor).toBeCloseTo(2.0, 9);
   });
 
   it("maps the zero-debt sentinel to null HF (never uint256.max)", async () => {
@@ -253,6 +279,10 @@ describe("MoonwellActiveReader", () => {
     expect(r?.positionHealth.currentLtv).toBeCloseTo(0.5, 6);
     expect(r?.positionHealth.maxLtv).toBeCloseTo(0.8, 6);
     expect(r?.dominantCollateralSymbol).toBe("WETH");
+    // Compound-V2 fork: the one collateralFactorMantissa is both the borrow
+    // limit and the liquidation threshold, so these agree by construction.
+    expect(r?.weightedLiquidationThreshold).toBeCloseTo(0.8, 6);
+    expect(r?.weightedLiquidationThreshold).toBe(r?.positionHealth.maxLtv);
   });
 
   it("returns null when no markets entered", async () => {
@@ -296,6 +326,10 @@ describe("MorphoActiveReader (official API)", async () => {
     expect(r?.borrowValueUsd).toBeCloseTo(3000, 6);
     // weighted LLTV: (1000×0.86 + 3000×0.945) / 4000 = 0.92375
     expect(r?.positionHealth.maxLtv).toBeCloseTo(0.92375, 6);
+    // Morpho Blue prices one factor per market: lltv IS the liquidation
+    // threshold, so it is also the max LTV.
+    expect(r?.weightedLiquidationThreshold).toBeCloseTo(0.92375, 6);
+    expect(r?.weightedLiquidationThreshold).toBe(r?.positionHealth.maxLtv);
     expect(r?.dominantCollateralSymbol).toBe("cbETH");
   });
 
@@ -362,6 +396,12 @@ describe("CompoundActiveReader (Comet)", async () => {
     expect(r?.usdValuesUnavailable).toBeUndefined();
     expect(r?.positionHealth.healthFactor).toBeCloseTo((4200 * 0.8) / 2000, 6); // 1.68
     expect(r?.positionHealth.maxLtv).toBeCloseTo(0.75, 6);
+    // Comet carries TWO factors per asset. The exposed threshold must be the
+    // liquidate side (0.80), not the borrow side maxLtv already reports (0.75):
+    // the smaller factor under-sizes a collateral-funded repay, leaving the
+    // position short of the health it was told the repay would buy.
+    expect(r?.weightedLiquidationThreshold).toBeCloseTo(0.8, 6);
+    expect(r?.weightedLiquidationThreshold).not.toBe(r?.positionHealth.maxLtv);
     expect(r?.dominantCollateralSymbol).toBe("cbETH");
   });
 
@@ -413,6 +453,8 @@ describe("CompoundActiveReader (Comet)", async () => {
       expect(r?.positionHealth.healthFactor).toBeCloseTo(1.2, 9);
       expect(r?.positionHealth.currentLtv).toBeCloseTo(40 / 60, 9);
       expect(r?.positionHealth.maxLtv).toBeCloseTo(0.75, 9);
+      // The liquidation threshold is a ratio too, so it rides out the dead feed.
+      expect(r?.weightedLiquidationThreshold).toBeCloseTo(0.8, 9);
       // ...and the half that genuinely needs the oracle is withheld, not faked.
       expect(r?.collateralValueUsd).toBeNull();
       expect(r?.borrowValueUsd).toBeNull();
@@ -557,6 +599,7 @@ describe("ActiveAdapter", () => {
             positionHealth: { healthFactor: 1.05, currentLtv: 0.7, maxLtv: 0.8 },
             collateralValueUsd: 1000,
             borrowValueUsd: 700,
+            weightedLiquidationThreshold: 0.8, // V2 fork: same factor as maxLtv
             dominantCollateralSymbol: "WEIRDTOKEN", // not in SYMBOL_TO_COINGECKO
           }),
         },
@@ -584,6 +627,7 @@ describe("ActiveAdapter", () => {
             positionHealth: { healthFactor: 2.0, currentLtv: 0.25, maxLtv: 0.8 },
             collateralValueUsd: 406_000,
             borrowValueUsd: 100_000,
+            weightedLiquidationThreshold: 0.83,
             dominantCollateralSymbol: "WETH",
             dominantCollateralUnpriced: true,
           }),
@@ -615,6 +659,7 @@ describe("ActiveAdapter", () => {
             positionHealth: { healthFactor: 2.0, currentLtv: 0.4, maxLtv: 0.8 },
             collateralValueUsd: 1000,
             borrowValueUsd: 400,
+            weightedLiquidationThreshold: 0.83,
             dominantCollateralSymbol: "WETH",
           }),
         },
@@ -645,6 +690,10 @@ describe("ActiveAdapter", () => {
         collateralValueUsd: null,
         borrowValueUsd: null,
         usdValuesUnavailable: true,
+        // A ratio, so a dead ETH/USD feed does not take it down with the
+        // dollar magnitudes. Above maxLtv: Comet liquidates later than it
+        // stops lending.
+        weightedLiquidationThreshold: 0.8,
         dominantCollateralSymbol: "WETH",
       }),
     };
@@ -706,6 +755,7 @@ describe("ActiveAdapter", () => {
       positionHealth: { healthFactor: 2.0, currentLtv: 0.4, maxLtv: 0.8 },
       collateralValueUsd: 20_000,
       borrowValueUsd: 8_000,
+      weightedLiquidationThreshold: 0.83,
       dominantCollateralSymbol: "WETH",
     };
     // WELL is the symbol whose id was wrong; this leg is the one that throws.
@@ -714,6 +764,7 @@ describe("ActiveAdapter", () => {
       positionHealth: { healthFactor: 1.4, currentLtv: 0.6, maxLtv: 0.8 },
       collateralValueUsd: 120_000,
       borrowValueUsd: 70_000,
+      weightedLiquidationThreshold: 0.8,
       dominantCollateralSymbol: "WELL",
     };
     const twoLegReaders = [

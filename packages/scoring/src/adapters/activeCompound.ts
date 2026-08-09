@@ -72,6 +72,17 @@ export interface CompoundReaderOptions {
   onWarn?: (message: string) => void;
 }
 
+/**
+ * Collateral-weighted liquidation threshold of one leg. Comet's
+ * liquidateCollateralFactor sits strictly above its borrowCollateralFactor, so
+ * this is NOT `healthOf().maxLtv`: the smaller borrow-side factor under-sizes
+ * a collateral-funded repay, which lands short of the target it quoted.
+ * null with no collateral: there is nothing to average.
+ */
+function weightedLiquidationThresholdOf(leg: CometLeg): number | null {
+  return leg.collateral > 0 ? leg.weightedLiq / leg.collateral : null;
+}
+
 /** Health of one isolated Comet market — denomination-free by construction. */
 function healthOf(leg: CometLeg): PositionHealthInput {
   return {
@@ -224,6 +235,7 @@ export class CompoundActiveReader {
     const degraded = legs.some((l) => l.usdFactor === null);
 
     let positionHealth: PositionHealthInput;
+    let weightedLiquidationThreshold: number | null;
     let dominantAsset: string | null;
     if (!degraded) {
       // Every leg is in USD: pool them, exactly as before.
@@ -237,6 +249,7 @@ export class CompoundActiveReader {
         weightedBorrowCf: sum((l) => l.weightedBorrowCf),
       };
       positionHealth = healthOf(pooled);
+      weightedLiquidationThreshold = weightedLiquidationThresholdOf(pooled);
       dominantAsset = legs.reduce<CometLeg | null>(
         (best, l) =>
           best === null ||
@@ -252,6 +265,7 @@ export class CompoundActiveReader {
         (healthOf(a).healthFactor ?? Infinity) <= (healthOf(b).healthFactor ?? Infinity) ? a : b,
       );
       positionHealth = healthOf(worst);
+      weightedLiquidationThreshold = weightedLiquidationThresholdOf(worst);
       dominantAsset = worst.dominantAsset;
     }
 
@@ -276,6 +290,7 @@ export class CompoundActiveReader {
         ? null
         : legs.reduce((a, l) => a + l.borrow * (l.usdFactor as number), 0),
       ...(degraded ? { usdValuesUnavailable: true } : {}),
+      weightedLiquidationThreshold,
       dominantCollateralSymbol,
     };
   }
