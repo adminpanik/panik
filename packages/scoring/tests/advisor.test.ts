@@ -330,6 +330,100 @@ describe("adviseLeg decision table", () => {
     expect(rec.exitPrefill?.kind).toBe("full");
   });
 
+  // The promotion used to throw the repay away, so a user who wanted zero debt
+  // while keeping their collateral deposited was only ever shown the door.
+  describe("rule 3 promotion: the full-repay alternative", () => {
+    const promoted = (over: Partial<ActiveScore> = {}) =>
+      adviseLeg(
+        leg({ total: 60, band: "HIGH", healthFactor: 0.15, borrowValueUsd: 10_000, ...over }),
+        "moderate",
+      );
+
+    it("keeps EXIT as the primary action and urgency", () => {
+      const rec = promoted();
+      // Alerting keys off these two; the alternative must not move them.
+      expect(rec.action).toBe("EXIT");
+      expect(rec.urgency).toBe("warning");
+      expect(rec.exitPrefill).toEqual({ protocol: "aave_v3", kind: "full" });
+    });
+
+    it("carries a full-repay plan at fraction exactly 1", () => {
+      const rec = promoted();
+      expect(rec.alternative?.kind).toBe("full_repay");
+      const plan = rec.alternative!.plan;
+      // Exactly 1, not 0.999999: the whole debt, quantised by the engine's one
+      // rounding rule, which is what makes an exact integer numerator.
+      expect(plan.repayFraction).toBe(1);
+      expect(repayFractionNumerator(plan.repayFraction)).toBe(BigInt(REPAY_FRACTION_SCALE));
+      expect(plan.repayUsd).toBe(10_000);
+      expect(plan.mode).toBe("wallet_funded");
+    });
+
+    it("reports no projected health factor, because there is no debt left", () => {
+      // Echoing targetHf here would print a ratio the position will not hold.
+      expect(promoted().alternative?.plan.projectedHf).toBeNull();
+    });
+
+    it("names the leg's own debt asset, and omits it when unnamed", () => {
+      expect(promoted().alternative?.plan.repayAssetSymbol).toBe("USDC");
+      const unnamed = promoted({ dominantBorrowSymbol: null });
+      expect(unnamed.alternative?.plan.repayAssetSymbol).toBeNull();
+      expect(unnamed.sections.recommendation).not.toContain("undefined");
+      expect(unnamed.sections.recommendation).not.toContain("null");
+    });
+
+    it("offers it in one sentence that says what the user keeps", () => {
+      const text = promoted().sections.recommendation;
+      expect(text).toContain("clear the debt instead");
+      expect(text).toContain("$10,000 of USDC");
+      expect(text).toContain("collateral stays deposited");
+      expect(text).not.toContain("—");
+    });
+
+    it("is absent below the promotion boundary", () => {
+      // 1 - 1.31/1.75 = 0.251, well under REDUCE_TO_EXIT_RATIO.
+      const rec = adviseLeg(
+        leg({ total: 55, band: "HIGH", healthFactor: 1.31, borrowValueUsd: 10_000 }),
+        "moderate",
+      );
+      expect(rec.action).toBe("REDUCE");
+      expect(rec.alternative).toBeUndefined();
+      expect(rec.sections.recommendation).not.toContain("clear the debt instead");
+    });
+
+    it("is absent on a CRITICAL-band exit, which was never a promoted reduce", () => {
+      const rec = adviseLeg(leg({ total: 80, band: "CRITICAL", healthFactor: 1.05 }), "moderate");
+      expect(rec.action).toBe("EXIT");
+      expect(rec.alternative).toBeUndefined();
+    });
+
+    it("straddles REDUCE_TO_EXIT_RATIO, and the alternative appears with the promotion", () => {
+      // The boundary sits at repay/debt == 0.9, i.e. HF == 1.75 * 0.1. These two
+      // health factors bracket it: 0.18 sizes an 89.7% repay, 0.17 a 90.3% one.
+      // (Literals, not `TARGET_HF * (1 - RATIO)` - that expression evaluates to
+      // 0.17499999999999996 and lands on the wrong side of a strict `>`.)
+      const below = adviseLeg(
+        leg({ total: 60, band: "HIGH", healthFactor: 0.18, borrowValueUsd: 10_000 }),
+        "moderate",
+      );
+      expect(repayToTargetHf(10_000, 0.18, TARGET_HF.moderate)).toBeLessThan(
+        REDUCE_TO_EXIT_RATIO * 10_000,
+      );
+      expect(below.action).toBe("REDUCE");
+      expect(below.alternative).toBeUndefined();
+
+      const above = adviseLeg(
+        leg({ total: 60, band: "HIGH", healthFactor: 0.17, borrowValueUsd: 10_000 }),
+        "moderate",
+      );
+      expect(repayToTargetHf(10_000, 0.17, TARGET_HF.moderate)).toBeGreaterThan(
+        REDUCE_TO_EXIT_RATIO * 10_000,
+      );
+      expect(above.action).toBe("EXIT");
+      expect(above.alternative?.plan.repayFraction).toBe(1);
+    });
+  });
+
   it("rule 4: approaching + unsafe protocol -> REBALANCE to safest alternative", () => {
     const rec = adviseLeg(
       leg({

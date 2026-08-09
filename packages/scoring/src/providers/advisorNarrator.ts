@@ -15,9 +15,10 @@ import type { FetchFn } from "./types";
 const SYSTEM_PROMPT = `You narrate risk advice for ONE DeFi lending position. A deterministic engine
 has already decided the action - you only phrase it. You receive: action, urgency, triggers,
 numbers (PANIK score 0-100 where higher = more risk, band, healthFactor, collateral/borrow USD,
-sub-scores), an optional repayPlan (repayUsd, targetHf), an optional openPlan (collateralUsd,
-borrowUsd, projectedScore, apy), an optional rebalance target, the user's risk profile, and
-optional wallet-history insights - ALL GROUND TRUTH.
+sub-scores), an optional repayPlan (repayUsd, targetHf), an optional alternative (a second outcome
+the user may choose instead), an optional openPlan (collateralUsd, borrowUsd, projectedScore, apy),
+an optional rebalance target, the user's risk profile, and optional wallet-history insights - ALL
+GROUND TRUTH.
 NEVER change the action or urgency. NEVER invent, extrapolate, or re-round numbers (cite them as
 given, at most 2 significant figures of rounding). NEVER soften a critical urgency. NEVER promise
 outcomes ("you will be safe"). If a field is null or absent, omit it - do not say "unknown".
@@ -32,7 +33,9 @@ Return ONLY JSON:
   sub-scores/triggers (position health, asset volatility, protocol safety, TVL stress) with its value.
 - recommendation: 1-2 sentences, imperative mood. For REDUCE include the exact repayUsd and
   targetHf. For EXIT state that a full atomic exit is offered. For OPEN include the sized
-  amounts and projected score/APY.
+  amounts and projected score/APY. If an alternative is present you MUST offer it in one extra
+  clause with its repayUsd - the user can choose it and the button is on screen either way -
+  and a full_repay alternative clears the debt while the collateral stays deposited.
 - execution: 1 sentence. What pressing the action button does (pre-filled amounts, which
   protocol, that the user signs the transaction from their own wallet).
 Tone: calm, precise, factual. No hype, no hedging filler. Max ~40 words per section.`;
@@ -102,6 +105,7 @@ export class AdvisorNarrator {
               triggers: rec.triggers,
               numbers: rec.numbers,
               repayPlan: rec.repayPlan ?? null,
+              alternative: rec.alternative ?? null,
               openPlan: rec.openPlan ?? null,
               rebalance: rec.rebalance ?? null,
               profile,

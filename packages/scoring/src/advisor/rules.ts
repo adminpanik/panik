@@ -21,6 +21,7 @@ import {
 import {
   ACTION_SEVERITY,
   type AdvisorAction,
+  type AdvisorAlternative,
   type AdvisorOverall,
   type AdvisorRecommendation,
   type LegMarketContext,
@@ -179,12 +180,40 @@ export function adviseLeg(
         projectedHf: targetHf,
         mode: "wallet_funded" as const,
       };
-      // Repaying ~everything IS a full exit - promote.
+      // Repaying ~everything IS a full exit - promote. The recommendation stays
+      // EXIT (alerting keys off action/urgency, and the sized repay really is
+      // within a rounding error of the whole debt), but the promotion no longer
+      // throws the repay away: "clear my debt" and "get me out" are different
+      // intents, and a user who wants to be unlevered while leaving collateral
+      // deposited was previously offered only the door. Both outcomes are named,
+      // neither is hidden.
       if (repayUsd > REDUCE_TO_EXIT_RATIO * borrowUsd) {
         triggers.push("promoted:reduce_to_exit");
+        // The WHOLE debt as a fraction of itself. Routed through the engine's
+        // one quantiser rather than written as a literal 1, so the alternative
+        // and the sized repay are rounded by the same rule; it returns exactly
+        // 1 here and null only for a non-positive debt, which this branch has
+        // already excluded.
+        const fullFraction = repayFractionOfDebt(borrowUsd, borrowUsd);
+        const alternative: AdvisorAlternative | undefined =
+          fullFraction === null
+            ? undefined
+            : {
+                kind: "full_repay",
+                plan: {
+                  repayUsd: Math.round(borrowUsd),
+                  repayAssetSymbol: score.dominantBorrowSymbol,
+                  repayFraction: fullFraction,
+                  targetHf,
+                  // No debt left means no health factor, not a very large one.
+                  projectedHf: null,
+                  mode: "wallet_funded",
+                },
+              };
         return finish("EXIT", "warning", {
           repayPlan,
           exitPrefill: { protocol: score.protocol, kind: "full" },
+          alternative,
         });
       }
       triggers.push(`target:hf=${targetHf}`);

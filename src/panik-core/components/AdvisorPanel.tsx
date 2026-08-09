@@ -82,25 +82,47 @@ function ActionButton({
   if (rec.action === "EXIT" || rec.action === "REDUCE") {
     const prefill = rec.exitPrefill ?? { protocol: rec.protocol, kind: "full" as const };
     const label = rec.action === "EXIT" ? "Execute exit" : "Reduce position";
+    const disabledHint = "Transaction flow ships with the Atomic Exit integration";
     return (
-      <span className="inline-flex items-center gap-2">
-        {/* Neutral, like every other chip here. TESTNET is a statement about
-            which chain you are signing on, not about how risky the position is,
-            and it was spending an orange on a card whose colour budget is one
-            dial. The word is the warning. */}
-        {EXIT_ENV === "testnet" ? (
-          <span className="rounded-sm border border-border-subtle bg-white/[0.06] px-1.5 py-0.5 text-2xs font-sans font-bold text-text-secondary">
-            TESTNET
-          </span>
+      <div className="flex flex-col items-stretch gap-1.5">
+        <span className="inline-flex items-center gap-2">
+          {/* Neutral, like every other chip here. TESTNET is a statement about
+              which chain you are signing on, not about how risky the position is,
+              and it was spending an orange on a card whose colour budget is one
+              dial. The word is the warning. */}
+          {EXIT_ENV === "testnet" ? (
+            <span className="rounded-sm border border-border-subtle bg-white/[0.06] px-1.5 py-0.5 text-2xs font-sans font-bold text-text-secondary">
+              TESTNET
+            </span>
+          ) : null}
+          {/* The `Button` primitive, which by design does not accept a risk band:
+              these were a red fill and an orange fill, so the loudest element on
+              the card was the control rather than the reading it acts on. */}
+          <Button onClick={onExit ? () => onExit(prefill) : undefined} disabled={!onExit}
+            title={onExit ? undefined : disabledHint}>
+            {label} <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </span>
+        {/* The declinable alternative. The engine still RECOMMENDS the exit, so
+            the exit keeps the one primary fill on this card and this stays
+            `quiet`: a second filled button would put two equal answers on a
+            card whose job is to give one. It is a real control rather than a
+            line of prose because the engine has a prefill for it, and the
+            sentence offering it is already in the recommendation above. */}
+        {rec.alternative ? (
+          <Button
+            variant="quiet"
+            className="justify-center"
+            onClick={
+              onExit ? () => onExit({ protocol: rec.protocol, kind: "full_repay" }) : undefined
+            }
+            disabled={!onExit}
+            title={onExit ? undefined : disabledHint}
+          >
+            Repay everything instead
+          </Button>
         ) : null}
-        {/* The `Button` primitive, which by design does not accept a risk band:
-            these were a red fill and an orange fill, so the loudest element on
-            the card was the control rather than the reading it acts on. */}
-        <Button onClick={onExit ? () => onExit(prefill) : undefined} disabled={!onExit}
-          title={onExit ? undefined : "Transaction flow ships with the Atomic Exit integration"}>
-          {label} <ArrowRight className="h-3.5 w-3.5" />
-        </Button>
-      </span>
+      </div>
     );
   }
   if (rec.action === "OPEN" && rec.openPlan) {

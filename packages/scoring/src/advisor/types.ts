@@ -37,9 +37,40 @@ export interface RepayPlan {
   repayFraction: number;
   /** Profile-derived health-factor target. */
   targetHf: number;
-  /** HF after the repay (== targetHf by construction; echoed for the UI). */
-  projectedHf: number;
+  /**
+   * HF after the repay (== targetHf by construction on a sized repay).
+   *
+   * Null when the plan clears the debt outright: a position with no debt has no
+   * health factor at all, which is the same thing `ActiveScore.healthFactor`
+   * says with a null. Echoing `targetHf` here instead would print a ratio the
+   * position will never hold.
+   */
+  projectedHf: number | null;
   mode: "wallet_funded";
+}
+
+/**
+ * A second outcome the user may pick INSTEAD of the recommendation's primary
+ * action, without the engine changing its mind about what it recommends.
+ *
+ * It exists because "I want zero debt" and "I want out entirely" are different
+ * intents. Above `REDUCE_TO_EXIT_RATIO` a sized repay is so close to the whole
+ * debt that the advisor promotes it to a full EXIT, and that promotion used to
+ * discard the repay: a user who wanted to be unlevered while keeping collateral
+ * deposited and earning was only ever offered the door.
+ *
+ * The primary action is unchanged (alerting keys off `action`/`urgency`), so
+ * this is strictly additive: a consumer that ignores it behaves as before.
+ */
+export interface AdvisorAlternative {
+  /** The only alternative the engine emits today. */
+  kind: "full_repay";
+  /**
+   * The whole debt. `repayFraction` is exactly 1 and nothing is withdrawn, so
+   * taking this leaves the position open with the collateral still deposited
+   * and no debt left to liquidate.
+   */
+  plan: RepayPlan;
 }
 
 /** Sized open-position suggestion produced by the opportunity scanner. */
@@ -103,6 +134,13 @@ export interface AdvisorRecommendation {
   triggers: string[];
   /** Present iff action === "REDUCE" (or a promoted EXIT retains it for context). */
   repayPlan?: RepayPlan;
+  /**
+   * A declinable second outcome for this leg. Present only where the engine has
+   * one to offer (today: an EXIT promoted from a near-total REDUCE), and the UI
+   * must show it as a quiet secondary beside the primary action, never instead
+   * of it. See `AdvisorAlternative`.
+   */
+  alternative?: AdvisorAlternative;
   /** Present iff action === "OPEN". */
   openPlan?: OpenPlan;
   /** Present iff action === "REBALANCE". */
@@ -127,7 +165,13 @@ export interface AdvisorRecommendation {
    */
   exitPrefill?: {
     protocol: Protocol;
-    kind: "full" | "partial";
+    /**
+     * `full` closes the position; `full_repay` clears the debt and leaves the
+     * collateral deposited; `partial` repays the sized fraction. The engine only
+     * ever prefills the primary action, so `full_repay` reaches the flow from
+     * `alternative`, built at the call site.
+     */
+    kind: "full" | "partial" | "full_repay";
     repayUsd?: number;
     repayFraction?: number;
   };

@@ -82,6 +82,67 @@ describe("buildExitLegs - full exit", () => {
   });
 });
 
+describe("buildExitLegs - full repay", () => {
+  it("repays every debt leg with the sentinel and withdraws nothing", () => {
+    const { legs, views } = buildExitLegs(
+      [
+        usdc({ debt: 5_000_000000n, aBalance: 1_000_000000n }),
+        weth({ debt: 2n * 10n ** 18n, aBalance: 3n * 10n ** 18n }),
+      ],
+      { protocol: "aave_v3", kind: "full_repay" },
+    );
+
+    expect(legs).toHaveLength(2);
+    // The sentinel, not a fraction of the read debt: interest accrues between
+    // the read and the signature, and a leftover unit of debt means the
+    // position is not actually unlevered.
+    expect(legs.map((l) => l.repayAmount)).toEqual([AMOUNT_FULL, AMOUNT_FULL]);
+    // The whole point of the outcome: the collateral stays deposited.
+    expect(legs.map((l) => l.withdrawAmount)).toEqual([0n, 0n]);
+    expect(views.map((v) => v.withdraw)).toEqual([0n, 0n]);
+    // Funding is the read debt, which is what a wallet balance compares to.
+    expect(views.map((v) => v.repayFunding)).toEqual([5_000_000000n, 2n * 10n ** 18n]);
+  });
+
+  it("skips a collateral-only reserve instead of building an empty leg", () => {
+    const { legs, views } = buildExitLegs(
+      [usdc({ debt: 0n, aBalance: 9_000_000000n }), weth({ debt: 10n ** 18n })],
+      { protocol: "aave_v3", kind: "full_repay" },
+    );
+    expect(legs).toHaveLength(1);
+    expect(views[0]?.symbol).toBe("WETH");
+    expect(views[0]?.aBalance).toBe(0n);
+  });
+
+  it("builds nothing at all for a position with no debt", () => {
+    const { legs, dust } = buildExitLegs([usdc({ aBalance: 9_000_000000n })], {
+      protocol: "aave_v3",
+      kind: "full_repay",
+    });
+    expect(legs).toHaveLength(0);
+    // Not dust: there is no debt to round away, which the flow words differently.
+    expect(dust).toEqual([]);
+  });
+
+  it("ignores repayFraction, exactly as a full exit does", () => {
+    const { legs } = buildExitLegs([weth({ debt: 4n * 10n ** 18n })], {
+      protocol: "aave_v3",
+      kind: "full_repay",
+      repayFraction: 0.25,
+    });
+    expect(legs[0]?.repayAmount).toBe(AMOUNT_FULL);
+    expect(legs[0]?.withdrawAmount).toBe(0n);
+  });
+
+  it("carries the protocol id through", () => {
+    const { legs } = buildExitLegs([usdc({ debt: 100n })], {
+      protocol: "moonwell",
+      kind: "full_repay",
+    });
+    expect(legs[0]?.protocol).toBe(PROTOCOL_ID.moonwell);
+  });
+});
+
 describe("buildExitLegs - partial reduce", () => {
   it("repays WETH debt in WETH units, exact at 18 decimals", () => {
     const debt = 12_345_678_901_234_567_890n; // ~12.35 WETH, past 2^53

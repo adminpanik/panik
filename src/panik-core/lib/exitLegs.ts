@@ -55,7 +55,12 @@ export interface ExitReserveState {
 
 export interface ExitLegPlan {
   protocol: LiveProtocol;
-  kind: "full" | "partial";
+  /**
+   * `full` closes the position outright. `full_repay` clears the debt and
+   * leaves every deposit where it is, so the position stays open, unlevered.
+   * `partial` repays the advisor's sized fraction of each debt leg.
+   */
+  kind: "full" | "partial" | "full_repay";
   /**
    * Fraction of each debt leg to repay, from the advisor (`RepayPlan`).
    * Required for a partial exit: without it there is no size, and guessing one
@@ -68,9 +73,9 @@ export interface ExitLegView {
   reserve: `0x${string}`;
   symbol: string;
   decimals: number;
-  /** `AMOUNT_FULL` on a full exit, else exact units of `reserve`. */
+  /** `AMOUNT_FULL` on a full exit or a full repay, else exact units of `reserve`. */
   repay: bigint;
-  /** `AMOUNT_FULL` on a full exit, else 0n. */
+  /** `AMOUNT_FULL` on a full exit, else 0n (a full repay withdraws nothing). */
   withdraw: bigint;
   debt: bigint;
   aBalance: bigint;
@@ -100,6 +105,16 @@ export interface ExitPlanResult {
  * is what the executor expects and what closes a position exactly despite
  * interest accruing between the read and the signature.
  *
+ * Full repay: the same sentinel on every DEBT side, and nothing withdrawn. The
+ * sentinel rather than `repayFraction = 1` on purpose. A fraction is applied to
+ * the debt this module READ, and debt accrues interest between that read and the
+ * signature, so a fraction of 1 would leave a few units of debt behind and the
+ * position would not actually be unlevered - the one thing the user asked for.
+ * The sentinel is resolved protocol-side at execution, so it absorbs whatever
+ * accrued. `repayFunding` still resolves to the read debt, because that is the
+ * number a wallet balance can be compared against, and the approval it sizes
+ * carries an accrual buffer of its own (`withAccrualBuffer`).
+ *
  * Partial (reduce): EVERY reserve with debt is repaid by the same fraction, in
  * that reserve's own units. Health factor is L/D, so scaling every debt leg by
  * f scales D by f and lands the health factor exactly where the advisor
@@ -122,6 +137,9 @@ export function buildExitLegs(
     if (plan.kind === "full") {
       if (r.debt > 0n) repay = AMOUNT_FULL;
       if (r.aBalance > 0n) withdraw = AMOUNT_FULL;
+    } else if (plan.kind === "full_repay") {
+      // Debt only. `withdraw` stays 0n so the collateral is left deposited.
+      if (r.debt > 0n) repay = AMOUNT_FULL;
     } else if (r.debt > 0n) {
       // `repayAmountFromFraction` owns the clamp (a fraction above 1 cannot
       // over-repay) and the floor (never more than was quoted). Null means the
