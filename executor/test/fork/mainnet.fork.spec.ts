@@ -737,23 +737,25 @@ maybeDescribe("Base mainnet fork - PanikExecutor v2 real-protocol exits", functi
   });
 
   /**
-   * LIVE-PROTOCOL GAP, recorded so it cannot regress silently.
+   * REGRESSION PIN for the live-protocol gap this suite first recorded (#39).
    *
    * Moonwell's WETH market on Base (mWETH, 0x628f...) reports underlying() ==
-   * WETH but pays REDEEMS OUT IN NATIVE ETH. MoonwellAdapter.redeem measures its
-   * result as an ERC-20 WETH balance delta and has no `receive()`, so the mToken's
-   * native transfer reverts the whole call. Every Moonwell collateral leg on that
-   * market is therefore unexecutable on Base mainnet today, on BOTH entrypoints.
-   * Repay legs are unaffected (proven above), as are ERC-20 markets such as mUSDC
-   * (proven above). This is v1 adapter behaviour that the previous, never-running
-   * fork spec could not surface; fixing it is a contract change and out of scope
-   * for this test-only PR.
+   * WETH but pays REDEEMS OUT IN NATIVE ETH. MoonwellAdapter used to measure its
+   * result as an ERC-20 WETH balance delta with no `receive()`, so the mToken's
+   * native transfer reverted the whole call and every Moonwell collateral leg on
+   * that market was unexecutable on BOTH entrypoints. The adapter now accepts
+   * that ETH and re-wraps exactly the DELTA the redeem produced, matching what
+   * PanikDeleverager already does on the same market.
+   *
+   * The first assertion below still pins the live protocol's payout shape: if
+   * Moonwell ever stops paying native ETH, that changes here first, loudly.
    */
-  it("Moonwell mWETH: collateral redeem is UNEXECUTABLE on live Base (native-ETH payout)", async function () {
+  it("Moonwell mWETH: the market pays NATIVE ETH, and a self-serve atomicExit now completes", async function () {
     const borrower = signers[9];
     const me = await borrower.getAddress();
     const weth = new ethers.Contract(ADDR.weth, WETH_ABI, borrower);
     const mWeth = new ethers.Contract(ADDR.mWeth, MTOKEN_ABI, borrower);
+    const moonwellAdapterAddress = await moonwellAdapter.getAddress();
 
     await (await weth.deposit({ value: ethers.parseEther("1") })).wait();
     await (await weth.approve(ADDR.mWeth, MAX)).wait();
@@ -761,19 +763,93 @@ maybeDescribe("Base mainnet fork - PanikExecutor v2 real-protocol exits", functi
     await (await mWeth.approve(executorAddress, MAX)).wait();
 
     // The mToken itself pays native ETH, not the WETH it names as underlying.
+    // This is the live behaviour the adapter has to survive.
     expect(await mWeth.underlying()).to.equal(ADDR.weth);
     const wethBefore = await weth.balanceOf(me);
     const ethBefore = await ethers.provider.getBalance(me);
     const mBalance = await mWeth.balanceOf(me);
-    const rc = await (await mWeth.redeem(mBalance / 2n)).wait();
-    const gasSpent = rc.gasUsed * rc.gasPrice;
+    const rc0 = await (await mWeth.redeem(mBalance / 2n)).wait();
+    const gasSpent = rc0.gasUsed * rc0.gasPrice;
     expect(await weth.balanceOf(me)).to.equal(wethBefore); // no WETH arrived
     expect((await ethers.provider.getBalance(me)) + gasSpent).to.be.greaterThan(ethBefore);
 
-    // So the executor's Moonwell collateral leg cannot complete.
-    await expect(
-      executor.connect(borrower).atomicExit([leg(MOONWELL, ADDR.mWeth, 0n, MAX)], [])
-    ).to.be.reverted;
+    // Donate 1 wei to the adapter first: the fix must wrap only the redeem's
+    // own ETH delta, so a donation can neither inflate the proceeds nor brick
+    // the path. Same trap PanikDeleverager's review caught.
+    await (await borrower.sendTransaction({ to: moonwellAdapterAddress, value: 1n })).wait();
+
+    // The executor's Moonwell collateral leg now completes end to end: mWETH
+    // redeems to ETH, the adapter wraps it, and the executor sells the WETH to
+    // USDC on the live Uniswap V3 route and pays the position owner.
+    const collateralBefore = await mWeth.balanceOf(me);
+    const usdcBefore = await usdc.balanceOf(me);
+    expect(collateralBefore).to.be.greaterThan(0n);
+
+    const rc = await (
+      await executor.connect(borrower).atomicExit([leg(MOONWELL, ADDR.mWeth, 0n, MAX)], [])
+    ).wait();
+
+    console.log(
+      `    Moonwell mWETH self-serve: mWETH ${collateralBefore} -> ${await mWeth.balanceOf(me)}, ` +
+        `USDC ${usdcBefore} -> ${await usdc.balanceOf(me)}; gas ${rc.gasUsed}`
+    );
+    expect(await mWeth.balanceOf(me)).to.equal(0n);
+    expect(await usdc.balanceOf(me)).to.be.greaterThan(usdcBefore);
+    // Nothing wrapped or native is stranded, and the donation was never touched.
+    expect(await weth.balanceOf(executorAddress)).to.equal(0n);
+    expect(await usdc.balanceOf(executorAddress)).to.equal(0n);
+    expect(await weth.balanceOf(moonwellAdapterAddress)).to.equal(0n);
+    expect(await ethers.provider.getBalance(moonwellAdapterAddress)).to.equal(1n);
+  });
+
+  it("Moonwell mWETH delegated: a signed FULL_EXIT permit redeems live ETH-paying collateral to the owner", async function () {
+    const borrower = signers[15];
+    const me = await borrower.getAddress();
+    const weth = new ethers.Contract(ADDR.weth, WETH_ABI, borrower);
+    const mWeth = new ethers.Contract(ADDR.mWeth, MTOKEN_ABI, borrower);
+    const moonwellAdapterAddress = await moonwellAdapter.getAddress();
+
+    await (await weth.deposit({ value: ethers.parseEther("1") })).wait();
+    await (await weth.approve(ADDR.mWeth, MAX)).wait();
+    await (await mWeth.mint(ethers.parseEther("1"))).wait();
+    await (await mWeth.approve(executorAddress, MAX)).wait();
+
+    const permit: Permit = {
+      user: me,
+      kind: FULL_EXIT,
+      maxRepayFractionBps: 10_000,
+      triggerHealthFactorWad: 0n,
+      maxSlippageBps: 500,
+      protocolsMask: MASK_MOONWELL,
+      epoch: 0n,
+      nonce: 71n,
+      deadline: await deadline(),
+    };
+    const legs = [leg(MOONWELL, ADDR.mWeth, 0n, MAX)];
+
+    const collateralBefore = await mWeth.balanceOf(me);
+    const usdcBefore = await usdc.balanceOf(me);
+    const relayerAddress = await relayer.getAddress();
+    const relayerUsdcBefore = await usdc.balanceOf(relayerAddress);
+    expect(collateralBefore).to.be.greaterThan(0n);
+
+    const rc = await (
+      await executor
+        .connect(relayer)
+        .atomicExitFor(me, legs, [], permit, await sign(borrower, permit))
+    ).wait();
+
+    console.log(
+      `    Moonwell mWETH delegated: mWETH ${collateralBefore} -> ${await mWeth.balanceOf(me)}, ` +
+        `USDC ${usdcBefore} -> ${await usdc.balanceOf(me)}; submitter ${relayerAddress}; gas ${rc.gasUsed}`
+    );
+    expect(await mWeth.balanceOf(me)).to.equal(0n);
+    // Proceeds land on the position owner and nowhere else.
+    expect(await usdc.balanceOf(me)).to.be.greaterThan(usdcBefore);
+    expect(await usdc.balanceOf(relayerAddress)).to.equal(relayerUsdcBefore);
+    expect(await usdc.balanceOf(executorAddress)).to.equal(0n);
+    expect(await weth.balanceOf(moonwellAdapterAddress)).to.equal(0n);
+    expect(await executor.isNonceUsed(me, permit.nonce)).to.equal(true);
   });
 
   // ------------------------------------------------------ Compound V3 --
