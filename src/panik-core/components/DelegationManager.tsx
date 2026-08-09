@@ -79,6 +79,11 @@ const BPS = 10_000;
 /** Expiry choices, in days. A user-set control, not a fact the code asserts. */
 const EXPIRY_CHOICES = [30, 60, 90] as const;
 const DEFAULT_EXPIRY_DAYS = 30;
+// Pre-filled slippage tolerance. The on-chain ceiling is the hard cap a user may
+// raise to, not a sane default: Base swaps clear well under 1% via aggregation, so
+// a click-through grant should not tolerate a 10% haircut. The user can tighten or
+// widen up to the ceiling; a fresh grant starts here (clamped if the ceiling is lower).
+const DEFAULT_SLIPPAGE_BPS = 100;
 const DAY_SECONDS = 86_400;
 
 /** One live delegation as the 2.B GET returns it (bigints as strings). */
@@ -203,8 +208,9 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
     }
   }, [address, onChain]);
 
-  // Read the executor's immutable slippage ceiling once we are on-chain, and
-  // default the slippage cap to it (a chain fact, the honest upper bound).
+  // Read the executor's immutable slippage ceiling once we are on-chain. The
+  // ceiling is the hard cap; a fresh grant defaults to DEFAULT_SLIPPAGE_BPS
+  // (clamped to the ceiling), not to the ceiling itself.
   const readCeiling = useCallback(async () => {
     if (!publicClient || !onChain) return;
     try {
@@ -215,7 +221,11 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
       })) as number | bigint;
       const ceiling = Number(raw);
       setCeilingBps(ceiling);
-      setSlippageBps((prev) => (prev === null ? ceiling : clampSlippageBps(prev, ceiling)));
+      setSlippageBps((prev) =>
+        prev === null
+          ? clampSlippageBps(DEFAULT_SLIPPAGE_BPS, ceiling)
+          : clampSlippageBps(prev, ceiling),
+      );
     } catch {
       /* leave slippage disabled until the ceiling is known - never guess it */
     }
