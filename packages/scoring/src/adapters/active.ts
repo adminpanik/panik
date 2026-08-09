@@ -54,6 +54,12 @@ export interface ActiveScore extends Omit<DegradedScoreResult, "subScores"> {
   dominantCollateralUnpriced: boolean;
   /** Asset whose market risk was scored (dominant collateral). */
   scoredCollateralSymbol: string;
+  /**
+   * Symbol of the leg's largest BORROW - the asset a repay is denominated in -
+   * or null when the reader could not establish one. See
+   * `ActiveReading.dominantBorrowSymbol`; null is not a licence to assume USDC.
+   */
+  dominantBorrowSymbol: string | null;
   /** True when collateral discovery failed and WETH was used as proxy. */
   assetRiskIsProxy: boolean;
 }
@@ -138,6 +144,7 @@ export class ActiveAdapter {
         marketContextUnavailable: assetRisk === null || systemicRisk === null,
         dominantCollateralUnpriced: reading.dominantCollateralUnpriced === true,
         scoredCollateralSymbol: assetRiskIsProxy ? "WETH (proxy)" : (symbol as string),
+        dominantBorrowSymbol: reading.dominantBorrowSymbol,
         assetRiskIsProxy,
       });
     }

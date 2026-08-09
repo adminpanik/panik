@@ -10,6 +10,7 @@ import type {
   AdvisorRecommendation,
   AdvisorSections,
   LegMarketContext,
+  RepayPlan,
 } from "./types";
 
 export const PROTOCOL_LABEL: Record<string, string> = {
@@ -26,6 +27,19 @@ export function fmtUsd(n: number | null): string {
   const rounded =
     abs >= 1000 ? Math.round(n).toLocaleString("en-US") : n.toFixed(abs >= 1 ? 0 : 2);
   return `$${rounded}`;
+}
+
+/**
+ * The debt asset, named only when the reader actually read it: " USDC", or
+ * " of USDC" with a prefix, or nothing at all. The symbol used to be hardcoded,
+ * and this sentence is where a user learns which token to hold before the
+ * repay - so naming the wrong one is worse than naming none.
+ */
+function repayAssetPhrase(plan: RepayPlan, prefix = ""): string {
+  // Truthiness, not `!== null`: this prose is also rendered from a plan that
+  // arrived over the wire, and a plan serialised before the field existed drops
+  // it entirely. "of undefined debt" is the one outcome worse than silence.
+  return plan.repayAssetSymbol ? `${prefix} ${plan.repayAssetSymbol}` : "";
 }
 
 export function fmtHf(hf: number | null): string {
@@ -115,7 +129,7 @@ function recommendationSection(rec: AdvisorRecommendation): string {
       const p = rec.repayPlan;
       if (!p) return `Reduce this ${label} position.`;
       return (
-        `Repay ~${fmtUsd(p.repayUsd)} of ${p.repayAssetSymbol} debt on ${label} to lift your ` +
+        `Repay ~${fmtUsd(p.repayUsd)} of${repayAssetPhrase(p)} debt on ${label} to lift your ` +
         `health factor from ${fmtHf(rec.numbers.healthFactor)} to ${p.targetHf.toFixed(2)}.`
       );
     }
@@ -147,7 +161,9 @@ function executionSection(rec: AdvisorRecommendation): string {
       return `The Exit button pre-selects this ${label} position for a single atomic transaction you sign yourself - debt repaid, collateral withdrawn, proceeds returned as USDC.`;
     case "REDUCE": {
       const p = rec.repayPlan;
-      const amt = p ? `~${fmtUsd(p.repayUsd)} of ${p.repayAssetSymbol}` : "the computed amount";
+      const amt = p
+        ? `~${fmtUsd(p.repayUsd)}${repayAssetPhrase(p, " of")}`
+        : "the computed amount";
       return `The Reduce button pre-fills a partial exit repaying ${amt} on ${label}; you sign the transaction yourself.`;
     }
     case "REBALANCE":

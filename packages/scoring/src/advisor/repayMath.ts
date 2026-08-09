@@ -41,6 +41,82 @@ export function repayToTargetHf(
 }
 
 /**
+ * Fixed-point denominator behind `RepayPlan.repayFraction`.
+ *
+ * The repay is quoted to the user in dollars but EXECUTED in the debt asset's
+ * own units, and converting dollars back into token units needs a price - a
+ * dependency the execution path does not have and a rounding hazard it does not
+ * want. So the engine also emits the repay as a fraction of the leg's own debt,
+ * and the execution path multiplies that fraction by the live on-chain debt.
+ *
+ * The fraction is quantised to 1/1e6 so a consumer can recover an EXACT integer
+ * numerator and stay in BigInt for the token math:
+ *
+ *   repayAmount = debt x repayFractionNumerator(f) / REPAY_FRACTION_SCALE
+ *
+ * 1e6 is the coarsest scale whose quantisation error stays under a dollar on a
+ * $1M debt (1e-6 x $1M = $1), and it is small enough that `f * SCALE` is exact
+ * in double precision for every fraction this module emits.
+ */
+export const REPAY_FRACTION_SCALE = 1_000_000;
+
+/**
+ * The repay as a fraction of THIS leg's debt, derived from the same two numbers
+ * the dollar figure is: `repayUsd / borrowUsd`.
+ *
+ * One rounding rule, and it lives here beside the formula: round half up to
+ * 1/REPAY_FRACTION_SCALE, then clamp into (0, 1]. A repay can never exceed the
+ * debt, and a repay that rounds to nothing is not a repay - both ends are
+ * pinned rather than allowed to escape as 1.0000004 or 0.
+ *
+ * Returns null when there is nothing to repay or no debt to repay it against.
+ * Null, never 0: a caller multiplies this into an amount, and a 0 fraction
+ * builds a silent no-op leg that looks like a successful reduce.
+ */
+export function repayFractionOfDebt(repayUsd: number, borrowUsd: number): number | null {
+  if (!Number.isFinite(repayUsd) || !Number.isFinite(borrowUsd)) return null;
+  if (repayUsd <= 0 || borrowUsd <= 0) return null;
+  const scaled = Math.round((repayUsd / borrowUsd) * REPAY_FRACTION_SCALE);
+  const clamped = Math.min(Math.max(scaled, 1), REPAY_FRACTION_SCALE);
+  return clamped / REPAY_FRACTION_SCALE;
+}
+
+/**
+ * Exact integer numerator of a `repayFraction` over REPAY_FRACTION_SCALE.
+ * Null for anything that is not a usable fraction, so a caller cannot turn a
+ * NaN or an out-of-contract value into an amount.
+ */
+export function repayFractionNumerator(fraction: number): bigint | null {
+  if (!Number.isFinite(fraction) || fraction <= 0) return null;
+  const scaled = Math.round(fraction * REPAY_FRACTION_SCALE);
+  if (scaled < 1) return null;
+  return BigInt(Math.min(scaled, REPAY_FRACTION_SCALE));
+}
+
+/**
+ * `fraction x debt`, in the debt asset's OWN units, entirely in BigInt - the
+ * conversion the execution path needs and the reason `repayFraction` exists.
+ * `debt` is a raw token amount (wei-scale); it is never converted to a Number,
+ * so an 18-decimal debt above 2^53 keeps every unit.
+ *
+ * The division FLOORS, so the result never exceeds the fraction that was
+ * quoted. The leftover is at most one unit of the token (sub-dust: 1e-18 WETH,
+ * 1e-6 USDC) plus the 1/1e6 quantisation of the fraction itself.
+ *
+ * Returns null when there is no debt or no usable fraction, and 0n is never
+ * returned as a stand-in for those: a caller must be able to tell "repay
+ * nothing here" from "this leg rounds to nothing", and only the second is a
+ * reason to drop a leg the user asked to reduce.
+ */
+export function repayAmountFromFraction(debt: bigint, fraction: number): bigint | null {
+  if (debt <= 0n) return null;
+  const numerator = repayFractionNumerator(fraction);
+  if (numerator === null) return null;
+  const amount = (debt * numerator) / BigInt(REPAY_FRACTION_SCALE);
+  return amount > 0n ? amount : null;
+}
+
+/**
  * Phase 3 (flash-loan / collateral-funded) variant, documented for the
  * Deleverager: selling collateral to repay changes both numerator and
  * denominator - HF' = (L - LT_w*R) / (D - R) = T gives R = (T*D - L)/(T - LT_w),

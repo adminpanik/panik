@@ -66,6 +66,8 @@ export class MorphoActiveReader {
     let minHf: number | null = null;
     let bestCollateralUsd = 0;
     let dominantCollateralSymbol: string | null = null;
+    let bestBorrowUsd = 0;
+    let dominantBorrowSymbol: string | null = null;
 
     for (const p of items) {
       const coll = p.state?.collateralUsd ?? 0;
@@ -79,6 +81,12 @@ export class MorphoActiveReader {
       if (coll > bestCollateralUsd) {
         bestCollateralUsd = coll;
         dominantCollateralSymbol = p.market.collateralAsset?.symbol ?? null;
+      }
+      // Blue markets are isolated and each borrows exactly one loan asset, so
+      // the largest borrow leg names the asset a repay is denominated in.
+      if (debt > bestBorrowUsd) {
+        bestBorrowUsd = debt;
+        dominantBorrowSymbol = p.market.loanAsset?.symbol ?? null;
       }
     }
 
@@ -102,6 +110,7 @@ export class MorphoActiveReader {
       borrowValueUsd: borrowUsd,
       weightedLiquidationThreshold,
       dominantCollateralSymbol,
+      dominantBorrowSymbol,
     };
   }
 }

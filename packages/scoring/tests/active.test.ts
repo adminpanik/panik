@@ -11,7 +11,11 @@ const UINT256_MAX = 2n ** 256n - 1n;
 const ok = (result: unknown) => ({ status: "success" as const, result });
 
 function reserveData(aToken: string) {
-  return ok({ aTokenAddress: aToken });
+  return ok({
+    aTokenAddress: aToken,
+    stableDebtTokenAddress: `${aToken}-sdebt`,
+    variableDebtTokenAddress: `${aToken}-vdebt`,
+  });
 }
 
 /** AaveOracle quote in base-currency units — BASE_CURRENCY_UNIT() is 1e8. */
@@ -244,6 +248,142 @@ describe("AaveActiveReader", () => {
     ]);
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
     expect(await new AaveActiveReader(client).read("0xempty")).toBeNull();
+  });
+
+  // The borrow side used to be invisible to the reader, so the advisor named
+  // "USDC" for every wallet. The repay is executed in this asset's own units.
+  // Read order in the second batch: aToken balances, prices, variable debt,
+  // stable debt - 4 reserves each.
+  const NO_DEBT = [ok(0n), ok(0n), ok(0n), ok(0n)];
+  const aaveReads = (
+    aTokens: unknown[],
+    prices: unknown[],
+    variableDebt: unknown[] = NO_DEBT,
+    stableDebt: unknown[] = NO_DEBT,
+  ) => [...aTokens, ...prices, ...variableDebt, ...stableDebt];
+
+  it("names WETH as the dominant borrow when the wallet borrows WETH", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([84_000_00000000n, 19_158_00000000n, 0n, 8300n, 8000n, 3_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      .mockResolvedValueOnce(
+        aaveReads(
+          [ok(0n), ok(0n), ok(0n), ok(1n * 10n ** 8n)], // collateral: 1 cbBTC
+          allPrices,
+          [ok(10n * 10n ** 18n), ok(0n), ok(0n), ok(0n)], // debt: 10 WETH
+        ),
+      );
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    expect(r?.dominantBorrowSymbol).toBe("WETH");
+    expect(r?.dominantCollateralSymbol).toBe("cbBTC");
+  });
+
+  it("ranks the borrow side by oracle value, not token amount", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([200_000_00000000n, 30_000_00000000n, 0n, 8300n, 8000n, 3_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      .mockResolvedValueOnce(
+        aaveReads(
+          [ok(0n), ok(0n), ok(0n), ok(4n * 10n ** 8n)],
+          allPrices,
+          // 10,000 USDC ($10,000) is 1,000x the token amount of 10 WETH
+          // ($19,158) and still the smaller debt.
+          [ok(10n * 10n ** 18n), ok(10_000n * 10n ** 6n), ok(0n), ok(0n)],
+        ),
+      );
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    expect(r?.dominantBorrowSymbol).toBe("WETH");
+  });
+
+  it("sums a reserve's stable and variable debt into one borrow leg", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([200_000_00000000n, 30_000_00000000n, 0n, 8300n, 8000n, 3_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      .mockResolvedValueOnce(
+        aaveReads(
+          [ok(0n), ok(0n), ok(0n), ok(4n * 10n ** 8n)],
+          allPrices,
+          // 6 WETH variable ($11,495) vs 15,000 USDC variable: USDC leads on
+          // the variable leg alone...
+          [ok(6n * 10n ** 18n), ok(15_000n * 10n ** 6n), ok(0n), ok(0n)],
+          // ...until the 4 WETH of stable debt is added to it ($19,158 total).
+          [ok(4n * 10n ** 18n), ok(0n), ok(0n), ok(0n)],
+        ),
+      );
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    expect(r?.dominantBorrowSymbol).toBe("WETH");
+  });
+
+  it("leaves the borrow asset unnamed when the wallet has no debt", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([5_000_00000000n, 0n, 0n, 8300n, 8000n, UINT256_MAX]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      .mockResolvedValueOnce(
+        aaveReads([ok(2n * 10n ** 18n), ok(0n), ok(0n), ok(0n)], allPrices),
+      );
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    // Null, not "USDC": there is no debt, so there is no debt asset.
+    expect(r?.dominantBorrowSymbol).toBeNull();
+  });
+
+  it("leaves the borrow asset unnamed when both debt reads fail", async () => {
+    const fail = [
+      { status: "failure" as const },
+      { status: "failure" as const },
+      { status: "failure" as const },
+      { status: "failure" as const },
+    ];
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([200_000_00000000n, 30_000_00000000n, 0n, 8300n, 8000n, 3_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      .mockResolvedValueOnce(
+        aaveReads([ok(0n), ok(0n), ok(0n), ok(4n * 10n ** 8n)], allPrices, fail, fail),
+      );
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    // getUserAccountData still says there IS debt; the reader just cannot say
+    // in which asset, and an unreadable balance is not a zero balance.
+    expect(r?.borrowValueUsd).toBeCloseTo(30_000, 6);
+    expect(r?.dominantBorrowSymbol).toBeNull();
   });
 });
 
@@ -601,6 +741,7 @@ describe("ActiveAdapter", () => {
             borrowValueUsd: 700,
             weightedLiquidationThreshold: 0.8, // V2 fork: same factor as maxLtv
             dominantCollateralSymbol: "WEIRDTOKEN", // not in SYMBOL_TO_COINGECKO
+            dominantBorrowSymbol: "USDC",
           }),
         },
         { read: async () => null }, // protocol without a position is skipped
@@ -629,6 +770,7 @@ describe("ActiveAdapter", () => {
             borrowValueUsd: 100_000,
             weightedLiquidationThreshold: 0.83,
             dominantCollateralSymbol: "WETH",
+            dominantBorrowSymbol: "USDC",
             dominantCollateralUnpriced: true,
           }),
         },
@@ -661,6 +803,7 @@ describe("ActiveAdapter", () => {
             borrowValueUsd: 400,
             weightedLiquidationThreshold: 0.83,
             dominantCollateralSymbol: "WETH",
+            dominantBorrowSymbol: "USDC",
           }),
         },
       ],
@@ -695,6 +838,7 @@ describe("ActiveAdapter", () => {
         // stops lending.
         weightedLiquidationThreshold: 0.8,
         dominantCollateralSymbol: "WETH",
+        dominantBorrowSymbol: "USDC",
       }),
     };
     const providers = {
@@ -757,6 +901,7 @@ describe("ActiveAdapter", () => {
       borrowValueUsd: 8_000,
       weightedLiquidationThreshold: 0.83,
       dominantCollateralSymbol: "WETH",
+      dominantBorrowSymbol: "USDC",
     };
     // WELL is the symbol whose id was wrong; this leg is the one that throws.
     const moonwellReading = {
@@ -766,6 +911,7 @@ describe("ActiveAdapter", () => {
       borrowValueUsd: 70_000,
       weightedLiquidationThreshold: 0.8,
       dominantCollateralSymbol: "WELL",
+      dominantBorrowSymbol: "USDC",
     };
     const twoLegReaders = [
       { read: async () => aaveReading },
@@ -893,6 +1039,7 @@ describe("ActiveAdapter", () => {
             read: async () => ({
               ...aaveReading,
               dominantCollateralSymbol: "WELL",
+              dominantBorrowSymbol: "USDC",
               positionHealth: { healthFactor: 3.0, currentLtv: 0.2, maxLtv: 0.8 },
             }),
           },

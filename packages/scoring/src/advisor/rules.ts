@@ -12,7 +12,12 @@ import { statusFor } from "../profile";
 import { scoreProtocolSafety } from "../subscores/protocolSafety";
 import type { Protocol, RiskProfile } from "../types";
 import { fallbackSections, overallHeadline, PROTOCOL_LABEL, fmtPct } from "./fallback";
-import { REDUCE_TO_EXIT_RATIO, repayToTargetHf, TARGET_HF } from "./repayMath";
+import {
+  REDUCE_TO_EXIT_RATIO,
+  repayFractionOfDebt,
+  repayToTargetHf,
+  TARGET_HF,
+} from "./repayMath";
 import {
   ACTION_SEVERITY,
   type AdvisorAction,
@@ -159,10 +164,17 @@ export function adviseLeg(
       return finish("MONITOR", "info");
     }
     const repayUsd = hf !== null ? repayToTargetHf(borrowUsd, hf, targetHf) : 0;
-    if (repayUsd > 0) {
+    // The fraction comes off the UNROUNDED repay: `repayUsd` is rounded for
+    // display, and letting a display rounding into the executable amount is how
+    // the two quietly stop describing the same repay.
+    const repayFraction = repayFractionOfDebt(repayUsd, borrowUsd);
+    if (repayUsd > 0 && repayFraction !== null) {
       const repayPlan = {
         repayUsd: Math.round(repayUsd),
-        repayAssetSymbol: "USDC",
+        // The leg's own debt asset, never an assumed stablecoin. Null when the
+        // reader could not name it, which the prose then omits.
+        repayAssetSymbol: score.dominantBorrowSymbol,
+        repayFraction,
         targetHf,
         projectedHf: targetHf,
         mode: "wallet_funded" as const,
@@ -178,7 +190,12 @@ export function adviseLeg(
       triggers.push(`target:hf=${targetHf}`);
       return finish("REDUCE", "warning", {
         repayPlan,
-        exitPrefill: { protocol: score.protocol, kind: "partial", repayUsd: repayPlan.repayUsd },
+        exitPrefill: {
+          protocol: score.protocol,
+          kind: "partial",
+          repayUsd: repayPlan.repayUsd,
+          repayFraction,
+        },
       });
     }
     // HF already at/above target - the score is driven by non-position risk.

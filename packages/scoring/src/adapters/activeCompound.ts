@@ -234,6 +234,13 @@ export class CompoundActiveReader {
 
     const degraded = legs.some((l) => l.usdFactor === null);
 
+    // A Comet market borrows exactly one asset: its base token. So the largest
+    // borrow leg names the asset a repay is denominated in, and no per-asset
+    // decomposition is needed. Ranked in each leg's OWN denomination only when
+    // every leg shares it - when they do not, the legs are not comparable and
+    // the same worst-leg rule the health uses picks the answer below.
+    let dominantBorrowSymbol: string | null = null;
+
     let positionHealth: PositionHealthInput;
     let weightedLiquidationThreshold: number | null;
     let dominantAsset: string | null;
@@ -259,6 +266,20 @@ export class CompoundActiveReader {
             : best,
         null,
       )?.dominantAsset ?? null;
+      // Borrow-free legs are excluded rather than ranked: naming the base asset
+      // of a market the wallet only supplies into would put a debt symbol on a
+      // position that has no debt.
+      dominantBorrowSymbol =
+        legs
+          .filter((l) => l.borrow > 0)
+          .reduce<CometLeg | null>(
+            (best, l) =>
+              best === null ||
+              l.borrow * (l.usdFactor as number) > best.borrow * (best.usdFactor as number)
+                ? l
+                : best,
+            null,
+          )?.baseSymbol ?? null;
     } else {
       // Mixed denominations: report the most endangered isolated market.
       const worst = legs.reduce((a, b) =>
@@ -267,6 +288,7 @@ export class CompoundActiveReader {
       positionHealth = healthOf(worst);
       weightedLiquidationThreshold = weightedLiquidationThresholdOf(worst);
       dominantAsset = worst.dominantAsset;
+      dominantBorrowSymbol = worst.borrow > 0 ? worst.baseSymbol : null;
     }
 
     let dominantCollateralSymbol: string | null = null;
@@ -292,6 +314,7 @@ export class CompoundActiveReader {
       ...(degraded ? { usdValuesUnavailable: true } : {}),
       weightedLiquidationThreshold,
       dominantCollateralSymbol,
+      dominantBorrowSymbol,
     };
   }
 }
