@@ -12,7 +12,15 @@
 import { describe, expect, it } from "vitest";
 import type { ActiveScore } from "../src/adapters/active";
 import {
+  AAVE_NON_EMODE_LIQUIDATION_BONUS_BPS,
+  collateralFundedRepayUsdFloor,
   DEFAULT_GAS_USD,
+  DEFAULT_SWAP_SLIPPAGE_BPS,
+  DELEVERAGE_FLASH_FEE_BPS,
+  DELEVERAGE_GAS_UNITS,
+  FLASH_FEE_BPS,
+  FORK_MEASUREMENT,
+  gasUsdFromUnits,
   LIQUIDATION_PENALTY_BPS,
   protocolRepayUsdFloor,
   repayUsdFloor,
@@ -34,6 +42,10 @@ function leg(overrides: Partial<ActiveScore> = {}): ActiveScore {
     collateralValueUsd: 20_000,
     borrowValueUsd: 8_000,
     usdValuesUnavailable: false,
+    // Null by default: the collateral-funded option must be OMITTED on a leg
+    // whose threshold was not read, and a fixture that always supplied one
+    // would never exercise that. Tests that want the option set it.
+    weightedLiquidationThreshold: null,
     marketContextUnavailable: false,
     dominantCollateralUnpriced: false,
     scoredCollateralSymbol: "WETH",
@@ -186,5 +198,132 @@ describe("adviseLeg suppresses a repay that cannot pay for itself", () => {
     );
     expect(rec.action).toBe("EXIT");
     expect(rec.triggers).not.toContain("repay:below_floor");
+  });
+});
+
+/**
+ * The fork-measured constants.
+ *
+ * These are not arithmetic assertions, they are a LEDGER: every value below was
+ * read off a pinned Base mainnet fork, and a silent edit to one would move a
+ * money-path gate with nothing to catch it. The test's job is to make changing
+ * them a deliberate act with a stated reason.
+ */
+describe("fork-measured constants", () => {
+  it("names the fork the readings came from", () => {
+    expect(FORK_MEASUREMENT.chain).toBe("Base mainnet");
+    expect(FORK_MEASUREMENT.block).toBe(49_691_000);
+  });
+
+  it("carries the Aave non-e-mode liquidation bonuses as read", () => {
+    // liquidationBonus 10500 / 10750 on the 1e4 scale => 500 / 750 bps.
+    expect(AAVE_NON_EMODE_LIQUIDATION_BONUS_BPS.WETH).toBe(500);
+    expect(AAVE_NON_EMODE_LIQUIDATION_BONUS_BPS.cbBTC).toBe(750);
+  });
+
+  it("uses the LOWER Aave bonus for the protocol-wide penalty", () => {
+    // A single per-protocol number cannot know which collateral a leg holds,
+    // and the lower penalty yields the HIGHER floor - the direction that cannot
+    // claim a repay pays for itself on a market where it does not.
+    expect(LIQUIDATION_PENALTY_BPS.aave_v3).toBe(
+      Math.min(...Object.values(AAVE_NON_EMODE_LIQUIDATION_BONUS_BPS)),
+    );
+  });
+
+  it("carries the Compound III penalty derived from liquidationFactor", () => {
+    // liquidationFactor 0.95e18 => penalty = 1e18 - 0.95e18 = 5%.
+    expect(LIQUIDATION_PENALTY_BPS.compound_v3).toBe(500);
+  });
+
+  it("leaves the two unmeasured penalties alone", () => {
+    // Moonwell and Morpho were NOT captured by the fork suite. Changing either
+    // without a reading is the thing this pins.
+    expect(LIQUIDATION_PENALTY_BPS.moonwell).toBe(700);
+    expect(LIQUIDATION_PENALTY_BPS.morpho).toBe(500);
+  });
+
+  it("prices the flash sources, free first and Aave last", () => {
+    expect(FLASH_FEE_BPS.balancer_v2).toBe(0);
+    expect(FLASH_FEE_BPS.morpho_singleton).toBe(0);
+    expect(FLASH_FEE_BPS.aave_v3).toBe(5);
+  });
+
+  it("charges the worst case of the route, and nothing on Morpho Blue", () => {
+    // Balancer -> Morpho -> Aave, so the ceiling is Aave's premium.
+    expect(DELEVERAGE_FLASH_FEE_BPS.aave_v3).toBe(FLASH_FEE_BPS.aave_v3);
+    expect(DELEVERAGE_FLASH_FEE_BPS.moonwell).toBe(FLASH_FEE_BPS.aave_v3);
+    expect(DELEVERAGE_FLASH_FEE_BPS.compound_v3).toBe(FLASH_FEE_BPS.aave_v3);
+    // Structurally zero: that leg repays inside onMorphoRepay and never flashes.
+    expect(DELEVERAGE_FLASH_FEE_BPS.morpho).toBe(0);
+  });
+
+  it("carries the measured deleverage gas, in units", () => {
+    expect(DELEVERAGE_GAS_UNITS).toEqual({
+      aave_v3: 693_320,
+      compound_v3: 532_172,
+      moonwell: 1_167_280,
+      morpho: 348_959,
+    });
+  });
+});
+
+describe("gasUsdFromUnits", () => {
+  it("prices a deleverage from a gas price and an ETH price", () => {
+    // 693,320 gas at 0.01 gwei is 6.9332e12 wei = 6.9332e-6 ETH; at $4,000 that
+    // is about 2.8 cents, which is the shape of a Base transaction.
+    expect(gasUsdFromUnits(DELEVERAGE_GAS_UNITS.aave_v3, 10_000_000n, 4_000)).toBeCloseTo(
+      0.0277328,
+      6,
+    );
+  });
+
+  it("keeps the wei arithmetic exact past the double range", () => {
+    // 1e6 gas at 100 gwei is 1e17 wei - already past a double's exact-integer
+    // range, which is why the reduction to nano-ETH happens in BigInt.
+    expect(gasUsdFromUnits(1_000_000, 100_000_000_000n, 3_000)).toBeCloseTo(300, 9);
+  });
+
+  it("returns null for anything it cannot price, never 0", () => {
+    expect(gasUsdFromUnits(Number.NaN, 1n, 1)).toBeNull();
+    expect(gasUsdFromUnits(-1, 1n, 1)).toBeNull();
+    expect(gasUsdFromUnits(1, -1n, 1)).toBeNull();
+    expect(gasUsdFromUnits(1, 1n, Number.NaN)).toBeNull();
+    expect(gasUsdFromUnits(1, 1n, -1)).toBeNull();
+    // A genuinely free transaction is 0, and that is a different fact.
+    expect(gasUsdFromUnits(1_000, 0n, 4_000)).toBe(0);
+  });
+});
+
+describe("collateralFundedRepayUsdFloor", () => {
+  it("is strictly higher than the wallet-funded floor where a flash fee is paid", () => {
+    for (const protocol of ["aave_v3", "moonwell", "compound_v3"] as const) {
+      expect(collateralFundedRepayUsdFloor(protocol) as number).toBeGreaterThan(
+        protocolRepayUsdFloor(protocol) as number,
+      );
+    }
+  });
+
+  it("is higher on Morpho too, from slippage alone", () => {
+    expect(DELEVERAGE_FLASH_FEE_BPS.morpho).toBe(0);
+    expect(collateralFundedRepayUsdFloor("morpho") as number).toBeGreaterThan(
+      protocolRepayUsdFloor("morpho") as number,
+    );
+  });
+
+  it("matches the explicit cost shape it stands for", () => {
+    expect(collateralFundedRepayUsdFloor("aave_v3")).toBe(
+      repayUsdFloor({
+        gasUsd: DEFAULT_GAS_USD,
+        penaltyAvoidedBps: LIQUIDATION_PENALTY_BPS.aave_v3,
+        flashFeeBps: DELEVERAGE_FLASH_FEE_BPS.aave_v3,
+        slippageBps: DEFAULT_SWAP_SLIPPAGE_BPS,
+      }),
+    );
+  });
+
+  it("returns null when the costs swallow the penalty entirely", () => {
+    // A slippage allowance at the avoided penalty: no repay of any size pays
+    // for itself, which is not a floor of zero.
+    expect(collateralFundedRepayUsdFloor("aave_v3", DEFAULT_GAS_USD, 500)).toBeNull();
   });
 });

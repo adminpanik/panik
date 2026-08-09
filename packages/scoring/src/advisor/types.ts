@@ -12,7 +12,38 @@ export type AdvisorAction = "HOLD" | "MONITOR" | "REDUCE" | "EXIT" | "REBALANCE"
 
 export type Urgency = "info" | "warning" | "critical";
 
-/** Wallet-funded partial-repay plan (Phase 2; flash-loan funding is Phase 3). */
+/**
+ * What the user has to bring to a collateral-funded repay, priced.
+ *
+ * Every field is a cost the wallet-funded plan does not pay, which is the whole
+ * reason the user is being shown two routes. Present only on a
+ * `collateral_funded` plan; a wallet-funded repay swaps nothing and borrows
+ * nothing, so quoting it a flash fee of 0 would invite a surface to print "0%
+ * flash fee" as if it were a feature of that route rather than the absence of a
+ * mechanism.
+ */
+export interface RepayCosts {
+  /**
+   * Flash-loan fee, in bps of the repaid amount, as the WORST case of the route
+   * the Deleverager walks. See `DELEVERAGE_FLASH_FEE_BPS`.
+   */
+  flashFeeBps: number;
+  /**
+   * Swap slippage ALLOWANCE, in bps. A ceiling enforced on chain, not a
+   * prediction: a swap that would settle worse reverts.
+   */
+  slippageBps: number;
+  /**
+   * Gas the deleverage burns, in GAS UNITS, fork-measured per protocol. Units
+   * rather than dollars because pricing them needs a live gas price and ETH
+   * price the engine cannot read - see `DELEVERAGE_GAS_UNITS` and
+   * `gasUsdFromUnits`. A surface without both readings must say gas is priced
+   * at signing, never print a dollar figure it does not have.
+   */
+  gasUnits: number;
+}
+
+/** A sized partial repay, in one of the two ways it can be funded. */
 export interface RepayPlan {
   /**
    * Dollars of debt to repay to reach targetHf. FOR DISPLAY ONLY. The dollar
@@ -46,7 +77,28 @@ export interface RepayPlan {
    * position will never hold.
    */
   projectedHf: number | null;
-  mode: "wallet_funded";
+  /**
+   * Where the money to repay comes from. The two are not variants of one
+   * action; they ask different things of the user and they move different
+   * assets.
+   *
+   * `wallet_funded` - the user pays from their own wallet, in the debt asset.
+   * Nothing is sold, the collateral is untouched, and the position ends up
+   * smaller by exactly what they put in. It needs them to HOLD the debt asset.
+   *
+   * `collateral_funded` - the user's own collateral funds the repay. A flash
+   * loan (or, on Morpho Blue, the protocol's own repay callback) covers the
+   * debt, enough collateral is sold to settle it, and the leftover stays
+   * deposited. It needs no capital in the wallet at all, and it costs a flash
+   * fee, swap slippage and materially more gas - see `costs`.
+   */
+  mode: "wallet_funded" | "collateral_funded";
+  /**
+   * The costs peculiar to a collateral-funded repay. Present iff
+   * `mode === "collateral_funded"`; see `RepayCosts` for why it is absent
+   * rather than zeroed on the wallet-funded plan.
+   */
+  costs?: RepayCosts;
 }
 
 /**
@@ -141,6 +193,27 @@ export interface AdvisorRecommendation {
    * of it. See `AdvisorAlternative`.
    */
   alternative?: AdvisorAlternative;
+  /**
+   * The SAME protection as `repayPlan`, funded by the user's own collateral
+   * instead of their wallet. Both plans are emitted together, and that is a
+   * deliberate design decision rather than an oversight:
+   *
+   * choosing between the two routes turns entirely on whether the wallet holds
+   * enough of the debt asset to fund the sized repay, and this engine has no
+   * wallet-balance input. `ActiveScore` carries positions, prices and ratios;
+   * it carries no ERC-20 balances, and `AdviseOptions` supplies none. An engine
+   * that picked one route would therefore be picking it from a guess about the
+   * user's wallet, and guessing wrong is not a cosmetic error: it tells someone
+   * holding no USDC to go and repay in USDC, or charges someone who already
+   * holds it a flash fee and a swap they never needed. So the engine sizes both
+   * and the CALLER, which can read balances on chain, picks.
+   *
+   * Absent when the leg cannot support one: an unknown weighted liquidation
+   * threshold (the sizing divides by `targetHf - WLT`), a target unreachable by
+   * selling collateral, or a repay too small to cover the flash fee, slippage
+   * and gas it would pay. Absent means "no such option here", never "free".
+   */
+  collateralFundedAlternative?: RepayPlan;
   /** Present iff action === "OPEN". */
   openPlan?: OpenPlan;
   /** Present iff action === "REBALANCE". */
