@@ -615,3 +615,142 @@ describe("PanikExecutor - multi-protocol atomic exit (Phase 2)", function () {
     });
   });
 });
+
+/**
+ * Moonwell's mWETH on Base reports underlying() == WETH but pays REDEEMS OUT IN
+ * NATIVE ETH (live-fork verified). The adapter must accept that ETH and re-wrap
+ * it, measuring the DELTA the redeem produced rather than its absolute ETH
+ * balance - the same trap PanikDeleverager's review caught, where wrapping the
+ * absolute balance lets a 1-wei donation permanently brick every non-native
+ * market.
+ *
+ * The adapter is driven directly here (an EOA is linked as `executor`), so these
+ * assert the adapter's own accounting rather than a whole executor flow.
+ */
+describe("MoonwellAdapter - native-ETH redeem (Moonwell mWETH)", function () {
+  const RATE = WAD / 50n; // ~1:50 mToken:underlying, like the live market
+
+  async function deployAdapterFixture() {
+    const [deployer, executor, recipient] = await ethers.getSigners();
+
+    const MockComptroller = await ethers.getContractFactory("MockComptroller");
+    const MockWETH = await ethers.getContractFactory("MockWETH");
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const MockMToken = await ethers.getContractFactory("MockMToken");
+    const MockMTokenNative = await ethers.getContractFactory("MockMTokenNative");
+    const MoonwellAdapter = await ethers.getContractFactory("MoonwellAdapter");
+
+    const comptroller: any = await MockComptroller.deploy();
+    const weth: any = await MockWETH.deploy();
+    const usdc: any = await MockERC20.deploy("USDC", "USDC", 6);
+
+    // Native market: redeems ETH, names WETH as underlying().
+    const mWeth: any = await MockMTokenNative.deploy(
+      "mWETH",
+      "mWETH",
+      await weth.getAddress(),
+      await comptroller.getAddress(),
+      RATE
+    );
+    // Non-native market: redeems the ERC-20 it names, 1:1, and pays no ETH.
+    const mUsdc: any = await MockMToken.deploy(
+      "mUSDC",
+      "mUSDC",
+      await usdc.getAddress(),
+      await comptroller.getAddress()
+    );
+
+    const adapter: any = await MoonwellAdapter.deploy();
+    await adapter.setExecutor(executor.address);
+
+    return { deployer, executor, recipient, comptroller, weth, usdc, mWeth, mUsdc, adapter };
+  }
+
+  it("redeems an ETH-paying mToken, wraps the proceeds, and reports the WETH amount", async function () {
+    const f = await loadFixture(deployAdapterFixture);
+    const adapterAddress = await f.adapter.getAddress();
+    const mTokens = 100n * WAD;
+    const expectedWeth = (mTokens * RATE) / WAD; // 2 WETH
+
+    await (await f.mWeth.fund({ value: expectedWeth })).wait();
+    await (await f.mWeth.mint(adapterAddress, mTokens)).wait();
+
+    const [underlying, received] = await f.adapter
+      .connect(f.executor)
+      .redeem.staticCall(await f.mWeth.getAddress(), mTokens);
+    expect(underlying).to.equal(await f.weth.getAddress());
+    expect(received).to.equal(expectedWeth);
+
+    await (await f.adapter.connect(f.executor).redeem(await f.mWeth.getAddress(), mTokens)).wait();
+
+    // The ETH became WETH and the WETH went to the linked executor. Nothing
+    // native and nothing wrapped is stranded on the adapter.
+    expect(await f.weth.balanceOf(f.executor.address)).to.equal(expectedWeth);
+    expect(await f.weth.balanceOf(adapterAddress)).to.equal(0n);
+    expect(await ethers.provider.getBalance(adapterAddress)).to.equal(0n);
+    expect(await f.mWeth.balanceOf(adapterAddress)).to.equal(0n);
+  });
+
+  it("wraps only the redeem's ETH delta, never a pre-existing donation", async function () {
+    const f = await loadFixture(deployAdapterFixture);
+    const adapterAddress = await f.adapter.getAddress();
+    const donation = ethers.parseEther("0.5");
+    const mTokens = 100n * WAD;
+    const expectedWeth = (mTokens * RATE) / WAD;
+
+    await (await f.recipient.sendTransaction({ to: adapterAddress, value: donation })).wait();
+    await (await f.mWeth.fund({ value: expectedWeth })).wait();
+    await (await f.mWeth.mint(adapterAddress, mTokens)).wait();
+
+    const [, received] = await f.adapter
+      .connect(f.executor)
+      .redeem.staticCall(await f.mWeth.getAddress(), mTokens);
+    expect(received).to.equal(expectedWeth); // donation NOT folded in
+
+    await (await f.adapter.connect(f.executor).redeem(await f.mWeth.getAddress(), mTokens)).wait();
+    expect(await f.weth.balanceOf(f.executor.address)).to.equal(expectedWeth);
+    expect(await ethers.provider.getBalance(adapterAddress)).to.equal(donation);
+  });
+
+  // The regression PanikDeleverager's security review caught: wrapping the
+  // ABSOLUTE ETH balance would call WETH-style deposit{value:1}() on an ERC-20
+  // that has no payable deposit, so a 1-wei donation would permanently brick
+  // every non-native Moonwell market. The delta gates that branch off entirely.
+  it("a 1-wei ETH donation cannot brick redeem on a non-native (ERC-20) market", async function () {
+    const f = await loadFixture(deployAdapterFixture);
+    const adapterAddress = await f.adapter.getAddress();
+    const mTokens = 1_000n * 10n ** 6n;
+
+    await (await f.recipient.sendTransaction({ to: adapterAddress, value: 1n })).wait();
+    expect(await ethers.provider.getBalance(adapterAddress)).to.equal(1n);
+
+    await (await f.usdc.mint(await f.mUsdc.getAddress(), mTokens)).wait(); // redeem cash
+    await (await f.mUsdc.mint(adapterAddress, mTokens)).wait();
+
+    const [underlying, received] = await f.adapter
+      .connect(f.executor)
+      .redeem.staticCall(await f.mUsdc.getAddress(), mTokens);
+    expect(underlying).to.equal(await f.usdc.getAddress());
+    expect(received).to.equal(mTokens); // the 1 wei is not counted as underlying
+
+    await (await f.adapter.connect(f.executor).redeem(await f.mUsdc.getAddress(), mTokens)).wait();
+    expect(await f.usdc.balanceOf(f.executor.address)).to.equal(mTokens);
+    expect(await ethers.provider.getBalance(adapterAddress)).to.equal(1n); // untouched
+  });
+
+  it("a larger donation is still ignored on a non-native market", async function () {
+    const f = await loadFixture(deployAdapterFixture);
+    const adapterAddress = await f.adapter.getAddress();
+    const donation = ethers.parseEther("1");
+    const mTokens = 500n * 10n ** 6n;
+
+    await (await f.recipient.sendTransaction({ to: adapterAddress, value: donation })).wait();
+    await (await f.usdc.mint(await f.mUsdc.getAddress(), mTokens)).wait();
+    await (await f.mUsdc.mint(adapterAddress, mTokens)).wait();
+
+    await (await f.adapter.connect(f.executor).redeem(await f.mUsdc.getAddress(), mTokens)).wait();
+    expect(await f.usdc.balanceOf(f.executor.address)).to.equal(mTokens);
+    expect(await f.weth.balanceOf(f.executor.address)).to.equal(0n);
+    expect(await ethers.provider.getBalance(adapterAddress)).to.equal(donation);
+  });
+});

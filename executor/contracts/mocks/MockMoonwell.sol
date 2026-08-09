@@ -91,3 +91,62 @@ contract MockMToken is ERC20 {
         return 0;
     }
 }
+
+/// @notice Minimal WETH9: an ERC-20 with a payable deposit that mints 1:1.
+/// Models the wrapper Moonwell's mWETH names as underlying().
+contract MockWETH is ERC20 {
+    constructor() ERC20("Wrapped Ether", "WETH") {}
+
+    receive() external payable {
+        _mint(msg.sender, msg.value);
+    }
+
+    function deposit() external payable {
+        _mint(msg.sender, msg.value);
+    }
+}
+
+/// @notice Moonwell's NATIVE-asset mToken (mWETH on Base): reports the WETH
+/// wrapper as underlying() but pays redeems out in NATIVE ETH, and at a non-1:1
+/// exchange rate. Redeem liquidity is this contract's ETH balance, seeded via
+/// `fund()`. This is the shape that reverted the adapter before it had a
+/// receive(); it exists so the fix cannot regress without a unit test failing.
+contract MockMTokenNative is ERC20 {
+    IERC20 public immutable underlyingToken;
+    address public immutable comptrollerAddress;
+    uint256 public redeemRateWad; // ETH out per 1e18 mTokens
+
+    constructor(
+        string memory name_,
+        string memory symbol_,
+        address underlying_,
+        address comptroller_,
+        uint256 redeemRateWad_
+    ) ERC20(name_, symbol_) {
+        underlyingToken = IERC20(underlying_);
+        comptrollerAddress = comptroller_;
+        redeemRateWad = redeemRateWad_;
+    }
+
+    function fund() external payable {}
+
+    function underlying() external view returns (address) {
+        return address(underlyingToken);
+    }
+
+    function comptroller() external view returns (address) {
+        return comptrollerAddress;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function redeem(uint256 redeemTokens) external returns (uint256) {
+        _burn(msg.sender, redeemTokens);
+        uint256 ethOut = (redeemTokens * redeemRateWad) / 1e18;
+        (bool ok, ) = msg.sender.call{value: ethOut}("");
+        require(ok, "MockMTokenNative: ETH send failed");
+        return 0;
+    }
+}
