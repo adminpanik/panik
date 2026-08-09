@@ -46,6 +46,15 @@ import {
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial } from "../ui";
 import { EXIT_ENV } from "../lib/exit";
+/**
+ * The engine's dollar formatter, not the panel's `formatUsd`.
+ *
+ * They agree above $1,000 and disagree below it (`$7` against `$7.40`), and
+ * these figures sit on the same card as the engine's own prose quoting the same
+ * repay. One rounding rule per quantity, and the rule belongs to the layer that
+ * owns the number.
+ */
+import { fmtUsd } from "../../../packages/scoring/src/advisor/fallback";
 
 const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
   aave_v3: "Aave V3",
@@ -250,6 +259,130 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
   );
 }
 
+/**
+ * One thing the card lets the user do, priced.
+ *
+ * `cost` is what leaves the wallet or gets sold; `protection` is what the user
+ * is left holding, led by the consequence rather than the ratio. Nothing here
+ * is computed: every figure is an engine field, and the health factor becomes a
+ * price drop through `liquidationOutlook`, the same helper the strip above uses.
+ */
+interface Outcome {
+  key: string;
+  title: string;
+  cost: string;
+  protection: string;
+  /** The exact health factor, on request. */
+  hint?: string;
+}
+
+/**
+ * The outcomes a card offers, in the order it offers them.
+ *
+ * The Advisor used to name a second action and price neither: an EXIT card
+ * carried "Execute exit" and "Repay everything instead" side by side, and the
+ * only way to learn what either cost was to open the modal and read a
+ * simulation. Two buttons and no numbers is not a choice, it is a guess.
+ *
+ * A card with one action gets one entry, which is not a comparison but is still
+ * the only place the card says what the action moves. A card with two gets both,
+ * recommended first, matching the button order underneath.
+ */
+function outcomesFor(rec: AdvisorRecommendation): Outcome[] {
+  const n = rec.numbers;
+  const symbol = n.scoredCollateralSymbol;
+  // A degraded leg has real ratios and unknown magnitudes. It names the asset
+  // instead of printing the engine's "$—" into the middle of a sentence; what
+  // it never does is substitute a zero.
+  const debtPhrase =
+    n.borrowValueUsd === null ? "your debt" : `${fmtUsd(n.borrowValueUsd)} of debt`;
+  const collateralPhrase =
+    n.collateralValueUsd === null
+      ? `your ${symbol} collateral`
+      : `${fmtUsd(n.collateralValueUsd)} of ${symbol}`;
+
+  const out: Outcome[] = [];
+
+  if (rec.action === "EXIT") {
+    out.push({
+      key: "exit",
+      title: "Exit the position",
+      // Both halves, because the exit is wallet-funded on the repay side too:
+      // a user reading only "sells your collateral" would arrive at the modal
+      // and find they also need the debt asset in hand.
+      cost: `Repays ${debtPhrase} from your wallet, then sells ${collateralPhrase} for USDC.`,
+      protection: "Nothing left to liquidate, and the position is closed.",
+    });
+  }
+
+  const reduce = rec.action === "REDUCE" ? rec.repayPlan : undefined;
+  if (reduce) {
+    const outlook = liquidationOutlook(reduce.projectedHf, symbol);
+    out.push({
+      key: "reduce",
+      title: "Repay part of the debt",
+      cost: `Repays ${fmtUsd(reduce.repayUsd)}${reduce.repayAssetSymbol ? ` of ${reduce.repayAssetSymbol}` : ""} from your wallet. Nothing is sold.`,
+      protection: `${outlook.sentence}. Your collateral stays deposited.`,
+      hint: outlook.hover,
+    });
+  }
+
+  if (rec.alternative) {
+    out.push({
+      key: "full_repay",
+      title: "Repay everything",
+      cost: `Repays ${fmtUsd(rec.alternative.plan.repayUsd)}${rec.alternative.plan.repayAssetSymbol ? ` of ${rec.alternative.plan.repayAssetSymbol}` : ""} from your wallet. Nothing is sold.`,
+      protection: "Nothing left to liquidate, and your collateral stays deposited.",
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Both answers, priced, before anything is signed.
+ *
+ * Two columns only from `lg`. The arithmetic the design system asks for: at a
+ * 1024px window the sidebar takes 256px and the page padding another ~48, so
+ * this block sits in ~700px and each column gets ~330. At `md` (768px window)
+ * the same block is ~450px wide and two columns would be 210 each, which is
+ * where a sentence starts breaking one word per line.
+ */
+function Outcomes({ rec }: { rec: AdvisorRecommendation }) {
+  const outcomes = outcomesFor(rec);
+  if (outcomes.length === 0) return null;
+  return (
+    <div
+      className={`grid gap-x-8 gap-y-4 border-t border-border-subtle pt-3 ${
+        outcomes.length > 1 ? "lg:grid-cols-2" : ""
+      }`}
+    >
+      {outcomes.map((o) => (
+        <div key={o.key} className="min-w-0 space-y-1">
+          <p className="text-xs font-sans font-semibold text-text-primary">{o.title}</p>
+          <p className="text-sm font-sans leading-relaxed tabular-nums text-text-secondary">
+            {o.cost}
+          </p>
+          <p className="text-sm font-sans leading-relaxed tabular-nums text-text-secondary">
+            {o.protection}
+            {o.hint ? <InfoTip text={o.hint} className="ml-1" /> : null}
+          </p>
+        </div>
+      ))}
+      {/* The two costs this screen genuinely does not know. Gas comes from the
+          simulation the exit flow runs against the real position, and the price
+          floor for anything sold is read from the deployed swap config, so
+          neither exists until a wallet is connected. Naming them is the only
+          honest option: a plausible-looking estimate here would be a number the
+          code never had. */}
+      <p className={`text-xs font-sans text-text-muted ${outcomes.length > 1 ? "lg:col-span-2" : ""}`}>
+        Gas is estimated at signing. The price floor for anything sold is shown at the same
+        point.
+      </p>
+    </div>
+  );
+}
+
 function RecommendationCard({
   rec,
   onExit,
@@ -296,6 +429,12 @@ function RecommendationCard({
           <RiskDial score={rec.numbers.total} band={rec.numbers.band} subScores={rec.numbers.subScores} />
         </div>
       </div>
+
+      {/* What each button on this card actually does, with its numbers. It sits
+          between the reading and the controls because that is the order the
+          decision is made in: here is the position, here is what each way out
+          costs and leaves, here are the buttons. */}
+      <Outcomes rec={rec} />
 
       {/* The disclosure and the action share one row, so a collapsed card ends
           in a single line rather than a summary, a gap and a button. Open, the
