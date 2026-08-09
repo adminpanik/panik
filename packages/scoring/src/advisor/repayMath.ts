@@ -180,6 +180,47 @@ export function drawdownPerUsdRepaid(
 }
 
 /**
+ * The drop the position survives after the sized repay PLUS one further
+ * `stepUsd` - the "each $1,000 more buys you this" figure - or null when that
+ * step is not a real option.
+ *
+ * The slope is constant (`drawdownPerUsdRepaid`), so the arithmetic is only an
+ * addition. The GUARD is the part worth having: the extrapolation is only true
+ * while there is still `stepUsd` of debt left to repay. Past that the step is
+ * buying debt the position does not have, and the line runs straight through
+ * 100% - a $800 debt at HF 1.20 extrapolated to "each further $1,000 takes that
+ * to 147%", a price drop no collateral survives and no user can act on. The
+ * economic floor does not catch this: it is $5.
+ *
+ * Null, never a clamp to 100%: "repay $1,000 more and you survive anything" is
+ * not a rounded-down truth, it is a different and false claim. A caller with
+ * null says nothing, which is the house rule for a fact the code does not have.
+ *
+ * `drawdownAfterRepay` is the post-repay figure the caller is already showing
+ * (from `drawdownToLiquidation(projectedHf)`), passed in rather than recomputed
+ * so this function adds no second copy of `1 - 1/HF`.
+ */
+export function drawdownAfterExtraRepay(
+  drawdownAfterRepay: number | null,
+  borrowUsd: number | null,
+  hfNow: number | null,
+  repayUsd: number,
+  stepUsd: number,
+): number | null {
+  if (drawdownAfterRepay === null || !Number.isFinite(drawdownAfterRepay)) return null;
+  if (!Number.isFinite(repayUsd) || repayUsd < 0) return null;
+  if (!Number.isFinite(stepUsd) || stepUsd <= 0) return null;
+  const perUsd = drawdownPerUsdRepaid(borrowUsd, hfNow);
+  if (perUsd === null || borrowUsd === null) return null;
+  // The step has to come out of the debt that is actually left after the sized
+  // repay. This is also what keeps the result below 1: leaving any debt at all
+  // leaves a finite health factor, and a finite health factor is a drop under
+  // 100%.
+  if (borrowUsd - repayUsd < stepUsd) return null;
+  return drawdownAfterRepay + perUsd * stepUsd;
+}
+
+/**
  * Fixed-point denominator behind `RepayPlan.repayFraction`.
  *
  * The repay is quoted to the user in dollars but EXECUTED in the debt asset's

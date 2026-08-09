@@ -10,6 +10,7 @@ import {
 import { findOpportunities } from "../src/advisor/opportunities";
 import {
   collateralFundedRepayToTargetHf,
+  drawdownAfterExtraRepay,
   drawdownPerUsdRepaid,
   hfAfterRepayFraction,
   REDUCE_TO_EXIT_RATIO,
@@ -335,6 +336,56 @@ describe("repay sizing reparameterized to drawdown", () => {
     expect(drawdownPerUsdRepaid(-10_000, 1.31)).toBeNull();
     expect(drawdownPerUsdRepaid(Number.NaN, 1.31)).toBeNull();
     expect(drawdownPerUsdRepaid(Number.POSITIVE_INFINITY, 1.31)).toBeNull();
+  });
+
+  it("drawdownAfterExtraRepay: never extrapolates past the debt that is left", () => {
+    const T = TARGET_HF.moderate;
+    const after = drawdownToLiquidation(T);
+    const step = 1_000;
+    const sized = (borrowUsd: number, hf: number) => repayToTargetHf(borrowUsd, hf, T);
+
+    // Big enough to fund another step: a real figure, and strictly under 100%.
+    const stepped = drawdownAfterExtraRepay(after, 10_000, 1.31, sized(10_000, 1.31), step);
+    expect(stepped).not.toBeNull();
+    expect(stepped as number).toBeGreaterThan(after as number);
+    expect(stepped as number).toBeLessThan(1);
+    // The slope really is 1/L, so the step is exactly 1000/L above the figure.
+    expect(stepped as number).toBeCloseTo((after as number) + step / (1.31 * 10_000), 12);
+
+    // The regression this guard exists for. A small debt extrapolated linearly
+    // printed a drop no collateral can survive; the economic floor is $5 and
+    // does not stop these reaching the card.
+    //   $800  @ 1.20 -> "takes that to 147%"
+    //   $100  @ 1.02 -> "takes that to 1023%"
+    for (const [borrowUsd, hf] of [
+      [800, 1.2],
+      [400, 1.2],
+      [200, 1.05],
+      [100, 1.02],
+    ] as [number, number][]) {
+      expect(drawdownAfterExtraRepay(after, borrowUsd, hf, sized(borrowUsd, hf), step)).toBeNull();
+    }
+
+    // The boundary, exactly. Debt left after the sized repay is D - D(1 - hf/T)
+    // = D*hf/T, so it equals the step when D = step*T/hf. At that debt the step
+    // is the last dollar of it and is still offered; a cent under, it is not.
+    const hf = 1.2;
+    const atBoundary = (step * T) / hf;
+    expect(atBoundary - sized(atBoundary, hf)).toBeCloseTo(step, 9);
+    expect(
+      drawdownAfterExtraRepay(after, atBoundary, hf, sized(atBoundary, hf), step),
+    ).not.toBeNull();
+    expect(
+      drawdownAfterExtraRepay(after, atBoundary - 0.01, hf, sized(atBoundary - 0.01, hf), step),
+    ).toBeNull();
+
+    // Nothing to say without the inputs, and never a 0 or a clamped 100%.
+    expect(drawdownAfterExtraRepay(null, 10_000, 1.31, 2_514, step)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, null, 1.31, 2_514, step)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, 10_000, null, 2_514, step)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, 10_000, 1.31, Number.NaN, step)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, 10_000, 1.31, 2_514, 0)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, 10_000, 1.31, -1, step)).toBeNull();
   });
 
   it("the plan carries both forms of the one target", () => {

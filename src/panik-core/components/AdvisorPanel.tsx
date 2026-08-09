@@ -94,7 +94,7 @@ import { isDeleverageExecutable } from "../lib/exit";
  * anywhere in the product, so the added protection and the drop it is added to
  * are printed by the same rule.
  */
-import { drawdownPerUsdRepaid } from "../../../packages/scoring/src/advisor/repayMath";
+import { drawdownAfterExtraRepay } from "../../../packages/scoring/src/advisor/repayMath";
 import {
   drawdownToLiquidation,
   formatDrawdownPct,
@@ -491,16 +491,24 @@ function routesFor(rec: AdvisorRecommendation): Routes {
     // liquidation the user did not plan for. The rate itself is the engine's
     // (slope 1/L, constant at every repay size), so the two readings agree.
     //
-    // Both nulls are silences, never zeros: an unpriced leg has no rate, and a
-    // position large enough that $1,000 does not move the printed percentage
-    // gets no sentence rather than one claiming the drop is unchanged.
+    // Every null here is a silence, never a zero: an unpriced leg has no rate,
+    // a debt too small to fund another step has no next step (the engine's
+    // guard - past that the line runs through 100%), and a position large
+    // enough that $1,000 does not move the printed percentage gets no sentence
+    // rather than one claiming the drop is unchanged.
     const after = drawdownToLiquidation(reduce.projectedHf);
-    const perUsd = drawdownPerUsdRepaid(rec.numbers.borrowValueUsd, rec.numbers.healthFactor);
+    const stepped = drawdownAfterExtraRepay(
+      after,
+      rec.numbers.borrowValueUsd,
+      rec.numbers.healthFactor,
+      reduce.repayUsd,
+      REPAY_STEP_USD,
+    );
     let linear = "";
-    if (after !== null && perUsd !== null) {
-      const stepped = formatDrawdownPct(after + perUsd * REPAY_STEP_USD);
-      if (stepped !== formatDrawdownPct(after)) {
-        linear = ` Each further ${fmtUsd(REPAY_STEP_USD)} repaid takes that to ${stepped}.`;
+    if (after !== null && stepped !== null) {
+      const steppedPct = formatDrawdownPct(stepped);
+      if (steppedPct !== formatDrawdownPct(after)) {
+        linear = ` Each further ${fmtUsd(REPAY_STEP_USD)} repaid takes that to ${steppedPct}.`;
       }
     }
     lead = {
