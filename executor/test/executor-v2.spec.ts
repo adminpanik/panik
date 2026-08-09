@@ -437,6 +437,38 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
     return build(false, 18);
   }
 
+  // Aave position holding BOTH variable and stable debt on USDC, so the
+  // per-rate-mode repay floor is exercised for real (every other fixture leaves
+  // stableDebt == 0). Only mock state is added post-deploy; build()'s fixtures
+  // are untouched, so no existing test is affected.
+  const DUAL_VARIABLE_DEBT = 100n * WAD;
+  const DUAL_STABLE_DEBT = 60n * WAD;
+  async function deployDualDebtFixture() {
+    const f = await build(false);
+    const now = await time.latest();
+    await f.dataProvider.setUserReserveData(f.user.address, await f.usdc.getAddress(), {
+      currentATokenBalance: 0n,
+      currentStableDebt: DUAL_STABLE_DEBT,
+      currentVariableDebt: DUAL_VARIABLE_DEBT,
+      principalStableDebt: DUAL_STABLE_DEBT,
+      scaledVariableDebt: DUAL_VARIABLE_DEBT,
+      stableBorrowRate: 0n,
+      liquidityRate: 0n,
+      // Old enough to clear the 3600s stable-debt cooldown the LockChecker uses.
+      stableRateLastUpdated: BigInt(now - 7_200),
+      usageAsCollateralEnabled: false,
+    });
+    await f.pool.setUserAccountData(f.user.address, {
+      totalCollateralBase: 2_000n * PRICE_SCALE,
+      totalDebtBase: 160n * PRICE_SCALE,
+      availableBorrowsBase: 0n,
+      currentLiquidationThreshold: 0n,
+      ltv: 0n,
+      healthFactor: 1n * WAD,
+    });
+    return f;
+  }
+
   async function makePermit(f: any, overrides: Partial<Permit> = {}): Promise<Permit> {
     return {
       user: f.user.address,
@@ -1422,6 +1454,57 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
       await expect(
         submit(f, permit, [f.legs.aaveWethCollateral], await sign(f, permit))
       ).to.be.revertedWith("MockUR: too little out");
+    });
+  });
+
+  // The Aave repay floor is enforced PER RATE MODE (variable and stable checked
+  // separately, PanikExecutor _buildAavePosition). Every other fixture leaves
+  // stableDebt == 0, so this is the only place that branch runs for real.
+  describe("Aave per-rate-mode repay floor (dual debt)", function () {
+    it("an honest full repay clears both rate modes and passes the floor", async function () {
+      const f = await loadFixture(deployDualDebtFixture);
+      const permit = await makePermit(f, { kind: FULL_REPAY, protocolsMask: MASK_AAVE });
+      const signature = await sign(f, permit);
+
+      const before = await f.usdc.balanceOf(f.user.address);
+      await submit(f, permit, [leg(AAVE, await f.usdc.getAddress(), MAX, 0n)], signature);
+
+      // Both rate modes repaid: 100 variable + 60 stable = 160 USDC out.
+      expect(before - (await f.usdc.balanceOf(f.user.address))).to.equal(
+        DUAL_VARIABLE_DEBT + DUAL_STABLE_DEBT
+      );
+      const reserve = await f.dataProvider.getUserReserveData(
+        await f.usdc.getAddress(),
+        f.user.address
+      );
+      expect(reserve.currentVariableDebt).to.equal(0n);
+      expect(reserve.currentStableDebt).to.equal(0n);
+      expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(true);
+    });
+
+    it("a leg covering only the variable debt fails the stable-side floor", async function () {
+      const f = await loadFixture(deployDualDebtFixture);
+      const permit = await makePermit(f, { kind: FULL_REPAY, protocolsMask: MASK_AAVE });
+      const signature = await sign(f, permit);
+
+      // repayAmount == variable debt: variable side is fully covered, stable side
+      // gets 0 < authorizedStable, so the per-rate-mode floor must revert. No
+      // rate-mode subset can satisfy the floor within one position.
+      const variableOnly = leg(AAVE, await f.usdc.getAddress(), DUAL_VARIABLE_DEBT, 0n);
+      await expect(submit(f, permit, [variableOnly], signature))
+        .to.be.revertedWithCustomError(f.executor, "RepayFloorNotMet")
+        .withArgs(
+          AAVE,
+          await f.usdc.getAddress(),
+          DUAL_VARIABLE_DEBT,
+          DUAL_VARIABLE_DEBT + DUAL_STABLE_DEBT
+        );
+      expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(false);
+
+      // The same permit+signature, spent by an honest full repay, still works.
+      await expect(
+        submit(f, permit, [leg(AAVE, await f.usdc.getAddress(), MAX, 0n)], signature)
+      ).to.not.be.reverted;
     });
   });
 });
