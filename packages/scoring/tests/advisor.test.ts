@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActiveScore } from "../src/adapters/active";
+import type { ActiveReading } from "../src/adapters/activeAave";
 import { fallbackSections, overallHeadline } from "../src/advisor/fallback";
 import { findOpportunities } from "../src/advisor/opportunities";
 import {
@@ -64,20 +65,92 @@ describe("repayMath", () => {
     expect(repayToTargetHf(10_000, 0.01, 2.0)).toBeLessThanOrEqual(10_000);
   });
 
-  it("collateral-funded variant also hits the target exactly", () => {
-    const d = 10_000;
-    const hf = 1.2;
-    const t = 1.75;
-    const lt = 0.8;
-    const r = collateralFundedRepayToTargetHf(d, hf, t, lt);
-    const l = hf * d;
-    expect((l - lt * r) / (d - r)).toBeCloseTo(t, 9);
-  });
-
   it("drawdownToLiquidation: HF 2.0 -> 50% drop; null when no debt", () => {
     expect(drawdownToLiquidation(2.0)).toBeCloseTo(0.5, 9);
     expect(drawdownToLiquidation(null)).toBeNull();
     expect(drawdownToLiquidation(0.9)).toBe(0);
+  });
+});
+
+/**
+ * The Deleverager's sizing function, dormant until the flash-loan flow ships.
+ * `weightedLiquidationThreshold` now reaches it from every active reader, so
+ * the contract between them is pinned here before the first caller exists.
+ * Per the function's own header: HF' = (L - LT_w×R)/(D - R), L = HF_now × D.
+ */
+describe("collateralFundedRepayToTargetHf", () => {
+  /** Solves the same equation the function does, from its documented form. */
+  const hfAfter = (d: number, hf: number, lt: number, r: number) =>
+    (hf * d - lt * r) / (d - r);
+
+  it.each([
+    ["a shallow lift", 250_000, 1.45, 1.75, 0.83],
+    ["a deep lift", 10_000, 1.02, 2.0, 0.75],
+    ["a high-threshold market (Morpho 94.5% lltv)", 50_000, 1.1, 1.5, 0.945],
+  ])("reaches the target on %s", (_label, d, hf, t, lt) => {
+    const r = collateralFundedRepayToTargetHf(d, hf, t, lt);
+    expect(r).toBeGreaterThan(0);
+    expect(r).toBeLessThan(d);
+    expect(hfAfter(d, hf, lt, r)).toBeCloseTo(t, 9);
+  });
+
+  it("costs more than a wallet-funded repay to the same target", () => {
+    // Every dollar repaid out of collateral also leaves the numerator, so the
+    // same target is strictly more expensive than repaying from the wallet.
+    expect(collateralFundedRepayToTargetHf(10_000, 1.2, 1.75, 0.8)).toBeGreaterThan(
+      repayToTargetHf(10_000, 1.2, 1.75),
+    );
+  });
+
+  it.each([
+    ["no debt", 0, 1.2, 1.75, 0.83],
+    ["negative debt", -1, 1.2, 1.75, 0.83],
+    ["no health factor", 10_000, 0, 1.75, 0.83],
+    ["already at target", 10_000, 1.75, 1.75, 0.83],
+    ["already above target", 10_000, 2.4, 1.75, 0.83],
+    // At or below LT_w each dollar sold removes more collateral value than
+    // debt, so HF falls as the repay grows: no size reaches the target, and
+    // the honest answer is "no plan" rather than a number that makes it worse.
+    ["target at the threshold", 10_000, 0.5, 0.8, 0.8],
+    ["target below the threshold", 10_000, 0.5, 0.75, 0.8],
+  ])("returns 0 for %s", (_label, d, hf, t, lt) => {
+    expect(collateralFundedRepayToTargetHf(d, hf, t, lt)).toBe(0);
+  });
+
+  it("clamps at total debt when the position is already under the threshold", () => {
+    // HF 0.70 against a 0.80 threshold: the unclamped solve wants $11,052 of a
+    // $10,000 debt, and nobody can repay more than they owe.
+    expect(collateralFundedRepayToTargetHf(10_000, 0.7, 1.75, 0.8)).toBe(10_000);
+  });
+
+  it("is not called when the reader could not establish a threshold", () => {
+    // Null-propagation contract for the future call site: a reading with no
+    // weightedLiquidationThreshold produces no plan, rather than a plan built
+    // on a substituted number.
+    const reading: Pick<ActiveReading, "weightedLiquidationThreshold"> = {
+      weightedLiquidationThreshold: null,
+    };
+    const plan =
+      reading.weightedLiquidationThreshold === null
+        ? null
+        : collateralFundedRepayToTargetHf(
+            10_000,
+            1.2,
+            1.75,
+            reading.weightedLiquidationThreshold,
+          );
+    expect(plan).toBeNull();
+
+    // Why 0 is not an acceptable stand-in: at LT_w = 0 this collapses exactly
+    // onto the wallet-funded formula, so an unknown threshold would be
+    // answered with a confident and materially undersized repay.
+    expect(collateralFundedRepayToTargetHf(10_000, 1.2, 1.75, 0)).toBeCloseTo(
+      repayToTargetHf(10_000, 1.2, 1.75),
+      9,
+    );
+    expect(collateralFundedRepayToTargetHf(10_000, 1.2, 1.75, 0.83)).toBeGreaterThan(
+      collateralFundedRepayToTargetHf(10_000, 1.2, 1.75, 0),
+    );
   });
 });
 
