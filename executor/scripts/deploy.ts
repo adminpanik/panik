@@ -126,6 +126,10 @@ async function main(): Promise<void> {
   });
 
   // --- Delegated (v2) config ---------------------------------------------
+  const BASE_MAINNET_CHAIN_ID = 8453n;
+  const targetChainId = (await ethers.provider.getNetwork()).chainId;
+  const isMainnet = targetChainId === BASE_MAINNET_CHAIN_ID;
+
   const priceFeedAssets = uniqueAddresses(csv("PRICE_FEED_ASSETS"));
   const priceFeeds = uniqueAddresses(csv("PRICE_FEEDS"));
   if (priceFeedAssets.length !== priceFeeds.length) {
@@ -133,13 +137,30 @@ async function main(): Promise<void> {
       "Price feed config length mismatch: PRICE_FEED_ASSETS and PRICE_FEEDS must match."
     );
   }
+
+  const mockOracleAssetsNorm = mockOracleAssets.map((value) => ethers.getAddress(value));
+  // M-3: the mock oracle is an unguarded, hand-set price source (no staleness,
+  // no positivity). The constructor reverts if it ships to Base mainnet; catch
+  // it here first with a message that names the offending assets.
+  if (isMainnet && mockOracleAssetsNorm.length > 0) {
+    throw new Error(
+      `MOCK_ORACLE_ASSETS must be empty on Base mainnet (chainId 8453). Offending: ${mockOracleAssetsNorm.join(", ")}`
+    );
+  }
+  // A single asset must have ONE price source, or the mock (unguarded) branch
+  // silently wins over its real feed. The constructor enforces this too.
+  const overlap = priceFeedAssets.filter((asset) => mockOracleAssetsNorm.includes(asset));
+  if (overlap.length > 0) {
+    throw new Error(
+      `Assets appear in both PRICE_FEED_ASSETS and MOCK_ORACLE_ASSETS: ${overlap.join(", ")}`
+    );
+  }
+
   // Every asset a delegated exit can swap needs a dateable feed, or the exit
   // reverts MissingPriceFeed at execution time. Catch that here, not on-chain.
   for (const asset of swapAssets.map((value) => ethers.getAddress(value))) {
     const hasFeed = priceFeedAssets.includes(asset);
-    const isMockOracleAsset = mockOracleAssets
-      .map((value) => ethers.getAddress(value))
-      .includes(asset);
+    const isMockOracleAsset = mockOracleAssetsNorm.includes(asset);
     if (!hasFeed && !isMockOracleAsset) {
       console.warn(
         `WARNING: ${asset} has a swap route but no PRICE_FEEDS entry - delegated exits touching it will revert MissingPriceFeed.`
@@ -161,8 +182,12 @@ async function main(): Promise<void> {
     0,
     86_400
   );
-  // Anything past 20% stops being slippage tolerance and becomes a donation.
-  const maxPermitSlippageBps = requiredNumberEnv("MAX_PERMIT_SLIPPAGE_BPS", "1000", 1, 2_000);
+  // Default 200 bps (2%). The route is a fixed, submitter-sandwichable path, so
+  // a wide default would make a large haircut the modelled norm; anything above
+  // 2% must be an explicit, deliberate MAX_PERMIT_SLIPPAGE_BPS override. The
+  // contract ceiling still caps it at 2000 (private-orderflow routing that would
+  // justify going higher is a Phase-4 relayer concern, not built here).
+  const maxPermitSlippageBps = requiredNumberEnv("MAX_PERMIT_SLIPPAGE_BPS", "200", 1, 2_000);
   const sequencerUptimeFeedRaw = (process.env.SEQUENCER_UPTIME_FEED ?? "").trim();
   const sequencerUptimeFeed =
     sequencerUptimeFeedRaw === "" || sequencerUptimeFeedRaw === ethers.ZeroAddress
@@ -186,8 +211,50 @@ async function main(): Promise<void> {
   } else {
     await assertIsContract("SEQUENCER_UPTIME_FEED", sequencerUptimeFeed);
   }
-  for (const feed of priceFeeds) {
+  // M-2: a wrong-base or wrong-decimals feed produces a near-zero slippage
+  // floor and the delegated swap then succeeds at a robbery price. The contract
+  // reads and bounds decimals at construction, but base currency and sane value
+  // can only be checked off-chain, so it happens here and HARD-FAILS.
+  const feedAbi = [
+    "function decimals() view returns (uint8)",
+    "function description() view returns (string)",
+    "function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)",
+  ];
+  // Plausible USD price band per asset, in whole dollars. Anything outside is
+  // almost certainly a wrong feed (wrong base, wrong decimals, wrong asset).
+  const PRICE_MIN_USD = 0.1;
+  const PRICE_MAX_USD = 5_000_000;
+  for (let i = 0; i < priceFeeds.length; i++) {
+    const asset = priceFeedAssets[i];
+    const feed = priceFeeds[i];
     await assertIsContract("PRICE_FEEDS entry", feed);
+    const feedContract = new ethers.Contract(feed, feedAbi, ethers.provider);
+    const decimals = Number(await feedContract.decimals());
+    if (decimals > 18) {
+      throw new Error(`PRICE_FEEDS ${feed} for ${asset}: decimals ${decimals} > 18`);
+    }
+    let description = "";
+    try {
+      description = await feedContract.description();
+    } catch {
+      throw new Error(`PRICE_FEEDS ${feed} for ${asset}: description() reverted - not a Chainlink feed?`);
+    }
+    if (!/\/\s*USD$/i.test(description.trim())) {
+      throw new Error(
+        `PRICE_FEEDS ${feed} for ${asset}: description "${description}" is not a "/ USD" feed. The floor math assumes a shared USD base.`
+      );
+    }
+    const [, answer] = await feedContract.latestRoundData();
+    if (answer <= 0n) {
+      throw new Error(`PRICE_FEEDS ${feed} for ${asset}: non-positive answer ${answer}`);
+    }
+    const humanPrice = Number(ethers.formatUnits(answer, decimals));
+    console.log(`  feed ${asset} -> ${feed}  "${description}"  ~$${humanPrice}`);
+    if (humanPrice < PRICE_MIN_USD || humanPrice > PRICE_MAX_USD) {
+      throw new Error(
+        `PRICE_FEEDS ${feed} for ${asset}: decoded price $${humanPrice} outside [${PRICE_MIN_USD}, ${PRICE_MAX_USD}] - wrong feed or wrong decimals.`
+      );
+    }
   }
   for (const market of delegatedMarkets) {
     await assertIsContract("DELEGATED_MARKETS entry", market);
@@ -361,6 +428,16 @@ async function main(): Promise<void> {
       `priceFeed ${priceFeedAssets[i]}`,
       priceFeeds[i],
       await panikExecutor.getPriceFeed(priceFeedAssets[i])
+    );
+    const feedContract = new ethers.Contract(
+      priceFeeds[i],
+      ["function decimals() view returns (uint8)"],
+      ethers.provider
+    );
+    check(
+      `priceFeed.decimals ${priceFeedAssets[i]}`,
+      String(Number(await feedContract.decimals())),
+      String(await panikExecutor.getPriceFeedDecimals(priceFeedAssets[i]))
     );
   }
   for (const market of delegatedMarkets) {
