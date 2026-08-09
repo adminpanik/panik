@@ -549,6 +549,11 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
         "The Exit button pre-selects this Morpho position for a single atomic transaction you sign yourself - debt repaid, collateral withdrawn, proceeds returned as USDC.",
     },
     numbers: numbersOf(CRITICAL_BTC),
+    // Narrated, so the AI-label block is reachable in dev:mock — and CRITICAL,
+    // so the verdict above is the one sentence a narrated leg still gets from
+    // the engine (the template slot in AdvisorNarrator). The card should show
+    // the lead unlabelled and the label only inside "Why this".
+    narrationSource: "narrated",
     exitPrefill: { protocol: "morpho", kind: "full" },
   },
   {
@@ -575,6 +580,11 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
         "The Reduce button pre-fills a partial exit repaying ~$17,851 of USDC on Moonwell; you sign the transaction yourself.",
     },
     numbers: numbersOf(LEVERED_WETH),
+    // Narrated and NOT critical, so this is the card where the lead sentence
+    // itself sits in the AI block. The prose is still the deterministic
+    // template: the fixture is standing in for a served narration, and copying
+    // the engine's own words is the one wording guaranteed to pass the guard.
+    narrationSource: "narrated",
     exitPrefill: {
       protocol: "moonwell",
       kind: "partial",
@@ -740,7 +750,11 @@ export function mockAdvisor(profile: string, now = Date.now()): AdvisorReport {
       daysSinceLastActivity: 3,
       confidence: 0.78,
     },
-    narrated: false,
+    // True because two legs carry `narrationSource: "narrated"`. The report flag
+    // and the per-leg flag answer different questions and both are rendered:
+    // this one drives the banner's provenance line, the per-leg one decides
+    // which blocks wear the "AI-generated summary" label.
+    narrated: true,
     updatedAt: now,
     changeToken: "mock-1",
   };

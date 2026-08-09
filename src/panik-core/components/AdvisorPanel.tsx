@@ -147,6 +147,41 @@ function ActionButton({
 }
 
 /**
+ * The block that holds model-phrased prose, and says so.
+ *
+ * The Advisor mixes two kinds of sentence on one card and they carry different
+ * warranties: the numbers, the action and (on a critical leg) the verdict are
+ * the engine's and are checked, while the phrasing around them came out of a
+ * language model. A reader deciding whether to sign a transaction is entitled
+ * to know which is which, so the AI-phrased text sits in a sunken inset under a
+ * permanent label rather than reading as the same voice as the figures.
+ *
+ * The label is the honest part, so it is never shown over deterministic text:
+ * `narrationSource` is per-leg, and a leg that fell back to engine prose gets
+ * no block and no label. Saying "AI-generated summary" over a template would be
+ * stating a fact the code knows to be false.
+ *
+ * No border, deliberately. A bordered tinted box inside a bordered tinted card
+ * is chrome wrapping chrome; the surface step plus the label is the distinction.
+ */
+function AiBlock({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="space-y-2 rounded-md bg-surface-sunken p-3">
+      <p className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+        <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
+        AI-generated summary
+      </p>
+      {children}
+    </div>
+  );
+}
+
+/** True when a leg's prose was written by the model rather than the engine. */
+function isNarrated(rec: AdvisorRecommendation): boolean {
+  return rec.narrationSource === "narrated";
+}
+
+/**
  * The three sections that are not the recommendation, behind one disclosure.
  *
  * A native `<details>`: it is focusable, it is announced as expandable, it
@@ -160,6 +195,16 @@ function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
     ["Market", rec.sections.market],
     ["Execution", rec.sections.execution],
   ];
+  const body = (
+    <div className="space-y-2.5">
+      {rows.map(([label, text]) => (
+        <div key={label} className="flex flex-col sm:flex-row sm:gap-4">
+          <span className="w-28 shrink-0 pt-0.5 text-xs font-sans text-text-muted">{label}</span>
+          <p className="flex-1 text-sm font-sans leading-relaxed text-text-secondary">{text}</p>
+        </div>
+      ))}
+    </div>
+  );
   return (
     <details className="group min-w-0 flex-1">
       {/* `min-h-8.5` matches the button beside it (33.6px), so the summary text
@@ -173,13 +218,11 @@ function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
         />
         Why this
       </summary>
-      <div className="mt-3 space-y-2.5">
-        {rows.map(([label, text]) => (
-          <div key={label} className="flex flex-col sm:flex-row sm:gap-4">
-            <span className="w-28 shrink-0 pt-0.5 text-xs font-sans text-text-muted">{label}</span>
-            <p className="flex-1 text-sm font-sans leading-relaxed text-text-secondary">{text}</p>
-          </div>
-        ))}
+      <div className="mt-3">
+        {/* These three are always the model's when the leg was narrated - the
+            critical-verdict template slot only protects the recommendation
+            above, which is why the label belongs here and not on the card. */}
+        {isNarrated(rec) ? <AiBlock>{body}</AiBlock> : body}
       </div>
     </details>
   );
@@ -393,6 +436,7 @@ function RecommendationCard({
   onOpen?: (plan: AdvisorOpenPlan) => void;
 }) {
   const action = <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} />;
+  const aiLead = isNarrated(rec) && rec.urgency !== "critical";
   return (
     /* `Card`, so the container does not tint by state. The border used to turn
        risk-critical on an EXIT leg, which is a whole box painted with a band -
@@ -415,10 +459,24 @@ function RecommendationCard({
 
           {/* The lead. This is the answer the page exists to give, so it is the
               first thing under the name of the thing it is about, at reading
-              size, in primary ink. It was the third of four paragraphs. */}
-          <p className="text-sm font-sans leading-relaxed text-text-primary">
-            {rec.sections.recommendation}
-          </p>
+              size, in primary ink. It was the third of four paragraphs.
+
+              It only enters the AI block when a model actually wrote it. On a
+              critical leg the server serves the ENGINE's verdict sentence even
+              when the rest of the leg is narrated (the template slot in
+              AdvisorNarrator), so the loudest instruction on the screen keeps
+              normal styling and carries no AI label. */}
+          {aiLead ? (
+            <AiBlock>
+              <p className="text-sm font-sans leading-relaxed text-text-primary">
+                {rec.sections.recommendation}
+              </p>
+            </AiBlock>
+          ) : (
+            <p className="text-sm font-sans leading-relaxed text-text-primary">
+              {rec.sections.recommendation}
+            </p>
+          )}
 
           <NumbersStrip rec={rec} />
         </div>

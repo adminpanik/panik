@@ -370,6 +370,15 @@ export interface AdvisorRecommendation {
   openPlan?: AdvisorOpenPlan;
   rebalance?: { toProtocol: LiveProtocol; reason: string };
   sections: AdvisorSections;
+  /**
+   * Who wrote `sections` on THIS leg. Absent or "fallback" = the engine did.
+   *
+   * Per-leg because the guards reject legs one at a time, so the report-level
+   * `narrated` flag is true as soon as any leg is narrated and cannot be used
+   * to label a block "AI-generated". On a critical leg "narrated" still leaves
+   * the verdict sentence deterministic.
+   */
+  narrationSource?: "narrated" | "fallback";
   numbers: {
     total: number;
     band: Band;
