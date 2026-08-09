@@ -9,8 +9,18 @@ contract MockUniversalRouter is IUniversalRouter {
 
     mapping(address tokenIn => uint256 rateWad) public rateWadByTokenIn;
 
+    /// @dev When true the router does NOT enforce amountOutMinimum, so it can
+    /// underpay below the caller's floor without reverting itself - used to prove
+    /// the deleverager's OWN post-swap SwapSlippage guard fires (defence in depth
+    /// against a lying/misbehaving router).
+    bool public bypassMinOut;
+
     function setRateWad(address tokenIn, uint256 rateWad) external {
         rateWadByTokenIn[tokenIn] = rateWad;
+    }
+
+    function setBypassMinOut(bool value) external {
+        bypassMinOut = value;
     }
 
     function execute(
@@ -67,7 +77,9 @@ contract MockUniversalRouter is IUniversalRouter {
             }
 
             uint256 amountOut = (amountIn * rateWad) / 1e18;
-            require(amountOut >= amountOutMinimum, "MockUR: too little out");
+            if (!bypassMinOut) {
+                require(amountOut >= amountOutMinimum, "MockUR: too little out");
+            }
 
             IERC20(tokenOut).transfer(recipient, amountOut);
         }
