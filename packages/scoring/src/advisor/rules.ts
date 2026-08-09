@@ -244,6 +244,11 @@ export function adviseLeg(
           kind: "partial",
           repayUsd: repayPlan.repayUsd,
           repayFraction,
+          // What the execution flow needs to state the achievable protection
+          // when the wallet cannot fund the whole sized repay.
+          borrowUsd,
+          healthFactor: hf,
+          collateralSymbol: score.scoredCollateralSymbol,
         },
       });
     }

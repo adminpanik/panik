@@ -174,6 +174,21 @@ export interface AdvisorRecommendation {
     kind: "full" | "partial" | "full_repay";
     repayUsd?: number;
     repayFraction?: number;
+    /**
+     * The three engine-owned readings the flow needs to describe a repay it had
+     * to CUT DOWN to what the wallet holds: the leg's total debt in dollars,
+     * the health factor before the repay, and the collateral the drop is quoted
+     * against. All display only.
+     *
+     * They are carried rather than recomputed because the flow reaches the
+     * chain and not the scorer: it knows the debt in token units and nothing
+     * about its dollar value, its health factor or its collateral. Without them
+     * a capped repay could only say how much it was repaying, never what that
+     * buys, which is the question the user is actually asking.
+     */
+    borrowUsd?: number | null;
+    healthFactor?: number | null;
+    collateralSymbol?: string;
   };
   /** Prefill for the OpenFlow modal (OPEN actions). */
   openPrefill?: OpenPlan;

@@ -82,6 +82,78 @@ export function repayFractionOfDebt(repayUsd: number, borrowUsd: number): number
 }
 
 /**
+ * The same quantisation as `repayFractionOfDebt`, but from an AMOUNT already
+ * expressed in the debt asset's own units, and rounding DOWN instead of half up.
+ *
+ * It exists for the wallet cap: the question there is "what is the largest
+ * fraction this balance can actually fund", and rounding that half up produces
+ * a fraction the wallet cannot pay. Every other fraction in this module is a
+ * quote; this one is a ceiling, so it floors.
+ *
+ * BigInt throughout, then a single conversion of an integer below 1e6 - the
+ * amount and the debt are raw token amounts and an 18-decimal debt does not
+ * survive `Number()`.
+ *
+ * Returns null when there is no debt, or when the amount does not reach one
+ * step of the grid. Null, never 0, for the reason `repayFractionOfDebt` gives:
+ * a 0 fraction builds a silent no-op leg.
+ */
+export function repayFractionFloorFromAmount(amount: bigint, debt: bigint): number | null {
+  if (debt <= 0n || amount <= 0n) return null;
+  const scale = BigInt(REPAY_FRACTION_SCALE);
+  const scaled = (amount * scale) / debt;
+  if (scaled < 1n) return null;
+  return Number(scaled > scale ? scale : scaled) / REPAY_FRACTION_SCALE;
+}
+
+/**
+ * Dollars a given executable fraction repays, against a debt already priced.
+ *
+ * The inverse of `repayFractionOfDebt`, and it exists because a CAPPED repay is
+ * decided as a fraction (the only form a wallet balance can constrain) and then
+ * has to be quoted back to the user in dollars. Deriving those dollars by
+ * scaling the advisor's original figure would drift from the fraction that
+ * actually executes.
+ *
+ * One rounding rule, the same one `RepayPlan.repayUsd` carries: whole dollars,
+ * round half up. Two figures describing one repay must round identically or the
+ * card and the modal quietly disagree.
+ *
+ * Null when the debt is not a usable dollar figure (a degraded price feed), so
+ * the caller states nothing rather than a dollar amount it cannot support.
+ */
+export function repayUsdFromFraction(borrowUsd: number | null, fraction: number): number | null {
+  if (borrowUsd === null || !Number.isFinite(borrowUsd) || borrowUsd <= 0) return null;
+  if (!Number.isFinite(fraction) || fraction <= 0) return null;
+  return Math.round(borrowUsd * Math.min(fraction, 1));
+}
+
+/**
+ * Health factor after repaying `fraction` of the debt, collateral untouched.
+ *
+ * HF = L / D with L the liquidation-weighted collateral, and a wallet-funded
+ * repay does not touch collateral, so L is invariant: repaying R = f*D leaves
+ * HF' = L / (D - R) = (HF * D) / (D - f*D) = HF / (1 - f). The dollar form and
+ * the fraction form are the same identity, so only one of them is written here
+ * - the fraction is what executes, and a second copy taking dollars is how the
+ * two would eventually disagree on an edge.
+ *
+ * Null for a fraction of 1 or more: clearing the debt leaves no health factor
+ * at all, which is what `RepayPlan.projectedHf` and `ActiveScore.healthFactor`
+ * both say with a null. Echoing a very large number instead would print a ratio
+ * the position will never hold.
+ *
+ * The value is returned unrounded. Its ONE display rounding is the consequence
+ * phrasing every surface already uses: `drawdownToLiquidation` then
+ * `formatDrawdownPct` in `../prospective`, with the exact ratio via `fmtHf`.
+ */
+export function hfAfterRepayFraction(hfNow: number | null, fraction: number): number | null {
+  if (hfNow === null || !Number.isFinite(hfNow) || hfNow <= 0) return null;
+  if (!Number.isFinite(fraction) || fraction < 0 || fraction >= 1) return null;
+  return hfNow / (1 - fraction);
+}
+
+/**
  * Exact integer numerator of a `repayFraction` over REPAY_FRACTION_SCALE.
  * Null for anything that is not a usable fraction, so a caller cannot turn a
  * NaN or an out-of-contract value into an amount.

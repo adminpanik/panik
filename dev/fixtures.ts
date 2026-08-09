@@ -580,6 +580,12 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
       kind: "partial",
       repayUsd: MOONWELL_REPAY_USD,
       repayFraction: MOONWELL_REPAY_FRACTION,
+      // The three readings the exit flow cannot make for itself, so a repay it
+      // has to cap to the wallet balance can still say what that buys. Straight
+      // off the same leg the numbers block is built from.
+      borrowUsd: LEVERED_WETH.borrowValueUsd,
+      healthFactor: LEVERED_WETH.healthFactor,
+      collateralSymbol: LEVERED_WETH.scoredCollateralSymbol,
     },
   },
   {
