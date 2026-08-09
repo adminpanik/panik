@@ -12,6 +12,10 @@ contract MockComet {
     mapping(address account => mapping(address asset => uint128 balance)) private _collateral;
     mapping(address src => mapping(address operator => bool)) public allowance_;
     mapping(address account => bool) private _underCollateralized;
+    /// @dev Independent of _underCollateralized (which gates withdrawFrom): lets a
+    /// test make a withdraw SUCCEED yet isBorrowCollateralized() read false, to
+    /// exercise the deleverager's post-withdraw NotCollateralized guard.
+    bool private _reportUncollateralized;
     bool public supplyPaused;
     bool public withdrawPaused;
 
@@ -31,6 +35,10 @@ contract MockComet {
 
     function setUnderCollateralized(address account, bool value) external {
         _underCollateralized[account] = value;
+    }
+
+    function setReportUncollateralized(bool value) external {
+        _reportUncollateralized = value;
     }
 
     function setSupplyPaused(bool value) external {
@@ -56,7 +64,7 @@ contract MockComet {
     }
 
     function isBorrowCollateralized(address account) external view returns (bool) {
-        return !_underCollateralized[account];
+        return !_underCollateralized[account] && !_reportUncollateralized;
     }
 
     function isSupplyPaused() external view returns (bool) {

@@ -583,4 +583,204 @@ describe("PanikDeleverager", function () {
       ).to.be.revertedWithCustomError(f.deleverager, "TargetNotAnImprovement");
     });
   });
+
+  describe("negative safety invariants (adversarial review)", function () {
+    async function seedCompound(f: Awaited<ReturnType<typeof deployBase>>, deleverager?: any) {
+      const target = deleverager ?? f.deleverager;
+      const userAddr = await f.user.getAddress();
+      await f.comet.setBorrowBalance(userAddr, 5000n * UNIT6);
+      await f.comet.setCollateral(userAddr, await f.coll.getAddress(), 3n * UNIT18);
+      await f.coll.mint(await f.comet.getAddress(), 3n * UNIT18);
+      await f.comet.connect(f.user).allow(await target.getAddress(), true);
+      await f.debt.mint(await f.vault.getAddress(), 10_000n * UNIT6);
+      await f.debt.mint(await f.router.getAddress(), 10_000n * UNIT6);
+    }
+
+    async function deployCustom(
+      f: Awaited<ReturnType<typeof deployBase>>,
+      opts: { balancerVault?: string; allowedMarkets?: string[] }
+    ) {
+      const Deleverager = await ethers.getContractFactory("PanikDeleverager");
+      return Deleverager.deploy(
+        {
+          balancerVault: opts.balancerVault ?? (await f.vault.getAddress()),
+          aavePool: await f.aavePool.getAddress(),
+          morpho: await f.morpho.getAddress(),
+          aaveDataProvider: await f.dataProvider.getAddress(),
+          universalRouter: await f.router.getAddress(),
+          swapDeadlineBuffer: 300,
+        },
+        {
+          priceFeedAssets: [await f.debt.getAddress(), await f.coll.getAddress()],
+          priceFeeds: [await f.debtFeed.getAddress(), await f.collFeed.getAddress()],
+          oracleStalenessSeconds: 3600,
+          sequencerUptimeFeed: ethers.ZeroAddress,
+          sequencerGracePeriod: 3600,
+          maxSlippageBpsCeiling: 1000,
+        },
+        [await f.debt.getAddress(), await f.coll.getAddress()],
+        opts.allowedMarkets ?? [await f.comet.getAddress()]
+      );
+    }
+
+    // (1) Oracle floor is enforced by the deleverager itself, not just the router.
+    it("reverts SwapSlippage when the router underpays below the oracle floor", async function () {
+      const f = await deployBase();
+      await seedCompound(f);
+      await f.router.setBypassMinOut(true); // router will NOT enforce the floor
+      await f.router.setRateWad(await f.coll.getAddress(), 1000n * UNIT6); // ~half oracle value
+      await expect(
+        f.deleverager.connect(f.user).deleverage(await baseCompoundParams(f))
+      ).to.be.revertedWithCustomError(f.deleverager, "SwapSlippage");
+    });
+
+    // (2) Stale / zero feed fails CLOSED and legibly.
+    it("reverts StalePrice on a stale feed and PriceUnavailable on a zero answer", async function () {
+      const f = await deployBase();
+      await seedCompound(f);
+      const now = BigInt((await ethers.provider.getBlock("latest"))!.timestamp);
+      await f.collFeed.setUpdatedAt(now - 100_000n); // far older than the 3600s bound
+      await expect(
+        f.deleverager.connect(f.user).deleverage(await baseCompoundParams(f))
+      ).to.be.revertedWithCustomError(f.deleverager, "StalePrice");
+
+      const f2 = await deployBase();
+      await seedCompound(f2);
+      await f2.collFeed.setAnswer(0); // non-positive answer
+      await expect(
+        f2.deleverager.connect(f2.user).deleverage(await baseCompoundParams(f2))
+      ).to.be.revertedWithCustomError(f2.deleverager, "PriceUnavailable");
+    });
+
+    // (3a) Callback from the real provider but with NO flash in progress.
+    it("rejects a provider callback when no flash is in progress (NoFlashInProgress)", async function () {
+      const f = await deployBase();
+      const vaultAddr = await f.vault.getAddress();
+      await ethers.provider.send("hardhat_setBalance", [vaultAddr, "0x56BC75E2D63100000"]);
+      const vaultSigner = await ethers.getImpersonatedSigner(vaultAddr);
+      await expect(
+        f.deleverager
+          .connect(vaultSigner)
+          .receiveFlashLoan([await f.debt.getAddress()], [1n], [0n], "0x")
+      ).to.be.revertedWithCustomError(f.deleverager, "NoFlashInProgress");
+    });
+
+    // (3b) A compromised provider that hands back a different user is rejected.
+    it("rejects a flash callback whose payload names a different user (FlashParamsMismatch)", async function () {
+      const f = await deployBase();
+      const MockMaliciousVault = await ethers.getContractFactory("MockMaliciousVault");
+      const evilVault = await MockMaliciousVault.deploy();
+      const deleverager = await deployCustom(f, { balancerVault: await evilVault.getAddress() });
+      await seedCompound(f, deleverager);
+      await f.debt.mint(await evilVault.getAddress(), 10_000n * UNIT6); // evil vault is the flash source
+      await evilVault.setTamperUser(await f.stranger.getAddress());
+      await expect(
+        deleverager.connect(f.user).deleverage(await baseCompoundParams(f))
+      ).to.be.revertedWithCustomError(deleverager, "FlashParamsMismatch");
+    });
+
+    // (5a) Comet health post-condition.
+    it("reverts NotCollateralized when Comet reports unhealthy after the withdraw", async function () {
+      const f = await deployBase();
+      await seedCompound(f);
+      await f.comet.setReportUncollateralized(true); // withdraw still allowed, health check fails
+      await expect(
+        f.deleverager.connect(f.user).deleverage(await baseCompoundParams(f))
+      ).to.be.revertedWithCustomError(f.deleverager, "NotCollateralized");
+    });
+
+    // (5b) Moonwell health post-condition: shortfall must not rise.
+    it("reverts HealthNotImproved when a Moonwell deleverage raises shortfall", async function () {
+      const f = await deployBase();
+      const userAddr = await f.user.getAddress();
+      const MockComptrollerLive = await ethers.getContractFactory("MockComptrollerLive");
+      const comptroller = await MockComptrollerLive.deploy();
+      const MockMTokenRate = await ethers.getContractFactory("MockMTokenRate");
+      const mUsdc = await MockMTokenRate.deploy(
+        "mUSDC", "mUSDC", await f.debt.getAddress(), await comptroller.getAddress(), UNIT18
+      );
+      const mWeth = await MockMTokenRate.deploy(
+        "mWETH", "mWETH", await f.coll.getAddress(), await comptroller.getAddress(), 2n * 10n ** 16n
+      );
+      const deleverager = await deployCustom(f, {
+        allowedMarkets: [await mUsdc.getAddress(), await mWeth.getAddress()],
+      });
+
+      await mUsdc.setBorrowBalance(userAddr, 5000n * UNIT6);
+      await mWeth.mint(userAddr, 50n * UNIT18);
+      await f.coll.mint(await mWeth.getAddress(), 1n * UNIT18);
+      await mWeth.connect(f.user).approve(await deleverager.getAddress(), ethers.MaxUint256);
+      await f.debt.mint(await f.vault.getAddress(), 10_000n * UNIT6);
+      // Shortfall rises as the user's mWETH is pulled (baseline = full balance).
+      await comptroller.config(await mWeth.getAddress(), 50n * UNIT18, 1n);
+
+      const p = {
+        protocol: MOONWELL,
+        flashSource: SRC_BALANCER,
+        debtAsset: await f.debt.getAddress(),
+        collateralToken: await f.coll.getAddress(),
+        repayAmount: 1500n * UNIT6,
+        collateralWithdraw: 50n * UNIT18,
+        maxSlippageBps: 500,
+        swapPath: v3Path(await f.coll.getAddress(), await f.debt.getAddress()),
+        marketData: coder.encode(["address", "address"], [await mUsdc.getAddress(), await mWeth.getAddress()]),
+      };
+      await expect(deleverager.connect(f.user).deleverage(p)).to.be.revertedWithCustomError(
+        deleverager,
+        "HealthNotImproved"
+      );
+    });
+
+    // (4) A stray ETH donation must not brick a non-native-ETH Moonwell market,
+    //     nor be folded into the user's proceeds. (The native-ETH windfall case
+    //     is covered on the mainnet fork, where mWETH truly redeems to ETH.)
+    it("a stray ETH donation does not brick a non-native Moonwell deleverage", async function () {
+      const f = await deployBase();
+      const userAddr = await f.user.getAddress();
+      const MockComptroller = await ethers.getContractFactory("MockComptroller");
+      const comptroller = await MockComptroller.deploy();
+      await comptroller.setAccountLiquidity(userAddr, 0, 0);
+      const MockMTokenRate = await ethers.getContractFactory("MockMTokenRate");
+      const mUsdc = await MockMTokenRate.deploy(
+        "mUSDC", "mUSDC", await f.debt.getAddress(), await comptroller.getAddress(), UNIT18
+      );
+      const mWeth = await MockMTokenRate.deploy(
+        "mWETH", "mWETH", await f.coll.getAddress(), await comptroller.getAddress(), 2n * 10n ** 16n
+      );
+      const deleverager = await deployCustom(f, {
+        allowedMarkets: [await mUsdc.getAddress(), await mWeth.getAddress()],
+      });
+      const delevAddr = await deleverager.getAddress();
+
+      await mUsdc.setBorrowBalance(userAddr, 5000n * UNIT6);
+      await mWeth.mint(userAddr, 50n * UNIT18);
+      await f.coll.mint(await mWeth.getAddress(), 1n * UNIT18);
+      await mWeth.connect(f.user).approve(delevAddr, ethers.MaxUint256);
+      await f.debt.mint(await f.vault.getAddress(), 10_000n * UNIT6);
+      await f.debt.mint(await f.router.getAddress(), 10_000n * UNIT6);
+
+      // Attacker pre-donates 1 wei of ETH. With the old absolute-balance wrap
+      // this bricks the market (deposit() on a non-WETH collateral reverts).
+      await f.deployer.sendTransaction({ to: delevAddr, value: 1n });
+
+      const userDebtBefore = await f.debt.balanceOf(userAddr);
+      const p = {
+        protocol: MOONWELL,
+        flashSource: SRC_BALANCER,
+        debtAsset: await f.debt.getAddress(),
+        collateralToken: await f.coll.getAddress(),
+        repayAmount: 1500n * UNIT6,
+        collateralWithdraw: 50n * UNIT18,
+        maxSlippageBps: 500,
+        swapPath: v3Path(await f.coll.getAddress(), await f.debt.getAddress()),
+        marketData: coder.encode(["address", "address"], [await mUsdc.getAddress(), await mWeth.getAddress()]),
+      };
+      await deleverager.connect(f.user).deleverage(p); // must NOT revert
+
+      expect(await mUsdc.borrowBalanceCurrent(userAddr)).to.equal(3500n * UNIT6);
+      // Donation retained as ETH, not folded into the user's USDC proceeds.
+      expect(await ethers.provider.getBalance(delevAddr)).to.equal(1n);
+      expect(await f.debt.balanceOf(userAddr)).to.equal(userDebtBefore + 500n * UNIT6);
+    });
+  });
 });

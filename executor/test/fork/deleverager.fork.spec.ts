@@ -366,6 +366,11 @@ maybeDescribe("Base mainnet fork - PanikDeleverager", function () {
 
     await (await mWeth.approve(delevAddr, ethers.MaxUint256)).wait();
 
+    // Pre-donate ETH: mWETH redeems to NATIVE ETH here, so this exercises the
+    // delta-wrap fix - the donation must NOT be folded into the user's proceeds.
+    const donation = ethers.parseEther("0.01");
+    await (await borrower.sendTransaction({ to: delevAddr, value: donation })).wait();
+
     const debtBefore = await mUsdc.borrowBalanceStored(me);
     const repay = 1500n * 10n ** 6n;
     const wethToSell = wethForUsdc(repay, await wethPriceE8());
@@ -395,6 +400,9 @@ maybeDescribe("Base mainnet fork - PanikDeleverager", function () {
     expect(await usdc.balanceOf(me)).to.be.greaterThanOrEqual(0n);
     expect(await usdc.balanceOf(delevAddr)).to.equal(0n);
     expect(await weth.balanceOf(delevAddr)).to.equal(0n);
+    // The pre-donation is retained as ETH, proving only the redeem DELTA was
+    // wrapped and sold (the donation was not folded into the user's proceeds).
+    expect(await ethers.provider.getBalance(delevAddr)).to.equal(donation);
   });
 
   it("Morpho Blue: collateral-funded repay via the native onMorphoRepay callback", async function () {
