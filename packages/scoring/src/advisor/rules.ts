@@ -72,6 +72,7 @@ export function adviseLeg(
     hf !== null &&
     (score.usdValuesUnavailable || (borrowUsd !== null && borrowUsd >= ALERT_POLICY.minBorrowUsd));
   if (score.usdValuesUnavailable) triggers.push("prices:degraded");
+  if (score.marketContextUnavailable) triggers.push("market:unavailable");
 
   const base = {
     protocol: score.protocol,
@@ -116,6 +117,7 @@ export function adviseLeg(
     if (
       hf !== null &&
       hf <= CRASH_REGIME.hfAtOrBelow &&
+      score.subScores.assetRisk !== null &&
       score.subScores.assetRisk >= CRASH_REGIME.assetRiskAtOrAbove
     ) {
       triggers.push("regime:crash");
@@ -126,9 +128,12 @@ export function adviseLeg(
   }
 
   // Rule 2 - defensive crash-regime catch below the CRITICAL band boundary.
+  // An unmeasured asset risk never opens this gate (computeScore.ts holds the
+  // same rule for the score itself): no reading is not a crash reading.
   if (
     hf !== null &&
     hf <= CRASH_REGIME.hfAtOrBelow &&
+    score.subScores.assetRisk !== null &&
     score.subScores.assetRisk >= CRASH_REGIME.assetRiskAtOrAbove
   ) {
     triggers.push("regime:crash");
@@ -204,8 +209,10 @@ export function adviseLeg(
     return finish("MONITOR", "info");
   }
 
-  // Rule 6 - within profile.
-  return finish("HOLD", "info");
+  // Rule 6 - within profile. HOLD is an affirmative all-clear, and a leg scored
+  // without its market context has not been checked against the market at all,
+  // so it stays visible as MONITOR - the same rule a degraded price feed gets.
+  return finish(score.marketContextUnavailable ? "MONITOR" : "HOLD", "info");
 }
 
 /** Advise every leg of a wallet and derive the overall verdict. */

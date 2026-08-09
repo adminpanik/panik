@@ -96,3 +96,27 @@ export interface ScoreResult {
   band: Band;
   subScores: SubScores;
 }
+
+/**
+ * Sub-scores of a leg whose market-context providers may have failed on this
+ * read. `null` means NOT MEASURED and is never 0: "unmeasured" and "measured,
+ * and calm" are different facts, and rendering the first as the second is how a
+ * degraded feed becomes an all-clear. Only the two provider-fed terms can be
+ * null — position health and protocol safety need no I/O.
+ */
+export interface DegradableSubScores
+  extends Omit<SubScores, "assetRisk" | "systemicRisk"> {
+  assetRisk: number | null;
+  systemicRisk: number | null;
+}
+
+/** `ScoringInput` where either market-context provider may have been unavailable. */
+export interface DegradedScoringInput
+  extends Omit<ScoringInput, "assetRisk" | "systemicRisk"> {
+  assetRisk: AssetRiskInput | null;
+  systemicRisk: SystemicRiskInput | null;
+}
+
+export interface DegradedScoreResult extends Omit<ScoreResult, "subScores"> {
+  subScores: DegradableSubScores;
+}

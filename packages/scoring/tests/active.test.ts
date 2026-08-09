@@ -3,6 +3,7 @@ import { ActiveAdapter } from "../src/adapters/active";
 import { adviseWallet } from "../src/advisor/rules";
 import { AaveActiveReader } from "../src/adapters/activeAave";
 import { MoonwellActiveReader } from "../src/adapters/activeMoonwell";
+import { computeScore } from "../src/computeScore";
 import type { PublicClientLike } from "../src/adapters/chain";
 import type { AssetRiskInput, SystemicRiskInput } from "../src/types";
 
@@ -522,4 +523,171 @@ describe("ActiveAdapter", () => {
       );
     });
   });
+
+  // The `moonwell` vs `moonwell-artemis` incident: one unresolvable CoinGecko
+  // id threw inside the per-leg loop and took every already-computed leg of the
+  // wallet down with it, so wallets with Moonwell exposure got no score and no
+  // liquidation alerts for 55 days. The provider failure now belongs to its leg.
+  describe("market-context provider failure (per-leg isolation)", () => {
+    const aaveReading = {
+      protocol: "aave_v3" as const,
+      positionHealth: { healthFactor: 2.0, currentLtv: 0.4, maxLtv: 0.8 },
+      collateralValueUsd: 20_000,
+      borrowValueUsd: 8_000,
+      dominantCollateralSymbol: "WETH",
+    };
+    // WELL is the symbol whose id was wrong; this leg is the one that throws.
+    const moonwellReading = {
+      protocol: "moonwell" as const,
+      positionHealth: { healthFactor: 1.4, currentLtv: 0.6, maxLtv: 0.8 },
+      collateralValueUsd: 120_000,
+      borrowValueUsd: 70_000,
+      dominantCollateralSymbol: "WELL",
+    };
+    const twoLegReaders = [
+      { read: async () => aaveReading },
+      { read: async () => moonwellReading },
+    ];
+    /** Asset-risk provider that 404s for exactly one asset, as CoinGecko did. */
+    const assetRiskFailingOn = (badId: string) => ({
+      getAssetRiskInput: async (id: string) => {
+        if (id === badId) throw new Error(`CoinGecko ${id}: HTTP 404`);
+        return calmAsset;
+      },
+    });
+
+    it("keeps every other leg when one leg's asset-risk provider throws", async () => {
+      const onReaderError = vi.fn();
+      const scores = await new ActiveAdapter(
+        twoLegReaders,
+        {
+          assetRisk: assetRiskFailingOn("moonwell-artemis"),
+          systemic: { getSystemicRiskInput: async () => calmSystemic },
+        },
+        onReaderError,
+      ).scoreWallet("0xw");
+
+      expect(scores).toHaveLength(2);
+      const aave = scores.find((s) => s.protocol === "aave_v3");
+      const moonwell = scores.find((s) => s.protocol === "moonwell");
+
+      // The healthy leg is untouched: same sub-scores it scores in isolation.
+      expect(aave?.marketContextUnavailable).toBe(false);
+      expect(aave?.subScores.assetRisk).not.toBeNull();
+      expect(aave?.subScores.systemicRisk).not.toBeNull();
+
+      // The failed leg is present and degraded, not missing and not faked.
+      expect(moonwell?.marketContextUnavailable).toBe(true);
+      expect(moonwell?.subScores.assetRisk).toBeNull();
+      // Only the term that failed is null; the systemic lookup still succeeded.
+      expect(moonwell?.subScores.systemicRisk).not.toBeNull();
+      // Position health is a chain read and stays exact through the failure.
+      expect(moonwell?.healthFactor).toBeCloseTo(1.4, 9);
+      expect(moonwell?.collateralValueUsd).toBeCloseTo(120_000, 6);
+      expect(moonwell?.usdValuesUnavailable).toBe(false);
+      expect(onReaderError).toHaveBeenCalledOnce();
+    });
+
+    it("never throws out of scoreWallet when both providers are down", async () => {
+      const down = async () => {
+        throw new Error("provider unreachable");
+      };
+      const scores = await new ActiveAdapter(twoLegReaders, {
+        assetRisk: { getAssetRiskInput: down },
+        systemic: { getSystemicRiskInput: down },
+      }).scoreWallet("0xw");
+
+      expect(scores).toHaveLength(2);
+      for (const s of scores) {
+        expect(s.marketContextUnavailable).toBe(true);
+        expect(s.subScores.assetRisk).toBeNull();
+        expect(s.subScores.systemicRisk).toBeNull();
+        // The unmeasured terms are DROPPED from the composite, not imputed as
+        // zero: position health 0.4 + protocol safety 0.2 renormalise to 1.
+        const expected = Math.round(
+          (0.4 * s.subScores.positionHealth + 0.2 * s.subScores.protocolSafety) / 0.6,
+        );
+        expect(s.total).toBe(expected);
+        expect(s.total).toBeGreaterThan(0);
+      }
+    });
+
+    it("scores identically to a healthy read when nothing is missing", async () => {
+      const [degradable] = await new ActiveAdapter(
+        [{ read: async () => aaveReading }],
+        {
+          assetRisk: { getAssetRiskInput: async () => calmAsset },
+          systemic: { getSystemicRiskInput: async () => calmSystemic },
+        },
+      ).scoreWallet("0xw");
+      const direct = computeScore({
+        protocol: "aave_v3",
+        positionHealth: aaveReading.positionHealth,
+        assetRisk: calmAsset,
+        systemicRisk: calmSystemic,
+      });
+      expect(degradable?.total).toBe(direct.total);
+      expect(degradable?.subScores).toEqual(direct.subScores);
+    });
+
+    it("does not let an unmeasured asset risk open the crash-regime gate", async () => {
+      // HF 1.20 is inside CRASH_REGIME.hfAtOrBelow, so the only thing standing
+      // between this leg and a forced 75/CRITICAL is the asset-risk gate — and
+      // an unread term must not satisfy it in either direction.
+      const scores = await new ActiveAdapter(
+        [
+          {
+            read: async () => ({
+              ...moonwellReading,
+              positionHealth: { healthFactor: 1.2, currentLtv: 0.7, maxLtv: 0.8 },
+            }),
+          },
+        ],
+        {
+          assetRisk: assetRiskFailingOn("moonwell-artemis"),
+          systemic: { getSystemicRiskInput: async () => calmSystemic },
+        },
+      ).scoreWallet("0xw");
+
+      const leg = scores[0];
+      expect(leg?.subScores.assetRisk).toBeNull();
+      // The HF <= 1.25 proximity floor still applies (it reads only the exact
+      // health factor), so the leg is HIGH, not silently LOW.
+      expect(leg?.total).toBeGreaterThanOrEqual(50);
+      expect(leg?.band).toBe("HIGH");
+      const { recommendations } = adviseWallet(scores, "moderate");
+      expect(recommendations[0]?.triggers).toContain("market:unavailable");
+      expect(recommendations[0]?.triggers).not.toContain("regime:crash");
+    });
+
+    it("never summarises a leg with no market context as an all-clear", async () => {
+      // A calm, healthy position: without the fix this reads HOLD / "all
+      // positions within your risk profile" on a score that never looked at
+      // the market at all.
+      const scores = await new ActiveAdapter(
+        [
+          {
+            read: async () => ({
+              ...aaveReading,
+              dominantCollateralSymbol: "WELL",
+              positionHealth: { healthFactor: 3.0, currentLtv: 0.2, maxLtv: 0.8 },
+            }),
+          },
+        ],
+        {
+          assetRisk: assetRiskFailingOn("moonwell-artemis"),
+          systemic: { getSystemicRiskInput: async () => calmSystemic },
+        },
+      ).scoreWallet("0xw");
+
+      const { overall, recommendations } = adviseWallet(scores, "moderate");
+      expect(overall.action).not.toBe("HOLD");
+      expect(overall.headline).not.toBe("All positions within your risk profile.");
+      // The missing term is named rather than quietly dropped from the prose,
+      // and it is never printed as a 0/100 driver.
+      expect(recommendations[0]?.sections.market).toContain("asset volatility");
+      expect(recommendations[0]?.sections.market).not.toContain("asset volatility risk (0/100)");
+    });
+  });
+
 });
