@@ -98,11 +98,18 @@ export class MoonwellActiveReader {
 
     if (collateralUsd === 0 && borrowUsd === 0) return null;
 
+    // Compound-V2 fork semantics: a market has ONE collateralFactorMantissa,
+    // used as both the borrow limit and the liquidation threshold. So the
+    // borrow-side weighting IS the liquidation-side one — computed once here
+    // and read twice, rather than written twice and allowed to drift.
+    const weightedLiquidationThreshold =
+      collateralUsd > 0 ? weightedCollateralUsd / collateralUsd : null;
+
     // Derived HF per arch §Sub-Scores 1 (shortfall>0 cases land at HF<1 here).
     const positionHealth: PositionHealthInput = {
       healthFactor: borrowUsd > 0 ? weightedCollateralUsd / borrowUsd : null,
       currentLtv: collateralUsd > 0 ? borrowUsd / collateralUsd : 0,
-      maxLtv: collateralUsd > 0 ? weightedCollateralUsd / collateralUsd : 0,
+      maxLtv: weightedLiquidationThreshold ?? 0,
     };
 
     // Resolve the dominant collateral's symbol (native market = ETH).
@@ -123,6 +130,7 @@ export class MoonwellActiveReader {
       positionHealth,
       collateralValueUsd: collateralUsd,
       borrowValueUsd: borrowUsd,
+      weightedLiquidationThreshold,
       dominantCollateralSymbol,
     };
   }

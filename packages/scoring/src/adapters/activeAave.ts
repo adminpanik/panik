@@ -43,6 +43,31 @@ export interface ActiveReading {
   /** null when the USD denomination could not be established this read. */
   borrowValueUsd: number | null;
   /**
+   * Collateral-value-weighted liquidation threshold, as a FRACTION in 0..1
+   * (0.83 = the position liquidates once debt reaches 83% of collateral).
+   * Like HF/LTV it is a ratio, so it survives a missing USD price.
+   *
+   * null when the protocol read could not establish it — never 0. Zero is a
+   * real threshold meaning "liquidates against any debt at all", and
+   * `collateralFundedRepayToTargetHf` acts on the number it is handed: fed 0
+   * for an unknown it silently answers the wallet-funded question instead and
+   * under-sizes the repay.
+   *
+   * Per-protocol source:
+   *  - Aave V3: `currentLiquidationThreshold` from getUserAccountData (bps).
+   *  - Compound V3: Σ(collateral_i × liquidateCollateralFactor_i) / collateral,
+   *    pooled across comets. Distinct from `maxLtv`, which weights the strictly
+   *    lower borrowCollateralFactor.
+   *  - Moonwell: Compound-V2 fork, one collateralFactorMantissa per market is
+   *    BOTH the borrow limit and the liquidation threshold, so it equals maxLtv.
+   *  - Morpho: `lltv` IS the liquidation threshold (Blue has no separate borrow
+   *    LTV), so it equals maxLtv.
+   *
+   * Consumed by the Deleverager's `collateralFundedRepayToTargetHf`, which is
+   * dormant until the flash-loan flow ships.
+   */
+  weightedLiquidationThreshold: number | null;
+  /**
    * True when a price input the USD conversion depends on was missing or
    * stale. The position is STILL scored (HF/LTV are denomination-free); only
    * the dollar magnitudes are withheld. Consumers must treat this as
@@ -102,7 +127,10 @@ export class AaveActiveReader {
     if (!account || account.status !== "success") {
       throw new Error(`Aave getUserAccountData failed for ${wallet}`);
     }
-    const [totalCollateralBase, totalDebtBase, , , ltvBps, healthFactor] =
+    // Tuple order: collateral, debt, availableBorrows, liquidationThreshold,
+    // ltv, healthFactor. Both threshold slots are bps of collateral VALUE, so
+    // they are already the weighted averages Aave applies to the whole account.
+    const [totalCollateralBase, totalDebtBase, , liqThresholdBps, ltvBps, healthFactor] =
       account.result as readonly [bigint, bigint, bigint, bigint, bigint, bigint];
 
     if (totalCollateralBase === 0n && totalDebtBase === 0n) return null;
@@ -196,6 +224,10 @@ export class AaveActiveReader {
       },
       collateralValueUsd,
       borrowValueUsd,
+      // Aave reports 0 bps for an account holding no collateral, which is an
+      // absent threshold rather than a threshold of zero.
+      weightedLiquidationThreshold:
+        liqThresholdBps > 0n ? Number(liqThresholdBps) / 10_000 : null,
       dominantCollateralSymbol,
       ...(dominantCollateralUnpriced ? { dominantCollateralUnpriced: true } : {}),
     };
