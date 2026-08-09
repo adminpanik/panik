@@ -4,6 +4,11 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    # Weekly Monday 06:00 UTC — catches drift between exit.generated.ts and
+    # the live executor even when nothing in this repo changed (e.g. the
+    # executor repo redeployed and nobody re-ran sync:exit-config here).
+    - cron: "0 6 * * 1"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -13,6 +18,7 @@ jobs:
   node:
     name: Typecheck, tests, build
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' # schedule trigger exists only for exit-config-drift
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +61,7 @@ jobs:
   contracts:
     name: Foundry
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' # schedule trigger exists only for exit-config-drift
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,6 +80,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule' # schedule trigger exists only for exit-config-drift
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,3 +100,50 @@ jobs:
       # --redact so a hit never prints the secret into a public build log.
       - name: Scan history for secrets
         run: gitleaks detect --source . --redact --no-banner
+
+  exit-config-drift:
+    name: Exit config drift
+    runs-on: ubuntu-latest
+    # Runs on the weekly schedule (always), or on a PR that touches the
+    # generated exit config or the scripts that produce/verify it.
+    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need base/head history to diff changed paths on PRs
+
+      - name: Decide whether this run needs to verify
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "Scheduled run — always verifying, regardless of what changed."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          echo "Changed files:"
+          echo "$changed"
+          if echo "$changed" | grep -qE '^(src/panik-core/lib/exit\.generated\.ts|scripts/.*exit-config.*)$'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No exit-config-relevant paths changed — skipping."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+        if: steps.gate.outputs.run == 'true'
+
+      # verify-exit-config.mjs exits 1 on confirmed drift and 2 when the RPC
+      # could not be reached. Both are treated as job failure here, including
+      # on the scheduled run — a network hiccup silently skipping the weekly
+      # check would defeat the point of having it. A flaky run just means a
+      # re-run; a silently-skipped drift check means nobody finds out.
+      - name: Verify exit config against live chain
+        if: steps.gate.outputs.run == 'true'
+        run: npm run verify:exit-config
