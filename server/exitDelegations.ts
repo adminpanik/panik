@@ -204,6 +204,25 @@ export async function submitDelegation(body: unknown, deps: DelegationDeps): Pro
 }
 
 /**
+ * The live-permit query as TYPED ROWS — what the relayer (4.A) consumes.
+ *
+ * Deliberately the same `reconcile` the HTTP handler below uses, so there is
+ * exactly ONE place a stored row becomes "the chain would accept this". The
+ * relayer must never re-derive delegation status: a permit the chain would
+ * reject is not coverage, and a second opinion about that is how a relayer ends
+ * up burning gas on a revoked permit. Returns only genuinely live rows, with
+ * the permit as bigints (not the JSON strings the HTTP shape carries) because
+ * the relayer feeds them straight into an ABI encoder.
+ */
+export async function liveDelegationsFor(
+  user: `0x${string}`,
+  deps: DelegationDeps,
+): Promise<DelegationRow[]> {
+  const reconciled = await reconcile(user, deps);
+  return reconciled.filter((r) => r.status === "active").map((r) => r.row);
+}
+
+/**
  * GET /api/exit/delegations?wallet=… — the live-permit query the relayer (4.A)
  * and the UI (2.C) both consume. Returns ONLY genuinely live delegations (not
  * expired, not on a stale epoch, nonce unspent), each with its computed status,

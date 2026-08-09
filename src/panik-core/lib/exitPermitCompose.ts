@@ -16,7 +16,7 @@
  * tested without a DOM or a chain, the same rule exitLegs.ts follows.
  */
 
-import { BPS_DENOMINATOR, EXIT_KIND, type ExitPermit } from "../../../server/exitPermit";
+import { BPS_DENOMINATOR, EXIT_KIND, hfToWad, type ExitPermit } from "../../../server/exitPermit";
 import { EXECUTABLE_PROTOCOLS, type ExitEnv } from "./exit";
 import { PROTOCOL_ID } from "./exitLegs";
 import type { LiveProtocol } from "./live";
@@ -74,26 +74,15 @@ export function grantActionMeta(action: GrantAction): GrantActionMeta {
   return meta;
 }
 
-/** Fixed-point scale for a health factor on-chain (WAD = 1e18). */
-export const WAD = 10n ** 18n;
-
 /**
- * A health factor as the contract's WAD-scaled integer (HF x 1e18).
- *
- * Two-step so it stays exact in double precision: HF is rounded to 1e-9 first
- * (nine decimals is far past anything a health factor is quoted to), then
- * scaled up in BigInt. `hf * 1e18` straight through a Number would lose the low
- * bits of the mantissa and hand the signer a digest a hair off the contract's.
+ * WAD and the health-factor conversions moved to server/exitPermit.ts (the
+ * permit's single source of truth) when the relayer needed the SAME comparison
+ * this module encodes: the UI writes `triggerHealthFactorWad` and the relayer
+ * reads it back to decide whether to spend gas. Re-exported so every existing
+ * `from "./exitPermitCompose"` import keeps working and there is still exactly
+ * one implementation.
  */
-export function hfToWad(hf: number): bigint {
-  if (!Number.isFinite(hf) || hf <= 0) throw new Error("health factor must be positive");
-  return BigInt(Math.round(hf * 1e9)) * (WAD / 1_000_000_000n);
-}
-
-/** WAD-scaled HF back to a number, for display and the disclosure. */
-export function wadToHf(wad: bigint): number {
-  return Number(wad) / Number(WAD);
-}
+export { WAD, hfToWad, wadToHf } from "../../../server/exitPermit";
 
 /**
  * Default HF trigger: the user's risk-profile target, straight from the engine
