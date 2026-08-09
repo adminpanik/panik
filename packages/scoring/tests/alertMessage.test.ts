@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatAlert,
+  formatResolution,
   formatSubScores,
   formatWelcome,
   truncateWallet,
@@ -72,6 +73,7 @@ describe("formatAlert", () => {
     const msgs = [
       formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600, why }),
       formatAlert({ ...base, to: "approaching" }, { healthFactor: 1.3, borrowUsd: 800, why }),
+      formatResolution({ ...base, from: "outside", to: "within" }, { healthFactor: 1.9, borrowUsd: 800, why }),
     ];
     for (const m of msgs) {
       expect(m).not.toMatch(/within|approaching|outside/);
@@ -207,6 +209,46 @@ describe("formatSubScores", () => {
     expect(degraded).toBe("🧩 Risk drivers: position health 88, protocol risk 30");
     expect(degraded).not.toContain("asset volatility");
     expect(degraded).not.toContain("market stress");
+  });
+});
+
+// 7.2 - the loop gets closed, with what changed.
+describe("formatResolution", () => {
+  const recovered: WatchTransition = { ...base, score: 31, band: "LOW", from: "outside", to: "within" };
+  const safeFacts: WhyNowFacts = { ...facts, healthFactor: 1.9 };
+
+  it("leads with the all-clear and states what changed", () => {
+    const msg = formatResolution(recovered, {
+      healthFactor: 1.9,
+      collateralUsd: 5000,
+      borrowUsd: 1200,
+      why: { ...why, facts: safeFacts },
+    });
+    expect(msg.startsWith("✅")).toBe(true);
+    expect(msg).toContain("back under your risk limit");
+    expect(msg).toContain("🔁 What changed: this position was over your risk limit");
+    expect(msg).toContain("📊 Risk score 31 / 100 (LOW), your moderate limit is 50");
+    expect(msg).toContain("🛟 Liquidates if cbBTC falls 47%");
+    expect(msg).toContain("❤️ Health factor 1.90");
+    expect(msg).toContain("💰 Position $5,000 collateral / $1,200 debt");
+    expect(LONG_DASH.test(msg)).toBe(false);
+  });
+
+  it("does not re-explain why the alert fired", () => {
+    const msg = formatResolution(recovered, { healthFactor: 1.9, why: { ...why, facts: safeFacts } });
+    expect(msg).not.toContain("Why now");
+  });
+
+  it("omits the money line rather than printing a zero for an unknown", () => {
+    const msg = formatResolution(recovered, { healthFactor: null, collateralUsd: null, borrowUsd: null });
+    expect(msg).not.toContain("💰");
+    expect(msg).not.toContain("Health factor");
+    expect(msg).not.toContain("$0");
+  });
+
+  it("omits the origin clause when the position was never seen before", () => {
+    const msg = formatResolution({ ...recovered, from: null }, { healthFactor: 1.9 });
+    expect(msg).toContain("🔁 What changed: this position is now under your risk limit.");
   });
 });
 

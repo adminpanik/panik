@@ -46,6 +46,9 @@ const LIMIT_STATE: Record<ProfileStatus, string> = {
   outside: "over your risk limit",
 };
 
+/** `LIMIT_EVENT.within` - what a recovery IS, not where it ended up. */
+const BACK_UNDER_LIMIT = "back under your risk limit";
+
 /** Sub-score labels, matching the app's RISK_DRIVERS so both surfaces agree. */
 const DRIVER_LABEL: Record<keyof DegradableSubScores, string> = {
   positionHealth: "position health",
@@ -345,8 +348,8 @@ function factLines(t: WatchTransition, extras: AlertExtras): string[] {
 }
 
 /**
- * Build the alert body for a transition INTO approaching/outside. (Recovery
- * transitions are filtered out by the dispatcher and never reach here.)
+ * Build the alert body for a transition INTO approaching/outside. Recovery
+ * transitions go to `formatResolution` instead.
  */
 export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): string {
   const outside = t.to === "outside";
@@ -391,3 +394,31 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
   return lines.join("\n");
 }
 
+/**
+ * Resolution notification (7.2): a position we alerted on is back inside the
+ * user's limit. Sent only for transitions INTO "within", and only when an alert
+ * actually went out - see `alertPolicy.decideSend`, which rate-limits these so a
+ * flapping position cannot turn the all-clear into its own spam.
+ *
+ * "What changed" is stated from the transition itself (`from` -> `to`) and the
+ * current facts. The engine does not hold the previous score, so the message
+ * does not claim a delta it cannot compute.
+ */
+export function formatResolution(t: WatchTransition, extras: AlertExtras = {}): string {
+  const lines: string[] = [];
+  lines.push(`✅ Panik all clear - position ${BACK_UNDER_LIMIT}`);
+  lines.push("");
+  lines.push(...factLines(t, extras));
+  lines.push("");
+  lines.push(
+    t.from === null || t.from === "within"
+      ? `🔁 What changed: this position is now ${LIMIT_STATE.within}.`
+      : `🔁 What changed: this position was ${LIMIT_STATE[t.from]}, and is now ${BACK_UNDER_LIMIT}.`,
+  );
+  lines.push("");
+  lines.push(
+    "🛡️ Nothing to do. I'll keep watching and message you again if it drifts back toward your limit.",
+  );
+
+  return lines.join("\n");
+}

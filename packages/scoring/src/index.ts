@@ -21,6 +21,7 @@ export * from "./adapters/active";
 export * from "./watch/loop";
 export {
   formatAlert,
+  formatResolution,
   formatSubScores,
   formatWelcome,
   truncateWallet,

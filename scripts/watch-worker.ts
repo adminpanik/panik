@@ -10,7 +10,8 @@
  *      change / 15-min heartbeat.
  *   2. Dispatch loop @15s drains the unnotified queue, applies the anti-spam
  *      gate (materiality / cooldown / escalation), sends Telegram, and stamps
- *      notified_at + notify_channel.
+ *      notified_at + notify_channel. A recovery row sends the all-clear
+ *      (formatResolution) instead of an alert, rate-limited by the same gate.
  *   3. Relayer loop @30s (Phase 4.A) offers every scored position to
  *      server/exitRelayer.ts, which submits a delegated exit when the user's
  *      SIGNED trigger has fired. IT SHIPS DISARMED: RELAYER_ENABLED defaults
@@ -49,6 +50,7 @@ import {
   adviseLeg,
   decideSend,
   formatAlert,
+  formatResolution,
   statusFor,
   type ActiveScore,
   type AlertExtras,
@@ -398,12 +400,6 @@ function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): Al
 }
 
 async function dispatchPending(): Promise<void> {
-  // First, mark recovery transitions (to_status = within) as seen so the queue
-  // never accumulates them. They never notify.
-  await db.query(
-    "update public.watch_transitions set notified_at = now(), notify_channel = 'skipped' where notified_at is null and to_status = 'within'",
-  );
-
   const { rows } = await db.query<PendingRow>(
     `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band,
             t.from_status, t.to_status, t.created_at,
@@ -417,19 +413,26 @@ async function dispatchPending(): Promise<void> {
           where s.wallet = t.wallet and s.protocol = t.protocol
           order by created_at desc limit 1
        ) s on true
-      where t.notified_at is null and t.to_status in ('approaching','outside')
+      where t.notified_at is null
       order by t.created_at
       limit 50`,
   );
 
   for (const r of rows) {
+    // The last few SENT messages, newest first. A recovery is rate-limited
+    // against the last message of either kind (so one all-clear per alert is the
+    // ceiling), while an alert still measures its cooldown from the last ALERT -
+    // an all-clear must not reset the clock and re-open the cooldown.
     const prior = await db.query<{ to_status: ProfileStatus; created_at: string }>(
       `select to_status, created_at from public.watch_transitions
         where wallet = $1 and protocol = $2 and notify_channel = 'telegram'
-        order by created_at desc limit 1`,
+        order by created_at desc limit 5`,
       [r.wallet, r.protocol],
     );
-    const priorRow = prior.rows[0];
+    const recovery = r.to_status === "within";
+    const priorRow = recovery
+      ? prior.rows[0]
+      : prior.rows.find((p) => p.to_status !== "within");
 
     const decision = decideSend({
       toStatus: r.to_status,
@@ -476,7 +479,9 @@ async function dispatchPending(): Promise<void> {
         : null,
       why: whyNowFor(r.wallet, r.protocol, r.risk_profile),
     };
-    const text = formatAlert(transition, extras);
+    const text = recovery
+      ? formatResolution(transition, extras)
+      : formatAlert(transition, extras);
 
     const result = await sendMessage(botToken!, Number(r.chat_id), text);
     if (result.ok) {
