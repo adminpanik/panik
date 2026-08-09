@@ -23,7 +23,7 @@ import {
     IMorphoFlash,
     IMorphoFlashLoanCallback
 } from "./interfaces/IFlashProviders.sol";
-import {IMorphoRepayCallback, ICometAssetInfo, IComptrollerMarkets} from "./interfaces/IProtocolExtras.sol";
+import {IMorphoRepayCallback, ICometAssetInfo, IComptrollerMarkets, IWETH} from "./interfaces/IProtocolExtras.sol";
 
 /// @title PanikDeleverager
 /// @notice Collateral-funded deleverage (Phase 3.A). A borrower reduces their
@@ -171,13 +171,16 @@ contract PanikDeleverager is
     ///  COMPOUND_V3 - abi.encode(address comet).
     ///  MORPHO_BLUE - abi.encode(IMorpho.MarketParams); flashSource is ignored.
     /// swapPath is a UniversalRouter V3 path from collateralToken to debtAsset.
+    /// collateralWithdraw units are the COLLATERAL token's, except MOONWELL where
+    /// it is the collateral MTOKEN amount to redeem (the contract then sells the
+    /// underlying that redeem yields, so the swap size is exchange-rate-correct).
     struct DeleverageParams {
         uint8 protocol; // ExitTypes.ProtocolId
         uint8 flashSource; // FlashSource (ignored for MORPHO_BLUE)
         address debtAsset;
         address collateralToken;
         uint256 repayAmount; // debt-asset units to repay (> 0)
-        uint256 collateralWithdraw; // collateral units to free and sell (> 0)
+        uint256 collateralWithdraw; // collateral to free and sell (> 0); see note above
         uint16 maxSlippageBps;
         bytes swapPath;
         bytes marketData;
@@ -255,6 +258,11 @@ contract PanikDeleverager is
             _trackAsset(asset);
         }
     }
+
+    /// @dev Accept native ETH solely so Moonwell's auto-unwrapping mWETH redeem
+    /// (which returns ETH, not WETH) does not revert; the Moonwell path re-wraps
+    /// it to WETH immediately. No control flow depends on stray ETH.
+    receive() external payable {}
 
     // ------------------------------------------------------- entrypoint --
 
@@ -380,6 +388,7 @@ contract PanikDeleverager is
     /// Moonwell and Compound V3.
     function _runExternalDeleverage(DeleverageParams memory p, address user) private {
         ExitTypes.ProtocolId proto = ExitTypes.ProtocolId(p.protocol);
+        uint256 collBefore = IERC20(p.collateralToken).balanceOf(address(this));
 
         if (proto == ExitTypes.ProtocolId.AAVE_V3) {
             (, , , , , uint256 hfBefore) = aavePool.getUserAccountData(user);
@@ -393,6 +402,14 @@ contract PanikDeleverager is
             uint256 shortfallBefore = _moonwellShortfall(comptroller, user);
             _moonwellRepay(debtMToken, p.debtAsset, p.repayAmount, user);
             _moonwellWithdraw(collMToken, p.collateralToken, p.collateralWithdraw, user);
+            // Moonwell's native-asset mToken (mWETH) redeems to NATIVE ETH, not
+            // the ERC-20 wrapper (verified on a Base fork). Re-wrap it so the
+            // collateral we sell is the token the swap path expects. Only the
+            // ETH market ever leaves a balance here, and there collateralToken
+            // IS the WETH wrapper.
+            if (address(this).balance > 0) {
+                IWETH(p.collateralToken).deposit{value: address(this).balance}();
+            }
             uint256 shortfallAfter = _moonwellShortfall(comptroller, user);
             if (shortfallAfter > shortfallBefore) revert HealthNotImproved();
         } else {
@@ -403,7 +420,14 @@ contract PanikDeleverager is
             if (!IComet(comet).isBorrowCollateralized(user)) revert NotCollateralized(comet, user);
         }
 
-        _swap(p.collateralToken, p.debtAsset, p.collateralWithdraw, p.swapPath, p.maxSlippageBps);
+        // Sell exactly the collateral this contract actually received. For
+        // Moonwell the freed amount is the REDEEMED underlying, which differs
+        // from the mToken count in `collateralWithdraw` by the exchange rate;
+        // for Aave/Compound it equals `collateralWithdraw`. Measuring the delta
+        // keeps the swap amount correct for every protocol and robust to a
+        // protocol returning less than requested.
+        uint256 collReceived = IERC20(p.collateralToken).balanceOf(address(this)) - collBefore;
+        _swap(p.collateralToken, p.debtAsset, collReceived, p.swapPath, p.maxSlippageBps);
     }
 
     // ----------------------------------------------- Morpho native path --

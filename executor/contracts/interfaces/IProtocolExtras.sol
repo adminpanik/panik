@@ -34,6 +34,12 @@ interface ICometAssetInfo {
     function getAssetInfoByAddress(address asset) external view returns (AssetInfo memory);
 }
 
+/// @dev Wrapped-native token deposit, used to re-wrap the NATIVE ETH that
+/// Moonwell's mWETH returns on redeem back into the ERC-20 the swap needs.
+interface IWETH {
+    function deposit() external payable;
+}
+
 /// @dev Moonwell/Compound-V2 Comptroller collateral-factor read. Compound V2
 /// uses ONE factor for both borrow capacity and liquidation, so
 /// `collateralFactorMantissa` (1e18 scale) is the liquidation threshold too.
