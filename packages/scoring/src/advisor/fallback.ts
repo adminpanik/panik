@@ -120,7 +120,29 @@ function marketSection(rec: AdvisorRecommendation, ctx?: LegMarketContext): stri
   return `The score is being driven by ${dominantDriver(rec, ctx)}.${caveat}`;
 }
 
+/**
+ * The one sentence that offers the declinable alternative.
+ *
+ * It leads with what the user gets rather than with the mechanic, because the
+ * whole point of the alternative is that a user may want zero debt without
+ * wanting to be out of the market. One sentence, appended to the section that
+ * already answers "what do I do": the alternative is a choice about the action,
+ * not a fifth section.
+ */
+function alternativeSentence(alt: NonNullable<AdvisorRecommendation["alternative"]>): string {
+  const p = alt.plan;
+  return (
+    `Or clear the debt instead: repaying all ${fmtUsd(p.repayUsd)}${repayAssetPhrase(p, " of")} ` +
+    `leaves nothing to liquidate and your collateral stays deposited.`
+  );
+}
+
 function recommendationSection(rec: AdvisorRecommendation): string {
+  const body = recommendationBody(rec);
+  return rec.alternative ? `${body} ${alternativeSentence(rec.alternative)}` : body;
+}
+
+function recommendationBody(rec: AdvisorRecommendation): string {
   const label = PROTOCOL_LABEL[rec.protocol] ?? rec.protocol;
   switch (rec.action) {
     case "EXIT":
