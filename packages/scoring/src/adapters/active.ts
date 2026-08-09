@@ -46,6 +46,12 @@ export interface ActiveScore extends Omit<DegradedScoreResult, "subScores"> {
    * and so is every other leg of the wallet.
    */
   marketContextUnavailable: boolean;
+  /**
+   * True when the reader ranked the collateral without per-asset prices, so
+   * `scoredCollateralSymbol` may not be the largest position — see
+   * `ActiveReading.dominantCollateralUnpriced`.
+   */
+  dominantCollateralUnpriced: boolean;
   /** Asset whose market risk was scored (dominant collateral). */
   scoredCollateralSymbol: string;
   /** True when collateral discovery failed and WETH was used as proxy. */
@@ -130,6 +136,7 @@ export class ActiveAdapter {
         borrowValueUsd: reading.borrowValueUsd,
         usdValuesUnavailable: reading.usdValuesUnavailable === true,
         marketContextUnavailable: assetRisk === null || systemicRisk === null,
+        dominantCollateralUnpriced: reading.dominantCollateralUnpriced === true,
         scoredCollateralSymbol: assetRiskIsProxy ? "WETH (proxy)" : (symbol as string),
         assetRiskIsProxy,
       });

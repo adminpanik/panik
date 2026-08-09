@@ -14,6 +14,22 @@ function reserveData(aToken: string) {
   return ok({ aTokenAddress: aToken });
 }
 
+/** AaveOracle quote in base-currency units — BASE_CURRENCY_UNIT() is 1e8. */
+const price = (usd: number) => ok(BigInt(Math.round(usd * 1e8)));
+/**
+ * Live Base quotes, read from the AaveOracle on 2026-08-09. wstETH/WETH = 1.24
+ * is the ratio the deleted price-class table could not represent at all: both
+ * assets shared the 1_800 class.
+ */
+const ORACLE = {
+  WETH: price(1915.79),
+  USDC: price(0.99994),
+  wstETH: price(2377.91),
+  cbBTC: price(64857.87),
+};
+/** KNOWN_AAVE_RESERVES order: WETH, USDC, wstETH, cbBTC. */
+const allPrices = [ORACLE.WETH, ORACLE.USDC, ORACLE.wstETH, ORACLE.cbBTC];
+
 describe("AaveActiveReader", () => {
   it("maps getUserAccountData into PositionHealthInput (8-dec USD, bps LTV)", async () => {
     const multicall = vi
@@ -33,8 +49,15 @@ describe("AaveActiveReader", () => {
         reserveData("0xaWSTETH"),
         reserveData("0xaCBBTC"),
       ])
-      // call 2: aToken balances — 2 WETH dominates 1,000 USDC
-      .mockResolvedValueOnce([ok(2n * 10n ** 18n), ok(1_000n * 10n ** 6n), ok(0n), ok(0n)]);
+      // call 2: aToken balances then oracle prices — 2 WETH ($3,832) dominates
+      // 1,000 USDC ($1,000).
+      .mockResolvedValueOnce([
+        ok(2n * 10n ** 18n),
+        ok(1_000n * 10n ** 6n),
+        ok(0n),
+        ok(0n),
+        ...allPrices,
+      ]);
 
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
     const r = await new AaveActiveReader(client).read("0xwallet");
@@ -57,12 +80,132 @@ describe("AaveActiveReader", () => {
         reserveData("0xaWSTETH"),
         reserveData("0xaCBBTC"),
       ])
-      .mockResolvedValueOnce([ok(0n), ok(5_000n * 10n ** 6n), ok(0n), ok(0n)]);
+      .mockResolvedValueOnce([ok(0n), ok(5_000n * 10n ** 6n), ok(0n), ok(0n), ...allPrices]);
 
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
     const r = await new AaveActiveReader(client).read("0xwallet");
     expect(r?.positionHealth.healthFactor).toBeNull();
     expect(r?.dominantCollateralSymbol).toBe("USDC");
+  });
+
+  // The hardcoded price classes this replaced put WETH and wstETH in the SAME
+  // 1_800 class, so they were ranked on raw token amount: 100 WETH beat
+  // 90 wstETH even though 90 wstETH is worth ~$214k against ~$192k. A wrong
+  // pick here is the wrong scored asset, the wrong safestAlternativeProtocol
+  // and the wrong ExitFlow prefill.
+  it("ranks wstETH above a larger WETH balance at real oracle prices", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([406_000_00000000n, 100_000_00000000n, 0n, 0n, 8000n, 2_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      // 100 WETH = $191,579 vs 90 wstETH = $214,012.
+      .mockResolvedValueOnce([
+        ok(100n * 10n ** 18n),
+        ok(0n),
+        ok(90n * 10n ** 18n),
+        ok(0n),
+        ...allPrices,
+      ]);
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    expect(r?.dominantCollateralSymbol).toBe("wstETH");
+    expect(r?.dominantCollateralUnpriced).toBeUndefined();
+  });
+
+  it("ranks across decimals: 1 cbBTC (8 dec) over 10 WETH (18 dec)", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([84_000_00000000n, 10_000_00000000n, 0n, 0n, 8000n, 3_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      // 10 WETH = $19,158 vs 1 cbBTC = $64,858. The old table's 60,000/1,800
+      // ratio happened to agree here; it does not once BTC/ETH drifts.
+      .mockResolvedValueOnce([
+        ok(10n * 10n ** 18n),
+        ok(0n),
+        ok(0n),
+        ok(1n * 10n ** 8n),
+        ...allPrices,
+      ]);
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    expect(r?.dominantCollateralSymbol).toBe("cbBTC");
+  });
+
+  it("falls back to token amounts and flags the pick when a price is missing", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([406_000_00000000n, 100_000_00000000n, 0n, 0n, 8000n, 2_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      .mockResolvedValueOnce([
+        ok(100n * 10n ** 18n),
+        ok(0n),
+        ok(90n * 10n ** 18n),
+        ok(0n),
+        ORACLE.WETH,
+        ORACLE.USDC,
+        { status: "failure" as const }, // wstETH feed unreadable this block
+        ORACLE.cbBTC,
+      ]);
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+
+    // No price for a competing leg means no value comparison: the ranking falls
+    // back to decimal-normalised amounts, so the larger 100 WETH balance wins.
+    expect(r?.dominantCollateralSymbol).toBe("WETH");
+    expect(r?.dominantCollateralUnpriced).toBe(true);
+    // Degrade, don't invent, and never render unknown as zero: the unpriced
+    // asset is neither dropped from the ranking nor valued at $0, and the
+    // position's own USD magnitudes come from getUserAccountData regardless.
+    expect(r?.collateralValueUsd).toBeCloseTo(406_000, 6);
+    expect(r?.borrowValueUsd).toBeCloseTo(100_000, 6);
+    expect(r?.usdValuesUnavailable).toBeUndefined();
+    expect(r?.positionHealth.healthFactor).toBeCloseTo(2.0, 9);
+  });
+
+  it("does not call a single collateral's pick degraded when its price fails", async () => {
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([
+        ok([214_000_00000000n, 50_000_00000000n, 0n, 0n, 8000n, 3_000000000000000000n]),
+        reserveData("0xaWETH"),
+        reserveData("0xaUSDC"),
+        reserveData("0xaWSTETH"),
+        reserveData("0xaCBBTC"),
+      ])
+      .mockResolvedValueOnce([
+        ok(0n),
+        ok(0n),
+        ok(90n * 10n ** 18n),
+        ok(0n),
+        ORACLE.WETH,
+        ORACLE.USDC,
+        { status: "failure" as const },
+        ORACLE.cbBTC,
+      ]);
+
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new AaveActiveReader(client).read("0xwallet");
+    // Nothing to compare it against, so the pick is certain and unflagged.
+    expect(r?.dominantCollateralSymbol).toBe("wstETH");
+    expect(r?.dominantCollateralUnpriced).toBeUndefined();
   });
 
   it("returns null for wallets with no position", async () => {
@@ -430,6 +573,35 @@ describe("ActiveAdapter", () => {
     expect(scores[0]?.band).toBe("CRITICAL"); // HF 1.05 → proximity floor
     expect(scores[0]?.assetRiskIsProxy).toBe(true);
     expect(scores[0]?.scoredCollateralSymbol).toBe("WETH (proxy)");
+  });
+
+  it("carries an unpriced collateral pick through to the advisor", async () => {
+    const scores = await new ActiveAdapter(
+      [
+        {
+          read: async () => ({
+            protocol: "aave_v3" as const,
+            positionHealth: { healthFactor: 2.0, currentLtv: 0.25, maxLtv: 0.8 },
+            collateralValueUsd: 406_000,
+            borrowValueUsd: 100_000,
+            dominantCollateralSymbol: "WETH",
+            dominantCollateralUnpriced: true,
+          }),
+        },
+      ],
+      {
+        assetRisk: { getAssetRiskInput: async () => calmAsset },
+        systemic: { getSystemicRiskInput: async () => calmSystemic },
+      },
+    ).scoreWallet("0xw");
+
+    expect(scores[0]?.dominantCollateralUnpriced).toBe(true);
+    const { recommendations } = adviseWallet(scores, "moderate");
+    expect(recommendations[0]?.triggers).toContain("collateral:unpriced");
+    // The pick being unverified says nothing about the position's size, which
+    // getUserAccountData reports directly.
+    expect(recommendations[0]?.sections.position).not.toContain("$0");
+    expect(scores[0]?.usdValuesUnavailable).toBe(false);
   });
 
   it("isolates a failing reader — other protocols still score", async () => {

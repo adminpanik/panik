@@ -73,6 +73,7 @@ export function adviseLeg(
     (score.usdValuesUnavailable || (borrowUsd !== null && borrowUsd >= ALERT_POLICY.minBorrowUsd));
   if (score.usdValuesUnavailable) triggers.push("prices:degraded");
   if (score.marketContextUnavailable) triggers.push("market:unavailable");
+  if (score.dominantCollateralUnpriced) triggers.push("collateral:unpriced");
 
   const base = {
     protocol: score.protocol,

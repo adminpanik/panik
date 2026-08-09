@@ -29,6 +29,7 @@ function leg(overrides: Partial<ActiveScore> = {}): ActiveScore {
     borrowValueUsd: 8_000,
     usdValuesUnavailable: false,
     marketContextUnavailable: false,
+    dominantCollateralUnpriced: false,
     scoredCollateralSymbol: "WETH",
     assetRiskIsProxy: false,
     ...overrides,
