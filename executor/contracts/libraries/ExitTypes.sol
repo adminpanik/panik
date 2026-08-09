@@ -65,11 +65,22 @@ library ExitTypes {
     ///  maxSlippageBps          - worst execution the signer accepts against
     ///                            the oracle price, in basis points: the swap
     ///                            floor is oracleQuote * (10000 - this) / 10000.
+    ///  minUsdcOut              - floor on WORK DONE: the exit must sweep at
+    ///                            least this many USDC (token base units) to the
+    ///                            user or the whole transaction reverts, which
+    ///                            unwinds the nonce spend. This is what stops a
+    ///                            submitter from burning the permit with a
+    ///                            do-nothing (or 1-wei) exit at the exact moment
+    ///                            protection should fire. A pure repay-only
+    ///                            permit that nets no USDC sets this to 0 and
+    ///                            relies on the reject-empty-leg guard instead.
     ///  protocolsMask           - bit i set means ProtocolId(i) is allowed.
     ///                            AAVE_V3 = bit 0 ... MORPHO_BLUE = bit 3.
     ///  epoch                   - the signer's revocation epoch at signing time.
-    ///                            revokeAll() bumps it and orphans every permit
-    ///                            signed against the previous value.
+    ///                            revokeAll() sets it to an unpredictable value
+    ///                            (the block number) and orphans every permit
+    ///                            signed against the previous value, including
+    ///                            ones pre-signed for a guessed future epoch.
     ///  nonce                   - unordered (Permit2-style bitmap) nonce; any
     ///                            unused 256-bit value. Spent on execution and
     ///                            spendable in advance via
@@ -81,6 +92,7 @@ library ExitTypes {
         uint16 maxRepayFractionBps;
         uint256 triggerHealthFactorWad;
         uint16 maxSlippageBps;
+        uint256 minUsdcOut;
         uint8 protocolsMask;
         uint256 epoch;
         uint256 nonce;

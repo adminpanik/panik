@@ -74,6 +74,8 @@ contract PanikExecutor is ReentrancyGuard {
     error InvalidPermitSlippage(uint16 maxSlippageBps, uint16 maxAllowedBps);
     error ProtocolNotPermitted(uint8 protocol);
     error WithdrawNotPermitted(uint8 kind);
+    error EmptyLeg(uint8 protocol, address asset);
+    error InsufficientUsdcOut(uint256 minUsdcOut, uint256 usdcReceived);
     error MarketNotPermitted(address market);
     error AssetNotTracked(address asset);
     error UniswapLegNotPermitted();
@@ -120,11 +122,15 @@ contract PanikExecutor is ReentrancyGuard {
     uint256 private constant HF_BOUND_BELOW_ONE = WAD - 1;
 
     /// @dev EIP-712 domain, built here rather than inherited from OZ's EIP712.
-    /// That contract reaches MessageHashUtils -> Strings -> Bytes, which uses
-    /// the cancun `mcopy` opcode, and this build is pinned to paris so the
-    /// deployed executor's bytecode stays reproducible. What remains is a
-    /// keccak of ABI-encoded constants - no cryptography is hand-rolled here;
-    /// recovery still goes through OZ's ECDSA.
+    /// That contract transitively reaches OZ's Bytes.sol, which calls the
+    /// `mcopy` BUILTIN directly in inline assembly. That builtin exists only at
+    /// evmVersion >= cancun; under the pinned `paris` target solc rejects it as
+    /// a DeclarationError ("Function mcopy not found") and the whole import tree
+    /// fails to compile - verified, not assumed. (This is distinct from the
+    /// compiler EMITTING an MCOPY opcode for its own memory copies, which it
+    /// only does at cancun+ and otherwise lowers to a loop; that would have been
+    /// fine.) What remains here is a keccak of ABI-encoded constants - no
+    /// cryptography is hand-rolled; recovery still goes through OZ's ECDSA.
     bytes32 private constant DOMAIN_TYPEHASH =
         keccak256(
             "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
@@ -134,7 +140,7 @@ contract PanikExecutor is ReentrancyGuard {
 
     bytes32 private constant EXIT_PERMIT_TYPEHASH =
         keccak256(
-            "ExitPermit(address user,uint8 kind,uint16 maxRepayFractionBps,uint256 triggerHealthFactorWad,uint16 maxSlippageBps,uint8 protocolsMask,uint256 epoch,uint256 nonce,uint256 deadline)"
+            "ExitPermit(address user,uint8 kind,uint16 maxRepayFractionBps,uint256 triggerHealthFactorWad,uint16 maxSlippageBps,uint256 minUsdcOut,uint8 protocolsMask,uint256 epoch,uint256 nonce,uint256 deadline)"
         );
 
     address public immutable usdc;
@@ -174,6 +180,10 @@ contract PanikExecutor is ReentrancyGuard {
     address[] private _trackedAssets;
 
     mapping(address asset => address feed) private _priceFeedByAsset;
+    /// @dev Feed answer decimals, read and range-checked ONCE at construction so
+    /// a wrong-decimals feed cannot silently produce a near-zero (robbery)
+    /// floor at execution time. Bounded to <= 18 so _scalePrice cannot overflow.
+    mapping(address asset => uint8 decimals) private _priceFeedDecimalsByAsset;
     /// @dev Markets a permit may name: Moonwell mTokens and Comet instances.
     /// Both are called with attacker-chosen calldata in the delegated path
     /// (`leg.asset` / `leg.data`), and both hand out an ERC-20 approval on the
@@ -227,6 +237,7 @@ contract PanikExecutor is ReentrancyGuard {
         uint16 maxRepayBps;
         bool permitFloor;
         uint16 maxSlippageBps;
+        uint256 minUsdcOut;
     }
 
     modifier onlyEOA() {
@@ -278,6 +289,14 @@ contract PanikExecutor is ReentrancyGuard {
                 delegated_.maxPermitSlippageBps < BPS_DENOMINATOR,
             "PanikExecutor: invalid max permit slippage"
         );
+        // The mock-oracle branch of _getFreshAssetPrice trusts a hand-set price
+        // with no staleness or positivity guarantee - a testnet-only escape
+        // hatch. Refuse to construct with any mock asset on Base mainnet so it
+        // can never reach the delegated slippage floor there.
+        require(
+            mockOracleAssets_.length == 0 || block.chainid != 8453,
+            "PanikExecutor: mock oracle on mainnet"
+        );
 
         usdc = usdc_;
         dataProvider = IAaveProtocolDataProvider(dataProvider_);
@@ -316,12 +335,23 @@ contract PanikExecutor is ReentrancyGuard {
         maxPermitSlippageBps = delegated_.maxPermitSlippageBps;
 
         for (uint256 i; i < delegated_.priceFeedAssets.length; ++i) {
+            address feedAsset = delegated_.priceFeedAssets[i];
+            address feed = delegated_.priceFeeds[i];
+            require(feed != address(0), "PanikExecutor: zero price feed");
+            // An asset routed through the mock oracle must not also carry a real
+            // feed: the two branches would disagree and the mock (unguarded)
+            // one wins in _getFreshAssetPrice. Force a single source per asset.
             require(
-                delegated_.priceFeeds[i] != address(0),
-                "PanikExecutor: zero price feed"
+                !_useMockOracleByAsset[feedAsset],
+                "PanikExecutor: feed/mock overlap"
             );
-            _priceFeedByAsset[delegated_.priceFeedAssets[i]] = delegated_.priceFeeds[i];
-            _trackAsset(delegated_.priceFeedAssets[i]);
+            // Read the feed's decimals once and range-check here rather than
+            // trusting an unbounded runtime read (M-2).
+            uint8 feedDecimals = IChainlinkFeed(feed).decimals();
+            require(feedDecimals <= 18, "PanikExecutor: feed decimals too high");
+            _priceFeedByAsset[feedAsset] = feed;
+            _priceFeedDecimalsByAsset[feedAsset] = feedDecimals;
+            _trackAsset(feedAsset);
         }
 
         for (uint256 i; i < delegated_.markets.length; ++i) {
@@ -347,7 +377,8 @@ contract PanikExecutor is ReentrancyGuard {
                 user: msg.sender,
                 maxRepayBps: uint16(BPS_DENOMINATOR),
                 permitFloor: false,
-                maxSlippageBps: 0
+                maxSlippageBps: 0,
+                minUsdcOut: 0
             }),
             legs,
             uniswapTokenIds
@@ -383,7 +414,8 @@ contract PanikExecutor is ReentrancyGuard {
                 user: user,
                 maxRepayBps: permit.maxRepayFractionBps,
                 permitFloor: true,
-                maxSlippageBps: permit.maxSlippageBps
+                maxSlippageBps: permit.maxSlippageBps,
+                minUsdcOut: permit.minUsdcOut
             }),
             legs,
             uniswapTokenIds
@@ -400,16 +432,24 @@ contract PanikExecutor is ReentrancyGuard {
         emit UnorderedNonceInvalidation(msg.sender, wordPos, mask);
     }
 
-    /// @notice Orphan every outstanding permit at once by bumping the epoch the
-    /// signature commits to. Only the signer can call it for themselves - there
-    /// is no admin able to revoke, and none able to un-revoke.
+    /// @notice Orphan every outstanding permit at once by moving the epoch the
+    /// signature must commit to. Only the signer can call it for themselves -
+    /// there is no admin able to revoke, and none able to un-revoke.
+    /// @dev The new epoch is `block.number`, not a +1 increment. An increment
+    /// is predictable: a submitter who already holds a permit for epoch N could
+    /// pre-sign one for N+1 that survives the revocation and activates on the
+    /// next revokeAll. Binding the epoch to the block the revocation lands in
+    /// makes the target unguessable, so revokeAll is a true kill switch for
+    /// everything signed beforehand. Same block twice is a harmless no-op (the
+    /// epoch is unchanged and every prior permit was already dead).
     /// @dev The epoch rides in the signed struct rather than in the EIP-712
     /// domain salt: a domain must stay constant per contract for wallets and
     /// verifiers to cache and reproduce it, and a per-user salt would make the
     /// domain separator user-dependent - unusual, and every client would have
     /// to recompute it anyway. Same immediacy, far less surprise.
     function revokeAll() external {
-        uint256 epoch = ++revocationEpoch[msg.sender];
+        uint256 epoch = block.number;
+        revocationEpoch[msg.sender] = epoch;
         emit AllPermitsRevoked(msg.sender, epoch);
     }
 
@@ -458,6 +498,10 @@ contract PanikExecutor is ReentrancyGuard {
 
     function getPriceFeed(address asset) external view returns (address) {
         return _priceFeedByAsset[asset];
+    }
+
+    function getPriceFeedDecimals(address asset) external view returns (uint8) {
+        return _priceFeedDecimalsByAsset[asset];
     }
 
     function isDelegatedMarket(address market) external view returns (bool) {
@@ -536,6 +580,14 @@ contract PanikExecutor is ReentrancyGuard {
         usdcReceived = IERC20(usdc).balanceOf(address(this)) - usdcBefore;
         if (usdcReceived > 0) {
             IERC20(usdc).safeTransfer(ctx.user, usdcReceived);
+        }
+
+        // Floor on WORK DONE. Reverting here unwinds the nonce spend, so a
+        // submitter cannot burn a permit with a do-nothing (or 1-wei) exit at
+        // the moment protection should fire, nor pick a tiny subset of the
+        // signed legs and liquidate the rest. Zero on the self-serve path.
+        if (usdcReceived < ctx.minUsdcOut) {
+            revert InsufficientUsdcOut(ctx.minUsdcOut, usdcReceived);
         }
 
         emit ExitCompleted(ctx.user, usdcReceived, _shrink(closedTemp, closedCount), locked);
@@ -1006,7 +1058,8 @@ contract PanikExecutor is ReentrancyGuard {
             revert StalePrice(asset, updatedAt, block.timestamp);
         }
 
-        return _scalePrice(uint256(answer), IChainlinkFeed(feed).decimals());
+        // Decimals were read and bounded (<= 18) at construction.
+        return _scalePrice(uint256(answer), _priceFeedDecimalsByAsset[asset]);
     }
 
     function _scalePrice(uint256 price, uint8 feedDecimals) private pure returns (uint256) {
@@ -1105,6 +1158,7 @@ contract PanikExecutor is ReentrancyGuard {
                     permit.maxRepayFractionBps,
                     permit.triggerHealthFactorWad,
                     permit.maxSlippageBps,
+                    permit.minUsdcOut,
                     permit.protocolsMask,
                     permit.epoch,
                     permit.nonce,
@@ -1145,10 +1199,10 @@ contract PanikExecutor is ReentrancyGuard {
     /// @dev EOA signatures go through OZ's ECDSA (which rejects malleable `s`
     /// and zero recoveries - the reason none of this is hand-rolled); contract
     /// signers go through ERC-1271, so a smart-contract wallet can delegate
-    /// too. OZ's SignatureChecker would do both, but its calldata packing uses
-    /// the cancun `mcopy` opcode and this build is pinned to paris, so the
-    /// ERC-1271 branch is the plain staticcall here - an interface call, not
-    /// cryptography.
+    /// too. OZ's SignatureChecker would do both, but it calls the `mcopy`
+    /// builtin directly in inline assembly, which does not compile under the
+    /// pinned `paris` target (see the DOMAIN_TYPEHASH note), so the ERC-1271
+    /// branch is the plain staticcall here - an interface call, not cryptography.
     function _isValidSignature(
         address signer,
         bytes32 digest,
@@ -1201,6 +1255,14 @@ contract PanikExecutor is ReentrancyGuard {
 
             if (permit.protocolsMask & (uint8(1) << protocol) == 0) {
                 revert ProtocolNotPermitted(protocol);
+            }
+            // Defense-in-depth for the nonce-burn vector: a leg that neither
+            // repays nor withdraws does no work but still consumes the permit.
+            // The minUsdcOut floor is the primary guard; this rejects the
+            // degenerate leg outright so a repay-only permit (minUsdcOut == 0)
+            // is covered too.
+            if (leg.repayAmount == 0 && leg.withdrawAmount == 0) {
+                revert EmptyLeg(protocol, leg.asset);
             }
             if (!withdrawAllowed && leg.withdrawAmount != 0) {
                 revert WithdrawNotPermitted(permit.kind);
