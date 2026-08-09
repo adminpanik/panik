@@ -2,7 +2,7 @@
  * PANIK - Watch worker (standalone, runs 24/7).
  * Run:  npm run worker   (host-agnostic: Dockerfile / Procfile at repo root)
  *
- * Two loops sharing one pg pool:
+ * Three loops sharing one pg pool:
  *   1. WatchService @60s scores every active watched_wallets position via the
  *      same ActiveAdapter the dev api-server uses, debounced by confirmTicks,
  *      and persists a watch_transitions row (notified_at NULL) on a confirmed
@@ -11,6 +11,17 @@
  *   2. Dispatch loop @15s drains the unnotified queue, applies the anti-spam
  *      gate (materiality / cooldown / escalation), sends Telegram, and stamps
  *      notified_at + notify_channel.
+ *   3. Relayer loop @30s (Phase 4.A) offers every scored position to
+ *      server/exitRelayer.ts, which submits a delegated exit when the user's
+ *      SIGNED trigger has fired. IT SHIPS DISARMED: RELAYER_ENABLED defaults
+ *      off, and off means the loop still evaluates and simulates every
+ *      candidate and logs what it WOULD have done, so the decision can be
+ *      watched against real positions long before anyone arms it.
+ *
+ * NOTE THE TWO CHAINS. Loops 1-2 score Base MAINNET. Loop 3 executes on the
+ * EXECUTOR's chain (Base Sepolia today, from EXIT_CHAIN_ID) because that is
+ * where the audited-pending contract lives. They are deliberately different
+ * clients on different RPCs; see the chain-id note in server/exitPermit.ts.
  *
  * scripts/ is .vercelignore'd, so viem + pg are free here. See
  * docs/technical-docs/TELEGRAM_ALERTS.md.
@@ -40,6 +51,24 @@ import {
 } from "../packages/scoring/src/index";
 import { transactionPoolerUrl } from "../server/profileDeps";
 import { sendMessage } from "../server/telegram";
+import { ViemExitChainReader } from "../server/exitChain";
+import { SupabaseDelegationStore } from "../server/exitDelegationStore";
+import { SupabaseRelayerAttemptStore, MemoryRelayerAttemptStore } from "../server/relayerAttemptStore";
+import { ViemRelayerChain, relayerRpcUrl } from "../server/relayerChain";
+import { signerPoolFromEnv } from "../server/relayerSigner";
+import {
+  SubmissionRateWindow,
+  consoleEventSink,
+  limitsFromEnv,
+  relayerEnabled,
+} from "../server/relayerPolicy";
+import { runRelayerTick, type RelayerCandidate, type RelayerDeps } from "../server/exitRelayer";
+import {
+  EXECUTOR_ADDRESS,
+  EXIT_CHAIN_ID,
+  EXIT_USDC_ADDRESS,
+  EXIT_WETH_ADDRESS,
+} from "../src/panik-core/lib/exit.generated";
 
 const cgKey = process.env.COINGECKO_API_KEY;
 const alchemyKey = process.env.ALCHEMY_API_KEY_BASE_MAINNET;
@@ -56,6 +85,7 @@ if (!botToken) {
 
 const TICK_MS = 60_000;
 const DISPATCH_MS = 15_000;
+const RELAYER_MS = 30_000;
 const SNAPSHOT_HEARTBEAT_MS = 15 * 60_000;
 const WALLET_RELOAD_EVERY_TICKS = 5;
 
@@ -339,6 +369,111 @@ async function dispatchPending(): Promise<void> {
   }
 }
 
+// ── relayer loop (Phase 4.A) ─────────────────────────────────────────────────
+//
+// DISARMED BY DEFAULT. `relayerEnabled()` reads RELAYER_ENABLED and treats
+// anything other than an explicit true/1/yes as OFF, so a typo or a swallowed
+// value fails towards "did not spend money".
+//
+// Which reserves a position read covers: only an asset the executor TRACKS can
+// appear in a leg, so this is a configured list rather than a scan of every
+// Aave reserve. Defaults to the same USDC + WETH pair the UI's ExitFlow reads;
+// RELAYER_RESERVES overrides it with a comma-separated list when the deployed
+// tracked-asset set widens.
+function relayerReserves(): `0x${string}`[] {
+  const raw = (process.env.RELAYER_RESERVES ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => /^0x[0-9a-f]{40}$/.test(s));
+  if (raw.length > 0) return raw as `0x${string}`[];
+  return [EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS];
+}
+
+/**
+ * Build the relayer's dependencies, or null when it cannot run safely.
+ *
+ * A missing Supabase config is fatal to the relayer and ONLY the relayer: the
+ * attempt ledger is what stops a crash-restart re-firing a permit, so running
+ * without it would trade the durable idempotency guard for a process-local map.
+ * That is acceptable for a dry run (nothing is submitted) and never acceptable
+ * once armed, which is exactly how it is gated below.
+ */
+function buildRelayerDeps(): RelayerDeps | null {
+  const enabled = relayerEnabled();
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SECRET_KEY;
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("relayer disabled: SUPABASE_URL / SUPABASE_SECRET_KEY missing");
+    return null;
+  }
+
+  const rpcUrl = relayerRpcUrl();
+  const pool = signerPoolFromEnv(rpcUrl, EXIT_CHAIN_ID);
+  if (enabled && !pool) {
+    console.error("relayer ARMED but no signer configured; refusing to run armed with no key");
+    return null;
+  }
+
+  return {
+    chain: new ViemRelayerChain({ rpcUrl, chainId: EXIT_CHAIN_ID, reserves: relayerReserves() }),
+    delegations: {
+      store: new SupabaseDelegationStore(supabaseUrl, supabaseKey),
+      chain: new ViemExitChainReader(rpcUrl),
+      chainId: EXIT_CHAIN_ID,
+      executor: EXECUTOR_ADDRESS,
+    },
+    // The durable ledger is required to ARM. A dry run never claims a row, so
+    // an in-memory stand-in there costs nothing and keeps the loop observable
+    // on a host that has not been given the table yet.
+    attempts: enabled
+      ? new SupabaseRelayerAttemptStore(supabaseUrl, supabaseKey)
+      : new MemoryRelayerAttemptStore(),
+    pool,
+    limits: limitsFromEnv(),
+    hourly: new SubmissionRateWindow(),
+    emit: consoleEventSink,
+    enabled,
+    executor: EXECUTOR_ADDRESS,
+    expectedChainId: EXIT_CHAIN_ID,
+  };
+}
+
+const relayerDeps = buildRelayerDeps();
+
+/**
+ * Offer this tick's scored positions to the relayer.
+ *
+ * Candidates come from `lastScored`, which the WatchService fills with the
+ * ENGINE's own ActiveScore — the relayer never recomputes a health factor. Only
+ * positions carrying debt are offered: a position with no debt has no leg to
+ * build and would only produce a `no_legs` skip.
+ */
+async function runRelayer(): Promise<void> {
+  if (!relayerDeps) return;
+  const candidates: RelayerCandidate[] = [];
+  for (const score of lastScored.values()) {
+    if (score.borrowValueUsd !== null && score.borrowValueUsd <= 0) continue;
+    candidates.push({
+      wallet: score.wallet.toLowerCase() as `0x${string}`,
+      // Deliberately NOT cast: the engine's `Protocol` and the executor's
+      // `LiveProtocol` are the same four names today, and this assignment is
+      // what makes a future divergence a compile error rather than a silent
+      // `PROTOCOL_ID[undefined]` that mis-reads the permit's protocol mask.
+      protocol: score.protocol,
+      healthFactor: score.healthFactor,
+    });
+  }
+  if (candidates.length === 0) return;
+
+  const report = await runRelayerTick(candidates, relayerDeps);
+  if (report.submitted > 0 || Object.keys(report.reasons).length > 0) {
+    console.log(
+      `relayer tick: ${report.candidates} candidates, ${report.submitted} submitted, ` +
+        `${report.skipped} skipped${report.dryRun ? " (DRY RUN)" : ""} ${JSON.stringify(report.reasons)}`,
+    );
+  }
+}
+
 // ── boot ──────────────────────────────────────────────────────────────────────
 let tickCount = 0;
 
@@ -368,6 +503,20 @@ async function main(): Promise<void> {
   await runTick(); // warm immediately
   setInterval(() => void runTick(), TICK_MS);
   setInterval(() => void dispatchPending().catch((e) => console.error(`dispatch error: ${(e as Error).message.slice(0, 120)}`)), DISPATCH_MS);
+
+  if (relayerDeps) {
+    console.log(
+      `relayer loop @${RELAYER_MS / 1000}s on chain ${EXIT_CHAIN_ID} executor ${EXECUTOR_ADDRESS}: ` +
+        `${relayerDeps.enabled ? "ARMED" : "DRY RUN (RELAYER_ENABLED is off)"}` +
+        `, signers ${relayerDeps.pool?.size ?? 0}`,
+    );
+    setInterval(
+      () => void runRelayer().catch((e) => console.error(`relayer error: ${(e as Error).message.slice(0, 160)}`)),
+      RELAYER_MS,
+    );
+  } else {
+    console.log("relayer loop not started (see the reason logged above)");
+  }
 
   console.log("watch worker running");
 }
