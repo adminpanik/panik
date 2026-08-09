@@ -103,10 +103,15 @@ existing one on invalid input, which is exactly what that rule exists to prevent
 
 ## Repo facts that bite
 
-- Canonical remote is `panik-fi/panik-landing_page_waitlist` (`origin`). `panik_fi` was a
-  temporary staging repo during the Aug-2026 audit and is kept only as the `forktest`
-  remote — do not open PRs there. If `gh pr create` targets the wrong repo, run
-  `gh repo set-default panik-fi/panik-landing_page_waitlist`.
+- Canonical remote is `panik-fi/panik_fi` (`origin`) — renamed from
+  `panik-landing_page_waitlist` on 2026-08-09; GitHub redirects the old name.
+  `panik-fi/forktest` (previously named `panik_fi`) was a temporary staging repo during
+  the Aug-2026 audit and is kept only as the `forktest` remote — do not open PRs there.
+  If `gh pr create` targets the wrong repo, run `gh repo set-default panik-fi/panik_fi`.
+- `executor/` is the exit-executor contract suite (Hardhat), imported 2026-08-09 from
+  the recovered executor repo; full pre-import history is archived at
+  `panik-fi/panik-executor-archive`. Its source is bytecode-verified against the live
+  Base Sepolia deployment (see PR #25). `packages/scoring` still owns all risk math.
 - `api/` is **vercelignored on purpose** — all `/api/*` rewrite to Railway. It is a
   fallback mirror of the Express routes; keep it compiling and consistent, but it does
   not serve traffic. Shared logic lives in `server/`.
