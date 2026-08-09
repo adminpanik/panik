@@ -1,5 +1,5 @@
 {
-  "name": "panik-phase0-contracts",
+  "name": "panik-executor",
   "version": "0.1.0",
   "private": true,
   "description": "PANIK Phase 0 smart contract layer for Base Sepolia",
