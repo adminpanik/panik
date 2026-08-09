@@ -1,6 +1,24 @@
-# PANIK
+<h1 align="center">PANIK</h1>
 
-> Liquidation insurance you can read before the crash.
+<p align="center">
+  <strong>Liquidation insurance you can read before the crash.</strong><br/>
+  Score every lending position, warn before the window closes, and when it is time to leave: one button, total exit.
+</p>
+
+<p align="center">
+  <a href="https://panik.fi">panik.fi</a> &nbsp;·&nbsp;
+  <a href="#architecture">Architecture</a> &nbsp;·&nbsp;
+  <a href="#smart-contracts">Smart contracts</a> &nbsp;·&nbsp;
+  <a href="docs/technical-docs/SYSTEM_ARCHITECTURE.md">How it works</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Contracts-Base%20Sepolia-0052FF?style=flat-square&logo=ethereum" alt="Contracts on Base Sepolia" />
+  <img src="https://img.shields.io/badge/Solidity-0.8.24-363636?style=flat-square&logo=solidity" alt="Solidity 0.8.24" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React 19" />
+  <img src="https://img.shields.io/badge/Viem-2.x-1C1C1C?style=flat-square" alt="Viem 2.x" />
+  <img src="https://img.shields.io/badge/License-All%20rights%20reserved-lightgrey?style=flat-square" alt="All rights reserved" />
+</p>
 
 PANIK scores DeFi lending positions for liquidation risk and warns borrowers early enough to act. A wallet is scored across four dimensions — position health, asset volatility, protocol safety, and market regime — into one 0–100 number and a risk band, checked every 60 seconds against the live chain. When a position crosses the threshold for the borrower's stated risk profile, PANIK sends a Telegram alert with a concrete instruction: repay this much, or move this collateral here.
 
@@ -77,7 +95,9 @@ Everything below runs today against live mainnet chain data. The escrow contract
 
 ## 🏗️ Architecture
 
-A Vite SPA on Vercel, an Express API and a 24/7 watch worker on Railway, Supabase Postgres for state, and a Foundry escrow on Base. The scoring engine is a pure package with no I/O — it is imported by the server and never by the browser.
+<a name="architecture"></a>
+
+A Vite SPA on Vercel, an Express API and a 24/7 watch worker on Railway, Supabase Postgres for state, and two contract sets on Base: a Foundry escrow in `contracts/` and the Hardhat exit executor in `executor/`. The scoring engine is a pure package with no I/O — it is imported by the server and never by the browser.
 
 ```
    Browser (panik.fi)                         Telegram
@@ -113,10 +133,61 @@ A Vite SPA on Vercel, an Express API and a 24/7 watch worker on Railway, Supabas
                    Aave v3 · Compound v3 · Moonwell · Morpho
                    Chainlink (staleness-checked) · CoinGecko
 
-      Base Sepolia:  PanikEscrow.sol  ── 5 USDC founding deposits
+      Base Sepolia:  PanikEscrow.sol    ── 5 USDC founding deposits
+                     PanikExecutor.sol  ── one-transaction atomic exit
 ```
 
 **Why the split.** Vercel serves only the built SPA; every `/api/*` call is rewritten to Railway, so the scoring core, RPC keys, and the service key never enter the bundle or the edge. The worker is a separate Railway service because a 60-second scoring loop is a poor fit for serverless, and it restarts independently of the API.
+
+## ⛓️ Smart contracts
+
+<a name="smart-contracts"></a>
+
+Two independent contract sets live in this repo. They share nothing on chain and are built with different toolchains, so each keeps its own directory, lockfile and test command.
+
+| Directory | What it is | Toolchain | Network |
+|---|---|---|---|
+| [`contracts/`](contracts) | `PanikEscrow.sol`, founding deposits under one global refund deadline | Foundry | Base Sepolia |
+| [`executor/`](executor) | `PanikExecutor.sol` and its adapters, the one-transaction atomic exit | Hardhat | Base Sepolia |
+
+### One button, total exit
+
+`executor/` holds the contract layer behind the in-app exit flow: close every selected lending position across Aave v3, Moonwell, Compound v3 and Morpho Blue in a single transaction, or revert the whole thing and change nothing.
+
+- **One entrypoint.** `atomicExit(ExitTypes.ExitLeg[] legs, uint256[] uniswapTokenIds)`. Per leg, an amount of `0` skips, `type(uint256).max` closes in full, anything else is an exact cap, so a partial reduce and a full exit are the same call.
+- **Adapters per protocol.** `contracts/adapters/` isolates each protocol's repay and withdraw shape; `SwapAdapter` routes proceeds through the Uniswap UniversalRouter under a minimum-out floor, and `UniswapAdapter` unwinds V3 LP positions.
+- **Pre-flight lock detection.** `LockChecker.getLockedLegs` reports what cannot be exited (paused market, no redeemable cash, stable-debt cooldown) without reverting, so the UI can say so before the user signs.
+- **No admin surface on the executor.** `PanikExecutor` has no owner, no pause and no upgrade path; `atomicExit` is its only external write, guarded by `nonReentrant` and an EOA-only caller check. The adapters keep one immutable `manager`, the deployer, whose only power is `setExecutor` to relink after an executor redeploy.
+
+Sources: [`executor/contracts/`](executor/contracts). Deployment notes, the required env table and the per-protocol approval contract: [`executor/deploy/README.md`](executor/deploy/README.md).
+
+### Building the executor
+
+```bash
+cd executor
+npm ci
+npx hardhat compile
+npx hardhat test test/executor.spec.ts    # mock suite, no RPC needed
+```
+
+The fork suite is a separate, opt-in proof that impersonates real Base mainnet borrowers, so it needs an archive RPC and is not part of CI:
+
+```bash
+BASE_MAINNET_RPC=<archive rpc url> npx hardhat test test/fork
+```
+
+### Where the deploy config lives
+
+`executor/deploy/onchain-config.json` is the deployment manifest (chain id, executor and adapter addresses, ABIs) written by `npm run deploy:base-sepolia` in `executor/`. It is the single source of the app's exit wiring:
+
+```bash
+npm run sync:exit-config     # manifest -> src/panik-core/lib/exit.generated.ts
+npm run verify:exit-config   # checks the generated file against the live chain
+```
+
+`exit.generated.ts` is generated output and is never hand-edited. `sync:exit-config` reads the in-repo manifest by default; set `EXIT_CONFIG_SOURCE` to point at a manifest somewhere else. CI re-runs the verify step on any PR that touches the manifest, the generated file or the sync and verify scripts, and weekly on a schedule so a redeploy nobody synced still gets caught.
+
+The executor's own commit history, including the retired Phase 0 Aave-only design and its deprecated standalone frontend, is preserved at [panik-fi/panik-executor-archive](https://github.com/panik-fi/panik-executor-archive). What landed here is a snapshot of the contract layer only.
 
 ## 🛠️ Tech Stack
 
@@ -124,10 +195,10 @@ A Vite SPA on Vercel, an Express API and a 24/7 watch worker on Railway, Supabas
 |---|---|
 | Frontend | React 19, TypeScript, Vite, Tailwind, wagmi + viem |
 | API | Express on Node 24, Fluid-style long-lived process on Railway |
-| Scoring | `@panik/scoring` — pure TS workspace package, 212 tests |
+| Scoring | `@panik/scoring` — pure TS workspace package, 229 tests |
 | Data | Supabase Postgres (deny-all RLS, `pg_cron` retention) |
 | Chain reads | viem multicall against Base + Ethereum, Chainlink price feeds |
-| Contracts | Solidity 0.8.24, Foundry, deployed to Base Sepolia |
+| Contracts | Solidity 0.8.24; Foundry for the escrow, Hardhat for the exit executor, both on Base Sepolia |
 | Alerts | Telegram Bot API with webhook secret validation |
 | Auth | EIP-4361 (SIWE) via `viem/siwe`, server-issued single-use nonces |
 
@@ -197,12 +268,15 @@ not implement (e.g. `/api/health`) still falls through to the `:8787` proxy, and
 
 ```bash
 # Tests
-npm test              # API + app
-npm run test:scoring  # scoring engine + backtests
-npm run lint          # typecheck (baseline: 3 known wagmi errors)
+npm test              # API + app (160)
+npm run test:scoring  # scoring engine + backtests (229)
+npm run lint          # typecheck, 0 errors
 
-# Contracts (from repo root)
+# Escrow contract (Foundry, from repo root)
 cd contracts && forge test
+
+# Exit executor (Hardhat, its own package)
+cd executor && npm ci && npx hardhat compile && npx hardhat test test/executor.spec.ts
 ```
 
 ## 🎥 Demo
@@ -215,6 +289,7 @@ The public landing page is at [panik.fi](https://panik.fi); the product app is a
 - [Backtest overview](docs/technical-docs/BACKTEST_OVERVIEW.md) · [methodology](docs/technical-docs/BACKTEST_METHODOLOGY.md) · [results](docs/technical-docs/BACKTEST_RESULTS.md)
 - [Escrow system](docs/technical-docs/ESCROW_SYSTEM.md) · [plain-English explainer](docs/ESCROW_EXPLAINER.md)
 - [Telegram alerts](docs/technical-docs/TELEGRAM_ALERTS.md)
+- [Advisor and atomic exit](docs/technical-docs/PHASE2_ADVISOR_EXIT.md) · [executor deployment notes](executor/deploy/README.md)
 - [Deployment](docs/DEPLOY.md)
 - [Contributing conventions](CLAUDE.md) — branch, commit, and verification rules
 
