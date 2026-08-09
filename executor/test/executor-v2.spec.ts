@@ -35,7 +35,6 @@ const PERMIT_TYPES = {
     { name: "maxRepayFractionBps", type: "uint16" },
     { name: "triggerHealthFactorWad", type: "uint256" },
     { name: "maxSlippageBps", type: "uint16" },
-    { name: "minUsdcOut", type: "uint256" },
     { name: "protocolsMask", type: "uint8" },
     { name: "epoch", type: "uint256" },
     { name: "nonce", type: "uint256" },
@@ -49,7 +48,6 @@ interface Permit {
   maxRepayFractionBps: number;
   triggerHealthFactorWad: bigint;
   maxSlippageBps: number;
-  minUsdcOut: bigint;
   protocolsMask: number;
   epoch: bigint;
   nonce: bigint;
@@ -446,7 +444,6 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
       maxRepayFractionBps: 10_000,
       triggerHealthFactorWad: 0n,
       maxSlippageBps: 500,
-      minUsdcOut: 0n,
       protocolsMask: MASK_AAVE | MASK_MOONWELL | MASK_COMET | MASK_MORPHO,
       epoch: 0n,
       nonce: 1n,
@@ -735,8 +732,9 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
     it("re-signing another user's permit body does not reach their position", async function () {
       const f = await loadFixture(deployFixture);
       // `other` signs a permit naming themselves and points it at legs that
-      // describe the victim's markets. Everything acts on `other`'s (empty)
-      // position, so the victim keeps every token.
+      // describe the victim's markets. The exec context is `other`, who has no
+      // position, so the leg does no work - and the NoWorkDone floor now reverts
+      // it outright. Either way the victim keeps every token.
       const permit = await makePermit(f, {
         user: f.other.address,
         protocolsMask: MASK_AAVE,
@@ -745,9 +743,11 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
 
       const victimUsdc = await f.usdc.balanceOf(f.user.address);
       const victimAWeth = await f.aWeth.balanceOf(f.user.address);
-      await f.executor
-        .connect(f.relayer)
-        .atomicExitFor(f.other.address, [f.legs.aaveWethCollateral], [], permit, signature);
+      await expect(
+        f.executor
+          .connect(f.relayer)
+          .atomicExitFor(f.other.address, [f.legs.aaveWethCollateral], [], permit, signature)
+      ).to.be.revertedWithCustomError(f.executor, "NoWorkDone");
 
       expect(await f.usdc.balanceOf(f.user.address)).to.equal(victimUsdc);
       expect(await f.aWeth.balanceOf(f.user.address)).to.equal(victimAWeth);
@@ -1174,11 +1174,14 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
     });
   });
 
-  // H-1: the nonce is spent up front, so an exit that does no work would burn
-  // the permit for free at the exact moment protection should fire. Two guards:
-  // the minUsdcOut floor (primary) and the empty-leg rejection (defense).
+  // H-1: the nonce is spent up front, so an exit that does materially less than
+  // the permit authorised would burn it for free at the exact moment protection
+  // should fire. The guard is an execution-time-RELATIVE per-leg floor: each
+  // executed leg must do its full authorised work (full repay of the authorised
+  // fraction, full withdrawal) or the tx reverts and unwinds the nonce spend.
+  // The net invariant is proven per protocol on both the repay and exit paths.
   describe("H-1 nonce-burn resistance", function () {
-    it("rejects a leg that neither repays nor withdraws", async function () {
+    it("rejects a leg that neither repays nor withdraws (static)", async function () {
       const f = await loadFixture(deployFixture);
       const permit = await makePermit(f, { protocolsMask: MASK_AAVE });
       const signature = await sign(f, permit);
@@ -1188,58 +1191,104 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
         .withArgs(AAVE, await f.weth.getAddress());
     });
 
-    it("reverts (and does NOT spend the nonce) when the exit underruns minUsdcOut", async function () {
+    it("rejects a leg that asks to repay a debt the user does not have (dynamic no-op)", async function () {
       const f = await loadFixture(deployFixture);
-      // Withdrawing only the DAI leg nets ~10 USDC; a permit demanding 5000 out
-      // must revert. The nonce is spent inside the same tx, so the revert has to
-      // unwind it or the permit is dead.
-      const permit = await makePermit(f, {
-        protocolsMask: MASK_AAVE,
-        minUsdcOut: 5_000n * WAD,
-        // DAI has no feed, so use WETH which does; 1 WETH -> ~2000 USDC < 5000.
-      });
+      // Aave WETH reserve has collateral but no debt; a repay-only leg on it
+      // does nothing yet would burn the nonce.
+      const permit = await makePermit(f, { kind: FULL_REPAY, protocolsMask: MASK_AAVE });
       const signature = await sign(f, permit);
-
-      await expect(submit(f, permit, [f.legs.aaveWethCollateral], signature))
-        .to.be.revertedWithCustomError(f.executor, "InsufficientUsdcOut")
-        .withArgs(5_000n * WAD, 2_000n * WAD);
-
-      // Nonce survived the revert: the real exit still runs.
-      expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(false);
-      const ok = await makePermit(f, {
-        protocolsMask: MASK_AAVE,
-        minUsdcOut: 1_000n * WAD,
-        nonce: permit.nonce,
-      });
-      await expect(submit(f, ok, [f.legs.aaveWethCollateral], await sign(f, ok))).to.not.be
-        .reverted;
-    });
-
-    it("executes when the exit clears minUsdcOut", async function () {
-      const f = await loadFixture(deployFixture);
-      const permit = await makePermit(f, {
-        protocolsMask: MASK_AAVE,
-        minUsdcOut: 1_900n * WAD,
-      });
-      const before = await f.usdc.balanceOf(f.user.address);
-      await submit(f, permit, [f.legs.aaveWethCollateral], await sign(f, permit));
-      expect((await f.usdc.balanceOf(f.user.address)) - before).to.equal(2_000n * WAD);
-    });
-
-    it("multi-leg: a subset that underruns the floor cannot burn the permit", async function () {
-      const f = await loadFixture(deployFixture);
-      // Signer authorises a full four-protocol exit AND a floor. A submitter who
-      // runs only the smallest leg (Morpho, ~1400 USDC) to burn the nonce and
-      // liquidate the rest is stopped by minUsdcOut.
-      const permit = await makePermit(f, {
-        protocolsMask: MASK_AAVE | MASK_MOONWELL | MASK_COMET | MASK_MORPHO,
-        minUsdcOut: 8_000n * WAD,
-      });
-      const signature = await sign(f, permit);
+      const noDebtRepay = leg(AAVE, await f.weth.getAddress(), MAX, 0n);
       await expect(
-        submit(f, permit, [f.legs.morpho], signature)
-      ).to.be.revertedWithCustomError(f.executor, "InsufficientUsdcOut");
+        submit(f, permit, [noDebtRepay], signature)
+      ).to.be.revertedWithCustomError(f.executor, "NoWorkDone");
       expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(false);
+    });
+
+    // The core repay-side H-1: a 1-wei repay must revert and leave the nonce
+    // unspent, then the SAME permit+signature spent by a full repay succeeds.
+    // Proven per protocol because the guard lives in each leg processor.
+    for (const p of ["aave", "moonwell", "comet", "morpho"] as const) {
+      it(`repay-only permit: a 1-wei ${p} repay cannot burn the nonce`, async function () {
+        const f = await loadFixture(deployFixture);
+        const mask =
+          p === "aave"
+            ? MASK_AAVE
+            : p === "moonwell"
+            ? MASK_MOONWELL
+            : p === "comet"
+            ? MASK_COMET
+            : MASK_MORPHO;
+        const cometData = abi.encode(["address"], [await f.comet.getAddress()]);
+        const tinyLeg =
+          p === "aave"
+            ? leg(AAVE, await f.usdc.getAddress(), 1n, 0n)
+            : p === "moonwell"
+            ? leg(MOONWELL, await f.mUsdc.getAddress(), 1n, 0n)
+            : p === "comet"
+            ? leg(COMET, ethers.ZeroAddress, 1n, 0n, cometData)
+            : leg(MORPHO, await f.usdc.getAddress(), 1n, 0n, f.morphoData);
+        const fullLeg =
+          p === "aave"
+            ? f.legs.aaveUsdcDebt
+            : p === "moonwell"
+            ? f.legs.moonwellUsdcDebt
+            : p === "comet"
+            ? f.legs.cometRepayOnly
+            : f.legs.morphoRepayOnly;
+
+        const permit = await makePermit(f, { kind: FULL_REPAY, protocolsMask: mask });
+        const signature = await sign(f, permit);
+
+        await expect(
+          submit(f, permit, [tinyLeg], signature)
+        ).to.be.revertedWithCustomError(f.executor, "RepayFloorNotMet");
+        // Nonce survived: the SAME permit+signature, spent by a full repay.
+        expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(false);
+        await expect(submit(f, permit, [fullLeg], signature)).to.not.be.reverted;
+        expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(true);
+      });
+    }
+
+    it("FULL_EXIT: a partial withdrawal reverts and leaves the nonce unspent", async function () {
+      const f = await loadFixture(deployFixture);
+      const permit = await makePermit(f, { protocolsMask: MASK_AAVE });
+      const signature = await sign(f, permit);
+      // Withdraw only half the aWETH balance under a FULL_EXIT: must revert.
+      const partial = leg(AAVE, await f.weth.getAddress(), 0n, f.aaveCollateral / 2n);
+      await expect(
+        submit(f, permit, [partial], signature)
+      ).to.be.revertedWithCustomError(f.executor, "WithdrawFloorNotMet");
+      expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(false);
+      // Full withdrawal on the same permit succeeds.
+      await expect(
+        submit(f, permit, [f.legs.aaveWethCollateral], signature)
+      ).to.not.be.reverted;
+    });
+
+    it("REDUCE: a repay short of the authorised fraction reverts (subset-skim)", async function () {
+      const f = await loadFixture(deployFixture);
+      // Authorised: 50% of live debt. A leg trying to repay less must revert -
+      // the submitter cannot satisfy the permit with under-work, single or multi.
+      const permit = await makePermit(f, {
+        kind: REDUCE,
+        maxRepayFractionBps: 5_000,
+        protocolsMask: MASK_AAVE | MASK_MORPHO,
+      });
+      const signature = await sign(f, permit);
+      const shortAave = leg(AAVE, await f.usdc.getAddress(), f.aaveDebt / 4n, 0n); // 25% < 50%
+      await expect(
+        submit(f, permit, [shortAave, f.legs.morphoRepayOnly], signature)
+      ).to.be.revertedWithCustomError(f.executor, "RepayFloorNotMet");
+      expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(false);
+      // Full authorised fraction on both legs succeeds.
+      await expect(
+        submit(
+          f,
+          permit,
+          [leg(AAVE, await f.usdc.getAddress(), MAX, 0n), f.legs.morphoRepayOnly],
+          signature
+        )
+      ).to.not.be.reverted;
     });
   });
 
