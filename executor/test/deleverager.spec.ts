@@ -471,6 +471,80 @@ describe("PanikDeleverager", function () {
     });
   });
 
+  describe("Moonwell collateral-funded deleverage (exchange-rate-correct swap)", function () {
+    it("sells the redeemed underlying, not the mToken count", async function () {
+      const f = await deployBase();
+      const userAddr = await f.user.getAddress();
+      const delevAddr = await f.deleverager.getAddress();
+
+      const MockComptroller = await ethers.getContractFactory("MockComptroller");
+      const comptroller = await MockComptroller.deploy();
+      await comptroller.setAccountLiquidity(userAddr, 0, 0); // no shortfall
+
+      const MockMTokenRate = await ethers.getContractFactory("MockMTokenRate");
+      // Debt market (mUSDC). Collateral market (mWETH) redeems at 1 mToken ->
+      // 0.02 WETH, i.e. 50 mWETH -> 1 WETH (the real Moonwell ballpark).
+      const mUsdc = await MockMTokenRate.deploy(
+        "mUSDC", "mUSDC", await f.debt.getAddress(), await comptroller.getAddress(), UNIT18
+      );
+      const mWeth = await MockMTokenRate.deploy(
+        "mWETH", "mWETH", await f.coll.getAddress(), await comptroller.getAddress(), 2n * 10n ** 16n
+      );
+
+      // Redeploy a deleverager that allowlists the two mToken markets.
+      const Deleverager = await ethers.getContractFactory("PanikDeleverager");
+      const deleverager = await Deleverager.deploy(
+        {
+          balancerVault: await f.vault.getAddress(),
+          aavePool: await f.aavePool.getAddress(),
+          morpho: await f.morpho.getAddress(),
+          aaveDataProvider: await f.dataProvider.getAddress(),
+          universalRouter: await f.router.getAddress(),
+          swapDeadlineBuffer: 300,
+        },
+        {
+          priceFeedAssets: [await f.debt.getAddress(), await f.coll.getAddress()],
+          priceFeeds: [await f.debtFeed.getAddress(), await f.collFeed.getAddress()],
+          oracleStalenessSeconds: 3600,
+          sequencerUptimeFeed: ethers.ZeroAddress,
+          sequencerGracePeriod: 3600,
+          maxSlippageBpsCeiling: 1000,
+        },
+        [await f.debt.getAddress(), await f.coll.getAddress()],
+        [await mUsdc.getAddress(), await mWeth.getAddress()]
+      );
+
+      // Position: 5000 USDC borrowed; user holds 50 mWETH (== 1 WETH of collateral).
+      await mUsdc.setBorrowBalance(userAddr, 5000n * UNIT6);
+      await mWeth.mint(userAddr, 50n * UNIT18);
+      await f.coll.mint(await mWeth.getAddress(), 1n * UNIT18); // redeem liquidity
+      await mWeth.connect(f.user).approve(await deleverager.getAddress(), ethers.MaxUint256);
+
+      await f.debt.mint(await f.vault.getAddress(), 10_000n * UNIT6);
+      await f.debt.mint(await f.router.getAddress(), 10_000n * UNIT6);
+
+      const userDebtBefore = await f.debt.balanceOf(userAddr);
+      const p = {
+        protocol: MOONWELL,
+        flashSource: SRC_BALANCER,
+        debtAsset: await f.debt.getAddress(),
+        collateralToken: await f.coll.getAddress(),
+        repayAmount: 1500n * UNIT6,
+        collateralWithdraw: 50n * UNIT18, // mTokens -> redeems to 1 WETH
+        maxSlippageBps: 500,
+        swapPath: v3Path(await f.coll.getAddress(), await f.debt.getAddress()),
+        marketData: coder.encode(["address", "address"], [await mUsdc.getAddress(), await mWeth.getAddress()]),
+      };
+      await deleverager.connect(f.user).deleverage(p);
+
+      // Debt down 1500; the 1 redeemed WETH sold for 2000 USDC; 500 back to user.
+      expect(await mUsdc.borrowBalanceCurrent(userAddr)).to.equal(3500n * UNIT6);
+      expect(await f.debt.balanceOf(userAddr)).to.equal(userDebtBefore + 500n * UNIT6);
+      expect(await f.debt.balanceOf(await deleverager.getAddress())).to.equal(0n);
+      expect(await f.coll.balanceOf(await deleverager.getAddress())).to.equal(0n);
+    });
+  });
+
   describe("target-HF sizing (advisory view)", function () {
     it("prices repay = D*(T-HF)/(T-WLT) into debt-asset units from live Aave data", async function () {
       const f = await deployBase();

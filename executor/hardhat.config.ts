@@ -42,9 +42,13 @@ const config: HardhatUserConfig = {
             },
             forking: {
               url: process.env.BASE_MAINNET_RPC,
-              ...(process.env.FORK_BLOCK_NUMBER
-                ? { blockNumber: Number(process.env.FORK_BLOCK_NUMBER) }
-                : {}),
+              // Pinned to a recent finalized Base mainnet block so fork runs are
+              // deterministic and Alchemy-cached (forking from `latest` is not
+              // repeatable and warns). Captured 2026-08-10 (chain head was
+              // ~0x2f73cf8 / 49,691,384). Override with FORK_BLOCK_NUMBER.
+              blockNumber: process.env.FORK_BLOCK_NUMBER
+                ? Number(process.env.FORK_BLOCK_NUMBER)
+                : 49_691_000,
             },
           }
         : {}),
