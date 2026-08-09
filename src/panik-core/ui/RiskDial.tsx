@@ -1,6 +1,6 @@
 import React from "react";
-import type { Band } from "../lib/live";
-import { RISK_TEXT } from "../lib/utils";
+import type { Band, DegradableSubScores } from "../lib/live";
+import { marketContextMissing, RISK_TEXT } from "../lib/utils";
 import { InfoTip } from "../components/InfoTip";
 
 /**
@@ -41,10 +41,21 @@ export function RiskDial({
 }: {
   score: number;
   band: Band;
-  /** The four weighted components. Shown in the explanation, not on the dial. */
-  subScores?: { positionHealth: number; assetRisk: number; protocolSafety: number; systemicRisk: number };
+  /**
+   * The four weighted components. Shown in the explanation, not on the dial.
+   * The two market-context terms may be null on an active-mode score, and a
+   * null must not reach `Math.round` here: it returns 0, which is the BEST
+   * reading either term has, so an unread feed would announce a calm market.
+   */
+  subScores?: DegradableSubScores;
 }) {
   const pct = Math.max(0, Math.min(100, score)) / 100;
+
+  const term = (v: number | null) => (v === null ? "not measured" : String(Math.round(v)));
+  // The published weights only describe the score when all four terms were
+  // read. With one dropped the composite is renormalised over the rest, so
+  // quoting 40/25/20/15 would be stating arithmetic the number did not follow.
+  const degraded = subScores ? marketContextMissing(subScores) : false;
 
   // The accessible name has to lead with the answer. It is the label for a
   // focusable element, so it replaces the numeral and the word for a screen
@@ -53,10 +64,11 @@ export function RiskDial({
   const explanation =
     `PANIK risk score ${score} of 100, ${band}. ` +
     (subScores
-      ? `Position health ${Math.round(subScores.positionHealth)}, asset risk ${Math.round(subScores.assetRisk)}, ` +
-        `protocol safety ${Math.round(subScores.protocolSafety)}, systemic risk ${Math.round(subScores.systemicRisk)}. `
+      ? `Position health ${term(subScores.positionHealth)}, asset risk ${term(subScores.assetRisk)}, ` +
+        `protocol safety ${term(subScores.protocolSafety)}, systemic risk ${term(subScores.systemicRisk)}. `
       : "") +
-    "Weighted 40/25/20/15. Higher means closer to liquidation; your risk profile sets where alerts fire.";
+    (degraded ? "Weighted over the parts we could measure. " : "Weighted 40/25/20/15. ") +
+    "Higher means closer to liquidation; your risk profile sets where alerts fire.";
 
   return (
     <InfoTip text={explanation} className="cursor-help rounded-full">

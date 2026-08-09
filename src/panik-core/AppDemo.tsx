@@ -1124,7 +1124,10 @@ export function AppDemo() {
     if (!portfolioPositions || portfolioPositions.length === 0) return null;
     // Legs whose USD values are unavailable (degraded price feed) carry no
     // dollar weight here — their scores and health factors are still exact, so
-    // `pricesDegraded` marks the totals as an UNDERSTATEMENT rather than truth.
+    // `unpricedLegs` marks the totals as an UNDERSTATEMENT rather than truth.
+    // Counted, not just flagged: a total that silently omits a $128,500 leg is
+    // the same "unknown rendered as a zero" the null sub-scores exist to stop,
+    // and the cards below say how many legs are missing from the sum.
     const usd = (v: number | null) => (v === null || !Number.isFinite(v) ? 0 : v);
     const capital = portfolioPositions.reduce((a, p) => a + usd(p.collateralValueUsd), 0);
     const debt = portfolioPositions.reduce((a, p) => a + usd(p.borrowValueUsd), 0);
@@ -1147,7 +1150,7 @@ export function AppDemo() {
         ...new Set(portfolioPositions.map((p) => LIVE_PROTOCOL_LABEL[p.protocol] ?? p.protocol)),
       ],
       aggregate,
-      pricesDegraded: portfolioPositions.some((p) => p.usdValuesUnavailable),
+      unpricedLegs: portfolioPositions.filter((p) => p.usdValuesUnavailable).length,
     };
   }, [portfolioPositions]);
 
@@ -2431,6 +2434,24 @@ export function AppDemo() {
                 {/* Macro metrics columns — computed from LIVE positions when available */}
                 {(() => {
                   const aggregate = liveMacro?.aggregate ?? 22;
+                  // Legs the engine could not price contribute nothing to the
+                  // three dollar-weighted figures here, so each one is a FLOOR
+                  // and not the wallet. A numeral that quietly drops a position
+                  // is the failure this screen is least able to survive, so the
+                  // shortfall is stated rather than left to the reader.
+                  //
+                  // The visible marker is one sub-line, on the capital card,
+                  // and it is deliberately short: `Stat` truncates its sub to a
+                  // single line, so a caveat long enough to be cut is a caveat
+                  // that disappears exactly when the card gets narrow. The
+                  // sentence explaining it lives in the tips, which wrap.
+                  const unpriced = liveMacro?.unpricedLegs ?? 0;
+                  const unpricedNote =
+                    unpriced > 0 ? `${unpriced} position${unpriced === 1 ? "" : "s"} not priced` : null;
+                  const unpricedHint =
+                    unpriced > 0
+                      ? ` A price feed was missing for ${unpriced === 1 ? "one position" : `${unpriced} positions`}, so ${unpriced === 1 ? "it is" : "they are"} left out of this figure. The scores and health factors are still exact.`
+                      : "";
                   // The verdict is carried by the WORD, not by a hue. A 28px
                   // numeral repainted red is the single loudest thing a
                   // dashboard can emit, and it was firing on a summary figure
@@ -2469,12 +2490,19 @@ export function AppDemo() {
                           label={
                             <>
                               Monitored capital
-                              <InfoTip text="Total collateral value PANIK is watching for this wallet across all protocols." />
+                              <InfoTip
+                                text={
+                                  "Total collateral value PANIK is watching for this wallet across all protocols." +
+                                  unpricedHint
+                                }
+                              />
                             </>
                           }
-                          /* No subline. The figure and the label already say
-                             everything this card knows; anything else here is
-                             text for the sake of text. */
+                          /* No subline when every leg is priced: the figure and
+                             the label already say everything this card knows.
+                             When one is not, the sub-line is the only thing
+                             standing between this figure and a lie. */
+                          sub={unpricedNote}
                           value={liveMacro ? formatUsd(liveMacro.capital) : "$18,450"}
                         />
                       </Card>
@@ -2484,7 +2512,12 @@ export function AppDemo() {
                           label={
                             <>
                               Monitored liabilities
-                              <InfoTip text="Total borrowed across your positions. Net LTV is liabilities divided by capital - lower means safer." />
+                              <InfoTip
+                                text={
+                                  "Total borrowed across your positions. Net LTV is liabilities divided by capital - lower means safer." +
+                                  unpricedHint
+                                }
+                              />
                             </>
                           }
                           value={liveMacro ? formatUsd(liveMacro.debt) : "$9,310"}
@@ -2542,7 +2575,18 @@ export function AppDemo() {
                           label={
                             <>
                               Aggregate risk index
-                              <InfoTip text="Collateral-weighted average PANIK score across this wallet's positions. Bigger positions move it more." />
+                              {/* The weighting is by collateral value, so a leg
+                                  we could not price carries no weight and drops
+                                  out of this average entirely. Its sub-line is
+                                  spoken for by the verdict, so the caveat rides
+                                  in the tip the label already carries rather
+                                  than buying a second line. */}
+                              <InfoTip
+                                text={
+                                  "Collateral-weighted average PANIK score across this wallet's positions. Bigger positions move it more." +
+                                  unpricedHint
+                                }
+                              />
                             </>
                           }
                           value={`${aggregate} / 100`}

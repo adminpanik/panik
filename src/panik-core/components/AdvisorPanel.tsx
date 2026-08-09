@@ -36,7 +36,14 @@ import type {
 } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
-import { formatUsd, liquidationOutlook, RISK_TEXT } from "../lib/utils";
+import {
+  formatUsd,
+  liquidationOutlook,
+  MARKET_CONTEXT_MISSING_HINT,
+  MARKET_CONTEXT_MISSING_LABEL,
+  marketContextMissing,
+  RISK_TEXT,
+} from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial } from "../ui";
 import { EXIT_ENV } from "../lib/exit";
 
@@ -200,6 +207,21 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
         <span className="inline-flex items-center gap-1.5 text-xs font-sans text-risk-unknown">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           USD amounts unavailable
+        </span>
+      )}
+      {/* A second, independent caveat: this one is about the SCORE on the rail,
+          not the dollars. It is stated because the dial prints a real number
+          either way — the composite renormalises over what was measured — and a
+          reader has no way to tell a fully-measured 75 from a partly-measured
+          one unless the card says so. `title`, not an InfoTip: this strip
+          already wraps, and the tip's anchor cannot. */}
+      {marketContextMissing(n.subScores) && (
+        <span
+          title={MARKET_CONTEXT_MISSING_HINT}
+          className="inline-flex cursor-help items-center gap-1.5 text-xs font-sans text-risk-unknown"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {MARKET_CONTEXT_MISSING_LABEL}
         </span>
       )}
     </div>

@@ -22,6 +22,11 @@
  * Sub-scores are themselves derived rather than sprinkled: systemic risk is a
  * market-wide term (one value everywhere), protocol safety is per protocol,
  * asset risk is per asset, and only position health varies per position.
+ *
+ * The exception is the leg whose market context failed to read: its systemic
+ * term is `null` ("not measured"), the composite renormalises over the weights
+ * that survive, and the fixture is here so the degraded render path is exercised
+ * by `npm run dev:mock` rather than only by a unit test.
  */
 
 import type {
@@ -130,6 +135,15 @@ export const MOCK_POSITIONS: LiveWalletPosition[] = [
     //    (a calm market says "ELEVATED"), the floor lifts it to 75 / CRITICAL.
     //    This is exactly the Mar-2023 USDC-depeg case params.ts was written for,
     //    so the fixture set covers it rather than only the easy path.
+    //
+    //    Also the DEGRADED MARKET CONTEXT path: the systemic-risk lookup threw
+    //    for this leg (the moonwell/moonwell-artemis id incident), so that
+    //    sub-score is null and the composite renormalises over the three terms
+    //    that were read: (95*.40 + 34*.25 + 52*.20) / .85 = 66.9 -> 67, which
+    //    the HF <= 1.10 floor then lifts to 75. The total is unchanged, which
+    //    is the point: the number stays real and only the SUB-score is unknown,
+    //    so a UI that prints `Math.round(null)` here shows a 0 next to a
+    //    CRITICAL dial and nothing else looks wrong.
     protocol: "morpho",
     wallet: MOCK_WALLET,
     total: 75,
@@ -138,8 +152,9 @@ export const MOCK_POSITIONS: LiveWalletPosition[] = [
       positionHealth: 95,
       assetRisk: ASSET_RISK.cbBTC,
       protocolSafety: PROTOCOL_SAFETY.morpho,
-      systemicRisk: SYSTEMIC,
+      systemicRisk: null, // DefiLlama lookup failed for this leg — not measured, never 0
     },
+    marketContextUnavailable: true,
     healthFactor: 1.05,
     collateralValueUsd: 128_500,
     borrowValueUsd: 105_200,

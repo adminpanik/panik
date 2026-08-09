@@ -156,6 +156,32 @@ export const RISK_CHIP: Record<Band | "UNKNOWN", string> = {
  * surface behind text. The "risk is always a tint" rule in index.css is about
  * chips and containers; a 6px bar has no text on it to fail contrast against.
  */
+/**
+ * True when a market-context term of an ACTIVE-path score could not be read for
+ * this leg, so at least one sub-score is null.
+ *
+ * DERIVED, not stored a second time: this is the exact condition
+ * `ActiveAdapter` sets `marketContextUnavailable` from
+ * (packages/scoring/src/adapters/active.ts), and the advisor's `numbers` payload
+ * carries the sub-scores without the flag. One predicate over the sub-scores is
+ * the only version that cannot disagree with itself.
+ */
+export function marketContextMissing(sub: {
+  assetRisk: number | null;
+  systemicRisk: number | null;
+}): boolean {
+  return sub.assetRisk === null || sub.systemicRisk === null;
+}
+
+/**
+ * The one wording for a sub-score the engine could not read, and its
+ * explanation. Plain language: the reader is being told a part of the score is
+ * missing, not which provider threw.
+ */
+export const MARKET_CONTEXT_MISSING_LABEL = "Market risk not measured";
+export const MARKET_CONTEXT_MISSING_HINT =
+  "We could not read the market data for this asset or protocol, so those parts are left out. The score is weighted over what we could measure, and your position health is unaffected.";
+
 export const RISK_TEXT: Record<Band, string> = {
   LOW: "text-risk-low",
   ELEVATED: "text-risk-elevated",

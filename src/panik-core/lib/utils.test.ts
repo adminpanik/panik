@@ -5,7 +5,12 @@
  * ones asserted here rather than the happy path alone.
  */
 import { describe, expect, it } from "vitest";
-import { liquidationOutlook } from "./utils";
+import {
+  liquidationOutlook,
+  MARKET_CONTEXT_MISSING_HINT,
+  MARKET_CONTEXT_MISSING_LABEL,
+  marketContextMissing,
+} from "./utils";
 
 describe("liquidationOutlook", () => {
   it("states a health factor as the price drop it means", () => {
@@ -93,6 +98,40 @@ describe("liquidationOutlook", () => {
       expect(o.strip).not.toContain("—");
       expect(o.stripNote ?? "").not.toContain("—");
       expect(o.hover).not.toContain("—");
+    }
+  });
+});
+
+describe("marketContextMissing", () => {
+  const measured = { assetRisk: 34, systemicRisk: 30 };
+
+  it("is true when either market term was not measured", () => {
+    expect(marketContextMissing({ ...measured, assetRisk: null })).toBe(true);
+    expect(marketContextMissing({ ...measured, systemicRisk: null })).toBe(true);
+    expect(marketContextMissing({ assetRisk: null, systemicRisk: null })).toBe(true);
+  });
+
+  it("is false when both were measured, including at zero", () => {
+    expect(marketContextMissing(measured)).toBe(false);
+    // 0 is a REAL score: the calmest reading either term has. Treating it as
+    // absent would flip an honest case into a degraded banner, which is the
+    // same conflation running the other way.
+    expect(marketContextMissing({ assetRisk: 0, systemicRisk: 0 })).toBe(false);
+  });
+});
+
+describe("the not-measured copy", () => {
+  it("says what is missing in words a non-expert reads", () => {
+    expect(MARKET_CONTEXT_MISSING_LABEL).toBe("Market risk not measured");
+    // No numeral anywhere in the marker: a figure standing where an unknown
+    // belongs is the exact thing this path exists to keep off the screen.
+    expect(MARKET_CONTEXT_MISSING_LABEL).not.toMatch(/\d/);
+  });
+
+  it("names no provider, no enum and no em dash", () => {
+    for (const s of [MARKET_CONTEXT_MISSING_LABEL, MARKET_CONTEXT_MISSING_HINT]) {
+      expect(s).not.toContain("—");
+      expect(s).not.toMatch(/CoinGecko|DefiLlama|null|undefined|NaN/i);
     }
   });
 });
