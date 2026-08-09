@@ -59,24 +59,8 @@ export const exitWagmiConfig = createConfig({
   },
 });
 
-/** ExitTypes.ProtocolId on-chain enum. */
-export const PROTOCOL_ID: Record<LiveProtocol, number> = {
-  aave_v3: 0,
-  moonwell: 1,
-  compound_v3: 2,
-  morpho: 3,
-};
-
-/** Amount sentinel: type(uint256).max = "full" per the executor ABI. */
-export const AMOUNT_FULL = 2n ** 256n - 1n;
-
-export interface ExitLegInput {
-  protocol: number;
-  asset: `0x${string}`;
-  repayAmount: bigint;
-  withdrawAmount: bigint;
-  data: `0x${string}`;
-}
+// `PROTOCOL_ID`, `AMOUNT_FULL` and `ExitLegInput` live in `./exitLegs`, which
+// carries no wagmi/viem imports so the leg-building math can be unit tested.
 
 /**
  * Protocols executable in the CURRENT exit environment. On the Sepolia demo

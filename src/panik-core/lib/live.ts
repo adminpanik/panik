@@ -319,8 +319,18 @@ export interface AdvisorSections {
 }
 
 export interface AdvisorRepayPlan {
+  /** Display only; a dollar figure is never converted back into token units. */
   repayUsd: number;
-  repayAssetSymbol: string;
+  /**
+   * The leg's actual debt asset. Null when the reader could not name it - it is
+   * NOT safe to assume USDC, which is what this field used to hardcode.
+   */
+  repayAssetSymbol: string | null;
+  /**
+   * Fraction of the leg's debt to repay, in (0, 1]. The executable form: see
+   * `packages/scoring/src/advisor/repayMath.ts`.
+   */
+  repayFraction: number;
   targetHf: number;
   projectedHf: number;
   mode: "wallet_funded";
@@ -363,7 +373,14 @@ export interface AdvisorRecommendation {
     subScores: DegradableSubScores;
     scoredCollateralSymbol: string;
   };
-  exitPrefill?: { protocol: LiveProtocol; kind: "full" | "partial"; repayUsd?: number };
+  exitPrefill?: {
+    protocol: LiveProtocol;
+    kind: "full" | "partial";
+    /** Display only. */
+    repayUsd?: number;
+    /** What a partial exit is actually sized from; see `AdvisorRepayPlan`. */
+    repayFraction?: number;
+  };
   openPrefill?: AdvisorOpenPlan;
 }
 
