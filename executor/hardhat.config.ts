@@ -23,6 +23,10 @@ const config: HardhatUserConfig = {
         enabled: true,
         runs: 200,
       },
+      // The Sepolia deployment was compiled to paris (Hardhat's implicit
+      // default for solc 0.8.24). Pinned so a toolchain upgrade cannot
+      // silently retarget codegen and break bytecode reproducibility.
+      evmVersion: "paris",
     },
   },
   networks: {
