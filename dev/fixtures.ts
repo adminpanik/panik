@@ -531,6 +531,22 @@ const MOONWELL_REPAY_USD = 17_851.43;
  * 1/1e6 grid `repayFractionOfDebt` emits (packages/scoring/advisor/repayMath).
  */
 const MOONWELL_REPAY_FRACTION = 0.314286;
+/**
+ * The same protection, funded by selling the leg's own collateral instead of
+ * spending from the wallet.
+ *
+ * collateralFundedRepayToTargetHf(56800, 1.20, 1.75, 0.81) = 33234.0425…,
+ * with 0.81 standing in for the leg's weighted liquidation threshold (Moonwell
+ * is a Compound-V2 fork, so one collateralFactorMantissa is both the borrow
+ * limit and the liquidation threshold). It repays MORE than the wallet-funded
+ * plan because selling collateral shrinks both sides of the health factor, and
+ * that gap is the thing the two-outcome card exists to show.
+ *
+ * The fraction is the same 1/1e6 grid `repayFractionOfDebt` emits:
+ * 33234.0425… / 56800 = 0.5851063… -> 0.585106.
+ */
+const MOONWELL_COLLATERAL_REPAY_USD = 33_234;
+const MOONWELL_COLLATERAL_REPAY_FRACTION = 0.585106;
 
 const RECOMMENDATIONS: AdvisorRecommendation[] = [
   {
@@ -561,7 +577,7 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
     wallet: MOCK_WALLET,
     action: "REDUCE",
     urgency: "warning",
-    triggers: ["band:HIGH", "profile:outside"],
+    triggers: ["band:HIGH", "profile:outside", "repay:collateral_funded_available"],
     repayPlan: {
       repayUsd: MOONWELL_REPAY_USD,
       repayAssetSymbol: "USDC",
@@ -569,6 +585,20 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
       targetHf: 1.75,
       projectedHf: 1.75,
       mode: "wallet_funded",
+    },
+    // Both routes to the same target, which is what the engine emits: it cannot
+    // see whether this wallet holds $17,851 of USDC, so it sizes each and the
+    // card names what each one needs. The costs are the engine's own constants
+    // for a Moonwell leg (worst-case flash fee, the 1% swap allowance, and the
+    // fork-measured gas), so the card's cost line is reachable in dev:mock.
+    collateralFundedAlternative: {
+      repayUsd: MOONWELL_COLLATERAL_REPAY_USD,
+      repayAssetSymbol: "USDC",
+      repayFraction: MOONWELL_COLLATERAL_REPAY_FRACTION,
+      targetHf: 1.75,
+      projectedHf: 1.75,
+      mode: "collateral_funded",
+      costs: { flashFeeBps: 5, slippageBps: 100, gasUnits: 1_167_280 },
     },
     sections: {
       position:
