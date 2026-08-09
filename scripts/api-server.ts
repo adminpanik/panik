@@ -61,6 +61,7 @@ import { CampaignStore } from "../server/campaignStore";
 import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
+import { logNarration, type NarrationLogRow, type NarrationStore } from "../server/narrationLog";
 import { buildCreateInput, type RawCreateBody } from "../server/adminCampaigns";
 import { adminAuthGate } from "../server/adminAuth";
 import { verifyWalletOwnership } from "../server/walletAuth";
@@ -785,6 +786,28 @@ const advisorNarrator = process.env.OPENROUTER_API_KEY
   ? new AdvisorNarrator(process.env.OPENROUTER_API_KEY)
   : null;
 
+/**
+ * Where a narration attempt gets written down, rejected ones included.
+ * See server/narrationLog.ts for why the prompt is stored as a hash.
+ */
+const narrationStore: NarrationStore = {
+  insert: (row: NarrationLogRow) =>
+    db.query(
+      "insert into public.advisor_narrations" +
+        " (wallet, model, raw_response, numeric_pass, hedge_pass, served, payload_hash)" +
+        " values ($1,$2,$3,$4,$5,$6,$7)",
+      [
+        row.wallet,
+        row.model,
+        row.rawResponse,
+        row.numericPass,
+        row.hedgePass,
+        row.served,
+        row.payloadHash,
+      ],
+    ),
+};
+
 type AdvisorResponse = AdvisorReport & { changeToken: string };
 const advisorCache = new LruCache<{ at: number; report: AdvisorResponse }>(CACHE_MAX_WALLETS);
 
@@ -889,7 +912,10 @@ app.get("/api/advisor", advisorLimit, async (req, res) => {
     });
 
     // 4 - narrate non-HOLD legs + the top opportunity, time-boxed; any failure
-    // keeps the deterministic sections already attached.
+    // keeps the deterministic sections already attached. The narrator's own
+    // guards (numeric whitelist, critical-verdict template slot, symbol
+    // sanitisation, circuit breaker) decide whether a completion is servable;
+    // this loop only decides whether it arrived in time.
     let narrated = false;
     if (advisorNarrator) {
       const targets = [
@@ -898,15 +924,36 @@ app.get("/api/advisor", advisorLimit, async (req, res) => {
       ];
       await Promise.all(
         targets.map(async (rec) => {
-          const out = await withTimeout(
-            advisorNarrator.narrate(rec, profile, insights),
-            ADVISOR_NARRATE_TIMEOUT_MS,
-            rec.sections,
-          );
-          if (out !== rec.sections) {
-            rec.sections = out;
+          const attempt = advisorNarrator.narrateWithAudit(rec, profile, insights).catch(() => null);
+          const out = await withTimeout(attempt, ADVISOR_NARRATE_TIMEOUT_MS, null);
+          const useModel = out !== null && out.served === "narrated";
+          if (useModel && out) {
+            rec.sections = out.sections;
             narrated = true;
           }
+          rec.narrationSource = useModel ? "narrated" : "fallback";
+          // Audited off the SETTLED promise, not the raced one, so a completion
+          // that arrived a second late is still on the record - `served` stays
+          // the decision this request actually made.
+          void attempt.then((settled) => {
+            if (!settled) return;
+            logNarration(
+              narrationStore,
+              {
+                wallet,
+                model: settled.model,
+                raw: settled.raw,
+                numericPass: settled.numericPass,
+                hedgePass: settled.hedgePass,
+                served: useModel ? "narrated" : "fallback",
+                payload: settled.payload,
+              },
+              (e: unknown) =>
+                console.error(
+                  `advisor_narrations insert failed: ${(e as Error).message.slice(0, 80)}`,
+                ),
+            );
+          });
         }),
       );
     }

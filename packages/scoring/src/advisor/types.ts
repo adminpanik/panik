@@ -147,6 +147,18 @@ export interface AdvisorRecommendation {
   rebalance?: { toProtocol: Protocol; reason: string };
   /** Deterministic 4-section text; the narrator may overwrite prose, never numbers. */
   sections: AdvisorSections;
+  /**
+   * Where the `sections` above actually came from, per leg.
+   *
+   * Absent or `"fallback"` means the engine wrote them. The UI labels an
+   * AI-phrased block and must not label a deterministic one: a report-level
+   * "narrated" flag cannot answer that question, because a report is narrated
+   * when ANY leg is and the guards reject legs individually.
+   *
+   * On a critical leg `"narrated"` still means the verdict sentence is the
+   * engine's - see `AdvisorNarrator`.
+   */
+  narrationSource?: "narrated" | "fallback";
   numbers: Pick<
     ActiveScore,
     | "total"
