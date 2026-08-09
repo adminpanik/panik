@@ -41,6 +41,34 @@ export const EXIT_KIND = { FULL_EXIT: 0, FULL_REPAY: 1, REDUCE: 2 } as const;
 /** PanikExecutor.BPS_DENOMINATOR. */
 export const BPS_DENOMINATOR = 10_000;
 
+/** Fixed-point scale for a health factor on-chain (WAD = 1e18). */
+export const WAD = 10n ** 18n;
+
+/**
+ * A health factor as the contract's WAD-scaled integer (HF x 1e18).
+ *
+ * Two-step so it stays exact in double precision: HF is rounded to 1e-9 first
+ * (nine decimals is far past anything a health factor is quoted to), then
+ * scaled up in BigInt. `hf * 1e18` straight through a Number would lose the low
+ * bits of the mantissa and hand the signer a digest a hair off the contract's.
+ *
+ * Lives HERE, next to the permit field it encodes, because two callers need it
+ * and they must agree: the UI composes `triggerHealthFactorWad` for the wallet
+ * to sign (src/panik-core/lib/exitPermitCompose.ts), and the relayer compares
+ * the engine's live health factor against that same field before it spends gas
+ * (server/exitRelayer.ts). A second copy of this conversion is a second opinion
+ * about when a position is in trouble.
+ */
+export function hfToWad(hf: number): bigint {
+  if (!Number.isFinite(hf) || hf <= 0) throw new Error("health factor must be positive");
+  return BigInt(Math.round(hf * 1e9)) * (WAD / 1_000_000_000n);
+}
+
+/** WAD-scaled HF back to a number, for display and the disclosure. */
+export function wadToHf(wad: bigint): number {
+  return Number(wad) / Number(WAD);
+}
+
 /**
  * The EIP-712 type, transcribed field-for-field from EXIT_PERMIT_TYPEHASH in
  * PanikExecutor.sol. Order and Solidity types must match exactly.
