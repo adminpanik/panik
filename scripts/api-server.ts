@@ -66,6 +66,9 @@ import { buildCreateInput, type RawCreateBody } from "../server/adminCampaigns";
 import { adminAuthGate } from "../server/adminAuth";
 import { verifyWalletOwnership } from "../server/walletAuth";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
+import { SupabaseDelegationStore } from "../server/exitDelegationStore";
+import { ViemExitChainReader } from "../server/exitChain";
+import { listLiveDelegations, revokeDelegation, submitDelegation } from "../server/exitDelegations";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -1143,6 +1146,70 @@ app.post("/api/telegram/webhook", webhookLimit, async (req, res) => {
     console.error(`telegram webhook error: ${(err as Error).message}`);
   }
   res.status(200).json({ ok: true });
+});
+
+// ── Delegated exit permits (Phase 2.B) ─────────────────────────────────────
+// A user signs an EIP-712 ExitPermit in their wallet; the backend verifies it
+// recovers to permit.user on the EXECUTOR's domain (Base Sepolia 84532, NOT the
+// mainnet 8453 SIWE uses) and stores the SIGNED permit so the Phase 4.A relayer
+// can later submit it via atomicExitFor. PANIK custodies no key; the permit
+// carries no recipient, so a stored row can only ever pay the user. Revocation
+// is the user's own on-chain action (invalidateUnorderedNonces / revokeAll);
+// the live-permit query resolves every row against on-chain state so a permit
+// the chain would reject is never reported live. Mirrors api/exit/*.
+//
+// No separate SIWE proof: the permit signature already proves wallet control
+// for THIS scoped action and cannot redirect value (see server/exitDelegations.ts).
+// Rate-limited like every money/PII path. KNOWN OPEN RISK, restated in the PR:
+// the Railway-origin rate-limit bypass must be closed before this drives spend.
+const exitChainReader = ViemExitChainReader.fromEnv();
+
+app.post("/api/exit/delegations", strictLimit, async (req, res) => {
+  let store: SupabaseDelegationStore;
+  try {
+    store = SupabaseDelegationStore.fromEnv();
+  } catch (err) {
+    res.status(503).json({ error: `delegations unconfigured: ${(err as Error).message}` });
+    return;
+  }
+  try {
+    const result = await submitDelegation(req.body, { store, chain: exitChainReader });
+    res.status(result.status).json(result.body);
+  } catch (err) {
+    serverError(req, res, 500, err);
+  }
+});
+
+app.get("/api/exit/delegations", walletLimit, async (req, res) => {
+  let store: SupabaseDelegationStore;
+  try {
+    store = SupabaseDelegationStore.fromEnv();
+  } catch (err) {
+    res.status(503).json({ error: `delegations unconfigured: ${(err as Error).message}` });
+    return;
+  }
+  try {
+    const result = await listLiveDelegations(req.query.wallet, { store, chain: exitChainReader });
+    res.status(result.status).json(result.body);
+  } catch (err) {
+    serverError(req, res, 500, err);
+  }
+});
+
+app.post("/api/exit/delegations/revoke", strictLimit, async (req, res) => {
+  let store: SupabaseDelegationStore;
+  try {
+    store = SupabaseDelegationStore.fromEnv();
+  } catch (err) {
+    res.status(503).json({ error: `delegations unconfigured: ${(err as Error).message}` });
+    return;
+  }
+  try {
+    const result = await revokeDelegation(req.body, { store, chain: exitChainReader });
+    res.status(result.status).json(result.body);
+  } catch (err) {
+    serverError(req, res, 500, err);
+  }
 });
 
 // ── Product trial codes - business-card "Try Now" + admin ──────────────────
