@@ -75,7 +75,9 @@ contract PanikExecutor is ReentrancyGuard {
     error ProtocolNotPermitted(uint8 protocol);
     error WithdrawNotPermitted(uint8 kind);
     error EmptyLeg(uint8 protocol, address asset);
-    error InsufficientUsdcOut(uint256 minUsdcOut, uint256 usdcReceived);
+    error RepayFloorNotMet(uint8 protocol, address asset, uint256 repaid, uint256 required);
+    error WithdrawFloorNotMet(uint8 protocol, address asset, uint256 withdrawn, uint256 required);
+    error NoWorkDone(uint8 protocol, address asset);
     error MarketNotPermitted(address market);
     error AssetNotTracked(address asset);
     error UniswapLegNotPermitted();
@@ -140,7 +142,7 @@ contract PanikExecutor is ReentrancyGuard {
 
     bytes32 private constant EXIT_PERMIT_TYPEHASH =
         keccak256(
-            "ExitPermit(address user,uint8 kind,uint16 maxRepayFractionBps,uint256 triggerHealthFactorWad,uint16 maxSlippageBps,uint256 minUsdcOut,uint8 protocolsMask,uint256 epoch,uint256 nonce,uint256 deadline)"
+            "ExitPermit(address user,uint8 kind,uint16 maxRepayFractionBps,uint256 triggerHealthFactorWad,uint16 maxSlippageBps,uint8 protocolsMask,uint256 epoch,uint256 nonce,uint256 deadline)"
         );
 
     address public immutable usdc;
@@ -237,7 +239,6 @@ contract PanikExecutor is ReentrancyGuard {
         uint16 maxRepayBps;
         bool permitFloor;
         uint16 maxSlippageBps;
-        uint256 minUsdcOut;
     }
 
     modifier onlyEOA() {
@@ -377,8 +378,7 @@ contract PanikExecutor is ReentrancyGuard {
                 user: msg.sender,
                 maxRepayBps: uint16(BPS_DENOMINATOR),
                 permitFloor: false,
-                maxSlippageBps: 0,
-                minUsdcOut: 0
+                maxSlippageBps: 0
             }),
             legs,
             uniswapTokenIds
@@ -414,8 +414,7 @@ contract PanikExecutor is ReentrancyGuard {
                 user: user,
                 maxRepayBps: permit.maxRepayFractionBps,
                 permitFloor: true,
-                maxSlippageBps: permit.maxSlippageBps,
-                minUsdcOut: permit.minUsdcOut
+                maxSlippageBps: permit.maxSlippageBps
             }),
             legs,
             uniswapTokenIds
@@ -582,13 +581,13 @@ contract PanikExecutor is ReentrancyGuard {
             IERC20(usdc).safeTransfer(ctx.user, usdcReceived);
         }
 
-        // Floor on WORK DONE. Reverting here unwinds the nonce spend, so a
-        // submitter cannot burn a permit with a do-nothing (or 1-wei) exit at
-        // the moment protection should fire, nor pick a tiny subset of the
-        // signed legs and liquidate the rest. Zero on the self-serve path.
-        if (usdcReceived < ctx.minUsdcOut) {
-            revert InsufficientUsdcOut(ctx.minUsdcOut, usdcReceived);
-        }
+        // The nonce-burn floor is NOT here. An end-of-exit USDC floor is inert
+        // for repay-only permits (no USDC is swept, so any floor is 0) and stale
+        // for full exits (an absolute figure signed pre-crash bricks the exit in
+        // the crash it was signed for). Instead each leg enforces its own
+        // execution-time-RELATIVE floor as it runs (full authorised repay /
+        // full withdrawal / real work done), so a partial or do-nothing
+        // execution reverts before reaching here and unwinds the nonce spend.
 
         emit ExitCompleted(ctx.user, usdcReceived, _shrink(closedTemp, closedCount), locked);
     }
@@ -678,12 +677,48 @@ contract PanikExecutor is ReentrancyGuard {
         variableDebt = _capRepay(ctx, variableDebt, currentVariableDebt);
         stableDebt = _capRepay(ctx, stableDebt, currentStableDebt);
 
+        // Relative repay floor (delegated path): each rate mode must repay its
+        // full authorised amount, so a 1-wei / partial repayAmount reverts and
+        // unwinds the nonce. Checked per rate mode to match how the cap is
+        // applied (no cross-rate rounding gap).
+        if (ctx.permitFloor && leg.repayAmount > 0) {
+            uint256 authorizedVariable = _capRepay(ctx, currentVariableDebt, currentVariableDebt);
+            uint256 authorizedStable = _capRepay(ctx, currentStableDebt, currentStableDebt);
+            if (variableDebt < authorizedVariable || stableDebt < authorizedStable) {
+                revert RepayFloorNotMet(
+                    uint8(ExitTypes.ProtocolId.AAVE_V3),
+                    leg.asset,
+                    variableDebt + stableDebt,
+                    authorizedVariable + authorizedStable
+                );
+            }
+        }
+
         uint256 collateralAmount;
         if (leg.withdrawAmount == AMOUNT_FULL) {
             collateralAmount = currentATokenBalance;
         } else {
             collateralAmount = _min(currentATokenBalance, leg.withdrawAmount);
         }
+
+        // A withdraw is only ever authorised by a FULL_EXIT: take all of it.
+        if (leg.withdrawAmount > 0) {
+            _assertWithdrawFloor(
+                ctx,
+                ExitTypes.ProtocolId.AAVE_V3,
+                leg.asset,
+                collateralAmount,
+                currentATokenBalance
+            );
+        }
+
+        // Dynamic no-op guard: the leg must actually move debt or collateral.
+        _assertWorkDone(
+            ctx,
+            ExitTypes.ProtocolId.AAVE_V3,
+            leg.asset,
+            variableDebt + stableDebt > 0 || collateralAmount > 0
+        );
 
         return
             SequenceLib.AssetPosition({
@@ -758,6 +793,7 @@ contract PanikExecutor is ReentrancyGuard {
             uint256 debt = moonwellAdapter.debtOf(mToken, ctx.user);
             uint256 amount = leg.repayAmount == AMOUNT_FULL ? debt : _min(debt, leg.repayAmount);
             amount = _capRepay(ctx, amount, debt);
+            _assertRepayFloor(ctx, ExitTypes.ProtocolId.MOONWELL, mToken, amount, debt);
             if (amount > 0) {
                 address underlying = IMToken(mToken).underlying();
                 _pullFromUser(ctx, underlying, amount, address(moonwellAdapter));
@@ -779,6 +815,7 @@ contract PanikExecutor is ReentrancyGuard {
             uint256 amount = leg.withdrawAmount == AMOUNT_FULL
                 ? balance
                 : _min(balance, leg.withdrawAmount);
+            _assertWithdrawFloor(ctx, ExitTypes.ProtocolId.MOONWELL, mToken, amount, balance);
             if (amount > 0) {
                 IERC20(mToken).safeTransferFrom(ctx.user, address(moonwellAdapter), amount);
                 (address underlying, uint256 received) = moonwellAdapter.redeem(mToken, amount);
@@ -789,6 +826,7 @@ contract PanikExecutor is ReentrancyGuard {
             }
         }
 
+        _assertWorkDone(ctx, ExitTypes.ProtocolId.MOONWELL, mToken, acted);
         if (acted) emit LegClosed(ctx.user, ExitTypes.ProtocolId.MOONWELL, mToken);
     }
 
@@ -805,6 +843,7 @@ contract PanikExecutor is ReentrancyGuard {
             uint256 debt = IComet(comet).borrowBalanceOf(ctx.user);
             uint256 amount = leg.repayAmount == AMOUNT_FULL ? debt : _min(debt, leg.repayAmount);
             amount = _capRepay(ctx, amount, debt);
+            _assertRepayFloor(ctx, ExitTypes.ProtocolId.COMPOUND_V3, leg.asset, amount, debt);
             if (amount > 0) {
                 address base = IComet(comet).baseToken();
                 _pullFromUser(ctx, base, amount, address(compoundAdapter));
@@ -819,6 +858,7 @@ contract PanikExecutor is ReentrancyGuard {
             uint256 amount = leg.withdrawAmount == AMOUNT_FULL
                 ? balance
                 : _min(balance, leg.withdrawAmount);
+            _assertWithdrawFloor(ctx, ExitTypes.ProtocolId.COMPOUND_V3, leg.asset, amount, balance);
             if (amount > 0) {
                 compoundAdapter.withdrawCollateral(
                     comet,
@@ -834,6 +874,7 @@ contract PanikExecutor is ReentrancyGuard {
             }
         }
 
+        _assertWorkDone(ctx, ExitTypes.ProtocolId.COMPOUND_V3, leg.asset, acted);
         if (acted) {
             compoundAdapter.assertCollateralized(comet, ctx.user);
             emit LegClosed(ctx.user, ExitTypes.ProtocolId.COMPOUND_V3, leg.asset);
@@ -853,6 +894,7 @@ contract PanikExecutor is ReentrancyGuard {
             uint256 debt = morphoAdapter.debtAssets(mp, ctx.user);
             uint256 amount = leg.repayAmount == AMOUNT_FULL ? debt : _min(debt, leg.repayAmount);
             amount = _capRepay(ctx, amount, debt);
+            _assertRepayFloor(ctx, ExitTypes.ProtocolId.MORPHO_BLUE, leg.asset, amount, debt);
             if (amount > 0) {
                 // Closing by shares is only exact when the whole debt is going;
                 // a permit-capped repay must go by assets or it would overshoot
@@ -877,6 +919,7 @@ contract PanikExecutor is ReentrancyGuard {
             uint256 amount = leg.withdrawAmount == AMOUNT_FULL
                 ? balance
                 : _min(balance, leg.withdrawAmount);
+            _assertWithdrawFloor(ctx, ExitTypes.ProtocolId.MORPHO_BLUE, leg.asset, amount, balance);
             if (amount > 0) {
                 morphoAdapter.withdrawCollateral(mp, ctx.user, amount, address(this));
                 if (mp.collateralToken != usdc) {
@@ -886,6 +929,7 @@ contract PanikExecutor is ReentrancyGuard {
             }
         }
 
+        _assertWorkDone(ctx, ExitTypes.ProtocolId.MORPHO_BLUE, leg.asset, acted);
         if (acted) emit LegClosed(ctx.user, ExitTypes.ProtocolId.MORPHO_BLUE, leg.asset);
     }
 
@@ -900,6 +944,58 @@ contract PanikExecutor is ReentrancyGuard {
     ) private pure returns (uint256) {
         if (ctx.maxRepayBps >= BPS_DENOMINATOR) return amount;
         return _min(amount, Math.mulDiv(liveDebt, ctx.maxRepayBps, BPS_DENOMINATOR));
+    }
+
+    // --- execution-time-relative floors (delegated path only) ---------------
+    // The permit authorises WORK, not a submitter-chosen leg amount. These
+    // assert, from LIVE state at execution, that a leg did the full authorised
+    // work; a partial / 1-wei / do-nothing leg reverts and unwinds the nonce
+    // spend. Derived from live state, so they never go stale the way an absolute
+    // signed figure would (they hold in the crash the permit was signed for).
+    // No-ops on the self-serve path.
+
+    /// @dev Full authorised repay for a single-debt protocol: the whole live
+    /// debt, or `maxRepayBps` of it for a REDUCE. `planned` is what the leg is
+    /// about to repay (already capped); it must not fall short.
+    function _assertRepayFloor(
+        ExecContext memory ctx,
+        ExitTypes.ProtocolId protocol,
+        address asset,
+        uint256 planned,
+        uint256 liveDebt
+    ) private pure {
+        if (!ctx.permitFloor) return;
+        uint256 authorized = _capRepay(ctx, liveDebt, liveDebt);
+        if (planned < authorized) {
+            revert RepayFloorNotMet(uint8(protocol), asset, planned, authorized);
+        }
+    }
+
+    /// @dev Withdraw is only ever authorised by a FULL_EXIT, which means take
+    /// ALL of it: `planned` must equal the full live balance.
+    function _assertWithdrawFloor(
+        ExecContext memory ctx,
+        ExitTypes.ProtocolId protocol,
+        address asset,
+        uint256 planned,
+        uint256 balance
+    ) private pure {
+        if (!ctx.permitFloor) return;
+        if (planned < balance) {
+            revert WithdrawFloorNotMet(uint8(protocol), asset, planned, balance);
+        }
+    }
+
+    /// @dev A delegated leg must move something. Catches the dynamic no-op a
+    /// static check cannot (a leg that asks to repay/withdraw but the user has
+    /// no debt/collateral there), which would otherwise burn the nonce for free.
+    function _assertWorkDone(
+        ExecContext memory ctx,
+        ExitTypes.ProtocolId protocol,
+        address asset,
+        bool acted
+    ) private pure {
+        if (ctx.permitFloor && !acted) revert NoWorkDone(uint8(protocol), asset);
     }
 
     /// @dev Pull `amount` of `asset` from the user (balance-checked) and push
@@ -1158,7 +1254,6 @@ contract PanikExecutor is ReentrancyGuard {
                     permit.maxRepayFractionBps,
                     permit.triggerHealthFactorWad,
                     permit.maxSlippageBps,
-                    permit.minUsdcOut,
                     permit.protocolsMask,
                     permit.epoch,
                     permit.nonce,
@@ -1232,11 +1327,17 @@ contract PanikExecutor is ReentrancyGuard {
         if (permit.kind > uint8(ExitTypes.ExitKind.REDUCE)) {
             revert InvalidPermitKind(permit.kind);
         }
+        // Only REDUCE carries a partial fraction. FULL_REPAY and FULL_EXIT both
+        // mean "all of the debt": pinning them to 10000 makes the per-leg repay
+        // floor unambiguous (full exit = full repay + full withdraw), so a
+        // FULL_EXIT can never quietly leave debt behind.
+        bool full =
+            permit.kind == uint8(ExitTypes.ExitKind.FULL_REPAY) ||
+            permit.kind == uint8(ExitTypes.ExitKind.FULL_EXIT);
         if (
             permit.maxRepayFractionBps == 0 ||
             permit.maxRepayFractionBps > BPS_DENOMINATOR ||
-            (permit.kind == uint8(ExitTypes.ExitKind.FULL_REPAY) &&
-                permit.maxRepayFractionBps != BPS_DENOMINATOR)
+            (full && permit.maxRepayFractionBps != BPS_DENOMINATOR)
         ) {
             revert InvalidRepayFraction(permit.maxRepayFractionBps);
         }
@@ -1256,11 +1357,10 @@ contract PanikExecutor is ReentrancyGuard {
             if (permit.protocolsMask & (uint8(1) << protocol) == 0) {
                 revert ProtocolNotPermitted(protocol);
             }
-            // Defense-in-depth for the nonce-burn vector: a leg that neither
-            // repays nor withdraws does no work but still consumes the permit.
-            // The minUsdcOut floor is the primary guard; this rejects the
-            // degenerate leg outright so a repay-only permit (minUsdcOut == 0)
-            // is covered too.
+            // Static half of the nonce-burn guard: a leg that names neither a
+            // repay nor a withdraw is dead weight. The dynamic half (a leg that
+            // asks to act but on a zero balance, or repays less than authorised)
+            // is caught per-protocol by the relative floors below as it runs.
             if (leg.repayAmount == 0 && leg.withdrawAmount == 0) {
                 revert EmptyLeg(protocol, leg.asset);
             }

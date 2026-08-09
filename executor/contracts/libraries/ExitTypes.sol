@@ -33,12 +33,15 @@ library ExitTypes {
 
     /// @notice What the signer authorised. The kind constrains the legs a
     /// submitter may pair with the permit; it is NOT a hint.
-    ///  FULL_EXIT   - repay and withdraw are both allowed.
-    ///  FULL_REPAY  - repay only (every leg must carry withdrawAmount == 0) and
-    ///                maxRepayFractionBps must be 10000.
-    ///  REDUCE      - repay only, capped by maxRepayFractionBps.
+    ///  FULL_EXIT   - repay AND withdraw, both in full. maxRepayFractionBps must
+    ///                be 10000; each executed leg must fully repay its live debt
+    ///                and withdraw its full collateral balance or the tx reverts.
+    ///  FULL_REPAY  - repay only, in full (every leg carries withdrawAmount == 0)
+    ///                and maxRepayFractionBps must be 10000.
+    ///  REDUCE      - repay only, exactly maxRepayFractionBps of the live debt.
     /// Collateral can therefore never leave a position under a repay-only
-    /// permit, whatever legs the submitter builds.
+    /// permit, whatever legs the submitter builds; and no kind can be spent by a
+    /// leg that does less than the authorised work (see maxSlippageBps note).
     enum ExitKind {
         FULL_EXIT,
         FULL_REPAY,
@@ -65,15 +68,17 @@ library ExitTypes {
     ///  maxSlippageBps          - worst execution the signer accepts against
     ///                            the oracle price, in basis points: the swap
     ///                            floor is oracleQuote * (10000 - this) / 10000.
-    ///  minUsdcOut              - floor on WORK DONE: the exit must sweep at
-    ///                            least this many USDC (token base units) to the
-    ///                            user or the whole transaction reverts, which
-    ///                            unwinds the nonce spend. This is what stops a
-    ///                            submitter from burning the permit with a
-    ///                            do-nothing (or 1-wei) exit at the exact moment
-    ///                            protection should fire. A pure repay-only
-    ///                            permit that nets no USDC sets this to 0 and
-    ///                            relies on the reject-empty-leg guard instead.
+    ///                            The nonce-burn floor is NOT a field here: the
+    ///                            executor derives "did the full authorised work"
+    ///                            from LIVE state per leg at execution (full
+    ///                            authorised repay + full withdrawal for a full
+    ///                            exit, the signed fraction for a reduce), so a
+    ///                            partial / 1-wei / do-nothing execution reverts
+    ///                            and unwinds the nonce spend. An absolute signed
+    ///                            USDC floor was rejected: it is inert for
+    ///                            repay-only permits and goes stale for full
+    ///                            exits, bricking the exit in the very crash it
+    ///                            was signed for.
     ///  protocolsMask           - bit i set means ProtocolId(i) is allowed.
     ///                            AAVE_V3 = bit 0 ... MORPHO_BLUE = bit 3.
     ///  epoch                   - the signer's revocation epoch at signing time.
@@ -92,7 +97,6 @@ library ExitTypes {
         uint16 maxRepayFractionBps;
         uint256 triggerHealthFactorWad;
         uint16 maxSlippageBps;
-        uint256 minUsdcOut;
         uint8 protocolsMask;
         uint256 epoch;
         uint256 nonce;
