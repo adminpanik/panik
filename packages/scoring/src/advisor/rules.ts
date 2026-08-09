@@ -23,7 +23,8 @@ import {
   collateralFundedRepayToTargetHf,
   REDUCE_TO_EXIT_RATIO,
   repayFractionOfDebt,
-  repayToTargetHf,
+  repayToTargetDrawdown,
+  TARGET_DRAWDOWN,
   TARGET_HF,
 } from "./repayMath";
 import {
@@ -82,6 +83,7 @@ function collateralFundedPlan(
   hf: number,
   borrowUsd: number,
   targetHf: number,
+  targetDrawdown: number,
   opts?: AdviseOptions,
 ): RepayPlan | undefined {
   const wlt = score.weightedLiquidationThreshold;
@@ -100,6 +102,11 @@ function collateralFundedPlan(
     repayAssetSymbol: score.dominantBorrowSymbol,
     repayFraction,
     targetHf,
+    // Both routes end the position at the same target, so they survive the same
+    // price drop and quote the same `targetDrawdown`. Passed in rather than
+    // re-derived from `targetHf` so all three plans on this recommendation read
+    // from the one `TARGET_DRAWDOWN` entry.
+    targetDrawdown,
     // A repay that clears the whole debt leaves no health factor at all, which
     // is what a null says here and on `ActiveScore.healthFactor`. Echoing
     // `targetHf` would print a ratio the position will never hold.
@@ -234,6 +241,11 @@ export function adviseLeg(
   // Rule 3 - HIGH band or outside the user's profile: partial repay to target.
   if (score.band === "HIGH" || status === "outside") {
     const targetHf = TARGET_HF[profile];
+    // The same target, in the form the user is actually offered it: the price
+    // drop the position survives after the repay. The dollars are sized from
+    // this one; `targetHf` is its ratio form and rides along for the prose and
+    // the projected health factor.
+    const targetDrawdown = TARGET_DRAWDOWN[profile];
     // Without a USD magnitude no dollar repay amount can be quoted — and
     // quoting one from a stale/unknown price is exactly the failure mode that
     // would tell a user to repay $200 against a $600k debt. Keep the REDUCE
@@ -246,7 +258,7 @@ export function adviseLeg(
       triggers.push("hf:above_target");
       return finish("MONITOR", "info");
     }
-    const repayUsd = hf !== null ? repayToTargetHf(borrowUsd, hf, targetHf) : 0;
+    const repayUsd = hf !== null ? repayToTargetDrawdown(borrowUsd, hf, targetDrawdown) : 0;
     // The fraction comes off the UNROUNDED repay: `repayUsd` is rounded for
     // display, and letting a display rounding into the executable amount is how
     // the two quietly stop describing the same repay.
@@ -270,7 +282,9 @@ export function adviseLeg(
       // advisor recommending, in a second field, the thing its action says not
       // to do.
       const collateralFundedAlternative =
-        hf !== null ? collateralFundedPlan(score, hf, borrowUsd, targetHf, opts) : undefined;
+        hf !== null
+          ? collateralFundedPlan(score, hf, borrowUsd, targetHf, targetDrawdown, opts)
+          : undefined;
       if (collateralFundedAlternative) triggers.push("repay:collateral_funded_available");
       const repayPlan = {
         repayUsd: Math.round(repayUsd),
@@ -279,6 +293,7 @@ export function adviseLeg(
         repayAssetSymbol: score.dominantBorrowSymbol,
         repayFraction,
         targetHf,
+        targetDrawdown,
         projectedHf: targetHf,
         mode: "wallet_funded" as const,
       };
@@ -315,6 +330,7 @@ export function adviseLeg(
                   repayAssetSymbol: score.dominantBorrowSymbol,
                   repayFraction: fullFraction,
                   targetHf,
+                  targetDrawdown,
                   // No debt left means no health factor, not a very large one.
                   projectedHf: null,
                   mode: "wallet_funded",
