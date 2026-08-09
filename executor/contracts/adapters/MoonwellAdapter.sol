@@ -5,6 +5,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IMToken} from "../interfaces/IMToken.sol";
 import {IComptroller} from "../interfaces/IComptroller.sol";
+import {IWETH} from "../interfaces/IProtocolExtras.sol";
 
 /// @notice Moonwell (Compound V2 fork) leg adapter. Same trust model as
 /// AaveAdapter: funds are pushed in by the executor, results are pushed back,
@@ -37,6 +38,12 @@ contract MoonwellAdapter {
     constructor() {
         manager = msg.sender;
     }
+
+    /// @dev Accept native ETH solely so Moonwell's auto-unwrapping mWETH redeem
+    /// (which returns ETH, not the WETH it names as underlying()) does not
+    /// revert; redeem() re-wraps it to WETH immediately. No control flow depends
+    /// on stray ETH. Mirrors PanikDeleverager, which hit the same trap.
+    receive() external payable {}
 
     function setExecutor(address executor_) external onlyManager {
         if (executor_ == address(0)) revert InvalidExecutor(executor_);
@@ -80,8 +87,26 @@ contract MoonwellAdapter {
         if (mTokenAmount == 0) return (underlying, 0);
 
         uint256 balanceBefore = IERC20(underlying).balanceOf(address(this));
+        uint256 ethBefore = address(this).balance;
         uint256 err = IMToken(mToken).redeem(mTokenAmount);
         if (err != 0) revert MTokenError(mToken, err);
+
+        // Moonwell's native-asset mToken (mWETH) redeems to NATIVE ETH, not the
+        // ERC-20 wrapper it reports as underlying() (verified on a Base mainnet
+        // fork). Wrap ONLY the ETH THIS redeem produced (the delta) - never the
+        // absolute balance. receive() accepts ETH from anyone, so a stray
+        // donation must not be foldable into the caller's proceeds, nor able to
+        // brick a non-native Moonwell market: there redeem yields an ERC-20 and
+        // no ETH, so the delta is zero and this branch is skipped entirely
+        // (calling deposit() on a non-WETH underlying would otherwise revert).
+        // On the only market that redeems ETH, underlying IS the WETH wrapper.
+        uint256 ethReceived = address(this).balance - ethBefore;
+        if (ethReceived > 0) {
+            IWETH(underlying).deposit{value: ethReceived}();
+        }
+
+        // `received` stays the underlying ERC-20 amount this adapter obtained,
+        // wrapped ETH included, so callers are unchanged.
         received = IERC20(underlying).balanceOf(address(this)) - balanceBefore;
         if (received > 0) {
             IERC20(underlying).safeTransfer(executor, received);
