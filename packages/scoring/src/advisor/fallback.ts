@@ -42,12 +42,22 @@ export function dominantDriver(
   ctx?: LegMarketContext,
 ): string {
   const s = rec.numbers.subScores;
-  const drivers: [string, number][] = [
-    [`position health (${Math.round(s.positionHealth)}/100)`, s.positionHealth],
-    [`asset volatility risk (${Math.round(s.assetRisk)}/100)`, s.assetRisk],
-    [`protocol safety (${Math.round(s.protocolSafety)}/100)`, s.protocolSafety],
-    [`systemic TVL stress (${Math.round(s.systemicRisk)}/100)`, s.systemicRisk],
-  ];
+  // A null sub-score was not measured on this read. It is skipped rather than
+  // ranked, because ranking it needs a number and every number available is a
+  // claim: 0 would name a calm market the engine never saw. Order is load
+  // bearing - the sort is stable, so ties resolve to the earlier driver.
+  const drivers = (
+    [
+      [`position health (${Math.round(s.positionHealth)}/100)`, s.positionHealth],
+      s.assetRisk === null
+        ? null
+        : [`asset volatility risk (${Math.round(s.assetRisk)}/100)`, s.assetRisk],
+      [`protocol safety (${Math.round(s.protocolSafety)}/100)`, s.protocolSafety],
+      s.systemicRisk === null
+        ? null
+        : [`systemic TVL stress (${Math.round(s.systemicRisk)}/100)`, s.systemicRisk],
+    ] as ([string, number] | null)[]
+  ).filter((d): d is [string, number] => d !== null);
   drivers.sort((a, b) => b[1] - a[1]);
   let out = drivers[0]?.[0] ?? "composite risk";
   const tvl = ctx?.protocolTvl7dPct;
@@ -81,7 +91,19 @@ function positionSection(rec: AdvisorRecommendation): string {
 }
 
 function marketSection(rec: AdvisorRecommendation, ctx?: LegMarketContext): string {
-  return `The score is being driven by ${dominantDriver(rec, ctx)}.`;
+  const s = rec.numbers.subScores;
+  // Say which terms are missing rather than letting the sentence imply the
+  // score weighed all four. The composite is renormalised over the measured
+  // ones (computeScore.ts), so it is a real score of less information.
+  const unmeasured = [
+    s.assetRisk === null ? "asset volatility" : null,
+    s.systemicRisk === null ? "systemic TVL" : null,
+  ].filter((x): x is string => x !== null);
+  const caveat =
+    unmeasured.length > 0
+      ? ` Market data for ${unmeasured.join(" and ")} was unavailable on this read, so the score covers only the terms that were measured.`
+      : "";
+  return `The score is being driven by ${dominantDriver(rec, ctx)}.${caveat}`;
 }
 
 function recommendationSection(rec: AdvisorRecommendation): string {

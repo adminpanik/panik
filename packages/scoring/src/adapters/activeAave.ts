@@ -1,20 +1,33 @@
 /**
  * Aave V3 active reader — one batched multicall per wallet.
  * HF/LTV come straight from getUserAccountData (8-dec USD base units);
- * dominant collateral is discovered via aToken balances on known reserves.
+ * dominant collateral is discovered by ranking aToken balances at AaveOracle
+ * prices, read in the same batch as the balances (both are chain reads, so
+ * ranking costs no extra round trip and no HTTP call).
  */
 
 import type { PositionHealthInput, Protocol } from "../types";
 import {
+  AAVE_ORACLE_BASE,
   AAVE_POOL_BASE,
   KNOWN_AAVE_RESERVES,
   type PublicClientLike,
+  aaveOracleAbi,
   aavePoolAbi,
   erc20Abi,
 } from "./chain";
 
 /** Aave's no-debt sentinel: healthFactor == type(uint256).max. */
 const UINT256_MAX = 2n ** 256n - 1n;
+
+/**
+ * Common decimal scale the collateral legs are compared on. Every ranking
+ * quantity is lifted to it in BigInt, so an 18-decimal whale balance keeps
+ * every wei: `Number()` on a raw balance loses precision above 2^53 and this
+ * is the comparison that picks the asset the whole advisor chain acts on.
+ * Must be >= the largest `decimals` in KNOWN_AAVE_RESERVES (currently 18).
+ */
+const RANK_DECIMALS = 18;
 
 export interface ActiveReading {
   protocol: Protocol;
@@ -39,12 +52,30 @@ export interface ActiveReading {
   usdValuesUnavailable?: boolean;
   /** Dominant collateral symbol, or null when discovery failed. */
   dominantCollateralSymbol: string | null;
+  /**
+   * True when the dominant collateral was picked WITHOUT per-asset prices, by
+   * ranking decimal-normalised token amounts instead. The pick may then favour
+   * a large balance of a cheap asset, and it drives the scored asset,
+   * `safestAlternativeProtocol` and the ExitFlow prefill — so it is surfaced,
+   * never silently substituted.
+   */
+  dominantCollateralUnpriced?: boolean;
+}
+
+/** One reserve's aToken position, in the units the ranking compares. */
+interface CollateralLeg {
+  symbol: string;
+  /** balance × 10^(RANK_DECIMALS − decimals). Zero-balance legs are dropped. */
+  amount: bigint;
+  /** Oracle price in base-currency units (1e8 = $1), or null when unreadable. */
+  price: bigint | null;
 }
 
 export class AaveActiveReader {
   constructor(
     private readonly client: PublicClientLike,
     private readonly pool: string = AAVE_POOL_BASE,
+    private readonly oracle: string = AAVE_ORACLE_BASE,
   ) {}
 
   /** Returns null when the wallet has no Aave position at all. */
@@ -94,50 +125,65 @@ export class AaveActiveReader {
     }).filter((x): x is NonNullable<typeof x> => x !== null);
 
     let dominantCollateralSymbol: string | null = null;
+    let dominantCollateralUnpriced = false;
     if (aTokens.length > 0) {
-      const balances = await this.client.multicall({
+      // Balances and prices ride the SAME multicall: the price is a read on the
+      // AaveOracle the pool itself names, so ranking costs one extra call per
+      // reserve in a batch that was already round-tripping, and no HTTP call.
+      const reads = await this.client.multicall({
         allowFailure: true,
-        contracts: aTokens.map(({ aToken }) => ({
-          address: aToken,
-          abi: erc20Abi,
-          functionName: "balanceOf",
-          args: [wallet],
-        })),
+        contracts: [
+          ...aTokens.map(({ aToken }) => ({
+            address: aToken,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [wallet],
+          })),
+          ...aTokens.map(({ reserve }) => ({
+            address: this.oracle,
+            abi: aaveOracleAbi,
+            functionName: "getAssetPrice",
+            args: [reserve.address],
+          })),
+        ],
       });
-      let best = 0;
-      balances.forEach((b, i) => {
-        if (b.status !== "success") return;
-        const entry = aTokens[i];
-        if (!entry) return;
-        // KNOWN LIMITATION: these are hardcoded, never-updated price classes,
-        // not real prices. getUserAccountData only returns AGGREGATE collateral
-        // USD and aToken balances are raw token amounts, so this adapter has no
-        // per-asset USD value to rank with; a real fix needs price plumbing
-        // (AaveOracle.getAssetsPrices or the Chainlink feeds) that does not
-        // exist here yet.
-        //
-        // Consequences, in order of likelihood:
-        //  - ACROSS classes: near-equal legs are mis-ranked once the true
-        //    BTC/ETH ratio drifts far from 60000/1800 (~33).
-        //  - WITHIN the 1_800 class: WETH and wstETH share it, but wstETH is a
-        //    yield-accruing wrapper trading at ~1.15–1.25× WETH, so ordering is
-        //    NOT safe here either — e.g. 100 WETH ranks above 90 wstETH though
-        //    90 wstETH is worth more. Only a leg dominant by a margin wider
-        //    than the class error (~25% within the class, ~1.5x across) is
-        //    reliably picked.
-        // A wrong pick means the wrong scored asset, the wrong
-        // `safestAlternativeProtocol`, and the wrong ExitFlow prefill.
-        const scale =
-          entry.reserve.symbol === "cbBTC" ? 60_000
-          : entry.reserve.symbol === "USDC" ? 1
-          : 1_800;
-        const usd =
-          (Number(b.result as bigint) / 10 ** entry.reserve.decimals) * scale;
-        if (usd > best) {
-          best = usd;
-          dominantCollateralSymbol = entry.reserve.symbol;
-        }
+
+      const legs: CollateralLeg[] = [];
+      aTokens.forEach(({ reserve }, i) => {
+        const balance = reads[i];
+        if (!balance || balance.status !== "success") return;
+        const raw = balance.result as bigint;
+        if (raw === 0n) return;
+        const price = reads[aTokens.length + i];
+        legs.push({
+          symbol: reserve.symbol,
+          amount: raw * 10n ** BigInt(RANK_DECIMALS - reserve.decimals),
+          price:
+            price && price.status === "success" && (price.result as bigint) > 0n
+              ? (price.result as bigint)
+              : null,
+        });
       });
+
+      // Ranking is by real oracle value: balance × price, in BigInt, on one
+      // decimal scale. The hardcoded price classes this replaced could not
+      // separate wstETH from WETH at all (they shared a class, though wstETH
+      // trades ~1.24× WETH) and drifted arbitrarily far across classes.
+      //
+      // When any competing leg has lost its price the value comparison is not
+      // available, so the whole ranking falls back to decimal-normalised token
+      // AMOUNTS - a stated, uniform rule - and the reading says so. Inventing a
+      // constant for the missing price would be a guess presented as a fact.
+      // A single candidate needs no comparison, so it is not a degraded pick.
+      const anyUnpriced = legs.some((l) => l.price === null);
+      dominantCollateralUnpriced = anyUnpriced && legs.length > 1;
+      const rankOf = (leg: CollateralLeg): bigint =>
+        anyUnpriced ? leg.amount : leg.amount * (leg.price as bigint);
+      dominantCollateralSymbol =
+        legs.reduce<CollateralLeg | null>(
+          (best, leg) => (best === null || rankOf(leg) > rankOf(best) ? leg : best),
+          null,
+        )?.symbol ?? null;
     }
 
     return {
@@ -151,6 +197,7 @@ export class AaveActiveReader {
       collateralValueUsd,
       borrowValueUsd,
       dominantCollateralSymbol,
+      ...(dominantCollateralUnpriced ? { dominantCollateralUnpriced: true } : {}),
     };
   }
 }

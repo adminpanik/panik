@@ -17,6 +17,16 @@ export interface PublicClientLike {
 
 // ── Base mainnet addresses ────────────────────────────────────────────────
 export const AAVE_POOL_BASE = "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5" as const;
+/**
+ * AaveOracle for the Base market. Resolved on-chain 2026-08-09 from the pool
+ * itself: `Pool.ADDRESSES_PROVIDER()` -> 0xe20fCBdBff…ad64D ->
+ * `getPriceOracle()`. Re-derive it the same way if Aave migrates the market.
+ *
+ * Prices are quoted in the market's base currency: `BASE_CURRENCY_UNIT()`
+ * returns 1e8, the SAME 8-decimal USD base as `getUserAccountData`'s
+ * totalCollateralBase, so the two are directly comparable.
+ */
+export const AAVE_ORACLE_BASE = "0x2Cc0Fc26eD4563A5ce5e8bdcfe1A2878676Ae156" as const;
 /** Verified live 2026-06-13: getAllMarkets() returns 21 markets. */
 export const MOONWELL_COMPTROLLER_BASE =
   "0xfBb21d0380beE3312B33c4353c8936a0F13EF26C" as const;
@@ -33,6 +43,16 @@ export const KNOWN_AAVE_RESERVES = [
 export const aavePoolAbi = parseAbi([
   "function getUserAccountData(address user) view returns (uint256 totalCollateralBase, uint256 totalDebtBase, uint256 availableBorrowsBase, uint256 currentLiquidationThreshold, uint256 ltv, uint256 healthFactor)",
   "function getReserveData(address asset) view returns ((uint256 configuration, uint128 liquidityIndex, uint128 currentLiquidityRate, uint128 variableBorrowIndex, uint128 currentVariableBorrowRate, uint128 currentStableBorrowRate, uint40 lastUpdateTimestamp, uint16 id, address aTokenAddress, address stableDebtTokenAddress, address variableDebtTokenAddress, address interestRateStrategyAddress, uint128 accruedToTreasury, uint128 unbacked, uint128 isolationModeTotalDebt))",
+]);
+
+/**
+ * Per-asset, not `getAssetsPrices(address[])`: the batched call reverts as a
+ * whole if any one asset has no usable source, which would cost every reserve
+ * its price. One call per asset lets `allowFailure` degrade just the asset
+ * that lost its feed.
+ */
+export const aaveOracleAbi = parseAbi([
+  "function getAssetPrice(address asset) view returns (uint256)",
 ]);
 
 export const comptrollerAbi = parseAbi([
