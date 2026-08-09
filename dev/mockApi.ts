@@ -96,6 +96,12 @@ function handle(url: URL): unknown {
         url.searchParams.get("protocol") ?? "",
         url.searchParams.get("symbol") ?? "",
       );
+    case "/api/exit/delegations":
+      // The live-permit query (Phase 2.C). Mock mode has no executor to read a
+      // signed permit from, so the honest answer is an empty list — same reason
+      // as /api/telegram/status above: without this case the standing-permission
+      // card falls through to the dead :8787 proxy and throws a 500 on load.
+      return { wallet: (url.searchParams.get("wallet") ?? "").toLowerCase(), delegations: [] };
     default:
       return undefined;
   }
