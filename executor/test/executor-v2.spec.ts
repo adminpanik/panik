@@ -35,6 +35,7 @@ const PERMIT_TYPES = {
     { name: "maxRepayFractionBps", type: "uint16" },
     { name: "triggerHealthFactorWad", type: "uint256" },
     { name: "maxSlippageBps", type: "uint16" },
+    { name: "minUsdcOut", type: "uint256" },
     { name: "protocolsMask", type: "uint8" },
     { name: "epoch", type: "uint256" },
     { name: "nonce", type: "uint256" },
@@ -48,6 +49,7 @@ interface Permit {
   maxRepayFractionBps: number;
   triggerHealthFactorWad: bigint;
   maxSlippageBps: number;
+  minUsdcOut: bigint;
   protocolsMask: number;
   epoch: bigint;
   nonce: bigint;
@@ -77,7 +79,7 @@ function encodeV3Path(tokenIn: string, fee: number, tokenOut: string): string {
 }
 
 describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
-  async function build(withSequencerFeed: boolean) {
+  async function build(withSequencerFeed: boolean, wethFeedDecimals = 8) {
     const [deployer, user, relayer, other] = await ethers.getSigners();
 
     const MockERC20 = await ethers.getContractFactory("MockERC20");
@@ -113,7 +115,13 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
     const marketOracle: any = await MockPriceOracle.deploy();
     const mockOracle: any = await MockPriceOracle.deploy();
 
-    const wethFeed: any = await MockFeed.deploy(8, 2_000n * PRICE_SCALE);
+    // wethFeed decimals are parametrised so a test can prove _scalePrice copes
+    // with a non-8-decimal feed (the on-chain scaling path is otherwise dead in
+    // CI). Its answer is scaled to match.
+    const wethFeed: any = await MockFeed.deploy(
+      wethFeedDecimals,
+      2_000n * 10n ** BigInt(wethFeedDecimals)
+    );
     const usdcFeed: any = await MockFeed.deploy(8, 1n * PRICE_SCALE);
     const sequencerFeed: any = await MockFeed.deploy(0, 0n); // 0 = sequencer up
 
@@ -427,6 +435,10 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
     return build(true);
   }
 
+  async function deploy18DecimalFeedFixture() {
+    return build(false, 18);
+  }
+
   async function makePermit(f: any, overrides: Partial<Permit> = {}): Promise<Permit> {
     return {
       user: f.user.address,
@@ -434,6 +446,7 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
       maxRepayFractionBps: 10_000,
       triggerHealthFactorWad: 0n,
       maxSlippageBps: 500,
+      minUsdcOut: 0n,
       protocolsMask: MASK_AAVE | MASK_MOONWELL | MASK_COMET | MASK_MORPHO,
       epoch: 0n,
       nonce: 1n,
@@ -621,10 +634,14 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
       const sigA = await sign(f, permitA);
       const sigB = await sign(f, permitB);
 
-      await expect(f.executor.connect(f.user).revokeAll())
+      const tx = await f.executor.connect(f.user).revokeAll();
+      const receipt = await tx.wait();
+      // M-1: the new epoch is the block number, not a +1 increment.
+      const newEpoch = BigInt(receipt!.blockNumber);
+      await expect(tx)
         .to.emit(f.executor, "AllPermitsRevoked")
-        .withArgs(f.user.address, 1n);
-      expect(await f.executor.revocationEpoch(f.user.address)).to.equal(1n);
+        .withArgs(f.user.address, newEpoch);
+      expect(await f.executor.revocationEpoch(f.user.address)).to.equal(newEpoch);
 
       for (const [permit, signature] of [
         [permitA, sigA],
@@ -636,9 +653,35 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
       }
 
       // ... and a permit signed against the new epoch still works.
-      const fresh = await makePermit(f, { protocolsMask: MASK_AAVE, nonce: 9n, epoch: 1n });
+      const fresh = await makePermit(f, {
+        protocolsMask: MASK_AAVE,
+        nonce: 9n,
+        epoch: newEpoch,
+      });
       await expect(submit(f, fresh, [f.legs.aaveWethCollateral], await sign(f, fresh))).to.not.be
         .reverted;
+    });
+
+    it("M-1: a permit pre-signed for a guessed future epoch dies on revokeAll", async function () {
+      const f = await loadFixture(deployFixture);
+      // With the old ++ scheme the next epoch was always 1, so an attacker
+      // holding an epoch-0 permit could also stash an epoch-1 permit that would
+      // survive the first revokeAll and reactivate. Binding the epoch to the
+      // block number makes the target unguessable; a "current + 1" guess is
+      // dead after the revoke.
+      const current = await f.executor.revocationEpoch(f.user.address);
+      const preSigned = await makePermit(f, {
+        protocolsMask: MASK_AAVE,
+        nonce: 40n,
+        epoch: current + 1n,
+      });
+      const signature = await sign(f, preSigned);
+
+      await f.executor.connect(f.user).revokeAll();
+
+      await expect(
+        submit(f, preSigned, [f.legs.aaveWethCollateral], signature)
+      ).to.be.revertedWithCustomError(f.executor, "PermitRevoked");
     });
 
     it("one user's revocation does not touch another's permits", async function () {
@@ -769,6 +812,21 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
           submit(f, permit, [f.legs.aaveWethCollateral], signature)
         ).to.be.revertedWithCustomError(f.executor, "WithdrawNotPermitted");
       }
+    });
+
+    it("blocks collateral withdrawal on a non-Aave protocol too", async function () {
+      const f = await loadFixture(deployFixture);
+      // The guard is protocol-agnostic; prove it on Moonwell so it is not an
+      // Aave-only accident.
+      const permit = await makePermit(f, {
+        kind: REDUCE,
+        maxRepayFractionBps: 5_000,
+        protocolsMask: MASK_MOONWELL,
+      });
+      const signature = await sign(f, permit);
+      await expect(
+        submit(f, permit, [f.legs.moonwellWethCollateral], signature)
+      ).to.be.revertedWithCustomError(f.executor, "WithdrawNotPermitted");
     });
 
     it("rejects a FULL_REPAY permit carrying a partial fraction", async function () {
@@ -1113,6 +1171,208 @@ describe("PanikExecutor - delegated exits (Phase 2.A)", function () {
       expect(await f.usdc.balanceOf(f.relayer.address)).to.equal(0n);
       expect(await f.usdc.balanceOf(f.executorAddress)).to.equal(0n);
       expect(await f.weth.balanceOf(f.executorAddress)).to.equal(0n);
+    });
+  });
+
+  // H-1: the nonce is spent up front, so an exit that does no work would burn
+  // the permit for free at the exact moment protection should fire. Two guards:
+  // the minUsdcOut floor (primary) and the empty-leg rejection (defense).
+  describe("H-1 nonce-burn resistance", function () {
+    it("rejects a leg that neither repays nor withdraws", async function () {
+      const f = await loadFixture(deployFixture);
+      const permit = await makePermit(f, { protocolsMask: MASK_AAVE });
+      const signature = await sign(f, permit);
+      const noop = leg(AAVE, await f.weth.getAddress(), 0n, 0n);
+      await expect(submit(f, permit, [noop], signature))
+        .to.be.revertedWithCustomError(f.executor, "EmptyLeg")
+        .withArgs(AAVE, await f.weth.getAddress());
+    });
+
+    it("reverts (and does NOT spend the nonce) when the exit underruns minUsdcOut", async function () {
+      const f = await loadFixture(deployFixture);
+      // Withdrawing only the DAI leg nets ~10 USDC; a permit demanding 5000 out
+      // must revert. The nonce is spent inside the same tx, so the revert has to
+      // unwind it or the permit is dead.
+      const permit = await makePermit(f, {
+        protocolsMask: MASK_AAVE,
+        minUsdcOut: 5_000n * WAD,
+        // DAI has no feed, so use WETH which does; 1 WETH -> ~2000 USDC < 5000.
+      });
+      const signature = await sign(f, permit);
+
+      await expect(submit(f, permit, [f.legs.aaveWethCollateral], signature))
+        .to.be.revertedWithCustomError(f.executor, "InsufficientUsdcOut")
+        .withArgs(5_000n * WAD, 2_000n * WAD);
+
+      // Nonce survived the revert: the real exit still runs.
+      expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(false);
+      const ok = await makePermit(f, {
+        protocolsMask: MASK_AAVE,
+        minUsdcOut: 1_000n * WAD,
+        nonce: permit.nonce,
+      });
+      await expect(submit(f, ok, [f.legs.aaveWethCollateral], await sign(f, ok))).to.not.be
+        .reverted;
+    });
+
+    it("executes when the exit clears minUsdcOut", async function () {
+      const f = await loadFixture(deployFixture);
+      const permit = await makePermit(f, {
+        protocolsMask: MASK_AAVE,
+        minUsdcOut: 1_900n * WAD,
+      });
+      const before = await f.usdc.balanceOf(f.user.address);
+      await submit(f, permit, [f.legs.aaveWethCollateral], await sign(f, permit));
+      expect((await f.usdc.balanceOf(f.user.address)) - before).to.equal(2_000n * WAD);
+    });
+
+    it("multi-leg: a subset that underruns the floor cannot burn the permit", async function () {
+      const f = await loadFixture(deployFixture);
+      // Signer authorises a full four-protocol exit AND a floor. A submitter who
+      // runs only the smallest leg (Morpho, ~1400 USDC) to burn the nonce and
+      // liquidate the rest is stopped by minUsdcOut.
+      const permit = await makePermit(f, {
+        protocolsMask: MASK_AAVE | MASK_MOONWELL | MASK_COMET | MASK_MORPHO,
+        minUsdcOut: 8_000n * WAD,
+      });
+      const signature = await sign(f, permit);
+      await expect(
+        submit(f, permit, [f.legs.morpho], signature)
+      ).to.be.revertedWithCustomError(f.executor, "InsufficientUsdcOut");
+      expect(await f.executor.isNonceUsed(f.user.address, permit.nonce)).to.equal(false);
+    });
+  });
+
+  describe("ERC-1271 contract-wallet signing", function () {
+    async function walletFixture() {
+      const f = await loadFixture(deployFixture);
+      const Wallet = await ethers.getContractFactory("MockERC1271Wallet");
+      // The wallet's owner is `other`; the wallet address is the permit.user.
+      const wallet: any = await Wallet.deploy(f.other.address);
+      const walletAddr = await wallet.getAddress();
+
+      // Fund + approve the wallet exactly like an EOA position owner.
+      await f.usdc.mint(walletAddr, 5_000n * WAD);
+      await f.aWeth.mint(walletAddr, 1n * WAD);
+      await f.dataProvider.setUserReserveData(walletAddr, await f.weth.getAddress(), {
+        currentATokenBalance: 1n * WAD,
+        currentStableDebt: 0n,
+        currentVariableDebt: 0n,
+        principalStableDebt: 0n,
+        scaledVariableDebt: 0n,
+        stableBorrowRate: 0n,
+        liquidityRate: 0n,
+        stableRateLastUpdated: 0n,
+        usageAsCollateralEnabled: true,
+      });
+      // The wallet can't call approve itself in this mock, so approve from an
+      // impersonated wallet account. Fund gas via setBalance (the mock has no
+      // receive(), so a value transfer would revert).
+      await ethers.provider.send("hardhat_impersonateAccount", [walletAddr]);
+      await ethers.provider.send("hardhat_setBalance", [walletAddr, "0xDE0B6B3A7640000"]);
+      const walletSigner = await ethers.getSigner(walletAddr);
+      await f.aWeth.connect(walletSigner).approve(f.executorAddress, MAX);
+      await ethers.provider.send("hardhat_stopImpersonatingAccount", [walletAddr]);
+
+      return { ...f, wallet, walletAddr };
+    }
+
+    it("accepts a permit whose contract signer validates the signature (ERC-1271)", async function () {
+      const f = await walletFixture();
+      const permit = await makePermit(f, { user: f.walletAddr, protocolsMask: MASK_AAVE });
+      // The inner EOA (the wallet's owner) produces the signature bytes.
+      const signature = await sign(f, permit, f.other);
+
+      const before = await f.usdc.balanceOf(f.walletAddr);
+      await f.executor
+        .connect(f.relayer)
+        .atomicExitFor(f.walletAddr, [f.legs.aaveWethCollateral], [], permit, signature);
+      expect((await f.usdc.balanceOf(f.walletAddr)) - before).to.equal(2_000n * WAD);
+    });
+
+    it("rejects when the contract signer disowns the signature", async function () {
+      const f = await walletFixture();
+      await f.wallet.setDisabled(true); // revocable, as ERC-1271 allows
+      const permit = await makePermit(f, { user: f.walletAddr, protocolsMask: MASK_AAVE });
+      const signature = await sign(f, permit, f.other);
+      await expect(
+        f.executor
+          .connect(f.relayer)
+          .atomicExitFor(f.walletAddr, [f.legs.aaveWethCollateral], [], permit, signature)
+      ).to.be.revertedWithCustomError(f.executor, "InvalidSignature");
+    });
+
+    it("rejects a contract signer whose owner did not sign", async function () {
+      const f = await walletFixture();
+      const permit = await makePermit(f, { user: f.walletAddr, protocolsMask: MASK_AAVE });
+      const signature = await sign(f, permit, f.user); // wrong inner signer
+      await expect(
+        f.executor
+          .connect(f.relayer)
+          .atomicExitFor(f.walletAddr, [f.legs.aaveWethCollateral], [], permit, signature)
+      ).to.be.revertedWithCustomError(f.executor, "InvalidSignature");
+    });
+  });
+
+  describe("signature malleability and shape", function () {
+    const SECP256K1N =
+      0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+
+    it("rejects the high-s malleable twin of a valid signature", async function () {
+      const f = await loadFixture(deployFixture);
+      const permit = await makePermit(f, { protocolsMask: MASK_AAVE });
+      const good = await sign(f, permit);
+
+      const sig = ethers.Signature.from(good);
+      // Build the raw 65 bytes by hand: ethers.Signature refuses to hold a
+      // non-canonical (high-s) value, which is precisely what we need to feed
+      // the contract to prove OZ's ECDSA rejects it.
+      const highS = SECP256K1N - BigInt(sig.s);
+      const flippedV = sig.v === 27 ? 28 : 27;
+      const flipped = ethers.concat([
+        sig.r,
+        ethers.toBeHex(highS, 32),
+        ethers.toBeHex(flippedV, 1),
+      ]);
+
+      await expect(
+        submit(f, permit, [f.legs.aaveWethCollateral], flipped)
+      ).to.be.revertedWithCustomError(f.executor, "InvalidSignature");
+    });
+
+    it("rejects a wrong-length signature", async function () {
+      const f = await loadFixture(deployFixture);
+      const permit = await makePermit(f, { protocolsMask: MASK_AAVE });
+      await expect(
+        submit(f, permit, [f.legs.aaveWethCollateral], "0xdeadbeef")
+      ).to.be.revertedWithCustomError(f.executor, "InvalidSignature");
+    });
+  });
+
+  describe("feed decimals scaling (M-2)", function () {
+    it("prices correctly off an 18-decimal feed", async function () {
+      const f = await loadFixture(deploy18DecimalFeedFixture);
+      expect(await f.executor.getPriceFeedDecimals(await f.weth.getAddress())).to.equal(18n);
+
+      // A tight 100 bps floor only passes if _scalePrice normalised the
+      // 18-decimal answer to the same base as USDC; a botched scale would make
+      // the floor near-zero. The pool pays the full 2000, so assert the OUTPUT
+      // amount (a near-zero floor would also let a bad price through).
+      const permit = await makePermit(f, { protocolsMask: MASK_AAVE, maxSlippageBps: 100 });
+      const before = await f.usdc.balanceOf(f.user.address);
+      await submit(f, permit, [f.legs.aaveWethCollateral], await sign(f, permit));
+      expect((await f.usdc.balanceOf(f.user.address)) - before).to.equal(2_000n * WAD);
+    });
+
+    it("the 18-decimal floor still bites at the signer's tolerance", async function () {
+      const f = await loadFixture(deploy18DecimalFeedFixture);
+      // 1970 out under a 100 bps (1980) floor must fail - proving the scaled
+      // price feeds a real, non-zero floor rather than a rounding artefact.
+      await f.router.setRateWad(await f.weth.getAddress(), 1_970n * WAD);
+      const permit = await makePermit(f, { protocolsMask: MASK_AAVE, maxSlippageBps: 100 });
+      await expect(
+        submit(f, permit, [f.legs.aaveWethCollateral], await sign(f, permit))
+      ).to.be.revertedWith("MockUR: too little out");
     });
   });
 });

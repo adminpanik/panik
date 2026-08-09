@@ -45,6 +45,14 @@ contract MockChainlinkFeed is IChainlinkFeed {
         _startedAt = startedAt_;
     }
 
+    /// @dev Optional description, so the deploy script's "/ USD" base-currency
+    /// check has something to read in a fork test. Not part of IChainlinkFeed.
+    string public description = "MOCK / USD";
+
+    function setDescription(string calldata description_) external {
+        description = description_;
+    }
+
     function decimals() external view returns (uint8) {
         return _decimals;
     }
