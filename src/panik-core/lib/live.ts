@@ -332,8 +332,20 @@ export interface AdvisorRepayPlan {
    */
   repayFraction: number;
   targetHf: number;
-  projectedHf: number;
+  /** Null when the plan clears the debt: no debt means no health factor. */
+  projectedHf: number | null;
   mode: "wallet_funded";
+}
+
+/**
+ * A second outcome the user may take instead of the primary action. Today the
+ * engine emits one: `full_repay`, offered on an EXIT that was promoted from a
+ * near-total reduce. Show it as a quiet secondary, never in place of the
+ * primary. See `packages/scoring/src/advisor/types.ts`.
+ */
+export interface AdvisorAlternative {
+  kind: "full_repay";
+  plan: AdvisorRepayPlan;
 }
 
 export interface AdvisorOpenPlan {
@@ -353,6 +365,8 @@ export interface AdvisorRecommendation {
   urgency: AdvisorUrgency;
   triggers: string[];
   repayPlan?: AdvisorRepayPlan;
+  /** A declinable second outcome; see `AdvisorAlternative`. */
+  alternative?: AdvisorAlternative;
   openPlan?: AdvisorOpenPlan;
   rebalance?: { toProtocol: LiveProtocol; reason: string };
   sections: AdvisorSections;
@@ -375,7 +389,8 @@ export interface AdvisorRecommendation {
   };
   exitPrefill?: {
     protocol: LiveProtocol;
-    kind: "full" | "partial";
+    /** `full_repay` clears the debt and leaves the collateral deposited. */
+    kind: "full" | "partial" | "full_repay";
     /** Display only. */
     repayUsd?: number;
     /** What a partial exit is actually sized from; see `AdvisorRepayPlan`. */

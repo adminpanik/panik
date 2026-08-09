@@ -56,7 +56,12 @@ import { useExitApprovals, withAccrualBuffer, type ApprovalStep } from "../lib/u
 
 export interface ExitPrefill {
   protocol: LiveProtocol;
-  kind: "full" | "partial";
+  /**
+   * Three different outcomes, and the user is told which one before signing:
+   * `full` closes the position, `full_repay` clears the debt and leaves the
+   * collateral deposited, `partial` repays the advisor's sized fraction.
+   */
+  kind: "full" | "partial" | "full_repay";
   /** Display only. Never converted back into a token amount. */
   repayUsd?: number;
   /**
@@ -66,6 +71,43 @@ export interface ExitPrefill {
    */
   repayFraction?: number;
 }
+
+/**
+ * What each outcome leaves the user holding, in the words they read before they
+ * sign, plus the labels that have to agree with it.
+ *
+ * `full` and `full_repay` are the pair worth being careful about: both repay
+ * the entire debt, and only one of them also empties the position. That
+ * difference used to live in a button label alone, which is not where a user
+ * checks what they are about to do. `outcome` states the result first, in
+ * plain language, and it sits above the amounts on the review step.
+ */
+const FLOW_COPY: Record<
+  ExitPrefill["kind"],
+  { title: string; cta: string; done: string; outcome: string }
+> = {
+  full: {
+    title: "Atomic Exit",
+    cta: "Approve & exit",
+    done: "Position exited",
+    outcome:
+      "Your debt is repaid, your collateral is withdrawn and converted to USDC, and the position is closed.",
+  },
+  full_repay: {
+    title: "Clear Your Debt",
+    cta: "Approve & repay",
+    done: "Debt cleared",
+    outcome:
+      "Your debt is cleared, your collateral stays deposited, and the position stays open with nothing left to liquidate.",
+  },
+  partial: {
+    title: "Reduce Position",
+    cta: "Approve & reduce",
+    done: "Position reduced",
+    outcome:
+      "Part of your debt is repaid, your collateral stays deposited, and the position stays open.",
+  },
+};
 
 type Step =
   | "connect"
@@ -176,7 +218,9 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
             ? dust.length > 0
               ? `The suggested reduction is too small to execute against your ${dust.join(" and ")} debt on the Base Sepolia demo position.`
               : "This wallet has no debt to reduce on the Base Sepolia demo position."
-            : "This wallet has no Aave position on Base Sepolia. Seed a demo position first (see docs).",
+            : prefill.kind === "full_repay"
+              ? "This wallet has no debt to repay on the Base Sepolia demo position."
+              : "This wallet has no Aave position on Base Sepolia. Seed a demo position first (see docs).",
         );
         setStep("error");
         return;
@@ -317,7 +361,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
     }
   }, [publicClient, address, position, ensureApprovals, writeContractAsync]);
 
-  const title = prefill.kind === "full" ? "Atomic Exit" : "Reduce Position";
+  const copy = FLOW_COPY[prefill.kind];
   // Wallet-funded: the executor pulls the debt asset from the user, so a
   // shortfall in ANY debt asset blocks the whole atomic transaction.
   const underfunded = (position?.funding ?? []).some((f) => f.balance < f.required);
@@ -342,7 +386,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-sans font-bold text-text-primary">{title}</h2>
+            <h2 className="text-lg font-sans font-bold text-text-primary">{copy.title}</h2>
             {EXIT_ENV === "testnet" ? (
               <span className="px-2 py-0.5 rounded-sm border border-risk-elevated/40 bg-risk-elevated/10 text-risk-elevated text-2xs font-sans font-bold">
                 TESTNET
@@ -403,6 +447,10 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
 
         {(step === "review" || step === "executing") && position ? (
           <div className="space-y-4">
+            {/* The outcome, before the amounts: what you still own after this
+                transaction is the thing the amounts do not tell you. */}
+            <p className="text-sm font-sans leading-relaxed text-text-secondary">{copy.outcome}</p>
+
             <div className="space-y-2">
               {position.views.map((v) => (
                 <div
@@ -471,7 +519,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
                 </>
               ) : (
                 <>
-                  {prefill.kind === "full" ? "Approve & exit" : "Approve & reduce"}
+                  {copy.cta}
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -487,9 +535,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
           <div className="space-y-4 text-center py-4">
             <CheckCircle2 className="w-10 h-10 text-risk-low mx-auto" />
             <div>
-              <p className="text-text-primary font-sans font-bold">
-                {prefill.kind === "full" ? "Position exited" : "Position reduced"}
-              </p>
+              <p className="text-text-primary font-sans font-bold">{copy.done}</p>
               {receipt.usdcReceived > 0n && position ? (
                 <p className="text-sm text-text-secondary font-sans tabular-nums mt-1">
                   {formatTokenAmount(receipt.usdcReceived, position.usdcDecimals)} USDC swept to
