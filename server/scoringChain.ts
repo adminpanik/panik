@@ -24,6 +24,7 @@ import {
   scoringChainConfig,
   type ActiveReader,
   type AssetRiskProvider,
+  type MarketSimulation,
   type Protocol,
   type PublicClientLike,
   type ScoringChainConfig,
@@ -57,6 +58,14 @@ export interface BuildScoringChainOptions {
   providers: { assetRisk: AssetRiskProvider; systemic: SystemicRiskProvider };
   onReaderError?: (error: unknown) => void;
   onCompoundWarn?: (message: string) => void;
+  /**
+   * Reads the armed market simulation, or null. Threaded through HERE rather
+   * than at each call site for the same reason this module exists at all: the
+   * API and the worker would otherwise each have to remember to install it, and
+   * the one that forgot would keep scoring real prices while the demo insisted
+   * the market had crashed. One adapter, one hook, both processes.
+   */
+  simulation?: () => MarketSimulation | null;
 }
 
 /**
@@ -116,7 +125,7 @@ export function buildScoringChain(opts: BuildScoringChainOptions): ScoringChainR
       readersFor(config, chain, opts.onCompoundWarn),
       opts.providers,
       opts.onReaderError,
-      { marketContext: config.marketContext },
+      { marketContext: config.marketContext, simulation: opts.simulation },
     ),
   };
 }
