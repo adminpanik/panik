@@ -11,6 +11,7 @@
     { "source": "/founding", "destination": "/founding.html" },
     { "source": "/early-access", "destination": "/founding.html" },
     { "source": "/try", "destination": "/try.html" },
+    { "source": "/admin", "destination": "/admin.html" },
     { "source": "/admin-neithan", "destination": "/admin.html" }
   ]
 }
