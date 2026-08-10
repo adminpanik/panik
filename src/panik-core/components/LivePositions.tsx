@@ -7,7 +7,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { AlertTriangle, Eye } from "lucide-react";
-import type { LiveWalletPosition } from "../lib/live";
+import type { LiveWalletPosition, ScoringChainInfo } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
 import {
@@ -37,9 +37,42 @@ export function positionKey(p: Pick<LiveWalletPosition, "wallet" | "protocol">):
   return `${p.wallet}:${p.protocol}`;
 }
 
+/**
+ * How the header names the chain, and what the provenance tip may claim.
+ *
+ * Nothing is rendered on the default chain: "Base" beside every position on
+ * every mainnet install is a caption that never changes, which is the kind of
+ * text DESIGN_SYSTEM's three-way copy test deletes. It is rendered the moment
+ * the API reports anything else, because THEN the chain is the thing a user
+ * would otherwise get wrong.
+ *
+ * The tip is rebuilt rather than reworded because the mainnet sentence names
+ * CoinGecko and DefiLlama, and on a testnet neither is consulted at all: a
+ * degraded read must not come with a caption asserting the source it did not
+ * use.
+ */
+function chainProvenance(chain: ScoringChainInfo | null): { badge: string | null; tip: string } {
+  const MAINNET_TIP =
+    "Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF) + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s.";
+  if (chain === null || chain.mode === "mainnet") return { badge: null, tip: MAINNET_TIP };
+  return {
+    badge: chain.label,
+    tip:
+      `Scored by the PANIK engine from live RPC reads on ${chain.label} ` +
+      "(Aave getUserAccountData), the same chain the exit runs on. Test assets have no " +
+      "price history and no protocol TVL to read, so market risk is left unmeasured and " +
+      "the score is weighted over position health and protocol safety. Refreshes every 60s.",
+  };
+}
+
 interface LivePositionsProps {
   positions: LiveWalletPosition[] | null;
   offline: boolean;
+  /**
+   * The chain the API says it read these positions from, or null when it did
+   * not say. Null renders no claim, never a guessed chain name.
+   */
+  chain?: ScoringChainInfo | null;
   /** Optional: open this real position in the Watch simulator (stress-test bridge). */
   onStressTest?: (position: LiveWalletPosition) => void;
   /**
@@ -50,7 +83,14 @@ interface LivePositionsProps {
   highlightKey: string | null;
 }
 
-export function LivePositions({ positions, offline, onStressTest, highlightKey }: LivePositionsProps) {
+export function LivePositions({
+  positions,
+  offline,
+  chain = null,
+  onStressTest,
+  highlightKey,
+}: LivePositionsProps) {
+  const provenance = chainProvenance(chain);
   /**
    * One ref, attached to the highlighted row only. Refs are set during commit,
    * before effects run, so the row this points at is always the one the current
@@ -101,11 +141,19 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
           Only rendered once the array has arrived: "0 Positions" while the first
           fetch is still in flight is a claim we cannot make yet, and it is the
           exact claim this product must never make by accident. */}
-      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
+      <h3 className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-sans font-semibold text-text-primary">
         {positions === null
           ? "Positions"
           : `${positions.length} ${positions.length === 1 ? "Position" : "Positions"}`}
-        <InfoTip text="Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF) + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s." />
+        <InfoTip text={provenance.tip} />
+        {/* Neutral, never the risk ramp: which chain you are on is not a risk
+            band, and the ramp on this screen is spoken for by the dials. Same
+            treatment as the standing-permission card's marker. */}
+        {provenance.badge && (
+          <span className="rounded-sm border border-border-strong px-2 py-0.5 text-2xs font-sans font-bold text-text-secondary">
+            {provenance.badge}
+          </span>
+        )}
       </h3>
 
       {positions === null && (

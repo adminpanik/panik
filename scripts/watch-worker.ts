@@ -29,27 +29,22 @@
  * indistinguishable from health. The row lives in Postgres so the API process —
  * deployed separately, with its own lifecycle — can be the one that notices.
  *
- * NOTE THE TWO CHAINS. Loops 1-2 score Base MAINNET. Loop 3 executes on the
+ * NOTE THE TWO CHAINS. Loops 1-2 score the chain PANIK_SCORING_CHAIN selects
+ * (Base mainnet by default; server/scoringChain.ts). Loop 3 executes on the
  * EXECUTOR's chain (Base Sepolia today, from EXIT_CHAIN_ID) because that is
- * where the audited-pending contract lives. They are deliberately different
- * clients on different RPCs; see the chain-id note in server/exitPermit.ts.
+ * where the audited-pending contract lives. They are separate clients on
+ * separate RPCs, and they COINCIDE when the scoring chain is set to testnet:
+ * see the chain-id note in server/exitPermit.ts.
  *
  * scripts/ is .vercelignore'd, so viem + pg are free here. See
  * docs/technical-docs/TELEGRAM_ALERTS.md.
  */
 
 import pg from "pg";
-import { createPublicClient, http } from "viem";
-import { base } from "viem/chains";
 import {
-  AaveActiveReader,
-  ActiveAdapter,
   ALERT_POLICY,
   CoinGeckoProvider,
-  CompoundActiveReader,
   DefiLlamaProvider,
-  MoonwellActiveReader,
-  MorphoActiveReader,
   WatchService,
   decideSend,
   formatAlert,
@@ -57,10 +52,10 @@ import {
   type ActiveScore,
   type ProfileStatus,
   type Protocol,
-  type PublicClientLike,
   type RiskProfile,
   type WatchTransition,
 } from "../packages/scoring/src/index";
+import { buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 import { transactionPoolerUrl } from "../server/profileDeps";
 import { probeReachable, sendMessage } from "../server/telegram";
 import {
@@ -103,11 +98,17 @@ import { runRelayerTick, type RelayerCandidate, type RelayerDeps } from "../serv
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
 
 const cgKey = process.env.COINGECKO_API_KEY;
-const alchemyKey = process.env.ALCHEMY_API_KEY_BASE_MAINNET;
 const dbUrl = process.env.SUPABASE_DB_URL;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
-if (!cgKey || !alchemyKey || !dbUrl) {
-  console.error("Missing env (COINGECKO_API_KEY / ALCHEMY_API_KEY_BASE_MAINNET / SUPABASE_DB_URL)");
+// Same switch, same default, same helper as scripts/api-server.ts - the worker
+// and the API must never score different chains for the same wallet.
+const alchemy = resolveAlchemyKey(process.env.PANIK_SCORING_CHAIN, process.env);
+if (!cgKey || alchemy.key === null || !dbUrl) {
+  const missingChainKey = alchemy.key === null ? alchemy.missing : "-";
+  console.error(
+    `Missing env (COINGECKO_API_KEY / ${missingChainKey} / SUPABASE_DB_URL)` +
+      ` - scoring chain is ${alchemy.config.label} (PANIK_SCORING_CHAIN=${process.env.PANIK_SCORING_CHAIN ?? "unset"})`,
+  );
   process.exit(1);
 }
 if (!botToken) {
@@ -130,28 +131,24 @@ const WALLET_RELOAD_EVERY_TICKS = 5;
 const MONITOR_MS = 5 * 60_000;
 
 // ── chain + scoring adapter (same construction as scripts/api-server.ts) ────
-const rawClient = createPublicClient({
-  chain: base,
-  transport: http(`https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`),
-});
-const chain = rawClient as unknown as PublicClientLike;
-
 const providers = {
   assetRisk: new CoinGeckoProvider(cgKey),
   systemic: new DefiLlamaProvider(),
 };
 
-const adapter = new ActiveAdapter(
-  [
-    new AaveActiveReader(chain),
-    new MoonwellActiveReader(chain),
-    new CompoundActiveReader(chain, undefined, {
-      onWarn: (m) => console.warn(`compound reader degraded: ${m}`),
-    }),
-    new MorphoActiveReader(),
-  ],
+const scoringChain = buildScoringChain({
+  mode: process.env.PANIK_SCORING_CHAIN,
+  alchemyKey: alchemy.key,
   providers,
-  (err) => console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
+  onReaderError: (err) =>
+    console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
+  onCompoundWarn: (m) => console.warn(`compound reader degraded: ${m}`),
+});
+const adapter = scoringChain.adapter;
+console.log(
+  `scoring chain: ${scoringChain.config.label} (${scoringChain.config.chainId}), ` +
+    `protocols ${scoringChain.config.protocols.join(", ")}, ` +
+    `market context ${scoringChain.config.marketContext}`,
 );
 
 // ── pg pool (transaction pooler 6543; same self-heal as api-server) ─────────
@@ -743,15 +740,21 @@ function sweepTargets(): SweepTarget[] {
   }));
 }
 
-/** RPC health on BOTH chains: scores read mainnet, the executor is elsewhere. */
+/**
+ * RPC health on every chain the worker depends on: the one scores are read from
+ * and the one the executor lives on. Deduplicated by chain id, because the two
+ * COINCIDE when PANIK_SCORING_CHAIN=testnet and probing the same endpoints
+ * twice would double every alert about them.
+ */
 async function checkRpc(nowMs: number): Promise<MonitorAlert[]> {
   const nowSec = Math.floor(nowMs / 1000);
   const limits = limitsFromEnv();
   const out: MonitorAlert[] = [];
-  for (const [chainId, label] of [
-    [base.id, "base-mainnet"],
-    [EXIT_CHAIN_ID, "executor-chain"],
-  ] as const) {
+  const chains = new Map<number, string>([
+    [scoringChain.config.chainId, `scoring-${scoringChain.config.alchemyHost}`],
+  ]);
+  if (!chains.has(EXIT_CHAIN_ID)) chains.set(EXIT_CHAIN_ID, "executor-chain");
+  for (const [chainId, label] of chains) {
     const endpoints = endpointsForChain(chainId);
     if (endpoints.length === 0) continue;
     const samples = await sampleAll(endpoints);

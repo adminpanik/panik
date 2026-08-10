@@ -12,26 +12,19 @@
  *   GET /api/poolhistory  30d APY/TVL per Compass preset (DefiLlama, 1h cache)
  *   GET /api/history      ?wallet  alert feed + 30d score series (Portfolio)
  *   GET /api/profile      ?wallet  DeFi-persona prediction (Dune history → AI)
- *   GET /api/chain        real Base block number + gas price
+ *   GET /api/chain        block number + gas price for the scored chain
  */
 
 import express from "express";
 import pg from "pg";
-import { createPublicClient, http } from "viem";
-import { base } from "viem/chains";
 import {
-  AaveActiveReader,
-  ActiveAdapter,
   AdvisorNarrator,
   adviseWallet,
   CoinGeckoProvider,
-  CompoundActiveReader,
   DefiLlamaProvider,
   findOpportunities,
   insightsFromClassification,
   MARKETS,
-  MoonwellActiveReader,
-  MorphoActiveReader,
   PROTOCOL_DEFILLAMA_SLUG,
   resolveProfileScan,
   scoreProspective,
@@ -42,12 +35,12 @@ import {
   type AdvisorReport,
   type LegMarketContext,
   type Protocol,
-  type PublicClientLike,
   type RiskProfile,
   type StatedProfile,
   type WalletInsights,
   type YieldTable,
 } from "../packages/scoring/src/index";
+import { buildScoringChain, resolveAlchemyKey, scoringChainWire } from "../server/scoringChain";
 import {
   getProfileDeps,
   isDuneExecutionId,
@@ -87,41 +80,45 @@ import path from "node:path";
 // Railway (and most PaaS) inject PORT; fall back to PANIK_API_PORT for local dev.
 const PORT = Number(process.env.PORT ?? process.env.PANIK_API_PORT ?? 8787);
 const cgKey = process.env.COINGECKO_API_KEY;
-const alchemyKey = process.env.ALCHEMY_API_KEY_BASE_MAINNET;
 const dbUrl = process.env.SUPABASE_DB_URL;
+// Which chain the SCORING path reads (server/scoringChain.ts). Unset =
+// mainnet, exactly as before. The Alchemy key required depends on it, so the
+// boot check below names the one this chain actually wants.
+const alchemy = resolveAlchemyKey(process.env.PANIK_SCORING_CHAIN, process.env);
 // Persona profiler keys are OPTIONAL — the rest of the API runs without them;
 // /api/profile reports 503 if Dune is unconfigured, and narration falls back
 // to deterministic prose if OpenRouter is absent.
 // Profiler keys are read by getProfileDeps from env directly; we only need to
 // know here whether to advertise the endpoints (DUNE + DB are the hard reqs).
 const duneKey = process.env.DUNE_API_KEY;
-if (!cgKey || !alchemyKey || !dbUrl) {
-  console.error("Missing env (COINGECKO_API_KEY / ALCHEMY_API_KEY_BASE_MAINNET / SUPABASE_DB_URL)");
+if (!cgKey || alchemy.key === null || !dbUrl) {
+  const missingChainKey = alchemy.key === null ? alchemy.missing : "-";
+  console.error(
+    `Missing env (COINGECKO_API_KEY / ${missingChainKey} / SUPABASE_DB_URL)` +
+      ` — scoring chain is ${alchemy.config.label} (PANIK_SCORING_CHAIN=${process.env.PANIK_SCORING_CHAIN ?? "unset"})`,
+  );
   process.exit(1);
 }
-
-const rawClient = createPublicClient({
-  chain: base,
-  transport: http(`https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`),
-});
-const chain = rawClient as unknown as PublicClientLike;
 
 const providers = {
   assetRisk: new CoinGeckoProvider(cgKey),
   systemic: new DefiLlamaProvider(),
 };
 
-const adapter = new ActiveAdapter(
-  [
-    new AaveActiveReader(chain),
-    new MoonwellActiveReader(chain),
-    new CompoundActiveReader(chain, undefined, {
-      onWarn: (m) => console.warn(`compound reader degraded: ${m}`),
-    }),
-    new MorphoActiveReader(), // official Morpho API (market discovery needs an index)
-  ],
+const scoringChain = buildScoringChain({
+  mode: process.env.PANIK_SCORING_CHAIN,
+  alchemyKey: alchemy.key,
   providers,
-  (err) => console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
+  onReaderError: (err) =>
+    console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
+  onCompoundWarn: (m) => console.warn(`compound reader degraded: ${m}`),
+});
+const { adapter } = scoringChain;
+const chainWire = scoringChainWire(scoringChain.config);
+console.log(
+  `scoring chain: ${scoringChain.config.label} (${scoringChain.config.chainId}), ` +
+    `protocols ${scoringChain.config.protocols.join(", ")}, ` +
+    `market context ${scoringChain.config.marketContext}`,
 );
 
 // Persona profiler (analytics tier — once-per-wallet, cached; NOT the live loop).
@@ -324,8 +321,8 @@ let chainCache: { at: number; blockNumber: number; gasGwei: number } = {
 async function getChain(): Promise<typeof chainCache> {
   if (Date.now() - chainCache.at < 10_000) return chainCache;
   const [block, gas] = await Promise.all([
-    rawClient.getBlockNumber(),
-    rawClient.getGasPrice(),
+    scoringChain.telemetry.getBlockNumber(),
+    scoringChain.telemetry.getGasPrice(),
   ]);
   chainCache = { at: Date.now(), blockNumber: Number(block), gasGwei: Number(gas) / 1e9 };
   return chainCache;
@@ -600,7 +597,7 @@ app.get("/api/scores", adminLimit, async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
     const { at, positions } = await getScores();
-    res.json({ updatedAt: at, positions });
+    res.json({ updatedAt: at, positions, chain: chainWire });
   } catch (err) {
     serverError(req, res, 500, err);
   }
@@ -676,7 +673,7 @@ app.get("/api/positions", walletLimit, async (req, res) => {
   }
   const cached = ownPosCache.get(wallet);
   if (cached && Date.now() - cached.at < 60_000) {
-    res.json({ updatedAt: cached.at, positions: cached.positions });
+    res.json({ updatedAt: cached.at, positions: cached.positions, chain: chainWire });
     return;
   }
   try {
@@ -688,7 +685,7 @@ app.get("/api/positions", walletLimit, async (req, res) => {
       profileStatus: statusFor(profile, s.total),
     }));
     ownPosCache.set(wallet, { at: Date.now(), positions });
-    res.json({ updatedAt: Date.now(), positions });
+    res.json({ updatedAt: Date.now(), positions, chain: chainWire });
   } catch (err) {
     serverError(req, res, 502, err);
   }
@@ -993,14 +990,24 @@ app.get("/api/advisor", advisorLimit, async (req, res) => {
     } catch {
       yields = undefined;
     }
-    const opportunities = await findOpportunities({
-      wallet,
-      profile,
-      scoreScenario: (s) => scoreProspective(s, providers),
-      currentRecommendations: recommendations,
-      yields,
-      insights,
-    });
+    // Opportunities are OPEN suggestions sized from MARKETS, which is the Base
+    // mainnet listing set, priced by CoinGecko and DefiLlama. On a chain whose
+    // market context is unavailable none of that describes anything the user
+    // can act on: the scan would offer "USDC on Moonwell, 4.2% APY" to someone
+    // on Base Sepolia, where Moonwell is not deployed and the APY is another
+    // chain's. Having nothing to suggest is the honest answer, and an empty
+    // list is a state the Advisor already renders.
+    const opportunities =
+      scoringChain.config.marketContext === "unavailable"
+        ? []
+        : await findOpportunities({
+            wallet,
+            profile,
+            scoreScenario: (s) => scoreProspective(s, providers),
+            currentRecommendations: recommendations,
+            yields,
+            insights,
+          });
 
     // 4 - narrate non-HOLD legs + the top opportunity, time-boxed; any failure
     // keeps the deterministic sections already attached. The narrator's own
@@ -1394,7 +1401,7 @@ app.post("/api/admin/campaigns", adminLimit, adminCampaigns);
 
 app.get("/api/chain", publicLimit, async (req, res) => {
   try {
-    res.json(await getChain());
+    res.json({ ...(await getChain()), chain: chainWire });
   } catch (err) {
     serverError(req, res, 500, err);
   }
