@@ -81,13 +81,13 @@ import {
 } from "../server/workerHeartbeat";
 import { assessRpc, endpointsForChain, sampleAll } from "../server/rpcHealth";
 import { RelayerWatch, balanceAlerts, type SignerBalance } from "../server/relayerHealth";
-import { sweepCoverage, type SweepTarget } from "../server/coverageSweep";
+import { sweepCoverage, type CoverageMarkets, type SweepTarget } from "../server/coverageSweep";
 import { ViemCoverageChain, coverageMarketsFromEnv } from "../server/coverageChain";
 import { linkState, probeDue, unreachableAlert } from "../server/telegramReach";
 import { ViemExitChainReader } from "../server/exitChain";
 import { SupabaseDelegationStore } from "../server/exitDelegationStore";
 import { SupabaseRelayerAttemptStore, MemoryRelayerAttemptStore } from "../server/relayerAttemptStore";
-import { ViemRelayerChain, relayerRpcUrl } from "../server/relayerChain";
+import { ViemRelayerChain, relayerReserveOverride, relayerRpcUrl } from "../server/relayerChain";
 import { signerPoolFromEnv } from "../server/relayerSigner";
 import {
   SubmissionRateWindow,
@@ -96,12 +96,11 @@ import {
   relayerEnabled,
 } from "../server/relayerPolicy";
 import { runRelayerTick, type RelayerCandidate, type RelayerDeps } from "../server/exitRelayer";
-import {
-  EXECUTOR_ADDRESS,
-  EXIT_CHAIN_ID,
-  EXIT_USDC_ADDRESS,
-  EXIT_WETH_ADDRESS,
-} from "../src/panik-core/lib/exit.generated";
+// No EXIT_USDC_ADDRESS / EXIT_WETH_ADDRESS here on purpose. The reserve set the
+// relayer and the sweep read is resolved from chain (see
+// src/panik-core/lib/exitReserves.ts); EXIT_USDC_ADDRESS is the executor's
+// PAYOUT token and naming it as a reserve is the bug this worker used to carry.
+import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
 
 const cgKey = process.env.COINGECKO_API_KEY;
 const alchemyKey = process.env.ALCHEMY_API_KEY_BASE_MAINNET;
@@ -587,19 +586,17 @@ const BOOTED_AT = Date.now();
 // anything other than an explicit true/1/yes as OFF, so a typo or a swallowed
 // value fails towards "did not spend money".
 //
-// Which reserves a position read covers: only an asset the executor TRACKS can
-// appear in a leg, so this is a configured list rather than a scan of every
-// Aave reserve. Defaults to the same USDC + WETH pair the UI's ExitFlow reads;
-// RELAYER_RESERVES overrides it with a comma-separated list when the deployed
-// tracked-asset set widens.
-function relayerReserves(): `0x${string}`[] {
-  const raw = (process.env.RELAYER_RESERVES ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => /^0x[0-9a-f]{40}$/.test(s));
-  if (raw.length > 0) return raw as `0x${string}`[];
-  return [EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS];
-}
+// Which reserves a position read covers. Empty is the normal case and means
+// "resolve from chain": ViemRelayerChain intersects the Aave market's own
+// reserve list with the executor's tracked assets, once per process.
+//
+// This used to default to `[EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS]`.
+// EXIT_USDC_ADDRESS is `executor.usdc()` - the token the executor PAYS OUT in -
+// and the Aave V3 Base Sepolia market does not list it, so `getUserReserveData`
+// against it reverted for every wallet, while every real reserve other than
+// WETH was simply never looked at. A position collateralised in cbETH or USDT
+// would have produced legs that silently left it in place.
+const RESERVE_OVERRIDE = relayerReserveOverride();
 
 /**
  * Build the relayer's dependencies, or null when it cannot run safely.
@@ -627,7 +624,7 @@ function buildRelayerDeps(): RelayerDeps | null {
   }
 
   return {
-    chain: new ViemRelayerChain({ rpcUrl, chainId: EXIT_CHAIN_ID, reserves: relayerReserves() }),
+    chain: new ViemRelayerChain({ rpcUrl, chainId: EXIT_CHAIN_ID, reserves: RESERVE_OVERRIDE }),
     delegations: {
       store: new SupabaseDelegationStore(supabaseUrl, supabaseKey),
       chain: new ViemExitChainReader(rpcUrl),
@@ -695,12 +692,27 @@ async function runRelayer(): Promise<void> {
 
 // ── monitor loop (Phase 4.B) ─────────────────────────────────────────────────
 
-const coverageMarkets = coverageMarketsFromEnv();
 const coverageChain = new ViemCoverageChain({
   rpcUrl: relayerRpcUrl(),
   chainId: EXIT_CHAIN_ID,
-  reserves: coverageMarkets.aaveReserves,
+  // Same override as the relayer, and the same chain resolution when it is
+  // unset. The sweep verifying a different reserve list from the one the relayer
+  // acts on would defeat the point of the sweep.
+  reserves: RESERVE_OVERRIDE,
 });
+
+/**
+ * The sweep's market set, built per pass from the resolved reserves.
+ *
+ * Resolution is cached in `loadExitReserveSet`, so this is free after the first
+ * pass; it is called per pass rather than once at module load so that a node
+ * that was unreachable at boot does not permanently leave the worker sweeping
+ * nothing. If it throws, `runMonitor`'s per-check catch logs a failed coverage
+ * sweep - which is the honest outcome, and never a clean bill of health.
+ */
+async function coverageMarkets(): Promise<CoverageMarkets> {
+  return coverageMarketsFromEnv(await coverageChain.aaveReserves());
+}
 
 /**
  * The wallets to sweep, with the ONE fact that drives severity: is anything
@@ -859,14 +871,18 @@ async function runMonitor(): Promise<void> {
     [
       "coverage sweep",
       relayerDeps
-        ? sweepCoverage(targets, {
-            delegations: relayerDeps.delegations,
-            chain: coverageChain,
-            markets: coverageMarkets,
-            executor: EXECUTOR_ADDRESS,
-            nowSec: Math.floor(nowMs / 1000),
-            nowMs,
-          }).then((reports) => reports.flatMap((r) => r.alerts))
+        ? coverageMarkets()
+            .then((markets) =>
+              sweepCoverage(targets, {
+                delegations: relayerDeps.delegations,
+                chain: coverageChain,
+                markets,
+                executor: EXECUTOR_ADDRESS,
+                nowSec: Math.floor(nowMs / 1000),
+                nowMs,
+              }),
+            )
+            .then((reports) => reports.flatMap((r) => r.alerts))
         : Promise.resolve([]),
     ],
     [

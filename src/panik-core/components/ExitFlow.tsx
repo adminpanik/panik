@@ -28,7 +28,6 @@ import { injected } from "wagmi/connectors";
 import type { LiveProtocol } from "../lib/live";
 import {
   asContractClient,
-  type ContractClient,
   EXIT_DATA_PROVIDER_ABI,
   EXIT_ENV,
   EXIT_ERC20_ABI,
@@ -38,7 +37,10 @@ import {
   isExitExecutable,
 } from "../lib/exit";
 import { classifyExitError } from "../lib/exitRpc";
-import { exitReserveSet, type ExitReserveRef, type MarketReserve } from "../lib/exitReserves";
+// Shared with the relayer (server/relayerChain.ts) and the coverage sweep
+// (server/coverageChain.ts). One resolution, cached per deployment; see the
+// module header for why the reads live there rather than here.
+import { loadExitReserveSet } from "../lib/exitReserves";
 import {
   AMOUNT_FULL,
   buildExitLegs,
@@ -169,37 +171,6 @@ interface FundingRow {
 interface Notice {
   tone: "problem" | "info";
   message: string;
-}
-
-/**
- * The reserve set, read once per session.
- *
- * An asset is listed or de-listed by an Aave governance action or an executor
- * admin call, neither of which happens while a modal is open, so re-reading it
- * on every open would be two requests spent to learn the same answer. Only a
- * non-empty result is cached: an empty one means a misconfiguration somewhere,
- * and that is worth re-checking rather than pinning for the session.
- */
-let reserveSetCache: ExitReserveRef[] | null = null;
-
-async function loadExitReserveSet(client: ContractClient): Promise<ExitReserveRef[]> {
-  if (reserveSetCache) return reserveSetCache;
-  // Issued together so Multicall3 folds them into one request.
-  const [marketReserves, tracked] = await Promise.all([
-    client.readContract({
-      address: EXIT_DATA_PROVIDER_ADDRESS,
-      abi: EXIT_DATA_PROVIDER_ABI,
-      functionName: "getAllReservesTokens",
-    }) as Promise<readonly MarketReserve[]>,
-    client.readContract({
-      address: EXECUTOR_ADDRESS,
-      abi: EXECUTOR_ABI,
-      functionName: "getTrackedAssets",
-    }) as Promise<readonly `0x${string}`[]>,
-  ]);
-  const set = exitReserveSet(marketReserves, tracked);
-  if (set.length > 0) reserveSetCache = set;
-  return set;
 }
 
 interface LoadedPosition {
