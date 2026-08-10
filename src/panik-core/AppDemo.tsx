@@ -3417,28 +3417,38 @@ export function AppDemo() {
                     )}
                   </div>
 
-                  {/* 10 Risk Dimensions Table/Cards Grid */}
+                  {/* TWO groups, and the split is a data-honesty requirement,
+                      not a layout preference.
+
+                      This grid used to hold twelve numbered cells of identical
+                      shape: same well, same muted label, same InfoTip, same bold
+                      figure. Three of them were arithmetic on hand-written
+                      `VAULT_PRESETS` constants and one was arithmetic on the
+                      risk score itself, and nothing on screen told them apart
+                      from the engine's live readings sitting in the next cell.
+                      The `DEMO` badge above does not cover them either: it is
+                      keyed on whether the SCORE came back live, and a preset
+                      constant is a constant in both cases.
+
+                      So the live readings keep this heading, and the example
+                      position the preview is scored against gets its own,
+                      stated in words above the cells rather than left for the
+                      reader to infer.
+
+                      The 1-12 prefixes went with the split. They were the
+                      spec's numbering rather than anything a reader needed, and
+                      with two cells deleted and the rest regrouped there is no
+                      contiguous sequence left to preserve. */}
                   <div className="space-y-3">
                     <span className="block text-2xs font-sans text-text-muted">
                       Liquidation & pool metrics
                     </span>
-                    
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* Dimension 1: LTV */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          1. LTV rating
-                          <InfoTip text="Debt as a share of collateral value. Closer to the protocol's max means a smaller cushion." />
-                        </span>
-                        <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
-                          {Math.round((selectedRiskBreakdownPreset.defaultBorrow / (selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)) * 100)}%
-                        </span>
-                      </div>
 
-                      {/* Dimension 2: Health Factor (live engine value when available) */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Health factor (live engine value when available) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          2. Health factor
+                          Health factor
                           <InfoTip text="Below 1.00 the protocol can liquidate this position. No debt means no liquidation risk." />
                         </span>
                         {breakdownData?.healthFactor == null ? (
@@ -3450,21 +3460,10 @@ export function AppDemo() {
                         )}
                       </div>
 
-                      {/* Dimension 3: Liquidation Price (from the engine's drawdown when live) */}
+                      {/* Buffer to liquidation (the engine's drawdown) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          3. Liquidation price
-                          <InfoTip text="The collateral price at which this position becomes liquidatable." />
-                        </span>
-                        <span className="text-sm font-sans font-bold text-text-primary mt-1 tabular-nums">
-                          {breakdownData?.liqPrice != null ? formatCurrency(breakdownData.liqPrice) : "-"}
-                        </span>
-                      </div>
-
-                      {/* Dimension 4: Buffer to Liquidation */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          4. Buffer to liquidation
+                          Buffer to liquidation
                           <InfoTip text="How far the collateral price must fall before liquidation. Your real safety margin - the most decision-useful number here." />
                         </span>
                         <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
@@ -3472,41 +3471,10 @@ export function AppDemo() {
                         </span>
                       </div>
 
-                      {/* Dimension 5: Collateral Value */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="text-2xs font-sans text-text-muted">5. Collateral value</span>
-                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
-                          {selectedRiskBreakdownPreset.defaultCollateral} {selectedRiskBreakdownPreset.collateralAsset} ({formatCurrency(selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)})
-                        </span>
-                      </div>
-
-                      {/* Dimension 6: Borrowed Amount */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="text-2xs font-sans text-text-muted">6. Borrowed amount</span>
-                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
-                          {selectedRiskBreakdownPreset.defaultBorrow} {selectedRiskBreakdownPreset.debtAsset}
-                        </span>
-                      </div>
-
-                      {/* Dimension 7: Pool Utilization */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md col-span-2 flex justify-between items-center text-xs font-sans">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          7. Pool borrow utilization
-                          <InfoTip text="Share of the pool's supplied funds currently borrowed. Very high utilization can delay withdrawals and spike rates." />
-                        </span>
-                        {/* Neutral. Utilization is not a risk band, and painting
-                            it risk-low put a green figure beside the health
-                            factor's genuine band two rows up — two greens in one
-                            panel, only one of them meaning "safe". */}
-                        <span className="text-xs font-sans font-bold text-text-primary tabular-nums">
-                          {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (optimal range)
-                        </span>
-                      </div>
-
-                      {/* Dimension 8: Supply APY with 30d trend (DefiLlama) */}
+                      {/* Supply APY with 30d trend (DefiLlama) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          8. Supply APY (30d)
+                          Supply APY (30d)
                           <InfoTip text="What suppliers earn in this pool right now, with the last 30 days' trend." />
                         </span>
                         {breakdownData?.poolYield ? (
@@ -3527,10 +3495,10 @@ export function AppDemo() {
                         )}
                       </div>
 
-                      {/* Dimension 9: Pool TVL with 30d trend (DefiLlama) */}
+                      {/* Pool TVL with 30d trend (DefiLlama) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          9. Pool TVL (30d)
+                          Pool TVL (30d)
                           <InfoTip text="Total value locked in this pool. Falling TVL can signal capital flight." />
                         </span>
                         {breakdownData?.poolYield ? (
@@ -3547,6 +3515,61 @@ export function AppDemo() {
                     </div>
                   </div>
 
+                  {/* The example position, said in words. Every figure below is
+                      read from this market's entry in `VAULT_PRESETS`: it is the
+                      sample trade the preview is scored against, and the reader
+                      does not hold it. Kept rather than deleted because the four
+                      numbers are what make the score above legible - a risk
+                      figure with no position attached to it explains nothing -
+                      but kept UNDER a heading that says what they are. */}
+                  <div className="space-y-3">
+                    <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+                      Example position this preview is scored on
+                      <InfoTip text="PANIK previews each market against a sample position of a fixed size. These are that sample's figures, not a position you hold. Open the simulator to score your own numbers." />
+                    </span>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+                          Loan to value
+                          <InfoTip text="Debt as a share of collateral value. Closer to the protocol's max means a smaller cushion." />
+                        </span>
+                        <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
+                          {Math.round((selectedRiskBreakdownPreset.defaultBorrow / (selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)) * 100)}%
+                        </span>
+                      </div>
+
+                      {/* Liquidation price sits with the example, not with the
+                          live readings: the drawdown is the engine's, but it is
+                          applied to the example's anchor price, so the dollar
+                          figure that lands on screen is only as real as the
+                          sample it is multiplied against. */}
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+                          Liquidation price
+                          <InfoTip text="The collateral price at which the example position becomes liquidatable." />
+                        </span>
+                        <span className="text-sm font-sans font-bold text-text-primary mt-1 tabular-nums">
+                          {breakdownData?.liqPrice != null ? formatCurrency(breakdownData.liqPrice) : "-"}
+                        </span>
+                      </div>
+
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="text-2xs font-sans text-text-muted">Collateral value</span>
+                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
+                          {selectedRiskBreakdownPreset.defaultCollateral} {selectedRiskBreakdownPreset.collateralAsset} ({formatCurrency(selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)})
+                        </span>
+                      </div>
+
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="text-2xs font-sans text-text-muted">Borrowed amount</span>
+                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
+                          {selectedRiskBreakdownPreset.defaultBorrow} {selectedRiskBreakdownPreset.debtAsset}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Dimension 8, 9, 10: Risk Signals */}
                   <div className="space-y-3.5">
                     <span className="block text-2xs font-sans text-text-muted">
@@ -3554,9 +3577,9 @@ export function AppDemo() {
                     </span>
 
                     <div className="space-y-2 text-xs font-sans">
-                      {/* Dimension 10: Protocol Signals */}
+                      {/* Protocol signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">10. Protocol security signal</span>
+                        <span className="block text-2xs text-text-muted mb-1 font-bold">Protocol security signal</span>
                         <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.protocol === "Aave V3" && "Aave V3 safety module is funded and active. Dynamic interest-rate curves and isolation mode in place. Governance secured by multi-sig and timelock."}
                           {selectedRiskBreakdownPreset.protocol === "Moonwell" && "Moonwell markets run on Base with a 48-hour governance timelock on system parameters. Collateral factors monitored continuously."}
@@ -3565,17 +3588,19 @@ export function AppDemo() {
                         </p>
                       </div>
 
-                      {/* Dimension 11: Pool Signals */}
-                      <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">11. Pool liquidity signal</span>
-                        <p className="text-text-secondary">
-                          Primary pool depth exceeds $82,000,000 in active vault lines. Slippage parameters on decentralized exchanges index &lt; 0.15% depth buffer. No oracle drift.
-                        </p>
-                      </div>
+                      {/* The "Pool liquidity signal" that stood here is deleted.
+                          It was one hardcoded sentence, identical for every
+                          preset, protocol and market: $82,000,000 of depth,
+                          a 0.15% depth buffer, and "No oracle drift" - a live
+                          safety claim about an oracle nothing in this codebase
+                          checks. Pool TVL above is the real depth reading and it
+                          comes from DefiLlama. ("vault lines", the phrase this
+                          sentence used, is the same non-referring jargon
+                          DESIGN_SYSTEM records deleting once already.) */}
 
-                      {/* Dimension 12: Position Signals */}
+                      {/* Position signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">12. Position watch signal</span>
+                        <span className="block text-2xs text-text-muted mb-1 font-bold">Position watch signal</span>
                         <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.baseRisk < 20 
                             ? "Position health maintains normal volatility parameters. No automated hedges currently required."
