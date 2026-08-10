@@ -216,6 +216,39 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
   const [position, setPosition] = useState<LoadedPosition | null>(null);
   const [receipt, setReceipt] = useState<{ hash: string; usdcReceived: bigint } | null>(null);
 
+  /**
+   * What this modal is CURRENTLY doing, which starts as what the advisor asked
+   * for and can be narrowed once by the user (see `fallbackOffered`).
+   *
+   * State rather than a straight read of `prefill.kind`, because a full exit has
+   * a part that can fail on its own. Repaying the debt and withdrawing the
+   * collateral are one atomic transaction, but only the withdrawal has to
+   * convert the collateral to USDC, and that conversion depends on a swap route
+   * being liquid enough to fill at the executor's floor. When it is not, the
+   * whole transaction reverts, including the repay that would have worked.
+   *
+   * The repay is the half that answers the danger: it is what moves the health
+   * factor away from liquidation. Ending on "this network would not accept the
+   * transaction" leaves the user in front of a position they could have made
+   * safe, so the modal offers the half that still executes.
+   */
+  const [kind, setKind] = useState<ExitPrefill["kind"]>(prefill.kind);
+  /**
+   * Set the first time a full exit reverts, and never cleared.
+   *
+   * It is what keeps the `Repay the debt instead` button on screen after the
+   * notice it came with has been replaced — press the primary again, get a
+   * second revert, and the smaller plan is still there to take. What it does
+   * NOT do is stop the offer reappearing after narrowing: `kind` becomes
+   * `full_repay` and never goes back, so the `kind === "full"` guard below
+   * already covers that on its own.
+   *
+   * Its one narrowing effect is on the sentence: appended to the first revert
+   * and not to later ones, because the user has already read it and it is the
+   * button underneath that carries the offer from then on.
+   */
+  const [fallbackOffered, setFallbackOffered] = useState(false);
+
   // Advance connect/chain steps automatically as their conditions are met.
   useEffect(() => {
     if (!executable || step === "done" || step === "executing" || step === "error") return;
@@ -332,11 +365,14 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       const build = (repayFraction: number | undefined) =>
         buildExitLegs(reserves, {
           protocol: prefill.protocol,
-          kind: prefill.kind,
+          kind,
           repayFraction,
         });
 
-      let { legs, views, dust } = build(prefill.repayFraction);
+      // A narrowed plan carries no fraction: `full_repay` clears the whole debt
+      // by sentinel, and passing the original request's fraction here would size
+      // it against a number the user is no longer being offered.
+      let { legs, views, dust } = build(kind === prefill.kind ? prefill.repayFraction : undefined);
 
       if (legs.length === 0) {
         // Nothing failed here. The reads worked and the answer is that there is
@@ -347,11 +383,11 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         setNotice({
           tone: "info",
           message:
-            prefill.kind === "partial"
+            kind === "partial"
               ? dust.length > 0
                 ? `The suggested reduction is too small to execute against this wallet's ${dust.join(" and ")} debt on ${EXIT_NETWORK_LABEL}.`
                 : `This wallet has no debt to reduce on ${EXIT_NETWORK_LABEL}.`
-              : prefill.kind === "full_repay"
+              : kind === "full_repay"
                 ? `This wallet has no debt to repay on ${EXIT_NETWORK_LABEL}.`
                 : `This wallet has no Aave V3 position on ${EXIT_NETWORK_LABEL}, so there is nothing here to exit. Execution runs against what this wallet actually holds on the test network, and it holds nothing there yet. To try it, open a small Aave V3 borrow on ${EXIT_NETWORK_LABEL} with this wallet first.`,
         });
@@ -421,7 +457,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       // sentinel, and half a close is not a close), so only `partial` can be
       // cut down.
       let cap: WalletRepayCap | null = null;
-      if (prefill.kind === "partial" && prefill.repayFraction !== undefined) {
+      if (kind === "partial" && prefill.repayFraction !== undefined) {
         const candidate = capRepayToWallet({
           rows: views
             .filter((v) => v.repayFunding > 0n)
@@ -494,7 +530,9 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       setNotice({ tone: "problem", message: failure.message });
       setStep("error");
     }
-  }, [publicClient, address, prefill]);
+    // `kind` is a dependency because narrowing a failed full exit to a repay
+    // rebuilds the legs, the approvals and every amount on the review step.
+  }, [publicClient, address, prefill, kind]);
 
   useEffect(() => {
     if (step === "loading") void loadPosition();
@@ -551,12 +589,41 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       // that will fail the same way every time.
       const failure = classifyExitError(err, EXIT_NETWORK_LABEL);
       console.error(`[exit] execution failed (${failure.kind}):`, failure.detail, err);
-      setNotice({ tone: "problem", message: failure.message });
+      // A reverted FULL exit is the one failure with a smaller plan behind it.
+      // The message says what Panik can still do rather than only what the
+      // network refused, and it does NOT name a cause: from here a revert is a
+      // revert, and blaming the swap route would be a claim about a contract
+      // this modal did not get to run.
+      const canNarrow = failure.kind === "reverted" && kind === "full" && !fallbackOffered;
+      if (canNarrow) setFallbackOffered(true);
+      setNotice({
+        tone: "problem",
+        message: canNarrow
+          ? `${failure.message} Panik can still repay the debt in full and leave your collateral deposited, which is the part that moves you away from liquidation.`
+          : failure.message,
+      });
       setStep("review");
     }
-  }, [publicClient, address, position, ensureApprovals, writeContractAsync]);
+  }, [publicClient, address, position, ensureApprovals, writeContractAsync, kind, fallbackOffered]);
 
-  const copy = FLOW_COPY[prefill.kind];
+  /**
+   * Narrow a failed full exit to the repay half and reload from the chain.
+   *
+   * A reload rather than a reshape of the legs already in hand: debt accrues,
+   * and the approvals, the funding rows and the amounts on screen all have to
+   * describe the transaction that is about to be signed. The full exit's
+   * approvals cover this one (its debt approval is the same token for the same
+   * amount, plus the collateral approval it no longer needs), so nothing here
+   * asks the user for a signature they have already given.
+   */
+  const narrowToRepay = useCallback(() => {
+    setKind("full_repay");
+    setNotice(null);
+    setPosition(null);
+    setStep("loading");
+  }, []);
+
+  const copy = FLOW_COPY[kind];
   // Wallet-funded: the executor pulls the debt asset from the user, so a
   // shortfall in ANY debt asset blocks the whole atomic transaction.
   const underfunded = (position?.funding ?? []).some((f) => f.balance < f.required);
@@ -784,6 +851,22 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
                 </>
               )}
             </button>
+            {/* The smaller plan, offered only after the larger one has actually
+                failed. It sits BELOW the primary and stays `quiet`: the user
+                came here to close the position, and this is the consolation, not
+                a second equal answer. It disappears once taken, because `kind`
+                is then already `full_repay`. */}
+            {fallbackOffered && kind === "full" ? (
+              <button
+                onClick={narrowToRepay}
+                disabled={step === "executing"}
+                className="w-full py-2.5 rounded-md border border-border-subtle bg-transparent text-text-secondary font-sans font-bold text-xs hover:text-text-primary hover:bg-white/[0.04] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                Repay the debt instead
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            ) : null}
+
             <p className="text-2xs font-sans text-text-muted text-center">
               Approvals are exact-amount (+2% accrual buffer). Every transaction is simulated
               before you sign it.
