@@ -23,6 +23,7 @@ import {
   MOCK_COMPASS,
   MOCK_POOLS,
   MOCK_POSITIONS,
+  MOCK_SCORING_CHAIN,
   MOCK_WALLET,
   MOCK_WALLETS,
   mockAdvisor,
@@ -63,20 +64,20 @@ function handle(url: URL): unknown {
 
   switch (url.pathname) {
     case "/api/scores":
-      return { updatedAt, positions: MOCK_POSITIONS };
+      return { updatedAt, positions: MOCK_POSITIONS, chain: MOCK_SCORING_CHAIN };
     case "/api/positions": {
       // The real endpoint is per-wallet; answer only for the seeded wallet so a
       // typo in the query shows up as an empty dashboard, not as fake data.
       const wallet = url.searchParams.get("wallet") ?? "";
       const mine = wallet.toLowerCase() === MOCK_WALLET;
-      return { updatedAt, positions: mine ? MOCK_POSITIONS : [] };
+      return { updatedAt, positions: mine ? MOCK_POSITIONS : [], chain: MOCK_SCORING_CHAIN };
     }
     case "/api/history":
       return mockHistory();
     case "/api/wallets":
       return { wallets: MOCK_WALLETS };
     case "/api/chain":
-      return mockChain();
+      return { ...mockChain(), chain: MOCK_SCORING_CHAIN };
     case "/api/compass":
       return { updatedAt, scores: MOCK_COMPASS };
     case "/api/poolhistory":

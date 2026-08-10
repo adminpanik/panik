@@ -7,7 +7,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { AlertTriangle, Eye } from "lucide-react";
-import type { LiveWalletPosition } from "../lib/live";
+import type { LiveWalletPosition, ScoringChainInfo } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
 import {
@@ -18,6 +18,7 @@ import {
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
   RISK_CHIP,
+  RISK_TEXT,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
@@ -36,9 +37,42 @@ export function positionKey(p: Pick<LiveWalletPosition, "wallet" | "protocol">):
   return `${p.wallet}:${p.protocol}`;
 }
 
+/**
+ * How the header names the chain, and what the provenance tip may claim.
+ *
+ * Nothing is rendered on the default chain: "Base" beside every position on
+ * every mainnet install is a caption that never changes, which is the kind of
+ * text DESIGN_SYSTEM's three-way copy test deletes. It is rendered the moment
+ * the API reports anything else, because THEN the chain is the thing a user
+ * would otherwise get wrong.
+ *
+ * The tip is rebuilt rather than reworded because the mainnet sentence names
+ * CoinGecko and DefiLlama, and on a testnet neither is consulted at all: a
+ * degraded read must not come with a caption asserting the source it did not
+ * use.
+ */
+function chainProvenance(chain: ScoringChainInfo | null): { badge: string | null; tip: string } {
+  const MAINNET_TIP =
+    "Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF) + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s.";
+  if (chain === null || chain.mode === "mainnet") return { badge: null, tip: MAINNET_TIP };
+  return {
+    badge: chain.label,
+    tip:
+      `Scored by the PANIK engine from live RPC reads on ${chain.label} ` +
+      "(Aave getUserAccountData), the same chain the exit runs on. Test assets have no " +
+      "price history and no protocol TVL to read, so market risk is left unmeasured and " +
+      "the score is weighted over position health and protocol safety. Refreshes every 60s.",
+  };
+}
+
 interface LivePositionsProps {
   positions: LiveWalletPosition[] | null;
   offline: boolean;
+  /**
+   * The chain the API says it read these positions from, or null when it did
+   * not say. Null renders no claim, never a guessed chain name.
+   */
+  chain?: ScoringChainInfo | null;
   /** Optional: open this real position in the Watch simulator (stress-test bridge). */
   onStressTest?: (position: LiveWalletPosition) => void;
   /**
@@ -49,7 +83,14 @@ interface LivePositionsProps {
   highlightKey: string | null;
 }
 
-export function LivePositions({ positions, offline, onStressTest, highlightKey }: LivePositionsProps) {
+export function LivePositions({
+  positions,
+  offline,
+  chain = null,
+  onStressTest,
+  highlightKey,
+}: LivePositionsProps) {
+  const provenance = chainProvenance(chain);
   /**
    * One ref, attached to the highlighted row only. Refs are set during commit,
    * before effects run, so the row this points at is always the one the current
@@ -100,11 +141,19 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
           Only rendered once the array has arrived: "0 Positions" while the first
           fetch is still in flight is a claim we cannot make yet, and it is the
           exact claim this product must never make by accident. */}
-      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
+      <h3 className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-sans font-semibold text-text-primary">
         {positions === null
           ? "Positions"
           : `${positions.length} ${positions.length === 1 ? "Position" : "Positions"}`}
-        <InfoTip text="Scored by the PANIK engine: live RPC reads (Aave getUserAccountData / Moonwell derived HF) + CoinGecko volatility + DefiLlama TVL. Refreshes every 60s." />
+        <InfoTip text={provenance.tip} />
+        {/* Neutral, never the risk ramp: which chain you are on is not a risk
+            band, and the ramp on this screen is spoken for by the dials. Same
+            treatment as the standing-permission card's marker. */}
+        {provenance.badge && (
+          <span className="rounded-sm border border-border-strong px-2 py-0.5 text-2xs font-sans font-bold text-text-secondary">
+            {provenance.badge}
+          </span>
+        )}
       </h3>
 
       {positions === null && (
@@ -142,6 +191,15 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
             const outlook = liquidationOutlook(p.healthFactor, p.scoredCollateralSymbol);
             const key = positionKey(p);
             const highlighted = key === highlightKey;
+            /**
+             * The Advisor rations its severity glyph to the legs it is telling you
+             * to act on (EXIT / REDUCE). This list has no action column, so the
+             * equivalent is the band the row already carries: anything above LOW
+             * is a position with something to decide about. No new threshold is
+             * invented here, and none is needed - the dial beside it is drawn from
+             * the same `p.band`.
+             */
+            const actionable = p.band !== "LOW";
             return (
               <li
                 key={key}
@@ -149,11 +207,12 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
                 tabIndex={-1}
                 /* Emphasis, not a risk statement. The alert feed points here,
                    so the row has to be findable the moment it scrolls into
-                   view — but a fifth risk hue on this page would break the
-                   "one colour per band, five coloured things" budget the
-                   Portfolio is held to. A stronger edge on the neutral border
-                   token says "this one" without saying anything about how
-                   dangerous it is. */
+                   view — but the risk ramp is spoken for on this screen, and a
+                   row painted because it was NAVIGATED to would be the ramp
+                   asserting something about danger that the score does not
+                   support. A stronger edge on the neutral border token says
+                   "this one" without saying anything about how dangerous it
+                   is. */
                 className={`flex items-start gap-3 rounded-md border p-4 transition-colors ${
                   highlighted
                     ? "border-border-strong bg-white/[0.05]"
@@ -175,6 +234,34 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
                     <span className="truncate text-xs font-sans text-text-secondary">
                       {p.scoredCollateralSymbol}
                     </span>
+                    {/* Severity, on the line that identifies the position, and
+                        the same element the Advisor puts there so the two
+                        surfaces read as one system: same Lucide triangle, same
+                        14px, same hue source. This is the ramp doing the job it
+                        exists for - a band is a measurement - and it is not the
+                        ramp making a claim about an action or a number.
+
+                        Hue from `RISK_TEXT`, the band table beside `RISK_CHIP`.
+                        Never a local band -> colour map: a second copy of that
+                        table is how scores 50-74 once rendered in critical red.
+
+                        `aria-hidden`, because `RiskDial` on the rail already
+                        announces "PANIK risk score 75 of 100, CRITICAL". Colour
+                        is not the only carrier either: the dial's numeral, the
+                        drop-to-liquidation sentence and the limit clause all say
+                        it in text.
+
+                        A row can carry this AND a `risk-unknown` marker on line
+                        2, and both stay. They answer different questions - how
+                        exposed this position is, versus which inputs we could
+                        not read - they sit on different lines, and the grey one
+                        is deliberately not a band. */}
+                    {actionable && (
+                      <AlertTriangle
+                        className={`h-3.5 w-3.5 shrink-0 self-center ${RISK_TEXT[p.band]}`}
+                        aria-hidden="true"
+                      />
+                    )}
                     {showWallet && (
                       <span className="ml-auto shrink-0 text-xs font-mono text-text-muted">
                         {p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}
@@ -249,8 +336,10 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
                       `RISK_CHIP.UNKNOWN`: unfilled, dashed edge, icon and
                       words, so "not measured" survives greyscale and is
                       distinguishable from a healthy row on four axes. The grey
-                      is `risk-unknown`, which is not a band, so this row still
-                      spends exactly one risk hue (its dial).
+                      is `risk-unknown`, which is NOT a band, so this marker
+                      spends none of the row's risk-hue budget and must never
+                      take a band colour: "we could not measure this" is not a
+                      severity.
 
                       `text-xs`, one step under the money line it sits below:
                       this is a caveat about the score on the rail, not the

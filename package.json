@@ -17,6 +17,7 @@
     "test:scoring": "npm run test --workspace=@panik/scoring",
     "ping:apis": "node --env-file=.env scripts/ping-apis.mjs",
     "demo:scores": "node --env-file=.env --import tsx scripts/score-demo.ts",
+    "score:wallet": "node --env-file=.env --import tsx scripts/score-wallet.ts",
     "demo:watch": "node --env-file=.env --import tsx scripts/watch-demo.ts",
     "db:verify": "node --env-file=.env scripts/verify-schema.mjs",
     "db:size": "node --env-file=.env scripts/db-size.mjs",

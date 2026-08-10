@@ -29,27 +29,22 @@
  * indistinguishable from health. The row lives in Postgres so the API process —
  * deployed separately, with its own lifecycle — can be the one that notices.
  *
- * NOTE THE TWO CHAINS. Loops 1-2 score Base MAINNET. Loop 3 executes on the
+ * NOTE THE TWO CHAINS. Loops 1-2 score the chain PANIK_SCORING_CHAIN selects
+ * (Base mainnet by default; server/scoringChain.ts). Loop 3 executes on the
  * EXECUTOR's chain (Base Sepolia today, from EXIT_CHAIN_ID) because that is
- * where the audited-pending contract lives. They are deliberately different
- * clients on different RPCs; see the chain-id note in server/exitPermit.ts.
+ * where the audited-pending contract lives. They are separate clients on
+ * separate RPCs, and they COINCIDE when the scoring chain is set to testnet:
+ * see the chain-id note in server/exitPermit.ts.
  *
  * scripts/ is .vercelignore'd, so viem + pg are free here. See
  * docs/technical-docs/TELEGRAM_ALERTS.md.
  */
 
 import pg from "pg";
-import { createPublicClient, http } from "viem";
-import { base } from "viem/chains";
 import {
-  AaveActiveReader,
-  ActiveAdapter,
   ALERT_POLICY,
   CoinGeckoProvider,
-  CompoundActiveReader,
   DefiLlamaProvider,
-  MoonwellActiveReader,
-  MorphoActiveReader,
   WatchService,
   decideSend,
   formatAlert,
@@ -57,10 +52,10 @@ import {
   type ActiveScore,
   type ProfileStatus,
   type Protocol,
-  type PublicClientLike,
   type RiskProfile,
   type WatchTransition,
 } from "../packages/scoring/src/index";
+import { buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 import { transactionPoolerUrl } from "../server/profileDeps";
 import { probeReachable, sendMessage } from "../server/telegram";
 import {
@@ -81,13 +76,13 @@ import {
 } from "../server/workerHeartbeat";
 import { assessRpc, endpointsForChain, sampleAll } from "../server/rpcHealth";
 import { RelayerWatch, balanceAlerts, type SignerBalance } from "../server/relayerHealth";
-import { sweepCoverage, type SweepTarget } from "../server/coverageSweep";
+import { sweepCoverage, type CoverageMarkets, type SweepTarget } from "../server/coverageSweep";
 import { ViemCoverageChain, coverageMarketsFromEnv } from "../server/coverageChain";
 import { linkState, probeDue, unreachableAlert } from "../server/telegramReach";
 import { ViemExitChainReader } from "../server/exitChain";
 import { SupabaseDelegationStore } from "../server/exitDelegationStore";
 import { SupabaseRelayerAttemptStore, MemoryRelayerAttemptStore } from "../server/relayerAttemptStore";
-import { ViemRelayerChain, relayerRpcUrl } from "../server/relayerChain";
+import { ViemRelayerChain, relayerReserveOverride, relayerRpcUrl } from "../server/relayerChain";
 import { signerPoolFromEnv } from "../server/relayerSigner";
 import {
   SubmissionRateWindow,
@@ -96,19 +91,24 @@ import {
   relayerEnabled,
 } from "../server/relayerPolicy";
 import { runRelayerTick, type RelayerCandidate, type RelayerDeps } from "../server/exitRelayer";
-import {
-  EXECUTOR_ADDRESS,
-  EXIT_CHAIN_ID,
-  EXIT_USDC_ADDRESS,
-  EXIT_WETH_ADDRESS,
-} from "../src/panik-core/lib/exit.generated";
+// No EXIT_USDC_ADDRESS / EXIT_WETH_ADDRESS here on purpose. The reserve set the
+// relayer and the sweep read is resolved from chain (see
+// src/panik-core/lib/exitReserves.ts); EXIT_USDC_ADDRESS is the executor's
+// PAYOUT token and naming it as a reserve is the bug this worker used to carry.
+import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
 
 const cgKey = process.env.COINGECKO_API_KEY;
-const alchemyKey = process.env.ALCHEMY_API_KEY_BASE_MAINNET;
 const dbUrl = process.env.SUPABASE_DB_URL;
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
-if (!cgKey || !alchemyKey || !dbUrl) {
-  console.error("Missing env (COINGECKO_API_KEY / ALCHEMY_API_KEY_BASE_MAINNET / SUPABASE_DB_URL)");
+// Same switch, same default, same helper as scripts/api-server.ts - the worker
+// and the API must never score different chains for the same wallet.
+const alchemy = resolveAlchemyKey(process.env.PANIK_SCORING_CHAIN, process.env);
+if (!cgKey || alchemy.key === null || !dbUrl) {
+  const missingChainKey = alchemy.key === null ? alchemy.missing : "-";
+  console.error(
+    `Missing env (COINGECKO_API_KEY / ${missingChainKey} / SUPABASE_DB_URL)` +
+      ` - scoring chain is ${alchemy.config.label} (PANIK_SCORING_CHAIN=${process.env.PANIK_SCORING_CHAIN ?? "unset"})`,
+  );
   process.exit(1);
 }
 if (!botToken) {
@@ -131,28 +131,24 @@ const WALLET_RELOAD_EVERY_TICKS = 5;
 const MONITOR_MS = 5 * 60_000;
 
 // ── chain + scoring adapter (same construction as scripts/api-server.ts) ────
-const rawClient = createPublicClient({
-  chain: base,
-  transport: http(`https://base-mainnet.g.alchemy.com/v2/${alchemyKey}`),
-});
-const chain = rawClient as unknown as PublicClientLike;
-
 const providers = {
   assetRisk: new CoinGeckoProvider(cgKey),
   systemic: new DefiLlamaProvider(),
 };
 
-const adapter = new ActiveAdapter(
-  [
-    new AaveActiveReader(chain),
-    new MoonwellActiveReader(chain),
-    new CompoundActiveReader(chain, undefined, {
-      onWarn: (m) => console.warn(`compound reader degraded: ${m}`),
-    }),
-    new MorphoActiveReader(),
-  ],
+const scoringChain = buildScoringChain({
+  mode: process.env.PANIK_SCORING_CHAIN,
+  alchemyKey: alchemy.key,
   providers,
-  (err) => console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
+  onReaderError: (err) =>
+    console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
+  onCompoundWarn: (m) => console.warn(`compound reader degraded: ${m}`),
+});
+const adapter = scoringChain.adapter;
+console.log(
+  `scoring chain: ${scoringChain.config.label} (${scoringChain.config.chainId}), ` +
+    `protocols ${scoringChain.config.protocols.join(", ")}, ` +
+    `market context ${scoringChain.config.marketContext}`,
 );
 
 // ── pg pool (transaction pooler 6543; same self-heal as api-server) ─────────
@@ -587,19 +583,17 @@ const BOOTED_AT = Date.now();
 // anything other than an explicit true/1/yes as OFF, so a typo or a swallowed
 // value fails towards "did not spend money".
 //
-// Which reserves a position read covers: only an asset the executor TRACKS can
-// appear in a leg, so this is a configured list rather than a scan of every
-// Aave reserve. Defaults to the same USDC + WETH pair the UI's ExitFlow reads;
-// RELAYER_RESERVES overrides it with a comma-separated list when the deployed
-// tracked-asset set widens.
-function relayerReserves(): `0x${string}`[] {
-  const raw = (process.env.RELAYER_RESERVES ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => /^0x[0-9a-f]{40}$/.test(s));
-  if (raw.length > 0) return raw as `0x${string}`[];
-  return [EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS];
-}
+// Which reserves a position read covers. Empty is the normal case and means
+// "resolve from chain": ViemRelayerChain intersects the Aave market's own
+// reserve list with the executor's tracked assets, once per process.
+//
+// This used to default to `[EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS]`.
+// EXIT_USDC_ADDRESS is `executor.usdc()` - the token the executor PAYS OUT in -
+// and the Aave V3 Base Sepolia market does not list it, so `getUserReserveData`
+// against it reverted for every wallet, while every real reserve other than
+// WETH was simply never looked at. A position collateralised in cbETH or USDT
+// would have produced legs that silently left it in place.
+const RESERVE_OVERRIDE = relayerReserveOverride();
 
 /**
  * Build the relayer's dependencies, or null when it cannot run safely.
@@ -627,7 +621,7 @@ function buildRelayerDeps(): RelayerDeps | null {
   }
 
   return {
-    chain: new ViemRelayerChain({ rpcUrl, chainId: EXIT_CHAIN_ID, reserves: relayerReserves() }),
+    chain: new ViemRelayerChain({ rpcUrl, chainId: EXIT_CHAIN_ID, reserves: RESERVE_OVERRIDE }),
     delegations: {
       store: new SupabaseDelegationStore(supabaseUrl, supabaseKey),
       chain: new ViemExitChainReader(rpcUrl),
@@ -695,12 +689,27 @@ async function runRelayer(): Promise<void> {
 
 // ── monitor loop (Phase 4.B) ─────────────────────────────────────────────────
 
-const coverageMarkets = coverageMarketsFromEnv();
 const coverageChain = new ViemCoverageChain({
   rpcUrl: relayerRpcUrl(),
   chainId: EXIT_CHAIN_ID,
-  reserves: coverageMarkets.aaveReserves,
+  // Same override as the relayer, and the same chain resolution when it is
+  // unset. The sweep verifying a different reserve list from the one the relayer
+  // acts on would defeat the point of the sweep.
+  reserves: RESERVE_OVERRIDE,
 });
+
+/**
+ * The sweep's market set, built per pass from the resolved reserves.
+ *
+ * Resolution is cached in `loadExitReserveSet`, so this is free after the first
+ * pass; it is called per pass rather than once at module load so that a node
+ * that was unreachable at boot does not permanently leave the worker sweeping
+ * nothing. If it throws, `runMonitor`'s per-check catch logs a failed coverage
+ * sweep - which is the honest outcome, and never a clean bill of health.
+ */
+async function coverageMarkets(): Promise<CoverageMarkets> {
+  return coverageMarketsFromEnv(await coverageChain.aaveReserves());
+}
 
 /**
  * The wallets to sweep, with the ONE fact that drives severity: is anything
@@ -731,15 +740,21 @@ function sweepTargets(): SweepTarget[] {
   }));
 }
 
-/** RPC health on BOTH chains: scores read mainnet, the executor is elsewhere. */
+/**
+ * RPC health on every chain the worker depends on: the one scores are read from
+ * and the one the executor lives on. Deduplicated by chain id, because the two
+ * COINCIDE when PANIK_SCORING_CHAIN=testnet and probing the same endpoints
+ * twice would double every alert about them.
+ */
 async function checkRpc(nowMs: number): Promise<MonitorAlert[]> {
   const nowSec = Math.floor(nowMs / 1000);
   const limits = limitsFromEnv();
   const out: MonitorAlert[] = [];
-  for (const [chainId, label] of [
-    [base.id, "base-mainnet"],
-    [EXIT_CHAIN_ID, "executor-chain"],
-  ] as const) {
+  const chains = new Map<number, string>([
+    [scoringChain.config.chainId, `scoring-${scoringChain.config.alchemyHost}`],
+  ]);
+  if (!chains.has(EXIT_CHAIN_ID)) chains.set(EXIT_CHAIN_ID, "executor-chain");
+  for (const [chainId, label] of chains) {
     const endpoints = endpointsForChain(chainId);
     if (endpoints.length === 0) continue;
     const samples = await sampleAll(endpoints);
@@ -859,14 +874,18 @@ async function runMonitor(): Promise<void> {
     [
       "coverage sweep",
       relayerDeps
-        ? sweepCoverage(targets, {
-            delegations: relayerDeps.delegations,
-            chain: coverageChain,
-            markets: coverageMarkets,
-            executor: EXECUTOR_ADDRESS,
-            nowSec: Math.floor(nowMs / 1000),
-            nowMs,
-          }).then((reports) => reports.flatMap((r) => r.alerts))
+        ? coverageMarkets()
+            .then((markets) =>
+              sweepCoverage(targets, {
+                delegations: relayerDeps.delegations,
+                chain: coverageChain,
+                markets,
+                executor: EXECUTOR_ADDRESS,
+                nowSec: Math.floor(nowMs / 1000),
+                nowMs,
+              }),
+            )
+            .then((reports) => reports.flatMap((r) => r.alerts))
         : Promise.resolve([]),
     ],
     [

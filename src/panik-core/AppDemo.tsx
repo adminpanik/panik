@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { 
+import { useAccount } from "wagmi";
+import {
   ShieldAlert,
   AlertTriangle,
   ArrowDown,
@@ -35,8 +36,6 @@ import {
   formatCompactUsd,
   formatCurrency,
   formatUsd,
-  limitEventCopy,
-  limitStateCopy,
   liquidationOutlook,
   RISK_CHIP,
   RISK_FILL,
@@ -58,6 +57,7 @@ import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
 import { COMPOSITE_WEIGHTS } from "../../packages/scoring/src/params";
 import { PositionState } from "./lib/types";
 import { LivePositions, positionKey } from "./components/LivePositions";
+import { AlertFeed, AlertHistoryView, ALERT_PREVIEW_COUNT } from "./components/AlertHistory";
 import { Sparkline } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
@@ -81,7 +81,7 @@ import { DelegationManager } from "./components/DelegationManager";
 import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
-import { ProtocolLogo, ProtocolMarks } from "./components/ProtocolLogo";
+import { ALL_PROTOCOLS, ProtocolLogo, ProtocolMarks } from "./components/ProtocolLogo";
 import { Onboarding } from "./components/Onboarding";
 import {
   forgetRegistration,
@@ -332,74 +332,8 @@ const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho
   compound_v3: "Compound V3",
 };
 
-/**
- * Alert feed page size. Eight rows is roughly the 320px the old `max-h-80`
- * scroller clamped to, so the card keeps the height it has today and gains a
- * way to reach row nine, which it did not have.
- */
-const ALERT_PAGE_SIZE = 8;
-
 /** How long a position row stays emphasised after an alert points at it. */
 const HIGHLIGHT_MS = 4000;
-
-/**
- * One alert row's layout, shared by the linked (button) and inert (div) forms.
- *
- * `py-4` is the `p-4` a position row carries, so the two cards standing side by
- * side on Portfolio share one rhythm. At `py-2.5` with 12px content this feed
- * was visibly denser and smaller than the list beside it, which read as a
- * secondary panel rather than the other half of the same dashboard. The rules
- * stay hairlines rather than becoming boxes: a bordered row inside a bordered
- * card is chrome wrapping chrome, and `divide-y` is what this card is for.
- */
-const ALERT_ROW_CLS =
-  "flex w-full items-baseline justify-between gap-3 py-4 first:pt-0 last:pb-0";
-
-/** Alert-outcome chip copy for the Portfolio history feed. */
-const CHIP_QUIET = "text-text-muted border-border-subtle bg-white/[0.03]";
-
-/**
- * Delivery outcome, not risk. "Sent" was green and "queued" amber, which put
- * the risk ramp on a fact about our own plumbing. Only `blocked` keeps a hue:
- * it is the one state where PANIK is failing to reach the user, and that is
- * worth interrupting for.
- */
-const NOTIFY_CHANNEL_CHIP: Record<string, { label: string; cls: string }> = {
-  suppressed_cooldown: { label: "Muted · cooldown", cls: CHIP_QUIET },
-  suppressed_immaterial: { label: "Muted · no debt", cls: CHIP_QUIET },
-  blocked: { label: "Bot blocked", cls: "text-risk-critical border-risk-critical/25 bg-risk-critical/10" },
-};
-
-/**
- * Outcomes that render NO chip. Same rationale that left only `blocked` hued,
- * taken one step further: a chip that says "Sent · Telegram" on eleven of
- * twelve rows is the expected case drawn twelve times, and the one row that
- * matters — the alert that did not reach you — has to compete with it.
- *
- * `telegram` is delivery succeeding. `skipped` is a recovery, where the row's
- * own "back under your risk limit" already says there was nothing to send.
- * Everything else still renders: queued, both suppressions, blocked, and any
- * channel we do not know.
- * Silence here means "PANIK reached you", so nothing that failed can borrow it.
- */
-const DELIVERY_SILENT = new Set(["telegram", "skipped"]);
-
-/** null = delivered as expected, so the row stays one quiet line. */
-function deliveryChip(channel: string | null): { label: string; cls: string } | null {
-  if (channel === null) return { label: "Queued", cls: CHIP_QUIET };
-  if (DELIVERY_SILENT.has(channel)) return null;
-  return NOTIFY_CHANNEL_CHIP[channel] ?? { label: channel, cls: CHIP_QUIET };
-}
-
-function timeAgo(iso: string): string {
-  const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
 
 // ── Per-wallet onboarding profiles ──────────────────────────────────────────
 // Answers persist per wallet so switching BACK to a previously onboarded
@@ -793,6 +727,32 @@ export function AppDemo() {
     () => localStorage.getItem("panik_risk_tier") as RiskTier | null
   );
 
+  /**
+   * The CONNECTED wallet wins over the stored one.
+   *
+   * `panik_wallet` is a plain localStorage string with no ownership proof
+   * behind it, and everything on this dashboard (positions, advisor, history)
+   * is keyed on it. `npm run dev:mock` seeds the fixture address into that key
+   * (dev/mockApi.ts), the real app then reads it back, and the user spends the
+   * session looking at a wallet they have never owned while their own position
+   * is invisible. The exit flow, meanwhile, reads the chain for whatever wallet
+   * is actually connected, so the dashboard and the Exit button were describing
+   * two different accounts.
+   *
+   * Preferring the connected address is the smallest fix that makes those two
+   * agree: it is the only wallet the user can prove and the only one the exit
+   * can act on. Proving ownership properly (SIWE-gated identity, watch-only
+   * addresses done deliberately rather than by accident) is Issue #51 and is
+   * NOT built here.
+   */
+  const { address: connectedWallet } = useAccount();
+  useEffect(() => {
+    if (!connectedWallet) return;
+    if (onboardedWallet && onboardedWallet.toLowerCase() === connectedWallet.toLowerCase()) return;
+    localStorage.setItem("panik_wallet", connectedWallet);
+    setOnboardedWallet(connectedWallet);
+  }, [connectedWallet, onboardedWallet]);
+
   const handleOnboardingComplete = (result: ProfileResult, wallet: string) => {
     saveProfileForWallet(wallet.trim(), result); // per-wallet memory (wallet-switch flow)
     localStorage.setItem("panik_onboarded", "true");
@@ -874,6 +834,28 @@ export function AppDemo() {
   // boundMode hides the registry selector entirely. (SIWE later proves ownership.)
   const boundMode = Boolean(onboardedWallet);
   const ownLive = useWalletPositions(onboardedWallet, selectedRiskProfile);
+
+  /**
+   * Coverage is a property of the chain being read, and the API is the only
+   * thing that knows which chain that was. Until it answers, the four marks
+   * stay: that is the default configuration and the claim the product has
+   * always made. Once it answers, the row shows exactly what was scanned, so a
+   * Base Sepolia user is not told that three protocols with no market there
+   * were checked and found empty.
+   */
+  const coveredProtocols = useMemo(() => {
+    const wire = ownLive.chain?.protocols;
+    if (!wire || wire.length === 0) return ALL_PROTOCOLS;
+    return wire.map((p) => LIVE_PROTOCOL_LABEL[p] ?? p);
+  }, [ownLive.chain]);
+  const coveredChainLabel = ownLive.chain?.label ?? "Base";
+  const coveredProtocolSentence = useMemo(
+    () =>
+      coveredProtocols.length > 1
+        ? `${coveredProtocols.slice(0, -1).join(", ")} and ${coveredProtocols[coveredProtocols.length - 1]}`
+        : (coveredProtocols[0] as string),
+    [coveredProtocols],
+  );
 
   // AI Advisor (Phase 2): live report for the onboarded wallet. Null while
   // offline or pre-onboarding - the tab keeps its Coming-Soon fallback then.
@@ -1062,18 +1044,48 @@ export function AppDemo() {
   }, [highlightedPositionKey]);
 
   /**
-   * Feed pagination. The old `.slice(0, 12)` was a CEILING, not a page size:
-   * alert 13 was unreachable by any means. "Show more" rather than numbered
-   * pages, because nobody thinks in pages of alerts.
-   *
-   * The card keeps its `lg` scroller as well, and the two are not rival
-   * mechanisms: the scroller lets a fixed-height card (a column-alignment
-   * requirement) hold more rows than it can show, and paging is what puts rows
-   * beyond the first eight into it at all.
+   * The alert log, newest first, sorted ONCE. The card previews the head of this
+   * array and the history page groups all of it, so ordering them separately is
+   * how the two end up disagreeing about which alert is the most recent. ISO-8601
+   * UTC strings compare chronologically as strings, so no Date is built per
+   * comparison.
    */
-  const [alertsShown, setAlertsShown] = useState(ALERT_PAGE_SIZE);
-  useEffect(() => setAlertsShown(ALERT_PAGE_SIZE), [historyWallet]);
-  const alertsRemaining = Math.max(0, (walletHistory?.alerts.length ?? 0) - alertsShown);
+  const alertsNewestFirst = useMemo(
+    () => [...(walletHistory?.alerts ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    [walletHistory],
+  );
+
+  /**
+   * The full alert log, as a view inside the Portfolio panel. See
+   * `AlertHistoryView` for why it is not a modal and not a sixth tab.
+   *
+   * Focus has to be handed back by hand because the trigger UNMOUNTS while the
+   * view is open: the ref is empty until the card comes back, so the return is
+   * an effect on the render that remounts it. `returnFocusToTrigger` is set only
+   * by the dismissal paths (Back, Escape). Clicking an alert row also closes the
+   * view, but there the position row it points at claims focus, and a second
+   * `focus()` racing it would undo the thing the click asked for.
+   */
+  const [alertHistoryOpen, setAlertHistoryOpen] = useState(false);
+  const alertHistoryTrigger = useRef<HTMLButtonElement>(null);
+  const returnFocusToTrigger = useRef(false);
+  const closeAlertHistory = useCallback(() => {
+    returnFocusToTrigger.current = true;
+    setAlertHistoryOpen(false);
+  }, []);
+  useEffect(() => {
+    if (alertHistoryOpen || !returnFocusToTrigger.current) return;
+    returnFocusToTrigger.current = false;
+    alertHistoryTrigger.current?.focus();
+  }, [alertHistoryOpen]);
+  /* Leaving Portfolio closes it: a view someone navigated away from should not
+     be what they find on their way back. No focus return, because focus is
+     already in whichever tab they moved to. A wallet switch closes it for the
+     harder reason: it replaces the log the view is showing. */
+  useEffect(() => {
+    if (activeTab !== "portfolio") setAlertHistoryOpen(false);
+  }, [activeTab]);
+  useEffect(() => setAlertHistoryOpen(false), [historyWallet]);
 
   // 30d aggregate risk series: bucket snapshots by day, protocols weighted by
   // collateral USD (same weighting the macro Aggregate risk index uses).
@@ -2391,7 +2403,32 @@ export function AppDemo() {
             )}
 
             {/* VIEW D: PORTFOLIO TAB (Aggregate Vaults Portfolio Under Protective Firewall) */}
-            {activeTab === "portfolio" && (
+            {/* VIEW D1: the full alert log. Same panel and same key as the
+                dashboard below, so Portfolio stays the selected tab and
+                `panel-portfolio` keeps the `aria-labelledby` pair the tabs
+                pattern needs; only what the panel contains changes. Two branches
+                rather than a ternary inside one, so the dashboard's markup and
+                its indentation are untouched by this. */}
+            {activeTab === "portfolio" && alertHistoryOpen && (
+              <TabPanel key="portfolio" tab="portfolio">
+                <AlertHistoryView
+                  alerts={alertsNewestFirst}
+                  protocolLabel={LIVE_PROTOCOL_LABEL}
+                  targets={alertTargets}
+                  onSelectTarget={(key) => {
+                    // Back to the dashboard, because the position this alert is
+                    // about is on it. LivePositions scrolls the row into view and
+                    // takes focus from there, which is why this path does not
+                    // return focus to the trigger.
+                    setAlertHistoryOpen(false);
+                    setHighlightedPositionKey(key);
+                  }}
+                  onClose={closeAlertHistory}
+                />
+              </TabPanel>
+            )}
+
+            {activeTab === "portfolio" && !alertHistoryOpen && (
               <TabPanel key="portfolio" tab="portfolio">
                 <div className="border-b border-border-subtle pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
@@ -2576,8 +2613,8 @@ export function AppDemo() {
                               <InfoTip
                                 text={
                                   liveMacro
-                                    ? `PANIK covers Aave V3, Moonwell, Morpho and Compound V3. This wallet holds a position on ${liveMacro.protocolNames.join(", ")}; the dimmed marks are covered but empty.`
-                                    : "PANIK covers Aave V3, Moonwell, Morpho and Compound V3. The dimmed marks are covered but hold no position."
+                                    ? `PANIK covers ${coveredProtocolSentence} on ${coveredChainLabel}. This wallet holds a position on ${liveMacro.protocolNames.join(", ")}; the dimmed marks are covered but empty.`
+                                    : `PANIK covers ${coveredProtocolSentence} on ${coveredChainLabel}. The dimmed marks are covered but hold no position.`
                                 }
                               />
                             </>
@@ -2606,7 +2643,8 @@ export function AppDemo() {
                           value={
                             <span className="flex h-11 items-center">
                               <ProtocolMarks
-                                protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]}
+                                protocols={liveMacro?.protocolNames ?? []}
+                                covered={coveredProtocols}
                               />
                             </span>
                           }
@@ -2681,6 +2719,9 @@ export function AppDemo() {
                       positions={portfolioPositions}
                       highlightKey={highlightedPositionKey}
                       offline={boundMode ? ownLive.offline : liveOffline}
+                      // Only the bound path carries a chain the API vouched
+                      // for; the ops registry view claims nothing about one.
+                      chain={boundMode ? ownLive.chain : null}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
                         setSelectedLivePositionKey(`${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`);
@@ -2740,136 +2781,54 @@ export function AppDemo() {
 
                     {/* Alert history (watch_transitions IS the alert log).
 
-                        `lg:flex-1 lg:min-h-0` plus an internal scroller at `lg`:
-                        the card's height is set by the layout, never by how many
-                        alerts exist, or a wallet with 200 transitions pushes the
-                        page to nothing but alerts and the column cannot stay
-                        aligned. `min-h-0` is required or a flex child refuses to
-                        shrink below its content and the scroller never engages.
-                        Below `lg` there is no fixed height to scroll inside, so
-                        the page scrolls and paging alone reaches older rows. */}
-                    <Card className="lg:flex-1 lg:min-h-0 lg:flex lg:flex-col">
+                        `lg:flex-1` and nothing else. The card is the stretchy
+                        child of the right-hand column, so the position list
+                        beside it sets the height and the two columns end level by
+                        construction, at any position count and with no magic
+                        number to go stale. No `min-h-0` and no scroller: a flex
+                        child allowed to shrink below its content is a card that
+                        clips it, and the preview is a fixed four rows precisely
+                        so it never has to. Everything older lives on the history
+                        page, which is a page rather than a 194px window into
+                        one. */}
+                    <Card className="lg:flex-1 lg:flex lg:flex-col">
                       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4 shrink-0">
                         Alert history
                         <InfoTip text="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet." />
                       </h3>
-                      {walletHistory?.alerts?.length ? (
+                      {alertsNewestFirst.length ? (
                         <>
                           {/* Rules, not boxes. Bordered, tinted rows inside a Card
                               that is already bordered and tinted is chrome
                               wrapping chrome; a hairline separates rows for free.
+                              `AlertFeed` owns the row, and the history page draws
+                              it from the same component, so the preview and the
+                              full log cannot drift into two treatments. */}
+                          <AlertFeed
+                            alerts={alertsNewestFirst.slice(0, ALERT_PREVIEW_COUNT)}
+                            protocolLabel={LIVE_PROTOCOL_LABEL}
+                            targets={alertTargets}
+                            onSelectTarget={setHighlightedPositionKey}
+                          />
+                          {/* Only when the preview falls short of the log. Below
+                              that the card IS the whole history, and a control
+                              that opens a page showing what you are already
+                              looking at is a control that does nothing.
 
-                              The list is taken OUT OF FLOW at `lg` (absolute
-                              inside a relative flex-1 well) so it contributes
-                              nothing to the column's intrinsic height. `flex-1`
-                              and `min-h-0` alone were not enough: a flex item
-                              still reports its content as its max-content
-                              contribution, so the grid row grew with the feed
-                              instead of the feed absorbing the row. Measured at
-                              2000, "Show 4 older alerts" took the row 168px
-                              taller and dragged the position list up to match,
-                              handing it 168px of empty space, which is the gap
-                              this whole arrangement exists to close. Out of flow,
-                              the layout sets the height in both directions and
-                              the scroller does the rest. Below `lg` there is no
-                              fixed height to scroll inside, so the wrapper is a
-                              plain block and the page scrolls. */}
-                          <div className="lg:relative lg:flex-1 lg:min-h-0">
-                            <div className="divide-y divide-border-subtle lg:absolute lg:inset-0 lg:overflow-y-auto">
-                              {walletHistory.alerts.slice(0, alertsShown).map((a, i) => {
-                                const chip = deliveryChip(a.notify_channel);
-                                const protocolLabel = LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol;
-                                const event = limitEventCopy(a.to_status);
-                                const when = timeAgo(a.created_at);
-                                /* The position this alert is ABOUT, if the wallet
-                                   still holds it. A closed position has no row to
-                                   scroll to, so the alert stays a record rather than
-                                   becoming a control: no button, no hover, no
-                                   pointer. A control that looks live and does
-                                   nothing is worse than a plain line of text. */
-                                const target = alertTargets.get(a.protocol) ?? null;
-                                /* The score, the band and the ORIGIN status live
-                                   here rather than in the row: the band is a pure
-                                   function of the score, and "approaching →
-                                   outside" is a state-machine dump on the card
-                                   whose job is to say what happened to someone's
-                                   money. What happened is the destination. */
-                                const hover = `PANIK score ${a.score} (${a.band}). ${
-                                  a.from_status
-                                    ? `Previously ${limitStateCopy(a.from_status)}.`
-                                    : "First reading recorded for this position."
-                                }${target ? "" : " This position is no longer open."}`;
-                                const body = (
-                                  <>
-                                    {/* Wraps rather than truncates: clipping this
-                                        line kept the protocol and ate the event,
-                                        which is the half that says whether things
-                                        got worse.
-
-                                        14px/600 in primary ink, the same weight a
-                                        position row gives its money line. The
-                                        protocol and what happened to it are the
-                                        content of this row, and content is not
-                                        what `text-muted` and 12px are for. */}
-                                    <span className="min-w-0 text-left text-sm font-sans font-semibold text-text-primary">
-                                      {protocolLabel}
-                                      <span className="text-text-secondary font-normal"> {event}</span>
-                                      {/* The space is load-bearing: `ml-1` is
-                                          margin, not whitespace, so without it a
-                                          screen reader and every text scrape run the
-                                          event into the chip ("risk limitQueued"). */}
-                                      {chip && (
-                                        <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
-                                          {chip.label}
-                                        </span></>
-                                      )}
-                                    </span>
-                                    {/* Timestamps stay muted. This is what
-                                        text-muted is FOR — you glance at it, you do
-                                        not read it. */}
-                                    <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{when}</span>
-                                  </>
-                                );
-                                return target ? (
-                                  /* A real <button>, not a div with onClick: it is
-                                     in the tab order, Enter and Space activate it,
-                                     the global :focus-visible ring applies, and the
-                                     accessibility tree calls it a button because it
-                                     is one. */
-                                  <button
-                                    type="button"
-                                    key={`${a.created_at}-${i}`}
-                                    onClick={() => setHighlightedPositionKey(target)}
-                                    title={hover}
-                                    aria-label={`${protocolLabel} ${event}${
-                                      chip ? `, ${chip.label}` : ""
-                                    }, ${when}. Show this position.`}
-                                    className={`${ALERT_ROW_CLS} rounded-sm text-left cursor-pointer transition-colors hover:bg-white/[0.03]`}
-                                  >
-                                    {body}
-                                  </button>
-                                ) : (
-                                  <div key={`${a.created_at}-${i}`} className={ALERT_ROW_CLS} title={hover}>
-                                    {body}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          {alertsRemaining > 0 && (
-                            /* Counts what is left rather than saying "Show more":
-                               the length of a feed is what a reader cannot see,
-                               and it names the page size implicitly, so nobody
-                               wonders whether this expands by ten rows or ten
-                               thousand. */
+                              It names the length, because how far the history runs
+                              is the one thing a four-row preview cannot say.
+                              `lg:mt-auto` sends whatever slack the column hands
+                              the card to the space above the button, so a short
+                              log leaves a margin at the bottom of a card rather
+                              than a hole in the middle of one. */}
+                          {alertsNewestFirst.length > ALERT_PREVIEW_COUNT && (
                             <Button
+                              ref={alertHistoryTrigger}
                               variant="outline"
-                              className="mt-3 w-full shrink-0 justify-center"
-                              onClick={() => setAlertsShown((n) => n + ALERT_PAGE_SIZE)}
+                              className="mt-3 lg:mt-auto w-full shrink-0 justify-center"
+                              onClick={() => setAlertHistoryOpen(true)}
                             >
-                              {alertsRemaining <= ALERT_PAGE_SIZE
-                                ? `Show ${alertsRemaining} older ${alertsRemaining === 1 ? "alert" : "alerts"}`
-                                : `Show ${ALERT_PAGE_SIZE} more of ${alertsRemaining} older alerts`}
+                              See all {alertsNewestFirst.length} alerts
                             </Button>
                           )}
                         </>
