@@ -193,8 +193,27 @@ export const EXIT_ERC20_ABI = [
   },
 ] as const;
 
-/** Aave protocol data provider - the two views the exit flow needs. */
+/** Aave protocol data provider - the three views the exit flow needs. */
 export const EXIT_DATA_PROVIDER_ABI = [
+  {
+    // The market's own reserve list. The flow used to hardcode which assets it
+    // read, which is how it ended up calling `getUserReserveData` on the
+    // executor's PAYOUT token - an address this market does not list. See
+    // `./exitReserves`.
+    type: "function",
+    name: "getAllReservesTokens",
+    inputs: [],
+    outputs: [
+      {
+        type: "tuple[]",
+        components: [
+          { name: "symbol", type: "string" },
+          { name: "tokenAddress", type: "address" },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
   {
     type: "function",
     name: "getUserReserveData",

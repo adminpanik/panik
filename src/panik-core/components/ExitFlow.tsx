@@ -28,6 +28,7 @@ import { injected } from "wagmi/connectors";
 import type { LiveProtocol } from "../lib/live";
 import {
   asContractClient,
+  type ContractClient,
   EXIT_DATA_PROVIDER_ABI,
   EXIT_ENV,
   EXIT_ERC20_ABI,
@@ -37,6 +38,7 @@ import {
   isExitExecutable,
 } from "../lib/exit";
 import { classifyExitError } from "../lib/exitRpc";
+import { exitReserveSet, type ExitReserveRef, type MarketReserve } from "../lib/exitReserves";
 import {
   AMOUNT_FULL,
   buildExitLegs,
@@ -56,8 +58,10 @@ import {
   EXECUTOR_ADDRESS,
   EXIT_CHAIN_ID,
   EXIT_DATA_PROVIDER_ADDRESS,
+  // `executor.usdc()`: the token the executor SWEEPS PROCEEDS IN. It is not a
+  // reserve, and reading a user's Aave position against it is the bug
+  // `exitReserves` exists to prevent. Used here only for the payout decimals.
   EXIT_USDC_ADDRESS,
-  EXIT_WETH_ADDRESS,
   LOCK_CHECKER_ABI,
   LOCK_CHECKER_ADDRESS,
 } from "../lib/exit.generated";
@@ -167,6 +171,37 @@ interface Notice {
   message: string;
 }
 
+/**
+ * The reserve set, read once per session.
+ *
+ * An asset is listed or de-listed by an Aave governance action or an executor
+ * admin call, neither of which happens while a modal is open, so re-reading it
+ * on every open would be two requests spent to learn the same answer. Only a
+ * non-empty result is cached: an empty one means a misconfiguration somewhere,
+ * and that is worth re-checking rather than pinning for the session.
+ */
+let reserveSetCache: ExitReserveRef[] | null = null;
+
+async function loadExitReserveSet(client: ContractClient): Promise<ExitReserveRef[]> {
+  if (reserveSetCache) return reserveSetCache;
+  // Issued together so Multicall3 folds them into one request.
+  const [marketReserves, tracked] = await Promise.all([
+    client.readContract({
+      address: EXIT_DATA_PROVIDER_ADDRESS,
+      abi: EXIT_DATA_PROVIDER_ABI,
+      functionName: "getAllReservesTokens",
+    }) as Promise<readonly MarketReserve[]>,
+    client.readContract({
+      address: EXECUTOR_ADDRESS,
+      abi: EXECUTOR_ABI,
+      functionName: "getTrackedAssets",
+    }) as Promise<readonly `0x${string}`[]>,
+  ]);
+  const set = exitReserveSet(marketReserves, tracked);
+  if (set.length > 0) reserveSetCache = set;
+  return set;
+}
+
 interface LoadedPosition {
   legs: ReturnType<typeof buildExitLegs>["legs"];
   views: ExitLegView[];
@@ -210,10 +245,19 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
     const client = asContractClient(publicClient);
     setNotice(null);
     try {
-      const known: { reserve: `0x${string}`; symbol: string }[] = [
-        { reserve: EXIT_USDC_ADDRESS, symbol: "USDC" },
-        { reserve: EXIT_WETH_ADDRESS, symbol: "WETH" },
-      ];
+      // Which assets this exit may name, from the chain rather than a hardcoded
+      // pair. The old `[EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS]` named the payout
+      // token as a reserve, and Aave does not list it, so the very first read
+      // reverted for every wallet.
+      const known = await loadExitReserveSet(client);
+      if (known.length === 0) {
+        setNotice({
+          tone: "problem",
+          message: `No asset on ${EXIT_NETWORK_LABEL} is both listed by Aave V3 and enabled for exits right now, so there is nothing this can act on. This is a problem on our side, not with your wallet.`,
+        });
+        setStep("error");
+        return;
+      }
 
       // Reserves the configured market will not answer for. Tracked apart from
       // a transport failure on purpose: "this asset is not in this market" is a
@@ -222,57 +266,68 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       // them to retry something that cannot start working.
       const unreadable: string[] = [];
 
-      // The four reads below are issued together, not one after another. They
-      // have no dependency on each other, and awaiting them in sequence made
-      // four separate round trips to a rate-limited public node; in one tick
-      // wagmi's Multicall3 batching folds them into a single request.
-      // `Promise.all` preserves `known`'s order, which is what the USDC lookup
-      // further down relies on.
+      // Every read below is issued in one tick rather than awaited in sequence.
+      // They have no dependency on each other, and one at a time meant one round
+      // trip each against a rate-limited public node; together, wagmi's
+      // Multicall3 batching folds them into a single request. `Promise.all`
+      // preserves `known`'s order.
       //
       // Decimals come from each token, never from the symbol: the repay is
       // denominated in the debt asset, and a WETH repay scaled by 10^6 is off
       // by twelve orders of magnitude.
-      const readings = await Promise.all(
-        known.map(async ({ reserve, symbol }): Promise<ExitReserveState | null> => {
-          try {
-            const [userReserve, rawDecimals] = await Promise.all([
-              client.readContract({
-                address: EXIT_DATA_PROVIDER_ADDRESS,
-                abi: EXIT_DATA_PROVIDER_ABI,
-                functionName: "getUserReserveData",
-                args: [reserve, address],
-              }) as Promise<[bigint, bigint, bigint]>,
-              client.readContract({
-                address: reserve,
-                abi: EXIT_ERC20_ABI,
-                functionName: "decimals",
-              }),
-            ]);
-            const [aBal, stableDebt, varDebt] = userReserve;
-            return {
-              reserve,
-              symbol,
-              // uint8 token metadata, not a wei amount - the one place `Number`
-              // is safe on a chain read in this file.
-              decimals: Number(rawDecimals),
-              aBalance: aBal,
-              debt: stableDebt + varDebt,
-            };
-          } catch (err) {
-            const failure = classifyExitError(err, EXIT_NETWORK_LABEL);
-            // A transport failure says nothing about this particular reserve -
-            // every read is failing. Let it out so the outer catch reports the
-            // connection, rather than blaming the asset.
-            if (failure.kind === "network") throw err;
-            console.error(
-              `[exit] reserve ${symbol} (${reserve}) is unreadable on ${EXIT_NETWORK_LABEL}:`,
-              failure.detail,
-            );
-            unreadable.push(symbol);
-            return null;
-          }
+      const [readings, rawPayoutDecimals] = await Promise.all([
+        Promise.all(
+          known.map(async ({ reserve, symbol }): Promise<ExitReserveState | null> => {
+            try {
+              const [userReserve, rawDecimals] = await Promise.all([
+                client.readContract({
+                  address: EXIT_DATA_PROVIDER_ADDRESS,
+                  abi: EXIT_DATA_PROVIDER_ABI,
+                  functionName: "getUserReserveData",
+                  args: [reserve, address],
+                }) as Promise<[bigint, bigint, bigint]>,
+                client.readContract({
+                  address: reserve,
+                  abi: EXIT_ERC20_ABI,
+                  functionName: "decimals",
+                }),
+              ]);
+              const [aBal, stableDebt, varDebt] = userReserve;
+              return {
+                reserve,
+                symbol,
+                // uint8 token metadata, not a wei amount - the one place
+                // `Number` is safe on a chain read in this file.
+                decimals: Number(rawDecimals),
+                aBalance: aBal,
+                debt: stableDebt + varDebt,
+              };
+            } catch (err) {
+              const failure = classifyExitError(err, EXIT_NETWORK_LABEL);
+              // A transport failure says nothing about this particular reserve -
+              // every read is failing. Let it out so the outer catch reports the
+              // connection, rather than blaming the asset.
+              if (failure.kind === "network") throw err;
+              console.error(
+                `[exit] reserve ${symbol} (${reserve}) is unreadable on ${EXIT_NETWORK_LABEL}:`,
+                failure.detail,
+              );
+              unreadable.push(symbol);
+              return null;
+            }
+          }),
+        ),
+        // The PAYOUT token's own decimals, read from the payout token. This used
+        // to be `reserves.find(r => r.reserve === EXIT_USDC_ADDRESS)?.decimals
+        // ?? 6` - a lookup that can no longer match, because the payout token is
+        // deliberately not in the reserve set, and a fallback that would have
+        // rendered the receipt in a guessed scale.
+        client.readContract({
+          address: EXIT_USDC_ADDRESS,
+          abi: EXIT_ERC20_ABI,
+          functionName: "decimals",
         }),
-      );
+      ]);
       const reserves = readings.filter((r): r is ExitReserveState => r !== null);
 
       // Legs built from a partial view of the position would repay what could be
@@ -288,8 +343,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         return;
       }
 
-      const usdcDecimals =
-        reserves.find((r) => r.reserve === EXIT_USDC_ADDRESS)?.decimals ?? 6;
+      const usdcDecimals = Number(rawPayoutDecimals);
 
       const build = (repayFraction: number | undefined) =>
         buildExitLegs(reserves, {
