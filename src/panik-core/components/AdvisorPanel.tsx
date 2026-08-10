@@ -55,7 +55,13 @@ import {
   MARKET_CONTEXT_MISSING_HINT,
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
+  PROSE_SOURCE_BANNER,
+  PROSE_SOURCE_HINT,
+  PROSE_SOURCE_LABEL,
+  RISK_CHIP,
   RISK_TEXT,
+  USD_UNAVAILABLE_HINT,
+  USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial } from "../ui";
 import { EXIT_ENV } from "../lib/exit";
@@ -179,32 +185,42 @@ function ActionButton({
 }
 
 /**
- * The block that holds model-phrased prose, and says so.
+ * Who wrote the block of prose above this line.
  *
- * The Advisor mixes two kinds of sentence on one card and they carry different
- * warranties: the numbers, the action and (on a critical leg) the verdict are
- * the engine's and are checked, while the phrasing around them came out of a
+ * The Advisor mixes two kinds of sentence and they carry different warranties:
+ * the numbers, the action and (on a critical leg) the verdict are the engine's
+ * and are checked, while the phrasing around them may have come out of a
  * language model. A reader deciding whether to sign a transaction is entitled
- * to know which is which, so the AI-phrased text sits in a sunken inset under a
- * permanent label rather than reading as the same voice as the figures.
+ * to know which is which.
  *
- * The label is the honest part, so it is never shown over deterministic text:
- * `narrationSource` is per-leg, and a leg that fell back to engine prose gets
- * no block and no label. Saying "AI-generated summary" over a template would be
- * stating a fact the code knows to be false.
+ * It used to be told only half. Model-phrased prose sat in a sunken inset under
+ * an "AI-generated summary" label and engine-written prose got no marker at all,
+ * so the distinction the 1.7 guardrails exist to make read on screen as the app
+ * labelling some cards and not others for no stated reason. BOTH states are
+ * named now, in the same place, at the same size, with the same shape, and the
+ * reason they differ is one hover away.
  *
- * No border, deliberately. A bordered tinted box inside a bordered tinted card
- * is chrome wrapping chrome; the surface step plus the label is the distinction.
+ * The inset went with it. A tinted box inside a tinted card was chrome wrapping
+ * chrome, and once both states are labelled the box is no longer carrying the
+ * distinction - the words are.
+ *
+ * Per BLOCK and not per card, because that is the granularity of the truth: on a
+ * critical leg the server serves the ENGINE's verdict sentence even when the
+ * rest of the leg is narrated (the template slot in AdvisorNarrator), so that
+ * card honestly reads "wording by the engine" on its lead and "wording by AI"
+ * inside "Why this".
  */
-function AiBlock({ children }: { children: React.ReactNode }) {
+function ProseSource({ narrated, hint = false }: { narrated: boolean; hint?: boolean }) {
+  const Icon = narrated ? Sparkles : Calculator;
   return (
-    <div className="space-y-2 rounded-md bg-surface-sunken p-3">
-      <p className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-        <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
-        AI-generated summary
-      </p>
-      {children}
-    </div>
+    <p className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+      <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+      {narrated ? PROSE_SOURCE_LABEL.narrated : PROSE_SOURCE_LABEL.engine}
+      {/* The explanation goes on the marker a reader meets first. Repeating the
+          tip inside the disclosure would be a second control for one idea, one
+          line below the first. */}
+      {hint ? <InfoTip text={PROSE_SOURCE_HINT} className="ml-0.5" /> : null}
+    </p>
   );
 }
 
@@ -250,11 +266,13 @@ function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
         />
         Why this
       </summary>
-      <div className="mt-3">
+      <div className="mt-3 space-y-2">
         {/* These three are always the model's when the leg was narrated - the
             critical-verdict template slot only protects the recommendation
-            above, which is why the label belongs here and not on the card. */}
-        {isNarrated(rec) ? <AiBlock>{body}</AiBlock> : body}
+            above, which is why this block states its own source rather than
+            inheriting the card's. */}
+        {body}
+        <ProseSource narrated={isNarrated(rec)} />
       </div>
     </details>
   );
@@ -685,10 +703,16 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
             {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
           </p>
           {/* Stays on screen: this one is a disclosure about who wrote the
-              sentences, not a metric. */}
+              sentences, not a metric.
+
+              It used to read "AI-narrated, engine-decided" while the cards below
+              labelled one leg and not the next, which put the banner and the
+              cards in contradiction. It now states the half that is true of
+              every card and hands the per-card half to the per-card markers,
+              which is where the answer actually varies. */}
           {report.narrated ? (
             <p className="mt-1 flex items-center gap-1 text-2xs font-sans text-text-muted">
-              <Sparkles className="h-3 w-3" aria-hidden="true" /> AI-narrated, engine-decided
+              <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" /> {PROSE_SOURCE_BANNER}
             </p>
           ) : null}
         </div>
