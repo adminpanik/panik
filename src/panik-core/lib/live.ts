@@ -203,11 +203,14 @@ export function useWalletPositions(wallet: string | null, profile: string) {
   useEffect(() => {
     // Reset on every wallet change so a switch never shows the PREVIOUS
     // wallet's positions while the new fetch is in flight.
+    //
+    // `offline` resets with it. It is a fact about the last fetch for the
+    // PREVIOUS wallet, and leaving it standing told the new wallet's panel "we
+    // could not reach the feed" before anything had been asked about it — which
+    // now also suppresses the loading state that should be showing instead.
     setData(null);
-    if (!wallet) {
-      setOffline(false);
-      return;
-    }
+    setOffline(false);
+    if (!wallet) return;
     let cancelled = false;
     const url = `/api/positions?wallet=${wallet}&profile=${encodeURIComponent(profile)}`;
     const load = async () => {
