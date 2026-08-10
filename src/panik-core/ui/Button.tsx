@@ -25,7 +25,15 @@ const BUTTON_VARIANT = {
     "bg-transparent text-text-secondary border-border-subtle hover:text-text-primary hover:bg-white/[0.04]",
 } as const;
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+/**
+ * `ComponentPropsWithRef`, not `ButtonHTMLAttributes`: in React 19 `ref` is an
+ * ordinary prop on a function component, so it reaches the `<button>` through
+ * the same spread as everything else — but only the ref-aware prop type admits
+ * it. A caller that has to return focus to a button it rendered (the Portfolio
+ * alert trigger) needs a handle on it, and wrapping the primitive in a plain
+ * `<button>` to get one would be a second button treatment.
+ */
+interface ButtonProps extends React.ComponentPropsWithRef<"button"> {
   variant?: keyof typeof BUTTON_VARIANT;
   children: React.ReactNode;
 }
