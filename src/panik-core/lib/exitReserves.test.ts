@@ -10,8 +10,21 @@
  *   executor.usdc()                     -> 0x036CbD53… (payout only)
  */
 
-import { describe, expect, it } from "vitest";
-import { exitReserveSet, type MarketReserve } from "./exitReserves";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  clearExitReserveSetCache,
+  exitReserveAddresses,
+  exitReserveSet,
+  loadExitReserveSet,
+  resolveExitReserveSet,
+  type MarketReserve,
+  type ReserveReadClient,
+} from "./exitReserves";
+import {
+  EXECUTOR_ADDRESS,
+  EXIT_CHAIN_ID,
+  EXIT_DATA_PROVIDER_ADDRESS,
+} from "./exit.generated";
 
 // Aave V3 Base Sepolia market, in the order the data provider returns them.
 const AAVE_USDC = "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f" as const;
@@ -133,5 +146,144 @@ describe("exitReserveSet - shape", () => {
     ["neither", [] as MarketReserve[], [] as string[]],
   ])("returns an empty set for %s rather than throwing", (_label, market, tracked) => {
     expect(exitReserveSet(market, tracked)).toEqual([]);
+  });
+
+  it("exitReserveAddresses drops the labels and keeps the market's addresses", () => {
+    expect(exitReserveAddresses(exitReserveSet(MARKET_RESERVES, TRACKED_ASSETS))).toEqual([
+      AAVE_USDC,
+      AAVE_USDT,
+      AAVE_WBTC,
+      WETH,
+      AAVE_CBETH,
+      AAVE_LINK,
+    ]);
+  });
+});
+
+// ── chain resolution ─────────────────────────────────────────────────────────
+
+/**
+ * A node that answers the two views the resolution makes, and counts the calls.
+ *
+ * The count is the point of most of these: the worker sweeps every watched
+ * wallet every 60 seconds, and a resolution that re-read per wallet per tick
+ * would be the reason someone turned it off.
+ */
+function stubClient(
+  over: { market?: MarketReserve[]; tracked?: string[]; fail?: () => Error } = {},
+) {
+  const calls: string[] = [];
+  const client: ReserveReadClient = {
+    async readContract(params: unknown): Promise<unknown> {
+      const { functionName } = params as { functionName: string };
+      calls.push(functionName);
+      if (over.fail) throw over.fail();
+      if (functionName === "getAllReservesTokens") return over.market ?? MARKET_RESERVES;
+      if (functionName === "getTrackedAssets") return over.tracked ?? TRACKED_ASSETS;
+      throw new Error(`unexpected read: ${functionName}`);
+    },
+  };
+  return { client, calls };
+}
+
+describe("resolveExitReserveSet - the two reads", () => {
+  beforeEach(clearExitReserveSetCache);
+
+  it("reads the market list and the tracked set, and intersects them", async () => {
+    const { client, calls } = stubClient();
+    await expect(resolveExitReserveSet(client)).resolves.toEqual([
+      { reserve: AAVE_USDC, symbol: "USDC" },
+      { reserve: AAVE_USDT, symbol: "USDT" },
+      { reserve: AAVE_WBTC, symbol: "WBTC" },
+      { reserve: WETH, symbol: "WETH" },
+      { reserve: AAVE_CBETH, symbol: "cbETH" },
+      { reserve: AAVE_LINK, symbol: "LINK" },
+    ]);
+    expect(calls.sort()).toEqual(["getAllReservesTokens", "getTrackedAssets"]);
+  });
+
+  it("never yields the payout token, which is the whole regression", async () => {
+    const { client } = stubClient();
+    const set = await resolveExitReserveSet(client);
+    expect(exitReserveAddresses(set)).not.toContain(CIRCLE_USDC);
+  });
+
+  it("addresses the configured deployment, not a hardcoded one", async () => {
+    const seen: { address: string; functionName: string }[] = [];
+    const client: ReserveReadClient = {
+      async readContract(params: unknown) {
+        const p = params as { address: string; functionName: string };
+        seen.push({ address: p.address, functionName: p.functionName });
+        return p.functionName === "getAllReservesTokens" ? MARKET_RESERVES : TRACKED_ASSETS;
+      },
+    };
+    await resolveExitReserveSet(client);
+    expect(seen).toContainEqual({
+      address: EXIT_DATA_PROVIDER_ADDRESS,
+      functionName: "getAllReservesTokens",
+    });
+    expect(seen).toContainEqual({ address: EXECUTOR_ADDRESS, functionName: "getTrackedAssets" });
+  });
+});
+
+describe("loadExitReserveSet - resolved once per deployment", () => {
+  beforeEach(clearExitReserveSetCache);
+
+  it("reads twice on the first call and never again", async () => {
+    const { client, calls } = stubClient();
+    const first = await loadExitReserveSet(client);
+    const second = await loadExitReserveSet(client);
+    const third = await loadExitReserveSet(client);
+    expect(calls).toHaveLength(2);
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+  });
+
+  it("shares one in-flight read across concurrent callers", async () => {
+    // The first worker tick asks for the set once per watched wallet, before any
+    // of them has resolved. Without sharing, ten wallets cost twenty calls.
+    const { client, calls } = stubClient();
+    const all = await Promise.all(Array.from({ length: 10 }, () => loadExitReserveSet(client)));
+    expect(calls).toHaveLength(2);
+    expect(new Set(all).size).toBe(1);
+  });
+
+  it("does NOT pin an empty result - that is a misconfiguration to re-check", async () => {
+    const { client, calls } = stubClient({ tracked: [] });
+    await expect(loadExitReserveSet(client)).resolves.toEqual([]);
+    await expect(loadExitReserveSet(client)).resolves.toEqual([]);
+    expect(calls).toHaveLength(4);
+  });
+
+  it("does NOT pin a failure - one bad minute must not kill the process", async () => {
+    const failing = stubClient({ fail: () => new Error("connection reset") });
+    await expect(loadExitReserveSet(failing.client)).rejects.toThrow("connection reset");
+
+    const healthy = stubClient();
+    await expect(loadExitReserveSet(healthy.client)).resolves.toHaveLength(6);
+    expect(healthy.calls).toHaveLength(2);
+  });
+
+  it("keys the cache per deployment, so two chains cannot share one answer", async () => {
+    const mainnet = stubClient({ market: [{ symbol: "WETH", tokenAddress: WETH }] });
+    const sepolia = stubClient();
+
+    const a = await loadExitReserveSet(mainnet.client, { chainId: 8453 });
+    const b = await loadExitReserveSet(sepolia.client, { chainId: EXIT_CHAIN_ID });
+
+    expect(exitReserveAddresses(a)).toEqual([WETH]);
+    expect(exitReserveAddresses(b)).toHaveLength(6);
+    expect(mainnet.calls).toHaveLength(2);
+    expect(sepolia.calls).toHaveLength(2);
+  });
+
+  it("keys on the executor too, so a redeploy is not served the old set", async () => {
+    const old = stubClient();
+    const fresh = stubClient({ tracked: [WETH] });
+    await loadExitReserveSet(old.client);
+    const after = await loadExitReserveSet(fresh.client, {
+      executor: "0x1111111111111111111111111111111111111111",
+    });
+    expect(exitReserveAddresses(after)).toEqual([WETH]);
   });
 });
