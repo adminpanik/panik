@@ -48,6 +48,31 @@ const AAVE_CBETH = "0xD171b9694f7A2597Ed006D41f7509aaD4B485c4B" as const;
 const AAVE_LINK = "0x810D46F9a9027E28F9B01F75E2bdde839dA61115" as const;
 const WETH = EXIT_WETH_ADDRESS;
 
+/**
+ * A payout token the market does NOT list.
+ *
+ * This used to be `EXIT_USDC_ADDRESS` itself, because the Base Sepolia executor
+ * paid out in Circle's USDC while the Aave market lists its own test USDC - two
+ * different tokens, both reporting the symbol "USDC". That deployment is gone:
+ * the executor now pays out in the market's USDC, so `EXIT_USDC_ADDRESS` IS a
+ * listed reserve and is in fact the collateral this fixture's position holds.
+ *
+ * The invariant under test did not change and is still worth pinning: a reserve
+ * read must never be issued against an asset the market does not list, because a
+ * real node reverts on it. It just has to be expressed against an address that
+ * is genuinely unlisted rather than against whatever the payout token happens to
+ * be this deployment. Circle's Base Sepolia USDC, the previous payout token, is
+ * exactly such an address.
+ *
+ * Named `..._RESERVE` and not `..._TOKEN`: gitleaks' `generic-api-key` rule
+ * fires on a high-entropy literal assigned to a name containing "TOKEN", and a
+ * public ERC-20 address is exactly high-entropy enough to trip it. The scan runs
+ * over full history, so a name that reads as a credential fails CI on every
+ * later branch too, not just the one that introduced it. `RESERVE` is also the
+ * more accurate word here.
+ */
+const UNLISTED_RESERVE = "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as const;
+
 /** The wallet holding the live test position. */
 const WALLET = "0xa48fd1407Ce1d31d4b85b6F48cA3209457056894" as const;
 
@@ -60,8 +85,12 @@ const MARKET = [
   { symbol: "LINK", tokenAddress: AAVE_LINK },
 ] as const;
 
-/** The six reserves PLUS the payout token, exactly as the executor reports. */
-const TRACKED = [EXIT_USDC_ADDRESS, WETH, AAVE_USDC, AAVE_USDT, AAVE_LINK, AAVE_CBETH, AAVE_WBTC];
+/**
+ * The six reserves PLUS an unlisted token, exactly as the executor reports:
+ * `getTrackedAssets()` carries the payout token and every swappable asset, so it
+ * is a superset of the market and the intersection is what makes the set safe.
+ */
+const TRACKED = [UNLISTED_RESERVE, WETH, AAVE_USDC, AAVE_USDT, AAVE_LINK, AAVE_CBETH, AAVE_WBTC];
 
 const EXPECTED_RESERVES = [AAVE_USDC, AAVE_USDT, AAVE_WBTC, WETH, AAVE_CBETH, AAVE_LINK];
 
@@ -78,7 +107,7 @@ const DECIMALS: Record<string, number> = {
   [WETH.toLowerCase()]: 18,
   [AAVE_CBETH.toLowerCase()]: 18,
   [AAVE_LINK.toLowerCase()]: 18,
-  [EXIT_USDC_ADDRESS.toLowerCase()]: 6,
+  [UNLISTED_RESERVE.toLowerCase()]: 6,
 };
 
 const SYMBOLS: Record<string, string> = {
@@ -88,8 +117,9 @@ const SYMBOLS: Record<string, string> = {
   [WETH.toLowerCase()]: "WETH",
   [AAVE_CBETH.toLowerCase()]: "cbETH",
   [AAVE_LINK.toLowerCase()]: "LINK",
-  // The payout token reports "USDC" too. That collision is the original bug.
-  [EXIT_USDC_ADDRESS.toLowerCase()]: "USDC",
+  // It reports "USDC" too. That symbol collision is the original bug: a set
+  // built by symbol rather than by address picked the wrong one.
+  [UNLISTED_RESERVE.toLowerCase()]: "USDC",
 };
 
 // ── ABI fragments, matching what the adapters encode ─────────────────────────
@@ -194,9 +224,9 @@ function handleCall(to: string, data: string): string {
     // Args are two 32-byte words after the selector; the asset is the first.
     const asset = `0x${data.slice(10 + 24, 10 + 64)}`.toLowerCase();
     assetsRead.push(asset);
-    // The payout token is NOT a listed reserve. A real node reverts here, and a
-    // stub that answered zeros would hide exactly the bug under test.
-    if (asset === EXIT_USDC_ADDRESS.toLowerCase()) {
+    // An unlisted asset is NOT readable. A real node reverts here, and a stub
+    // that answered zeros would hide exactly the bug under test.
+    if (asset === UNLISTED_RESERVE.toLowerCase()) {
       throw new Error("execution reverted: asset is not a listed reserve");
     }
     const pos = POSITION[asset] ?? { aBalance: 0n, varDebt: 0n };
@@ -272,8 +302,13 @@ describe("the relayer's reserve set (scripts/watch-worker.ts)", () => {
 
   it("excludes the payout token, so no read can revert on it", async () => {
     const reserves = await relayer().reserves();
-    expect(reserves).not.toContain(EXIT_USDC_ADDRESS);
+    expect(reserves).not.toContain(UNLISTED_RESERVE);
     expect(reserves).toContain(WETH);
+    // And the converse, which the current deployment made reachable: the payout
+    // token IS the market's USDC now, so it must be READ rather than skipped -
+    // it is this position's entire collateral. A rule that dropped the payout
+    // token by name would silently withdraw nothing.
+    expect(reserves).toContain(EXIT_USDC_ADDRESS);
   });
 
   it("builds the live position's legs: 2000 USDC collateral, 1200 USDT debt", async () => {
@@ -291,7 +326,7 @@ describe("the relayer's reserve set (scripts/watch-worker.ts)", () => {
     const old = new ViemRelayerChain({
       rpcUrl,
       chainId: EXIT_CHAIN_ID,
-      reserves: [EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS],
+      reserves: [UNLISTED_RESERVE, EXIT_WETH_ADDRESS],
     });
     await expect(old.reserveStates(WALLET)).rejects.toThrow();
 
@@ -302,7 +337,7 @@ describe("the relayer's reserve set (scripts/watch-worker.ts)", () => {
   it("reads every reserve the market lists and never the payout token", async () => {
     await relayer().reserveStates(WALLET);
     expect(assetsRead).toEqual(EXPECTED_RESERVES.map((r) => r.toLowerCase()));
-    expect(assetsRead).not.toContain(EXIT_USDC_ADDRESS.toLowerCase());
+    expect(assetsRead).not.toContain(UNLISTED_RESERVE.toLowerCase());
   });
 
   it("resolves once, not once per wallet per tick", async () => {
@@ -334,7 +369,7 @@ describe("the coverage sweep's reserve set (server/coverageChain.ts)", () => {
   it("hands the sweep the resolved set, with no hardcoded fallback left", async () => {
     const markets = coverageMarketsFromEnv(await coverage().aaveReserves(), {});
     expect(markets.aaveReserves).toEqual(EXPECTED_RESERVES);
-    expect(markets.aaveReserves).not.toContain(EXIT_USDC_ADDRESS);
+    expect(markets.aaveReserves).not.toContain(UNLISTED_RESERVE);
   });
 
   it("reports an EMPTY set rather than a guessed one, so the sweep says unverifiable", () => {

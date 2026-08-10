@@ -46,7 +46,6 @@ import {UniswapAdapter} from "./adapters/UniswapAdapter.sol";
 contract PanikExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    error CallerNotEOA();
     error LockedPositions(address[] lockedAssets);
     error InsufficientDebtAssetBalance(
         address asset,
@@ -241,11 +240,6 @@ contract PanikExecutor is ReentrancyGuard {
         uint16 maxSlippageBps;
     }
 
-    modifier onlyEOA() {
-        if (msg.sender != tx.origin) revert CallerNotEOA();
-        _;
-    }
-
     constructor(
         address usdc_,
         address dataProvider_,
@@ -372,10 +366,29 @@ contract PanikExecutor is ReentrancyGuard {
     function atomicExit(
         ExitTypes.ExitLeg[] calldata legs,
         uint256[] calldata uniswapTokenIds
-    ) external nonReentrant onlyEOA {
+    ) external nonReentrant {
         // Self-serve semantics, unchanged from v1: the caller acts on their own
         // position, may repay all of it, and is floored by the deploy-time
         // per-asset minOutBps.
+        //
+        // ── WHY THERE IS NO onlyEOA HERE ANY MORE ────────────────────────────
+        // This used to carry `onlyEOA` (`msg.sender != tx.origin` reverts). That
+        // check bought nothing on this path and cost the product every modern
+        // wallet.
+        //
+        // Nothing: `user` is msg.sender and every proceed is swept to
+        // msg.sender, so a contract calling this exits ITS OWN position and
+        // receives ITS OWN money. There is no second party to protect.
+        // Reentrancy is `nonReentrant`'s job and always was. The asymmetry in
+        // this contract said it out loud: `atomicExitFor` below, where proceeds
+        // go to a NAMED OTHER USER, never had the modifier — the more sensitive
+        // of the two entrypoints already accepted contract callers.
+        //
+        // The cost: EIP-7702. A delegated EOA — which is what MetaMask ships by
+        // default now — calls with `msg.sender != tx.origin`, so every such
+        // wallet was locked out of the self-serve exit. It reverted AFTER a
+        // successful `eth_call`, because a simulation runs as a direct call
+        // where the two are equal, so the user paid gas to be told no.
         _exit(
             ExecContext({
                 user: msg.sender,

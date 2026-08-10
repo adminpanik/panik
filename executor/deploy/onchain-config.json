@@ -1,23 +1,23 @@
 {
   "chainId": 84532,
   "network": "baseSepolia",
-  "deployedAt": "2026-08-09T15:23:20.031Z",
-  "executor": "0x554530E0a5C428Bd7f617F875a3C5570803842E4",
+  "deployedAt": "2026-08-10T19:23:21.995Z",
+  "executor": "0xC2E5449dB480f0B5460fde0811f0Fb91A8a9D66e",
   "adapters": {
-    "lockChecker": "0x9a1bfCAf7779d2b00B48d079Dc6B7d40EA33073E",
-    "aaveAdapter": "0x10f0BEf49e83996Fef0827222E445be3A7859e34",
-    "moonwellAdapter": "0x69c0A81cD0Ad8fCEBB6d9ddA7F409688a0c9c866",
-    "compoundAdapter": "0xAaA678F1AD405005521a662902F6017315eb59dF",
-    "morphoAdapter": "0xDA4B5871F8E4072FDEC2D448a5676EcCEdabc666",
-    "swapAdapter": "0x6461e7e291843257a94d4D48bfE33f8435436065",
-    "uniswapAdapter": "0xD375c405daEFC0f98178388b87Ff3b3B7E7202ef",
-    "panikExecutor": "0x554530E0a5C428Bd7f617F875a3C5570803842E4"
+    "lockChecker": "0x40AaC0d5d11D73e28039343F250B86b0fc214A34",
+    "aaveAdapter": "0x334aC3cd12C5B23c38551174049e87F4Fb25DE80",
+    "moonwellAdapter": "0x119eBEF6172666A9e6672547Cfe2188542D62753",
+    "compoundAdapter": "0xA9535202944e48f20fedDaC84C34bC9f0a2faeA6",
+    "morphoAdapter": "0x99fE9e87070B6B3BB6A64a2A0178915D0e984B33",
+    "swapAdapter": "0xe2B398A59DC0A6B67A62EEe1196D4c5D93f870Cd",
+    "uniswapAdapter": "0x4734B69EC0a949fa4c637b9C8468dAB596269FfB",
+    "panikExecutor": "0xC2E5449dB480f0B5460fde0811f0Fb91A8a9D66e"
   },
   "tokens": {
-    "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    "usdc": "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f"
   },
   "config": {
-    "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "usdc": "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f",
     "aavePool": "0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27",
     "dataProvider": "0xBc9f5b7E248451CdD7cA54e717a2BFe1F32b566b",
     "marketOracle": "0x943b0dE18d4abf4eF02A85912F8fc07684C141dF",
@@ -28,24 +28,12 @@
     "stableDebtCooldownSeconds": "3600",
     "swapDeadlineBufferSeconds": "300",
     "swapAssets": [
-      "0x4200000000000000000000000000000000000006",
-      "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f",
-      "0x0a215D8ba66387DCA84B284D18c3B4ec3de6E54a",
-      "0x810D46F9a9027E28F9B01F75E2bdde839dA61115",
-      "0xD171b9694f7A2597Ed006D41f7509aaD4B485c4B"
+      "0x4200000000000000000000000000000000000006"
     ],
     "swapPaths": [
-      "0x4200000000000000000000000000000000000006000bb8036cbd53842c5426634e7929541ec2318f3dcf7e",
-      "0xba50cd2a20f6da35d788639e581bca8d0b5d4d5f0001f4036cbd53842c5426634e7929541ec2318f3dcf7e",
-      "0x0a215d8ba66387dca84b284d18c3b4ec3de6e54a0001f4036cbd53842c5426634e7929541ec2318f3dcf7e",
-      "0x810d46f9a9027e28f9b01f75e2bdde839da61115000bb8036cbd53842c5426634e7929541ec2318f3dcf7e",
-      "0xd171b9694f7a2597ed006d41f7509aad4b485c4b000bb8036cbd53842c5426634e7929541ec2318f3dcf7e"
+      "0x42000000000000000000000000000000000000060001f4ba50cd2a20f6da35d788639e581bca8d0b5d4d5f"
     ],
     "swapMinOutBps": [
-      9500,
-      9500,
-      9500,
-      9500,
       9500
     ],
     "mockOracleAssets": [
@@ -56,12 +44,12 @@
       "0xD171b9694f7A2597Ed006D41f7509aaD4B485c4B"
     ],
     "trackedAssets": [
-      "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-      "0x4200000000000000000000000000000000000006",
       "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f",
+      "0x4200000000000000000000000000000000000006",
       "0x0a215D8ba66387DCA84B284D18c3B4ec3de6E54a",
       "0x810D46F9a9027E28F9B01F75E2bdde839dA61115",
       "0xD171b9694f7A2597Ed006D41f7509aaD4B485c4B",
+      "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
       "0x54114591963CF60EF3aA63bEfD6eC263D98145a4"
     ],
     "priceFeedAssets": [],
@@ -235,11 +223,6 @@
           }
         ],
         "name": "AssetNotTracked",
-        "type": "error"
-      },
-      {
-        "inputs": [],
-        "name": "CallerNotEOA",
         "type": "error"
       },
       {
