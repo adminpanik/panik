@@ -1257,6 +1257,15 @@ export function AppDemo() {
   const watchingOwnPosition = watchSource === "positions" && selectedPositionMarket !== null;
   // The single market object the whole simulator reads (real position or preset).
   const activeMarket = watchingOwnPosition ? selectedPositionMarket.preset : activePreset;
+  /**
+   * Collateral and debt are the SAME asset (the two USDC supply presets).
+   * An absolute price move then rescales both sides of the position at once, so
+   * the distance to liquidation is a ratio that does not move, and the price
+   * scenarios below would be answering a question this market cannot be asked.
+   * What moves it here is the two legs pricing apart, which is the pair of price
+   * controls, not a scenario chip.
+   */
+  const sameAssetMarket = activeMarket.collateralAsset === activeMarket.debtAsset;
 
   // Simulator parameters (sliders + direct numeric inputs)
   const [collateralAmount, setCollateralAmount] = useState<number>(activePreset.defaultCollateral);
@@ -2095,6 +2104,24 @@ export function AppDemo() {
                       Price scenarios
                       <InfoTip text="Crash and black-swan magnitudes mirror the backtest event set. The HF preview on each card is an estimate; the headline score uses the live engine." />
                     </span>
+                    {/* A same-asset market gets the reason instead of the chips.
+                        Run against USDC collateral and USDC debt, the four
+                        scenarios were reporting "black swan -55%, HF ~1.48",
+                        which reads as "you survive USDC going to zero": the
+                        chips move the collateral price alone, and on this market
+                        that is not a crash, it is a depeg between two legs of the
+                        same asset. Stating why is the only version that is true;
+                        deleting the panel would leave the market looking
+                        unfinished, and re-labelling the chips would keep a
+                        magnitude nobody can act on. */}
+                    {sameAssetMarket ? (
+                      <p className="text-xs font-sans text-text-secondary leading-relaxed">
+                        Collateral and debt are both {activeMarket.collateralAsset} here, so a move in
+                        its price rescales the two sides together and your distance to liquidation
+                        stays where it is. Set the two price controls below apart to simulate the
+                        move that does change it, a depeg between what you supplied and what you owe.
+                      </p>
+                    ) : (
                     <div className="grid grid-cols-2 gap-2">
                       {PRICE_SCENARIOS.map((s) => {
                         const price = scenarioPrice(s.pct);
@@ -2152,6 +2179,7 @@ export function AppDemo() {
                         );
                       })}
                     </div>
+                    )}
                   </Card>
 
                   {/* Advanced parameters (#4): direct inputs for amounts + prices */}
@@ -2190,10 +2218,15 @@ export function AppDemo() {
                       </div>
                     </div>
 
-                    {/* Collateral price */}
+                    {/* Collateral price. Named for the LEG, not the asset: on a
+                        USDC-collateral, USDC-debt market "USDC price" was the
+                        label on both this control and the debt one below, two
+                        sliders reading the same words and driving different
+                        halves of the position. The leg is what tells them apart,
+                        and it is also what the amount rows above are named for. */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
-                        <span>{activeMarket.collateralAsset} price</span>
+                        <span>Collateral price ({activeMarket.collateralAsset})</span>
                         <input
                           type="number"
                           min={0}
@@ -2266,7 +2299,7 @@ export function AppDemo() {
                     {/* Borrowed asset price (depeg scenarios) */}
                     <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
-                        <span>{activeMarket.debtAsset} price</span>
+                        <span>Borrowed price ({activeMarket.debtAsset})</span>
                         <input
                           type="number"
                           min={0}
