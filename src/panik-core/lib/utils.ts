@@ -4,7 +4,7 @@
  */
 
 import { PositionState } from "./types";
-import type { Band, ProfileStatus } from "./live";
+import type { AdvisorAction, Band, ProfileStatus } from "./live";
 /**
  * A VALUE import from the engine, which every other import in panik-core is
  * careful not to be, and the exception is deliberate: `prospective.ts` has no
@@ -181,6 +181,48 @@ export function marketContextMissing(sub: {
 export const MARKET_CONTEXT_MISSING_LABEL = "Market risk not measured";
 export const MARKET_CONTEXT_MISSING_HINT =
   "We could not read the market data for this asset or protocol, so those parts are left out. The score is weighted over what we could measure, and your position health is unaffected.";
+
+/**
+ * `AdvisorAction` in English. The union is an engine enum and it was reaching
+ * the screen verbatim, in caps, as `EXIT` / `REDUCE` / `MONITOR` / `HOLD` — the
+ * same class of leak `LIMIT_STATE` exists to stop, and shouting is not what
+ * makes a label read as a label (see the typography section of the design
+ * system: sentence case throughout).
+ *
+ * `Record<AdvisorAction, string>` rather than a `?:` chain, so an action added
+ * to the engine breaks the build here instead of falling through to the raw
+ * token.
+ */
+export const ADVISOR_ACTION: Record<AdvisorAction, string> = {
+  EXIT: "Exit",
+  REDUCE: "Reduce",
+  REBALANCE: "Move",
+  MONITOR: "Watch",
+  HOLD: "Hold",
+  OPEN: "Open",
+};
+
+/**
+ * Who wrote the prose on an advisor card, as a permanent per-block marker.
+ *
+ * Only the model-phrased state used to be labelled, so the difference between a
+ * leg the guardrails passed and one they rejected read as the app labelling
+ * cards at random. Both states are named now, in the same place, in the same
+ * shape, and the reason they differ is one hover away.
+ *
+ * The decision, the numbers and the action are the engine's on EVERY card, which
+ * is what the banner says and what these two labels must not contradict.
+ */
+export const PROSE_SOURCE_LABEL = {
+  narrated: "Wording by AI",
+  engine: "Wording by the engine",
+} as const;
+
+export const PROSE_SOURCE_HINT =
+  "Every recommendation, number and action here is decided by the risk engine. A language model rephrases the engine's findings when the phrasing passes our checks; when it does not, the engine's own wording is shown instead. Each block says which one you are reading.";
+
+/** The banner's provenance line, which the per-card labels then resolve. */
+export const PROSE_SOURCE_BANNER = "Engine-decided. Each block says who wrote its wording.";
 
 export const RISK_TEXT: Record<Band, string> = {
   LOW: "text-risk-low",

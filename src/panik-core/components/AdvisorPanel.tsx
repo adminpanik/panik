@@ -11,13 +11,17 @@
  * essay per position and the answer was the third paragraph down.
  *
  * What changed is the ORDER and the DEFAULT, not the content:
- *   - the RECOMMENDATION is the lead line, at reading size, right under the
- *     protocol it is about;
+ *   - the ACTION and the RECOMMENDATION lead, in that order, in the card's left
+ *     column: what to do, then why, at reading size, right under the protocol
+ *     it is about;
+ *   - the score keeps the right rail to itself, so a verdict about what to DO
+ *     and a score about how BAD it is are no longer one corner of one row;
  *   - the numbers stay in the strip, where they are scannable and where the
  *     prose does not have to restate them;
  *   - POSITION, MARKET and EXECUTION move into a collapsed disclosure. A user
  *     acting on an EXIT deserves the reasoning, so nothing is deleted - it is
- *     one click, keyboard-reachable, and it is the same click for every card.
+ *     one click, keyboard-reachable, and it is the same click for every card;
+ *   - every block of prose names who wrote it, both states, one hover from why.
  *
  * The engine's prose is not edited here. Where it duplicates the strip that is
  * a copy problem in packages/scoring/src/advisor, out of this file's scope.
@@ -27,7 +31,15 @@
  */
 
 import React from "react";
-import { AlertTriangle, ArrowRight, ChevronRight, Eye, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Calculator,
+  ChevronRight,
+  Compass,
+  Eye,
+  Sparkles,
+} from "lucide-react";
 import type {
   AdvisorOpenPlan,
   AdvisorRecommendation,
@@ -37,6 +49,7 @@ import type {
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
 import {
+  ADVISOR_ACTION,
   formatUsd,
   liquidationOutlook,
   MARKET_CONTEXT_MISSING_HINT,
@@ -76,9 +89,16 @@ const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
  *
  * The band now has exactly one home per card: the RiskDial, borrowed from the
  * Portfolio position rows so a score means the same thing on both screens.
+ *
+ * And the ACTION has exactly one home too, which it did not before: the chip
+ * sat `ml-auto` in the title row, which parked a verdict about what to DO
+ * against a score about how BAD it is, in one corner, reading as one control.
+ * It now opens the card's left column, directly above the sentence that
+ * elaborates it, so the card scans straight down - protocol, action, why,
+ * numbers - and the dial keeps the rail to itself.
  */
 const ACTION_CHIP =
-  "shrink-0 rounded-md border border-border-subtle bg-white/[0.06] px-2.5 py-1 text-2xs font-sans font-bold text-text-primary";
+  "inline-flex shrink-0 rounded-sm border border-border-subtle bg-white/[0.06] px-2 py-0.5 text-2xs font-sans font-bold text-text-primary";
 
 /**
  * What the card says about a collateral-funded repay it cannot yet perform.
@@ -509,7 +529,7 @@ function RecommendationCard({
       <div className="flex items-start gap-3">
         <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
 
-        <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
               {PROTOCOL_LABEL[rec.protocol]}
@@ -517,29 +537,22 @@ function RecommendationCard({
             <span className="truncate text-xs font-sans text-text-secondary">
               {rec.numbers.scoredCollateralSymbol}
             </span>
-            <span className={`ml-auto ${ACTION_CHIP}`}>{rec.action}</span>
           </div>
 
-          {/* The lead. This is the answer the page exists to give, so it is the
-              first thing under the name of the thing it is about, at reading
-              size, in primary ink. It was the third of four paragraphs.
-
-              It only enters the AI block when a model actually wrote it. On a
-              critical leg the server serves the ENGINE's verdict sentence even
-              when the rest of the leg is narrated (the template slot in
-              AdvisorNarrator), so the loudest instruction on the screen keeps
-              normal styling and carries no AI label. */}
-          {aiLead ? (
-            <AiBlock>
-              <p className="text-sm font-sans leading-relaxed text-text-primary">
-                {rec.sections.recommendation}
-              </p>
-            </AiBlock>
-          ) : (
+          {/* The lead: what to do, then why. The chip is the scannable half and
+              the sentence is the reading half of one answer, so they are one
+              block. `ADVISOR_ACTION`, not `rec.action` - the raw union is an
+              engine enum and this screen does not shout. */}
+          <div className="space-y-1.5">
+            <span className={ACTION_CHIP}>{ADVISOR_ACTION[rec.action]}</span>
             <p className="text-sm font-sans leading-relaxed text-text-primary">
               {rec.sections.recommendation}
             </p>
-          )}
+            {/* On a critical leg the server serves the ENGINE's verdict sentence
+                even when the rest of the leg is narrated, so this marker is
+                computed from `aiLead` and not from the leg's flag. */}
+            <ProseSource narrated={aiLead} hint />
+          </div>
 
           <NumbersStrip rec={rec} />
         </div>
