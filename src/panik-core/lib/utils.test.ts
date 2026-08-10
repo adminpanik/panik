@@ -49,6 +49,36 @@ describe("liquidationOutlook", () => {
   });
 
   /**
+   * The Advisor strip is label/value pairs with NO sub-line, so it reads
+   * `statLabel`/`statValue`. Joining `strip` and `stripNote` back together to
+   * fill that slot is what put "none, no debt" and "0%, liquidatable now" where
+   * a number belongs.
+   */
+  it("gives a slot with no sub-line a self-sufficient label and value", () => {
+    for (const hf of [null, 0.9, 1.0005, 1.2, 3]) {
+      const o = liquidationOutlook(hf, "WETH");
+      expect(o.statValue).not.toContain(",");
+      expect(o.statLabel).toBeTruthy();
+      expect(o.statValue).toBeTruthy();
+    }
+    // A debt-free position has no liquidation price, so it answers a different
+    // question rather than putting a clause in a percentage.
+    const noDebt = liquidationOutlook(null, "wstETH");
+    expect(noDebt.statLabel).toBe("Liquidation risk");
+    expect(noDebt.statValue).toBe("None");
+    expect(noDebt.statValue).not.toMatch(/\d/);
+    // "0%" under "Drop to liquidation" reads as the inverse of the truth, so the
+    // already-liquidatable case does not print a figure either.
+    const liquidatable = liquidationOutlook(0.95, "WETH");
+    expect(liquidatable.statLabel).toBe("Liquidation risk");
+    expect(liquidatable.statValue).toBe("Liquidatable now");
+    // The ordinary case is the drawdown, formatted exactly as the strip is.
+    const normal = liquidationOutlook(1.05, "cbBTC");
+    expect(normal.statLabel).toBe("Drop to liquidation");
+    expect(normal.statValue).toBe(normal.strip);
+  });
+
+  /**
    * Every branch explains itself. When this was null for no debt, all three call
    * sites patched it with a sentence of their own and the three disagreed.
    */
@@ -97,6 +127,8 @@ describe("liquidationOutlook", () => {
       expect(o.sentence).not.toContain("—");
       expect(o.strip).not.toContain("—");
       expect(o.stripNote ?? "").not.toContain("—");
+      expect(o.statLabel).not.toContain("—");
+      expect(o.statValue).not.toContain("—");
       expect(o.hover).not.toContain("—");
     }
   });
