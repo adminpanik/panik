@@ -33,6 +33,10 @@ import {
   EXIT_CHAIN_ID,
   EXIT_DATA_PROVIDER_ADDRESS,
 } from "../src/panik-core/lib/exit.generated";
+// The reserve set, resolved from chain and shared with the UI's ExitFlow and the
+// coverage sweep. NOT `EXIT_USDC_ADDRESS`: that is `executor.usdc()`, the token
+// the executor PAYS OUT in, and Aave does not list it. See exitReserves.ts.
+import { exitReserveAddresses, loadExitReserveSet } from "../src/panik-core/lib/exitReserves";
 import type { AtomicExitForCall, RelayerChain, RelayerReceipt } from "./exitRelayer";
 import type { ExitReserveState } from "../src/panik-core/lib/exitLegs";
 
@@ -112,20 +116,50 @@ export function relayerRpcUrl(): string {
 }
 
 /**
+ * `RELAYER_RESERVES`, the operator's override for the resolved reserve set.
+ *
+ * Empty is the normal case and means "resolve from chain". It is parsed here,
+ * once, because the relayer and the coverage sweep must read the SAME set - two
+ * parsers drifting apart would let the sweep verify approvals on a list of
+ * assets the relayer never touches, which is the exact failure 4.B exists to
+ * make impossible.
+ *
+ * Anything that is not a well-formed address is dropped rather than guessed at.
+ */
+export function relayerReserveOverride(
+  env: NodeJS.ProcessEnv = process.env,
+): readonly `0x${string}`[] {
+  return (env.RELAYER_RESERVES ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => /^0x[0-9a-f]{40}$/.test(s)) as `0x${string}`[];
+}
+
+/**
  * The reserves a position read covers.
  *
- * Explicit rather than discovered from `getReservesList` on purpose: only an
- * asset the executor TRACKS can appear in a leg (`_requireTrackedAsset`), so
- * scanning every reserve would build legs the contract is certain to reject.
- * Defaults to the executor's own tracked set from the deploy config; the fork
- * test passes its own list.
+ * Not a scan of every Aave reserve: only an asset the executor TRACKS can appear
+ * in a leg (`_requireTrackedAsset`), so scanning the whole market would build
+ * legs the contract is certain to reject. Not a hardcoded list either - it used
+ * to default to `[EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS]`, and `EXIT_USDC_ADDRESS`
+ * is the PAYOUT token, which this market does not list. Every
+ * `getUserReserveData` against it reverted, and a position collateralised in
+ * anything else (cbETH, USDT, WBTC, LINK) was invisible to the leg builder: the
+ * relayer would have built a partial exit and reported it as a whole one.
+ *
+ * So it is RESOLVED: the market's reserve list intersected with the executor's
+ * tracked assets, read once per process. `reserves` overrides that for the fork
+ * test and for an operator pinning the set via RELAYER_RESERVES.
  */
 export interface RelayerChainConfig {
   rpcUrl?: string;
   chainId?: number;
   executor?: `0x${string}`;
   dataProvider?: `0x${string}`;
-  /** Reserve addresses to read. Symbols/decimals come from the token itself. */
+  /**
+   * Explicit reserve addresses. Omit (or pass empty) to resolve from chain.
+   * Symbols/decimals always come from the token itself.
+   */
   reserves?: readonly `0x${string}`[];
   /** Poll interval while waiting for a receipt. */
   pollMs?: number;
@@ -161,7 +195,9 @@ export class ViemRelayerChain implements RelayerChain {
   private readonly client: Client;
   private readonly executor: `0x${string}`;
   private readonly dataProvider: `0x${string}`;
-  private readonly reserves: readonly `0x${string}`[];
+  private readonly chainIdConfigured: number;
+  /** Operator/test override. Empty means "resolve from chain". */
+  private readonly reserveOverride: readonly `0x${string}`[];
   private readonly pollMs: number;
   private readonly gasBufferPct: bigint;
   /** Token metadata is immutable; one read per token per process. */
@@ -169,9 +205,10 @@ export class ViemRelayerChain implements RelayerChain {
 
   constructor(config: RelayerChainConfig = {}) {
     const chainId = config.chainId ?? EXIT_CHAIN_ID;
+    this.chainIdConfigured = chainId;
     this.executor = config.executor ?? EXECUTOR_ADDRESS;
     this.dataProvider = config.dataProvider ?? EXIT_DATA_PROVIDER_ADDRESS;
-    this.reserves = config.reserves ?? [];
+    this.reserveOverride = config.reserves ?? [];
     this.pollMs = config.pollMs ?? 2_000;
     this.gasBufferPct = config.gasBufferPct ?? GAS_BUFFER_PCT;
     this.client = createPublicClient({
@@ -215,9 +252,25 @@ export class ViemRelayerChain implements RelayerChain {
     return meta;
   }
 
+  /**
+   * The reserves this reads, resolved once per process (see
+   * `loadExitReserveSet`) unless an override was configured. Called per wallet
+   * per tick, so it must not cost an RPC round trip per wallet - and does not.
+   */
+  async reserves(): Promise<readonly `0x${string}`[]> {
+    if (this.reserveOverride.length > 0) return this.reserveOverride;
+    return exitReserveAddresses(
+      await loadExitReserveSet(this.client, {
+        chainId: this.chainIdConfigured,
+        dataProvider: this.dataProvider,
+        executor: this.executor,
+      }),
+    );
+  }
+
   async reserveStates(user: `0x${string}`): Promise<ExitReserveState[]> {
     const out: ExitReserveState[] = [];
-    for (const reserve of this.reserves) {
+    for (const reserve of await this.reserves()) {
       const raw = (await this.client.readContract({
         address: this.dataProvider,
         abi: DATA_PROVIDER_ABI,

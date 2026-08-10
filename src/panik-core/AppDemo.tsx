@@ -36,8 +36,6 @@ import {
   formatCompactUsd,
   formatCurrency,
   formatUsd,
-  limitEventCopy,
-  limitStateCopy,
   liquidationOutlook,
   RISK_CHIP,
   RISK_FILL,
@@ -65,6 +63,7 @@ import { COMPOSITE_WEIGHTS } from "../../packages/scoring/src/params";
 import { MARKET_SCENARIOS } from "../../packages/scoring/src/simulation";
 import { PositionState } from "./lib/types";
 import { LivePositions, positionKey } from "./components/LivePositions";
+import { AlertFeed, AlertHistoryView, ALERT_PREVIEW_COUNT } from "./components/AlertHistory";
 import { Sparkline } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
@@ -83,11 +82,9 @@ import {
   useChainTelemetry,
   useCompassScores,
   useCompassYields,
-  useLiveScores,
   useProspective,
   useWalletHistory,
   useWalletPositions,
-  useWalletRegistry,
   type LiveProtocol,
   type PoolYield,
 } from "./lib/live";
@@ -99,6 +96,7 @@ import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
 import { ALL_PROTOCOLS, ProtocolLogo, ProtocolMarks } from "./components/ProtocolLogo";
 import { Onboarding } from "./components/Onboarding";
+import { FirstRunInvite } from "./components/FirstRunInvite";
 import {
   forgetRegistration,
   registerWatchedWallet,
@@ -348,74 +346,8 @@ const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho
   compound_v3: "Compound V3",
 };
 
-/**
- * Alert feed page size. Eight rows is roughly the 320px the old `max-h-80`
- * scroller clamped to, so the card keeps the height it has today and gains a
- * way to reach row nine, which it did not have.
- */
-const ALERT_PAGE_SIZE = 8;
-
 /** How long a position row stays emphasised after an alert points at it. */
 const HIGHLIGHT_MS = 4000;
-
-/**
- * One alert row's layout, shared by the linked (button) and inert (div) forms.
- *
- * `py-4` is the `p-4` a position row carries, so the two cards standing side by
- * side on Portfolio share one rhythm. At `py-2.5` with 12px content this feed
- * was visibly denser and smaller than the list beside it, which read as a
- * secondary panel rather than the other half of the same dashboard. The rules
- * stay hairlines rather than becoming boxes: a bordered row inside a bordered
- * card is chrome wrapping chrome, and `divide-y` is what this card is for.
- */
-const ALERT_ROW_CLS =
-  "flex w-full items-baseline justify-between gap-3 py-4 first:pt-0 last:pb-0";
-
-/** Alert-outcome chip copy for the Portfolio history feed. */
-const CHIP_QUIET = "text-text-muted border-border-subtle bg-white/[0.03]";
-
-/**
- * Delivery outcome, not risk. "Sent" was green and "queued" amber, which put
- * the risk ramp on a fact about our own plumbing. Only `blocked` keeps a hue:
- * it is the one state where PANIK is failing to reach the user, and that is
- * worth interrupting for.
- */
-const NOTIFY_CHANNEL_CHIP: Record<string, { label: string; cls: string }> = {
-  suppressed_cooldown: { label: "Muted · cooldown", cls: CHIP_QUIET },
-  suppressed_immaterial: { label: "Muted · no debt", cls: CHIP_QUIET },
-  blocked: { label: "Bot blocked", cls: "text-risk-critical border-risk-critical/25 bg-risk-critical/10" },
-};
-
-/**
- * Outcomes that render NO chip. Same rationale that left only `blocked` hued,
- * taken one step further: a chip that says "Sent · Telegram" on eleven of
- * twelve rows is the expected case drawn twelve times, and the one row that
- * matters — the alert that did not reach you — has to compete with it.
- *
- * `telegram` is delivery succeeding. `skipped` is a recovery, where the row's
- * own "back under your risk limit" already says there was nothing to send.
- * Everything else still renders: queued, both suppressions, blocked, and any
- * channel we do not know.
- * Silence here means "PANIK reached you", so nothing that failed can borrow it.
- */
-const DELIVERY_SILENT = new Set(["telegram", "skipped"]);
-
-/** null = delivered as expected, so the row stays one quiet line. */
-function deliveryChip(channel: string | null): { label: string; cls: string } | null {
-  if (channel === null) return { label: "Queued", cls: CHIP_QUIET };
-  if (DELIVERY_SILENT.has(channel)) return null;
-  return NOTIFY_CHANNEL_CHIP[channel] ?? { label: channel, cls: CHIP_QUIET };
-}
-
-function timeAgo(iso: string): string {
-  const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
 
 // ── Per-wallet onboarding profiles ──────────────────────────────────────────
 // Answers persist per wallet so switching BACK to a previously onboarded
@@ -801,39 +733,48 @@ export function AppDemo() {
   const watchDropRef = useRef<HTMLDivElement>(null);
 
   // ── First-time onboarding (no backend — localStorage-persisted) ──────────
-  const [showOnboarding, setShowOnboarding] = useState<boolean>(
-    () => localStorage.getItem("panik_onboarded") !== "true"
-  );
-  const [onboardedWallet, setOnboardedWallet] = useState<string | null>(
-    () => localStorage.getItem("panik_wallet")
-  );
+  // Read ONCE, at mount. The overlay is mandatory on a genuinely first run and
+  // cancellable every time after; reading the flag live would make it
+  // cancellable mid-flow the moment `handleOnboardingComplete` writes it.
+  const [firstRun] = useState<boolean>(() => localStorage.getItem("panik_onboarded") !== "true");
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(firstRun);
+  /**
+   * The wallet this dashboard is bound to, and it is deliberately NOT seeded
+   * from localStorage.
+   *
+   * `panik_wallet` was a plain string with no ownership proof behind it, and
+   * everything here (positions, advisor, history, the aggregate score) is keyed
+   * on it. `npm run dev:mock` writes the fixture address into localStorage, the
+   * real app read it back on the next load, and the user spent the session
+   * looking at a wallet they had never owned while their own position was
+   * invisible. Restoring a bare string is indistinguishable from being handed
+   * one, so the restore is gone rather than guarded: the dashboard follows the
+   * CONNECTED wallet, or an address entered in this session, and nothing else.
+   * A returning visitor with neither gets the first-run invitation, which costs
+   * one click and cannot show them somebody else's money.
+   *
+   * This is NOT authentication. A pasted address still proves nothing, and the
+   * per-wallet profile store is still a client-side convenience. Real identity
+   * (SIWE-gated sessions, watch-only addresses added deliberately rather than by
+   * accident) is Issue #51 and is not built here.
+   */
+  const [onboardedWallet, setOnboardedWallet] = useState<string | null>(null);
   const [riskTier, setRiskTier] = useState<RiskTier | null>(
     () => localStorage.getItem("panik_risk_tier") as RiskTier | null
   );
 
   /**
-   * The CONNECTED wallet wins over the stored one.
+   * A connected wallet binds the dashboard to itself, and outranks an address
+   * typed into onboarding.
    *
-   * `panik_wallet` is a plain localStorage string with no ownership proof
-   * behind it, and everything on this dashboard (positions, advisor, history)
-   * is keyed on it. `npm run dev:mock` seeds the fixture address into that key
-   * (dev/mockApi.ts), the real app then reads it back, and the user spends the
-   * session looking at a wallet they have never owned while their own position
-   * is invisible. The exit flow, meanwhile, reads the chain for whatever wallet
-   * is actually connected, so the dashboard and the Exit button were describing
-   * two different accounts.
-   *
-   * Preferring the connected address is the smallest fix that makes those two
-   * agree: it is the only wallet the user can prove and the only one the exit
-   * can act on. Proving ownership properly (SIWE-gated identity, watch-only
-   * addresses done deliberately rather than by accident) is Issue #51 and is
-   * NOT built here.
+   * It is the only wallet the user can prove and the only one the exit flow can
+   * act on: that flow reads the chain for whatever is connected, so any other
+   * rule leaves the dashboard and the Exit button describing two accounts.
    */
   const { address: connectedWallet } = useAccount();
   useEffect(() => {
     if (!connectedWallet) return;
     if (onboardedWallet && onboardedWallet.toLowerCase() === connectedWallet.toLowerCase()) return;
-    localStorage.setItem("panik_wallet", connectedWallet);
     setOnboardedWallet(connectedWallet);
   }, [connectedWallet, onboardedWallet]);
 
@@ -844,7 +785,10 @@ export function AppDemo() {
     localStorage.setItem("panik_risk_tier", result.riskTier);         // 5-level (display)
     localStorage.setItem("panik_user_segment", result.segment);
     localStorage.setItem("panik_risk_score", String(result.riskScore));
-    localStorage.setItem("panik_wallet", wallet);
+    // The ADDRESS is not persisted. See `onboardedWallet` above: a stored
+    // address is restored as identity on the next load, which is the fake
+    // wallet this flow exists to stop handing people. What persists is the
+    // PROFILE, keyed by wallet, so re-entering the address skips the quiz.
     setSelectedRiskProfile(result.riskProfile3);
     setRiskTier(result.riskTier);
     setOnboardedWallet(wallet);
@@ -908,14 +852,17 @@ export function AppDemo() {
 
   // ── LIVE data (scoring API; every hook degrades gracefully offline) ──────
   // Declared FIRST — the memos below consume these (const = TDZ).
-  const { positions: livePositions, offline: liveOffline } = useLiveScores();
   const { scores: compassLive } = useCompassScores();
   const { pools: poolYields } = useCompassYields();
   const chainTel = useChainTelemetry();
 
-  // Once a user has onboarded with their OWN wallet, the dashboard follows that
-  // wallet (its live Base positions) instead of the seeded validation registry.
-  // boundMode hides the registry selector entirely. (SIWE later proves ownership.)
+  // The dashboard follows ONE wallet: the one bound above. There is no second
+  // source any more. It used to fall back to the ops registry (/api/scores +
+  // /api/wallets, the seeded validation cohort with a pill selector), and that
+  // path could never produce a single row: both endpoints require the admin key
+  // server-side and the browser has none, so every unauthenticated visitor with
+  // no wallet got four skeleton cards and "Live feed unavailable" forever. That
+  // dead end is what the first-run invitation replaces.
   const boundMode = Boolean(onboardedWallet);
   const ownLive = useWalletPositions(onboardedWallet, selectedRiskProfile);
 
@@ -1026,44 +973,28 @@ export function AppDemo() {
   // produce an ownership signature, so no alert will ever fire) already has a
   // persistent app-wide banner with a Retry, so it is not repeated here.
 
-  // A user portfolio is ONE wallet. In boundMode that's the onboarded wallet;
-  // otherwise (ops view) the registry holds the validation cohort with a selector.
-  const [selectedWallet, setSelectedWallet] = useState<string | "all" | null>(null); // null = not yet initialised
-  const registry = useWalletRegistry();
-  const wallets = useMemo(() => {
-    if (boundMode) return [{ wallet: onboardedWallet as string, label: "Your wallet" }];
-    // Registry is the source of truth: wallets with zero readable positions
-    // still get a pill (their panel shows "no open positions" honestly).
-    if (registry) return registry.map((r) => ({ wallet: r.wallet, label: r.label }));
-    if (!livePositions) return [];
-    const seen = new Map<string, { wallet: string; label: string | null }>();
-    for (const p of livePositions) {
-      if (!seen.has(p.wallet)) seen.set(p.wallet, { wallet: p.wallet, label: p.label });
-    }
-    return [...seen.values()];
-  }, [boundMode, onboardedWallet, registry, livePositions]);
+  // A user portfolio is ONE wallet: the bound one, already fetched per wallet.
+  const portfolioPositions = ownLive.positions;
 
-  useEffect(() => {
-    // boundMode: the selection ALWAYS tracks the onboarded wallet. (Previously
-    // a registry wallet selected before onboarding finished stuck around,
-    // making the header show a different address than the onboarding chip.)
-    if (boundMode && onboardedWallet) {
-      if (selectedWallet !== onboardedWallet) setSelectedWallet(onboardedWallet);
-      return;
-    }
-    if (selectedWallet === null && wallets.length > 0) {
-      setSelectedWallet(wallets[0]!.wallet);
-    }
-  }, [boundMode, onboardedWallet, wallets, selectedWallet]);
-
-  const portfolioPositions = useMemo(() => {
-    // boundMode: ownLive is already this one wallet's positions — no filtering.
-    if (boundMode) return ownLive.positions;
-    if (!livePositions) return null;
-    return selectedWallet && selectedWallet !== "all"
-      ? livePositions.filter((p) => p.wallet === selectedWallet)
-      : livePositions;
-  }, [boundMode, ownLive.positions, livePositions, selectedWallet]);
+  /**
+   * The four Portfolio states, told apart here rather than at four call sites.
+   *
+   * `null` positions means two completely different things and the tab used to
+   * render both as the same grey skeleton: a fetch in flight (wait), and a feed
+   * we could not reach (this wallet's exposure is UNKNOWN). DESIGN_SYSTEM calls
+   * conflating "nothing to report" with "we could not look" a safety bug, and
+   * an unreachable feed rendering as a permanent loading state is the same bug
+   * one step earlier — a skeleton says "any second now" for as long as the API
+   * is down.
+   *
+   * `useWalletPositions` already separates them: it holds `positions` at null
+   * and raises `offline` on a failed poll, so the distinction costs nothing but
+   * naming it.
+   */
+  const portfolioFeedDown = ownLive.offline;
+  const portfolioLoading = portfolioPositions === null && !portfolioFeedDown;
+  const portfolioEmpty = portfolioPositions !== null && portfolioPositions.length === 0;
+  const hasPositions = portfolioPositions !== null && portfolioPositions.length > 0;
 
   // Presets with LIVE engine scores overlaid (fallback: static baseRisk).
   // Defined before activePreset so Compass, Portfolio and Watch all read
@@ -1106,12 +1037,8 @@ export function AppDemo() {
     };
   }, [selectedRiskBreakdownPreset, compassLive, poolYields]);
 
-  // Portfolio history: alert feed + score series for the selected wallet.
-  const historyWallet = boundMode
-    ? onboardedWallet
-    : selectedWallet && selectedWallet !== "all"
-      ? selectedWallet
-      : null;
+  // Portfolio history: alert feed + score series for the bound wallet.
+  const historyWallet = onboardedWallet;
   const walletHistory = useWalletHistory(historyWallet);
 
   /**
@@ -1149,18 +1076,48 @@ export function AppDemo() {
   }, [highlightedPositionKey]);
 
   /**
-   * Feed pagination. The old `.slice(0, 12)` was a CEILING, not a page size:
-   * alert 13 was unreachable by any means. "Show more" rather than numbered
-   * pages, because nobody thinks in pages of alerts.
-   *
-   * The card keeps its `lg` scroller as well, and the two are not rival
-   * mechanisms: the scroller lets a fixed-height card (a column-alignment
-   * requirement) hold more rows than it can show, and paging is what puts rows
-   * beyond the first eight into it at all.
+   * The alert log, newest first, sorted ONCE. The card previews the head of this
+   * array and the history page groups all of it, so ordering them separately is
+   * how the two end up disagreeing about which alert is the most recent. ISO-8601
+   * UTC strings compare chronologically as strings, so no Date is built per
+   * comparison.
    */
-  const [alertsShown, setAlertsShown] = useState(ALERT_PAGE_SIZE);
-  useEffect(() => setAlertsShown(ALERT_PAGE_SIZE), [historyWallet]);
-  const alertsRemaining = Math.max(0, (walletHistory?.alerts.length ?? 0) - alertsShown);
+  const alertsNewestFirst = useMemo(
+    () => [...(walletHistory?.alerts ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    [walletHistory],
+  );
+
+  /**
+   * The full alert log, as a view inside the Portfolio panel. See
+   * `AlertHistoryView` for why it is not a modal and not a sixth tab.
+   *
+   * Focus has to be handed back by hand because the trigger UNMOUNTS while the
+   * view is open: the ref is empty until the card comes back, so the return is
+   * an effect on the render that remounts it. `returnFocusToTrigger` is set only
+   * by the dismissal paths (Back, Escape). Clicking an alert row also closes the
+   * view, but there the position row it points at claims focus, and a second
+   * `focus()` racing it would undo the thing the click asked for.
+   */
+  const [alertHistoryOpen, setAlertHistoryOpen] = useState(false);
+  const alertHistoryTrigger = useRef<HTMLButtonElement>(null);
+  const returnFocusToTrigger = useRef(false);
+  const closeAlertHistory = useCallback(() => {
+    returnFocusToTrigger.current = true;
+    setAlertHistoryOpen(false);
+  }, []);
+  useEffect(() => {
+    if (alertHistoryOpen || !returnFocusToTrigger.current) return;
+    returnFocusToTrigger.current = false;
+    alertHistoryTrigger.current?.focus();
+  }, [alertHistoryOpen]);
+  /* Leaving Portfolio closes it: a view someone navigated away from should not
+     be what they find on their way back. No focus return, because focus is
+     already in whichever tab they moved to. A wallet switch closes it for the
+     harder reason: it replaces the log the view is showing. */
+  useEffect(() => {
+    if (activeTab !== "portfolio") setAlertHistoryOpen(false);
+  }, [activeTab]);
+  useEffect(() => setAlertHistoryOpen(false), [historyWallet]);
 
   // 30d aggregate risk series: bucket snapshots by day, protocols weighted by
   // collateral USD (same weighting the macro Aggregate risk index uses).
@@ -1215,6 +1172,20 @@ export function AppDemo() {
       Math.min(100, Math.ceil((hi + pad) / snap) * snap),
     ];
   }, [riskHistory, selectedRiskProfile]);
+
+  /**
+   * Which Portfolio cards have anything to hold.
+   *
+   * A card is rendered when it has content, or when it is the thing that
+   * EXPLAINS the current state ("reading positions", "we could not reach the
+   * feed", "history is still filling in"). It is not rendered to say "there is
+   * nothing here" while three of its neighbours say the same: an empty wallet
+   * used to get the empty state AND a position card repeating it AND an empty
+   * alert feed AND an empty chart.
+   */
+  const showPositionsCard = hasPositions || portfolioLoading || portfolioFeedDown;
+  const showAlertHistory = hasPositions || alertsNewestFirst.length > 0;
+  const showRiskHistory = hasPositions || riskHistory !== null;
 
   // Portfolio macro metrics from the SELECTED wallet's live positions
   const liveMacro = useMemo(() => {
@@ -1615,14 +1586,19 @@ export function AppDemo() {
 
   return (
     <>
-    {/* Onboarding overlay. First run: mandatory (no cancel). Wallet-switch
-        (header chip): cancellable, and a previously onboarded wallet restores
-        its saved profile without re-asking the quiz. */}
+    {/* Onboarding overlay. First run: mandatory (no cancel). Every other way in
+        — the header chip, the Portfolio invitation — is cancellable, and a
+        wallet with a saved profile skips the quiz entirely.
+
+        The cancel is keyed on `firstRun`, not on whether a wallet is bound. A
+        returning visitor has no bound wallet (nothing is restored from
+        localStorage any more), so the old rule shut them into a modal they
+        opened themselves and could not leave. */}
     {showOnboarding && (
       <Onboarding
         onComplete={handleOnboardingComplete}
         savedProfiles={savedProfiles}
-        onCancel={onboardedWallet ? () => setShowOnboarding(false) : undefined}
+        onCancel={firstRun && !onboardedWallet ? undefined : () => setShowOnboarding(false)}
       />
     )}
 
@@ -1742,21 +1718,21 @@ export function AppDemo() {
             <button
               type="button"
               onClick={() => setShowOnboarding(true)}
-              title="Change wallet - a previously onboarded address restores its saved profile instantly"
+              title={
+                onboardedWallet
+                  ? "Change wallet - an address with a saved profile skips the questions"
+                  : "Add the wallet PANIK should watch"
+              }
               className="flex min-w-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer group"
             >
               {/* Identifier, not an action and not a status: the whole chip
                   stays neutral so the eye skips it on the way to the data. */}
               <Wallet className="w-3.5 h-3.5 shrink-0 text-text-muted" />
               {/* The label is the only elastic thing in the header, so it is
-                  the only thing allowed to give: "Registry (12 wallets)" must
-                  not be able to push the refresh glyph off a 390px screen. */}
+                  the only thing allowed to give: it must not be able to push
+                  the refresh glyph off a 390px screen. */}
               <span className="truncate">
-                {selectedWallet && selectedWallet !== "all"
-                  ? truncateAddress(selectedWallet)
-                  : selectedWallet === "all"
-                    ? `Registry (${wallets.length} wallets)`
-                    : "Connect wallet"}
+                {onboardedWallet ? truncateAddress(onboardedWallet) : "Add your wallet"}
               </span>
               <RefreshCw className="w-3 h-3 shrink-0 text-text-muted group-hover:text-text-primary transition-colors" />
             </button>
@@ -2520,8 +2496,46 @@ export function AppDemo() {
             )}
 
             {/* VIEW D: PORTFOLIO TAB (Aggregate Vaults Portfolio Under Protective Firewall) */}
-            {activeTab === "portfolio" && (
+            {/* VIEW D1: the full alert log. Same panel and same key as the
+                dashboard below, so Portfolio stays the selected tab and
+                `panel-portfolio` keeps the `aria-labelledby` pair the tabs
+                pattern needs; only what the panel contains changes. Two branches
+                rather than a ternary inside one, so the dashboard's markup and
+                its indentation are untouched by this. */}
+            {activeTab === "portfolio" && alertHistoryOpen && (
               <TabPanel key="portfolio" tab="portfolio">
+                <AlertHistoryView
+                  alerts={alertsNewestFirst}
+                  protocolLabel={LIVE_PROTOCOL_LABEL}
+                  targets={alertTargets}
+                  onSelectTarget={(key) => {
+                    // Back to the dashboard, because the position this alert is
+                    // about is on it. LivePositions scrolls the row into view and
+                    // takes focus from there, which is why this path does not
+                    // return focus to the trigger.
+                    setAlertHistoryOpen(false);
+                    setHighlightedPositionKey(key);
+                  }}
+                  onClose={closeAlertHistory}
+                />
+              </TabPanel>
+            )}
+
+            {activeTab === "portfolio" && !alertHistoryOpen && (
+              <TabPanel key="portfolio" tab="portfolio">
+                {/* STATE 1 of 4 — no wallet. The whole surface is the
+                    invitation: no header, no stat row, no cards. Nothing below
+                    knows anything yet, and a dashboard of empty containers is
+                    not a smaller version of the dashboard, it is a different
+                    and worse screen. */}
+                {!boundMode ? (
+                  <FirstRunInvite
+                    onAddWallet={() => setShowOnboarding(true)}
+                    chainLabel={coveredChainLabel}
+                    protocolSentence={coveredProtocolSentence}
+                  />
+                ) : (
+                <>
                 <div className="border-b border-border-subtle pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">DeFi Portfolio</h1>
@@ -2543,14 +2557,17 @@ export function AppDemo() {
                   </Button>
                 </div>
 
-                {/* Empty-wallet path: don't leave a fresh wallet at a dead end.
-                    "clear", not "problem" — we read the wallet successfully and
-                    there is genuinely nothing at risk on it. */}
-                {portfolioPositions !== null && portfolioPositions.length === 0 && (
+                {/* STATE 3 of 4 — we reached the feed and this wallet holds
+                    nothing. "clear", not "problem": that is good news and it is
+                    safe to say so. It is also the ONLY thing this state renders
+                    now. The position card underneath used to print its own "No
+                    open positions" empty state directly below this one, so the
+                    same fact arrived twice in two different wordings. */}
+                {portfolioEmpty && (
                   <EmptyState
                     tone="clear"
                     title="No positions yet"
-                    hint={`Browse risk-scored opportunities matched to your ${selectedRiskProfile} profile and open your first position.`}
+                    hint={`We read this wallet and found no open lending positions. Browse risk-scored opportunities matched to your ${selectedRiskProfile} profile to open your first one.`}
                     action={
                       <Button variant="quiet" onClick={() => setActiveTab("compass")}>
                         Explore Compass →
@@ -2559,55 +2576,19 @@ export function AppDemo() {
                   />
                 )}
 
-                {/* Wallet SELECTOR — a control, and only rendered when there is
-                    something to select. In boundMode the list is exactly one
-                    wallet with no "All wallets" option beside it, so the row
-                    was a label and a single unclickable-in-practice pill
-                    printing the same address the top bar prints two inches
-                    above it. One address, stated once, in the chip that also
-                    lets you change it.
+                {/* STATE 2 of 4 — a fetch is genuinely in flight. A reserved
+                    block, not a figure: the four cards used to print $18,450 /
+                    $9,310 / 50% / 22 from string literals whenever `liveMacro`
+                    was null, which is exactly the window in which the code
+                    knows nothing at all.
 
-                    The registry/ops view keeps the selector: there the pills
-                    are a real choice between wallets and the ALL aggregate. */}
-                {!boundMode && wallets.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-sans text-text-muted">Wallet</span>
-                    {wallets.map((w) => (
-                      <button
-                        key={w.wallet}
-                        onClick={() => setSelectedWallet(w.wallet)}
-                        title={w.label ?? w.wallet}
-                        /* A hex address is the one string left in the product
-                           that mono actually helps: it is scanned character by
-                           character, not read as a word. */
-                        className={`px-3 py-1.5 rounded-md text-xs font-mono border transition-all cursor-pointer ${
-                          selectedWallet === w.wallet
-                            ? "bg-white/10 text-text-primary border-border-strong font-bold"
-                            : "bg-white/[0.02] text-text-secondary border-border-subtle hover:text-text-primary"
-                        }`}
-                      >
-                        {w.wallet.slice(0, 6)}…{w.wallet.slice(-4)}
-                      </button>
-                    ))}
-                    {/* The ALL aggregate. Its guard now lives on the wrapper. */}
-                    <button
-                      onClick={() => setSelectedWallet("all")}
-                      className={`px-3 py-1.5 rounded-md text-xs font-sans border transition-all cursor-pointer ${
-                        selectedWallet === "all"
-                          ? "bg-white/10 text-text-primary border-border-strong font-bold"
-                          : "bg-white/[0.02] text-text-secondary border-border-subtle hover:text-text-primary"
-                      }`}
-                    >
-                      All wallets
-                    </button>
-                  </div>
-                )}
-
-                {/* Still reading the chain. A reserved block, not a figure:
-                    the four cards used to print $18,450 / $9,310 / 50% / 22
-                    from string literals whenever `liveMacro` was null, which is
-                    exactly the window in which the code knows nothing at all. */}
-                {portfolioPositions === null && (
+                    `portfolioLoading`, not `positions === null`. Null also
+                    covers a feed we could not reach, and a skeleton renders
+                    that as "any second now" for as long as the API is down —
+                    which is how a permanently unreachable endpoint came to look
+                    like a slow one. State 4 is the position card's `problem`
+                    panel instead, and it says so in words. */}
+                {portfolioLoading && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
                     {["capital", "liabilities", "protocols", "aggregate"].map((slot) => (
                       <Card key={slot} tone="raised">
@@ -2873,17 +2854,27 @@ export function AppDemo() {
                     for one reason: a single grid child stretches to the row
                     height, so when the right column is the taller of the two the
                     Positions card grows to meet it instead of ending short with
-                    its wrapper stretched around empty space. */}
+                    its wrapper stretched around empty space.
+
+                    The whole grid is gated on there being something to put in
+                    it. An empty wallet used to get this row anyway: a card
+                    repeating "no open positions" under the empty state that had
+                    just said it, an alert feed saying "no alerts yet", and a
+                    chart saying history would build. Three containers whose
+                    entire content is the sentence "there is nothing here" is
+                    the chrome graveyard, not a dashboard. */}
+                {(showPositionsCard || showAlertHistory || showRiskHistory) && (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4">
-                  {/* Row 1, left: the position list. */}
+                  {/* Row 1, left: the position list — loading, unreachable, or
+                      holding rows. The zero-position case is the page-level
+                      empty state above and never reaches here. */}
+                  {showPositionsCard && (
                   <div className="lg:col-span-7 grid">
                     <LivePositions
                       positions={portfolioPositions}
                       highlightKey={highlightedPositionKey}
-                      offline={boundMode ? ownLive.offline : liveOffline}
-                      // Only the bound path carries a chain the API vouched
-                      // for; the ops registry view claims nothing about one.
-                      chain={boundMode ? ownLive.chain : null}
+                      offline={portfolioFeedDown}
+                      chain={ownLive.chain}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
                         setSelectedLivePositionKey(`${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`);
@@ -2892,13 +2883,19 @@ export function AppDemo() {
                       }}
                     />
                   </div>
+                  )}
 
                   {/* Row 1, right: the narrow pair. Alert history takes
                       `lg:flex-1` and absorbs whatever slack the position list
                       leaves — grid items already stretch to the tallest item in
                       the row, so the two columns end level at any position count,
                       with no magic number to go stale. Below `lg` the cards size
-                      to their content as normal. */}
+                      to their content as normal.
+
+                      The column itself only exists when one of its two cards
+                      does; an empty grid track would still take its 5 of 12 and
+                      leave the position list marooned at 7. */}
+                  {(allocation.length > 0 || showAlertHistory) && (
                   <div className="lg:col-span-5 flex flex-col gap-6">
                     {/* Asset allocation: the visual collateral breakdown.
                         Only when there is collateral to break down. A card that
@@ -2965,136 +2962,61 @@ export function AppDemo() {
 
                     {/* Alert history (watch_transitions IS the alert log).
 
-                        `lg:flex-1 lg:min-h-0` plus an internal scroller at `lg`:
-                        the card's height is set by the layout, never by how many
-                        alerts exist, or a wallet with 200 transitions pushes the
-                        page to nothing but alerts and the column cannot stay
-                        aligned. `min-h-0` is required or a flex child refuses to
-                        shrink below its content and the scroller never engages.
-                        Below `lg` there is no fixed height to scroll inside, so
-                        the page scrolls and paging alone reaches older rows. */}
-                    <Card className="lg:flex-1 lg:min-h-0 lg:flex lg:flex-col">
+                        `lg:flex-1` and nothing else. The card is the stretchy
+                        child of the right-hand column, so the position list
+                        beside it sets the height and the two columns end level by
+                        construction, at any position count and with no magic
+                        number to go stale. No `min-h-0` and no scroller: a flex
+                        child allowed to shrink below its content is a card that
+                        clips it, and the preview is a fixed four rows precisely
+                        so it never has to. Everything older lives on the history
+                        page, which is a page rather than a 194px window into
+                        one.
+
+                        Rendered when there are alerts, or when there are
+                        positions for a future alert to be about. "No alerts yet"
+                        is reassurance beside a wallet PANIK is watching; beside
+                        a wallet it could not read, it is a fourth empty box
+                        agreeing that the screen knows nothing. */}
+                    {showAlertHistory && (
+                    <Card className="lg:flex-1 lg:flex lg:flex-col">
                       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4 shrink-0">
                         Alert history
                         <InfoTip text="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet." />
                       </h3>
-                      {walletHistory?.alerts?.length ? (
+                      {alertsNewestFirst.length ? (
                         <>
                           {/* Rules, not boxes. Bordered, tinted rows inside a Card
                               that is already bordered and tinted is chrome
                               wrapping chrome; a hairline separates rows for free.
+                              `AlertFeed` owns the row, and the history page draws
+                              it from the same component, so the preview and the
+                              full log cannot drift into two treatments. */}
+                          <AlertFeed
+                            alerts={alertsNewestFirst.slice(0, ALERT_PREVIEW_COUNT)}
+                            protocolLabel={LIVE_PROTOCOL_LABEL}
+                            targets={alertTargets}
+                            onSelectTarget={setHighlightedPositionKey}
+                          />
+                          {/* Only when the preview falls short of the log. Below
+                              that the card IS the whole history, and a control
+                              that opens a page showing what you are already
+                              looking at is a control that does nothing.
 
-                              The list is taken OUT OF FLOW at `lg` (absolute
-                              inside a relative flex-1 well) so it contributes
-                              nothing to the column's intrinsic height. `flex-1`
-                              and `min-h-0` alone were not enough: a flex item
-                              still reports its content as its max-content
-                              contribution, so the grid row grew with the feed
-                              instead of the feed absorbing the row. Measured at
-                              2000, "Show 4 older alerts" took the row 168px
-                              taller and dragged the position list up to match,
-                              handing it 168px of empty space, which is the gap
-                              this whole arrangement exists to close. Out of flow,
-                              the layout sets the height in both directions and
-                              the scroller does the rest. Below `lg` there is no
-                              fixed height to scroll inside, so the wrapper is a
-                              plain block and the page scrolls. */}
-                          <div className="lg:relative lg:flex-1 lg:min-h-0">
-                            <div className="divide-y divide-border-subtle lg:absolute lg:inset-0 lg:overflow-y-auto">
-                              {walletHistory.alerts.slice(0, alertsShown).map((a, i) => {
-                                const chip = deliveryChip(a.notify_channel);
-                                const protocolLabel = LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol;
-                                const event = limitEventCopy(a.to_status);
-                                const when = timeAgo(a.created_at);
-                                /* The position this alert is ABOUT, if the wallet
-                                   still holds it. A closed position has no row to
-                                   scroll to, so the alert stays a record rather than
-                                   becoming a control: no button, no hover, no
-                                   pointer. A control that looks live and does
-                                   nothing is worse than a plain line of text. */
-                                const target = alertTargets.get(a.protocol) ?? null;
-                                /* The score, the band and the ORIGIN status live
-                                   here rather than in the row: the band is a pure
-                                   function of the score, and "approaching →
-                                   outside" is a state-machine dump on the card
-                                   whose job is to say what happened to someone's
-                                   money. What happened is the destination. */
-                                const hover = `PANIK score ${a.score} (${a.band}). ${
-                                  a.from_status
-                                    ? `Previously ${limitStateCopy(a.from_status)}.`
-                                    : "First reading recorded for this position."
-                                }${target ? "" : " This position is no longer open."}`;
-                                const body = (
-                                  <>
-                                    {/* Wraps rather than truncates: clipping this
-                                        line kept the protocol and ate the event,
-                                        which is the half that says whether things
-                                        got worse.
-
-                                        14px/600 in primary ink, the same weight a
-                                        position row gives its money line. The
-                                        protocol and what happened to it are the
-                                        content of this row, and content is not
-                                        what `text-muted` and 12px are for. */}
-                                    <span className="min-w-0 text-left text-sm font-sans font-semibold text-text-primary">
-                                      {protocolLabel}
-                                      <span className="text-text-secondary font-normal"> {event}</span>
-                                      {/* The space is load-bearing: `ml-1` is
-                                          margin, not whitespace, so without it a
-                                          screen reader and every text scrape run the
-                                          event into the chip ("risk limitQueued"). */}
-                                      {chip && (
-                                        <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
-                                          {chip.label}
-                                        </span></>
-                                      )}
-                                    </span>
-                                    {/* Timestamps stay muted. This is what
-                                        text-muted is FOR — you glance at it, you do
-                                        not read it. */}
-                                    <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{when}</span>
-                                  </>
-                                );
-                                return target ? (
-                                  /* A real <button>, not a div with onClick: it is
-                                     in the tab order, Enter and Space activate it,
-                                     the global :focus-visible ring applies, and the
-                                     accessibility tree calls it a button because it
-                                     is one. */
-                                  <button
-                                    type="button"
-                                    key={`${a.created_at}-${i}`}
-                                    onClick={() => setHighlightedPositionKey(target)}
-                                    title={hover}
-                                    aria-label={`${protocolLabel} ${event}${
-                                      chip ? `, ${chip.label}` : ""
-                                    }, ${when}. Show this position.`}
-                                    className={`${ALERT_ROW_CLS} rounded-sm text-left cursor-pointer transition-colors hover:bg-white/[0.03]`}
-                                  >
-                                    {body}
-                                  </button>
-                                ) : (
-                                  <div key={`${a.created_at}-${i}`} className={ALERT_ROW_CLS} title={hover}>
-                                    {body}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          {alertsRemaining > 0 && (
-                            /* Counts what is left rather than saying "Show more":
-                               the length of a feed is what a reader cannot see,
-                               and it names the page size implicitly, so nobody
-                               wonders whether this expands by ten rows or ten
-                               thousand. */
+                              It names the length, because how far the history runs
+                              is the one thing a four-row preview cannot say.
+                              `lg:mt-auto` sends whatever slack the column hands
+                              the card to the space above the button, so a short
+                              log leaves a margin at the bottom of a card rather
+                              than a hole in the middle of one. */}
+                          {alertsNewestFirst.length > ALERT_PREVIEW_COUNT && (
                             <Button
+                              ref={alertHistoryTrigger}
                               variant="outline"
-                              className="mt-3 w-full shrink-0 justify-center"
-                              onClick={() => setAlertsShown((n) => n + ALERT_PAGE_SIZE)}
+                              className="mt-3 lg:mt-auto w-full shrink-0 justify-center"
+                              onClick={() => setAlertHistoryOpen(true)}
                             >
-                              {alertsRemaining <= ALERT_PAGE_SIZE
-                                ? `Show ${alertsRemaining} older ${alertsRemaining === 1 ? "alert" : "alerts"}`
-                                : `Show ${ALERT_PAGE_SIZE} more of ${alertsRemaining} older alerts`}
+                              See all {alertsNewestFirst.length} alerts
                             </Button>
                           )}
                         </>
@@ -3105,7 +3027,9 @@ export function AppDemo() {
                         </div>
                       )}
                     </Card>
+                    )}
                   </div>
+                  )}
 
                   {/* Row 2: risk index over time (score_snapshots via
                       /api/history), across all twelve columns.
@@ -3118,7 +3042,11 @@ export function AppDemo() {
                       rather than a kink. The y-domain is `riskDomain`, computed
                       from the series and the user's own alert threshold and
                       independent of the width, so the extra room lengthens the
-                      line without flattening what it shows. */}
+                      line without flattening what it shows.
+
+                      Same rule as the alert feed: a series to draw, or positions
+                      whose history is genuinely still filling in. */}
+                  {showRiskHistory && (
                   <Card className="lg:col-span-12">
                     <div className="flex items-baseline justify-between mb-4">
                       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
@@ -3181,13 +3109,19 @@ export function AppDemo() {
                         axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
                       />
                     ) : (
+                      /* "watch worker" was an internal service name on a user's
+                         dashboard. The cadence is the same fact stated in words
+                         a user has a reason to know. */
                       <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
-                        History builds as the watch worker scores this wallet every 60s.
+                        This fills in as PANIK rescores your wallet, about once a minute.
                       </div>
                     )}
                   </Card>
+                  )}
                 </div>
-
+                )}
+                </>
+                )}
               </TabPanel>
             )}
 

@@ -46,10 +46,13 @@ import type {
 } from "../src/panik-core/lib/live";
 
 /**
- * The wallet the mock answers for. dev/mockApi.ts seeds it into localStorage as
- * `panik_wallet`, which is what puts AppDemo into boundMode and fires the
- * per-wallet fetches. Lowercase: /api/history and /api/advisor lowercase the
- * query param server-side, so the fixture must match in that form.
+ * The wallet the mock answers for. It is TYPED IN, not seeded: the app no
+ * longer restores a wallet from localStorage, precisely so a dev fixture cannot
+ * become the address a real user's dashboard is scored against. dev/mockApi.ts
+ * prints it in the startup banner and pre-seeds its onboarding profile, so
+ * pasting it into the first-run invitation binds the dashboard immediately with
+ * no quiz. Lowercase: /api/history and /api/advisor lowercase the query param
+ * server-side, so the fixture must match in that form.
  */
 export const MOCK_WALLET = "0x4c9f2a1d7b3e8056af1c9d2e4b7a3f6081d5c2e9";
 

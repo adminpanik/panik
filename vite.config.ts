@@ -48,14 +48,11 @@ export default defineConfig(({mode}) => {
       // Local scoring API (npm run dev:api) — keys stay server-side; the
       // browser only sees score JSON. 127.0.0.1 (not localhost): Node 17+
       // resolves localhost to ::1 first on Windows → ECONNREFUSED.
-      //
-      // PANIK_API_TARGET overrides the whole target URL, so a second dev API
-      // can be run alongside the founder's without editing this file (and
-      // forgetting to put it back). PANIK_API_PORT is the SAME variable the
-      // API server reads for its own port (scripts/api-server.ts), so a second
-      // stack — a mainnet one and a PANIK_SCORING_CHAIN=testnet one, say —
-      // comes up on one variable instead of an edit to this file that someone
-      // then commits.
+      // PANIK_API_TARGET (a full URL) wins; otherwise PANIK_API_PORT, which is
+      // the SAME variable the API server reads for its own port
+      // (scripts/api-server.ts). So a second stack - a mainnet one and a
+      // PANIK_SCORING_CHAIN=testnet one, say - comes up on one variable
+      // instead of an edit to this file that someone then commits.
       proxy: {
         '/api':
           process.env.PANIK_API_TARGET ??
