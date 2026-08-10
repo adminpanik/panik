@@ -9,6 +9,7 @@ export { scoreAssetRisk } from "./subscores/assetRisk";
 export { scoreProtocolSafety, PROTOCOL_SAFETY } from "./subscores/protocolSafety";
 export { scoreSystemicRisk } from "./subscores/systemicRisk";
 export * from "./markets";
+export * from "./chains";
 export * from "./adapters/prospective";
 export * from "./adapters/chain";
 export { AaveActiveReader, type ActiveReading } from "./adapters/activeAave";
