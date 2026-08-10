@@ -27,9 +27,17 @@
  * badge. The card now spends its hierarchy on them instead - the chip is gone
  * where a button says the same verb, the button is a size step larger and alone
  * on its row above a demoted `Details`, and TESTNET is stated once for the whole
- * panel. None of that spends a hue: `Button` is a neutral fill by design, and the
- * urgency is already carried legitimately by the dial and by the drop to
- * liquidation in the strip.
+ * panel. The button spends no hue: `Button` is a neutral fill by design.
+ *
+ * The SEVERITY does spend one, on purpose. An EXIT leg is a critical position
+ * and a dial alone was not saying so loudly enough, so those two card types
+ * carry a `RiskChip` on their identity line. That is the ramp measuring a
+ * position, which is what it is for, and it is the opposite of painting a verb.
+ * It is rationed to them: a WATCH or HOLD leg has no urgency to signal.
+ *
+ * The ways out are a LEAD plus footnotes, never a comparison. Two columns of
+ * prose, one of them describing a route the app cannot sign, is the shape that
+ * made this block unreadable; see `routesFor`.
  *
  * The engine's prose is not edited here. Where it duplicates the strip that is
  * a copy problem in packages/scoring/src/advisor, out of this file's scope.
@@ -51,6 +59,7 @@ import { InfoTip } from "./InfoTip";
 import {
   ADVISOR_ACTION,
   AI_PROSE_NOTE,
+  BAND_LABEL,
   formatUsd,
   liquidationOutlook,
   MARKET_CONTEXT_MISSING_HINT,
@@ -61,7 +70,7 @@ import {
   USD_UNAVAILABLE_HINT,
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
-import { Button, Card, EmptyState, RiskDial } from "../ui";
+import { Button, Card, EmptyState, RiskChip, RiskDial } from "../ui";
 import { EXIT_ENV } from "../lib/exit";
 /**
  * The engine's dollar formatter, not the panel's `formatUsd`.
@@ -205,7 +214,7 @@ function ActionButton({
  * execution notes and the gas caveat, and "why this" claimed only the first of
  * those while reading as a question the card had failed to answer above.
  */
-function Reasoning({ rec, footnote }: { rec: AdvisorRecommendation; footnote?: string }) {
+function Reasoning({ rec, notes = [] }: { rec: AdvisorRecommendation; notes?: string[] }) {
   const rows: [string, string][] = [
     ["Position", rec.sections.position],
     ["Market", rec.sections.market],
@@ -236,7 +245,11 @@ function Reasoning({ rec, footnote }: { rec: AdvisorRecommendation; footnote?: s
       </summary>
       <div className="mt-3 space-y-2.5">
         {body}
-        {footnote ? <p className="text-xs font-sans text-text-muted">{footnote}</p> : null}
+        {notes.map((note) => (
+          <p key={note} className="text-xs font-sans tabular-nums text-text-muted">
+            {note}
+          </p>
+        ))}
       </div>
     </details>
   );
@@ -337,50 +350,68 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
 }
 
 /**
- * One thing the card lets the user do, priced.
+ * What the card's primary button does, priced.
  *
  * `cost` is what leaves the wallet or gets sold; `protection` is what the user
  * is left holding, led by the consequence rather than the ratio. Nothing here
  * is computed: every figure is an engine field, and the health factor becomes a
  * price drop through `liquidationOutlook`, the same helper the strip above uses.
  */
-interface Outcome {
-  key: string;
-  title: string;
+interface Lead {
   cost: string;
   protection: string;
   /** The exact health factor, on request. */
   hint?: string;
-  /**
-   * A third line, for a caveat about the outcome ITSELF rather than about its
-   * price or its result. Today one thing needs it: an option the app can
-   * describe truthfully but cannot yet execute.
-   */
-  note?: string;
 }
 
 /**
- * The outcomes a card offers, in the order it offers them.
+ * A route the card NAMES but does not lead with.
  *
- * The Advisor used to name a second action and price neither: an EXIT card
- * carried "Execute exit" and "Repay everything instead" side by side, and the
- * only way to learn what either cost was to open the modal and read a
- * simulation. Two buttons and no numbers is not a choice, it is a guess.
- *
- * A card with one action gets one entry, which is not a comparison but is still
- * the only place the card says what the action moves. A card with two gets both,
- * recommended first, matching the button order underneath.
+ * Every alternate is a different way of funding the same repay, so the funding
+ * source is the label: it is the only thing that actually differs between them.
  */
-function outcomesFor(rec: AdvisorRecommendation): Outcome[] {
+interface Alternate {
+  key: string;
+  /** One line, opening with the funding source. */
+  line: string;
+  /** What this route costs that the recommended one does not. Lives in `Details`. */
+  costs?: string;
+}
+
+interface Routes {
+  lead?: Lead;
+  alternates: Alternate[];
+}
+
+/**
+ * What a card says about the ways out, and how much weight each one gets.
+ *
+ * This used to be a flat list rendered as equal columns, and it was the second
+ * thing the founder could not read: "i have no idea wtf this means, why are
+ * there 2 columns?". On a REDUCE leg the two columns were the SAME repay funded
+ * two different ways, with nothing on screen saying so, at the same type and the
+ * same width, and the right-hand one ended in "not available to sign yet". An
+ * option the code cannot perform was given the visual weight of the one the
+ * button takes.
+ *
+ * So the shape is a lead and its footnotes, not a comparison. The route the
+ * primary button takes is stated in full, in reading type; every other route is
+ * one muted line that opens with its funding source, because that is the only
+ * real difference between them and a reader scanning for "what do I need to have
+ * to do this" is scanning for exactly that word.
+ *
+ * Nothing is deleted. The collateral-funded option is still named, still sized,
+ * still says plainly that it cannot be signed yet, and its extra costs are one
+ * click away in `Details` rather than on the face of the card.
+ */
+function routesFor(rec: AdvisorRecommendation): Routes {
   const n = rec.numbers;
   const symbol = n.scoredCollateralSymbol;
-
-  const out: Outcome[] = [];
+  const alternates: Alternate[] = [];
+  let lead: Lead | undefined;
 
   if (rec.action === "EXIT") {
-    out.push({
-      key: "exit",
-      title: "Exit the position",
+    lead = {
       // Both halves, because the exit is wallet-funded on the repay side too:
       // a user reading only "sells your collateral" would arrive at the modal
       // and find they also need the debt asset in hand.
@@ -392,118 +423,111 @@ function outcomesFor(rec: AdvisorRecommendation): Outcome[] {
       // twice was the clearest instance of the card repeating itself.
       cost: `Repays your debt from your wallet, then sells your ${symbol} collateral for USDC.`,
       protection: "Nothing left to liquidate, and the position is closed.",
-    });
+    };
   }
 
   const reduce = rec.action === "REDUCE" ? rec.repayPlan : undefined;
   if (reduce) {
     const outlook = liquidationOutlook(reduce.projectedHf, symbol);
-    out.push({
-      key: "reduce",
-      title: "Repay part of the debt",
+    lead = {
       cost: `Repays ${fmtUsd(reduce.repayUsd)}${reduce.repayAssetSymbol ? ` of ${reduce.repayAssetSymbol}` : ""} from your wallet. Nothing is sold.`,
       protection: `${outlook.sentence}. Your collateral stays deposited.`,
       hint: outlook.hover,
-    });
+    };
   }
 
-  // The same protection as the sized repay above, funded the other way. It is
-  // a separate outcome and not a variant of one, because it asks the user for
-  // something different: nothing. The engine emits both plans because it cannot
-  // see a wallet balance, so this card's job is to name what each one needs.
+  // The same repay, funded the other way. The engine emits both plans because it
+  // cannot see a wallet balance and so cannot pick; `collateralFundedPlan` is
+  // handed the SAME `targetHf` as the wallet-funded plan, which is why the two
+  // deliver the same protection and why the amounts differ (selling collateral
+  // to repay shrinks both sides of the ratio, so it takes a larger repay).
   const collateralFunded = rec.collateralFundedAlternative;
   if (collateralFunded) {
-    const outlook = liquidationOutlook(collateralFunded.projectedHf, symbol);
     const costs = collateralFunded.costs;
-    out.push({
+    // Read from the two plans rather than assumed. They agree unless the
+    // collateral-funded repay clears the whole debt, in which case the engine
+    // returns a null projected health factor and "the same protection" would be
+    // a claim about a position that no longer has one.
+    const sameProtection =
+      reduce !== undefined && collateralFunded.projectedHf === reduce.projectedHf;
+    const outlook = liquidationOutlook(collateralFunded.projectedHf, symbol);
+    alternates.push({
       key: "collateral_funded",
-      title: "Repay from your collateral",
       // The repay is the figure the engine sized; the collateral sold is that
-      // plus the fees below it, which is why the sentence names the repay and
-      // says the collateral funds it rather than quoting a sale amount the
-      // engine never computed.
-      cost:
-        `Repays ${fmtUsd(collateralFunded.repayUsd)}` +
-        `${collateralFunded.repayAssetSymbol ? ` of ${collateralFunded.repayAssetSymbol}` : ""} ` +
-        `by selling part of your ${symbol}. You need nothing in your wallet.`,
-      protection: `${outlook.sentence}. The rest of your collateral stays deposited.`,
-      hint: outlook.hover,
-      // The three costs this route pays and the wallet-funded one does not,
-      // stated before anything is signed. Gas is units, because a dollar figure
-      // needs a live gas price and ETH price the app does not hold here, and the
-      // block already tells the user where gas is priced.
-      note: [
-        costs
-          ? `Costs ${fmtBps(costs.flashFeeBps)} to borrow the funds, up to ${fmtBps(costs.slippageBps)} of the sale price, and about ${fmtGasUnits(costs.gasUnits)} gas.`
-          : null,
-        // The honesty gate. The contract that performs this is not deployed on
-        // any chain the app talks to, so the card explains the option and says
-        // plainly that it cannot be signed yet. It gets no button anywhere:
-        // offering a control for something the code cannot do is the exact
-        // failure "never state a fact the code does not know" exists to stop.
-        isDeleverageExecutable(rec.protocol) ? null : DELEVERAGE_NOT_LIVE,
-      ]
-        .filter(Boolean)
-        .join(" "),
+      // plus the fees, which is why the line names the repay and says the
+      // collateral funds it rather than quoting a sale amount nothing computed.
+      line:
+        `Or fund it from your collateral: repays ${fmtUsd(collateralFunded.repayUsd)}` +
+        `${collateralFunded.repayAssetSymbol ? ` of ${collateralFunded.repayAssetSymbol}` : ""}` +
+        ` by selling part of your ${symbol}, with nothing needed in your wallet` +
+        // A second sentence rather than a clause when the protections differ:
+        // `outlook.sentence` opens with a capital and carries an asset symbol,
+        // so it cannot be lowercased into the middle of one.
+        `${sameProtection ? ", for the same protection." : `. ${outlook.sentence}.`}` +
+        // The honesty gate, on the same line as the offer rather than under it.
+        // The contract that performs this is not deployed on any chain the app
+        // talks to, so the card explains the option and says plainly that it
+        // cannot be signed yet. It gets no button anywhere: offering a control
+        // for something the code cannot do is the exact failure "never state a
+        // fact the code does not know" exists to stop.
+        (isDeleverageExecutable(rec.protocol) ? "" : ` ${DELEVERAGE_NOT_LIVE}`),
+      // The three costs this route pays and the wallet-funded one does not.
+      // Kept, because they are money the user would spend, and moved into
+      // `Details` because they describe a route the card is not recommending.
+      // Gas is units: a dollar figure needs a live gas price and an ETH price
+      // the app does not hold here.
+      costs: costs
+        ? `Funding the repay from your collateral costs ${fmtBps(costs.flashFeeBps)} to borrow` +
+          ` the funds, up to ${fmtBps(costs.slippageBps)} of the sale price, and about` +
+          ` ${fmtGasUnits(costs.gasUnits)} gas.`
+        : undefined,
     });
   }
 
+  // Executable, and it has its own `quiet` button below, so one line describing
+  // it is the same weight the control it belongs to already carries.
   if (rec.alternative) {
-    out.push({
+    const plan = rec.alternative.plan;
+    alternates.push({
       key: "full_repay",
-      title: "Repay everything",
-      cost: `Repays ${fmtUsd(rec.alternative.plan.repayUsd)}${rec.alternative.plan.repayAssetSymbol ? ` of ${rec.alternative.plan.repayAssetSymbol}` : ""} from your wallet. Nothing is sold.`,
-      protection: "Nothing left to liquidate, and your collateral stays deposited.",
+      line: `Or repay everything instead: ${fmtUsd(plan.repayUsd)}${plan.repayAssetSymbol ? ` of ${plan.repayAssetSymbol}` : ""} from your wallet, nothing sold, and your collateral stays deposited.`,
     });
   }
 
-  return out;
+  return { lead, alternates };
 }
 
 /**
- * Both answers, priced, before anything is signed.
+ * The ways out, one column at every width.
  *
- * Two columns only from `lg`. The arithmetic the design system asks for: at a
- * 1024px window the sidebar takes 256px and the page padding another ~48, so
- * this block sits in ~700px and each column gets ~330. At `md` (768px window)
- * the same block is ~450px wide and two columns would be 210 each, which is
- * where a sentence starts breaking one word per line.
+ * There is deliberately no grid here any more. Two columns of prose is what
+ * made this block unreadable, and at 390 it could only ever have been one
+ * column anyway; a lead plus muted one-liners says which route is the answer
+ * without needing the reader to infer it from column order.
  */
-function Outcomes({ outcomes }: { outcomes: Outcome[] }) {
-  if (outcomes.length === 0) return null;
-  /**
-   * The titles are the columns' labels, so they exist only once there are
-   * columns to tell apart. On a card with one outcome the heading sat directly
-   * above a sentence that said the same thing in more words ("Exit the position"
-   * over "Repays your debt from your wallet, then sells..."), and the verb was
-   * also on the button below and in the recommendation above: four statements of
-   * one idea. With two or three routes on the card it is the only thing that
-   * distinguishes them at a glance, so it stays.
-   */
-  const titled = outcomes.length > 1;
+function Outcomes({ routes }: { routes: Routes }) {
+  const { lead, alternates } = routes;
+  if (!lead && alternates.length === 0) return null;
   return (
-    <div
-      className={`grid gap-x-8 gap-y-4 border-t border-border-subtle pt-3 ${
-        titled ? "lg:grid-cols-2" : ""
-      }`}
-    >
-      {outcomes.map((o) => (
-        <div key={o.key} className="min-w-0 space-y-1">
-          {titled ? (
-            <p className="text-xs font-sans font-semibold text-text-primary">{o.title}</p>
-          ) : null}
+    <div className="space-y-2 border-t border-border-subtle pt-3">
+      {lead ? (
+        <div className="space-y-1">
           <p className="text-sm font-sans leading-relaxed tabular-nums text-text-secondary">
-            {o.cost}
+            {lead.cost}
           </p>
           <p className="text-sm font-sans leading-relaxed tabular-nums text-text-secondary">
-            {o.protection}
-            {o.hint ? <InfoTip text={o.hint} className="ml-1" /> : null}
+            {lead.protection}
+            {lead.hint ? <InfoTip text={lead.hint} className="ml-1" /> : null}
           </p>
-          {/* Muted and one step down, because it qualifies the outcome rather
-              than describing it: the reader has already had the answer in the
-              two lines above. Same size as the block's own gas footnote. */}
-          {o.note ? <p className="text-xs font-sans text-text-muted">{o.note}</p> : null}
         </div>
+      ) : null}
+      {alternates.map((a) => (
+        // Muted and one type step down, which is the whole point: these are
+        // routes the card is not recommending, and one of them cannot be taken
+        // at all. `text-xs` is 12px, a step above the 11px floor.
+        <p key={a.key} className="text-xs font-sans leading-relaxed tabular-nums text-text-muted">
+          {a.line}
+        </p>
       ))}
     </div>
   );
@@ -518,7 +542,7 @@ function RecommendationCard({
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
   onOpen?: (plan: AdvisorOpenPlan) => void;
 }) {
-  const outcomes = outcomesFor(rec);
+  const routes = routesFor(rec);
   /**
    * Whether this card offers a control, which is also whether the action chip
    * would be repeating a button label. `ActionButton` renders nothing for
@@ -526,6 +550,11 @@ function RecommendationCard({
    */
   const hasAction =
     rec.action === "EXIT" || rec.action === "REDUCE" || (rec.action === "OPEN" && !!rec.openPlan);
+  /**
+   * Whether this leg is one the user should act on today, which is the only
+   * kind of card that earns a band chip. See the chip itself, below.
+   */
+  const urgent = rec.action === "EXIT" || rec.action === "REDUCE";
   return (
     /* `Card`, so the container does not tint by state. The border used to turn
        risk-critical on an EXIT leg, which is a whole box painted with a band -
@@ -543,6 +572,25 @@ function RecommendationCard({
             <span className="truncate text-xs font-sans text-text-secondary">
               {rec.numbers.scoredCollateralSymbol}
             </span>
+            {/* The severity of the POSITION, on the line that identifies the
+                position. This is the ramp doing the job it exists for, and it
+                is not the thing the ramp is forbidden to do: a band is a
+                measurement, whereas painting `Execute exit` red would be the
+                ramp making a claim about an ACTION.
+
+                It is deliberately not fused to the button and not on the rail.
+                On the identity line it reads as "this Aave V3 cbBTC position is
+                critical", and the row already wraps, so at 390 the chip drops to
+                its own line instead of squeezing the prose column.
+
+                Rationed to the legs with something worth doing about them. A
+                WATCH or a HOLD leg gets no chip: its dial already says the
+                score, and a card whose advice is "nothing today" has no urgency
+                to signal. That is +2 hued elements on this screen, 5 to 7,
+                spent on the two cards where severity is the point. */}
+            {urgent ? (
+              <RiskChip band={rec.numbers.band}>{BAND_LABEL[rec.numbers.band]}</RiskChip>
+            ) : null}
           </div>
 
           {/* The lead. On a card with a button the sentence is the whole lead
@@ -573,7 +621,7 @@ function RecommendationCard({
           between the reading and the controls because that is the order the
           decision is made in: here is the position, here is what each way out
           costs and leaves, here are the buttons. */}
-      <Outcomes outcomes={outcomes} />
+      <Outcomes routes={routes} />
 
       {/* The action owns the card's last row, alone, and `Details` sits under it
           at 12px. They used to share a row, which made a 12px disclosure trigger
@@ -587,7 +635,17 @@ function RecommendationCard({
           clipped. Full-width children cannot reproduce that at any width. */}
       <div className="space-y-3 border-t border-border-subtle pt-4">
         {hasAction ? <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} /> : null}
-        <Reasoning rec={rec} footnote={outcomes.length > 0 ? GAS_CAVEAT : undefined} />
+        {/* The costs of a route the card demoted, and then the caveat that
+            applies to whichever one is signed. Both are money facts about a
+            transaction, which is why neither is deleted and why both sit behind
+            the same one click rather than on the face of the card. */}
+        <Reasoning
+          rec={rec}
+          notes={[
+            ...routes.alternates.map((a) => a.costs).filter((c): c is string => !!c),
+            ...(routes.lead ? [GAS_CAVEAT] : []),
+          ]}
+        />
       </div>
     </Card>
   );

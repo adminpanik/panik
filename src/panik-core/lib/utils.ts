@@ -132,6 +132,30 @@ export function calculateDynamicPosition(
  * not a safe position, and rendering it in the same neutral grey as chrome was
  * a silent safety claim.
  */
+/**
+ * A band as WORDS, beside the table that turns it into pixels.
+ *
+ * `RiskChip` needs something to say, and what it was given at most call sites
+ * was `band` itself: `CRITICAL`, `HIGH`. Those are `packages/scoring` union
+ * members, and shouting an engine token at a user is the failure `LIMIT_STATE`
+ * exists to prevent one level up. These say what the band means about the
+ * position, in sentence case, so the chip reads as a statement rather than a
+ * status code.
+ *
+ * `Record<Band, string>`, so a band added to the engine breaks the build here
+ * instead of rendering as `undefined`.
+ *
+ * `AppDemo.tsx` still carries its own `CRITICAL THREAT` / `HIGH RISK` ternary
+ * chain for the same job. Pointing it here is mechanical and is outside this
+ * change's file scope.
+ */
+export const BAND_LABEL: Record<Band, string> = {
+  LOW: "Low risk",
+  ELEVATED: "Elevated risk",
+  HIGH: "High risk",
+  CRITICAL: "Critical risk",
+};
+
 export const RISK_CHIP: Record<Band | "UNKNOWN", string> = {
   LOW: "bg-risk-low/10 text-risk-low border-risk-low/25",
   ELEVATED: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
