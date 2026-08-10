@@ -299,38 +299,58 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
    * number" answer on this screen lives.
    */
   const outlook = liquidationOutlook(n.healthFactor, n.scoredCollateralSymbol);
+  /**
+   * A degraded leg has no dollars to state, so it states that instead of
+   * printing `formatUsd`'s unknown glyph into two labelled slots. "Collateral
+   * $…" is indistinguishable from a clipped string, which is how a deliberate
+   * honesty state got read as a broken layout - the same reason the position
+   * rows REPLACE their money line rather than dimming it.
+   *
+   * Driven off the values as well as the flag: a null magnitude is unknown
+   * whether or not the leg was flagged, and there is no reading of "$…" in a
+   * labelled slot that is better than saying so in words.
+   */
+  const usdUnknown =
+    n.usdValuesUnavailable === true ||
+    n.collateralValueUsd === null ||
+    n.borrowValueUsd === null;
   const items: { label: string; value: string; hint?: string }[] = [
-    {
-      label: "Drop to liquidation",
-      // This strip has no sub-line to hang `stripNote` on — it is one flex row
-      // of label/value pairs — so the clause joins the value inline. It wraps
-      // rather than truncating here, which is why the tile on Watch reads the
-      // two fields separately and this one does not.
-      value: outlook.stripNote ? `${outlook.strip}, ${outlook.stripNote}` : outlook.strip,
-      hint: outlook.hover,
-    },
-    { label: "Collateral", value: formatUsd(n.collateralValueUsd) },
-    { label: "Debt", value: formatUsd(n.borrowValueUsd) },
+    // `statLabel`/`statValue`, not `strip` + `stripNote`: this strip is one flex
+    // row of label/value pairs with no sub-line, and joining the two halves back
+    // together put a clause where a value goes ("none, no debt", "0%,
+    // liquidatable now"). A debt-free leg has no drop to state, so it answers a
+    // different label rather than a qualified number.
+    { label: outlook.statLabel, value: outlook.statValue, hint: outlook.hover },
   ];
+  if (!usdUnknown) {
+    items.push({ label: "Collateral", value: formatUsd(n.collateralValueUsd) });
+    items.push({ label: "Debt", value: formatUsd(n.borrowValueUsd) });
+  }
   return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
       {items.map(({ label, value, hint }) => (
         <div className="flex items-baseline gap-2" key={label}>
           <span className="flex items-center gap-1 text-xs font-sans text-text-muted">
             {label}
             {hint && <InfoTip text={hint} />}
           </span>
-          <span className="text-sm font-sans font-semibold tabular-nums text-text-primary">
+          <span className="whitespace-nowrap text-sm font-sans font-semibold tabular-nums text-text-primary">
             {value}
           </span>
         </div>
       ))}
-      {/* The degraded caveat is a statement about the two dollar figures beside
-          it, so it sits with them rather than as a fourth pseudo-metric. */}
-      {n.usdValuesUnavailable && (
-        <span className="inline-flex items-center gap-1.5 text-xs font-sans text-risk-unknown">
+      {/* Stands IN for the two money pairs rather than qualifying them, and it
+          takes its treatment from `RISK_CHIP.UNKNOWN` - unfilled, dashed edge,
+          icon and words - so it is the same marker, in the same shape, as the
+          one the position rows already show for this state. Distinctness from a
+          priced leg holds on four axes and no branch of it can emit "$0". */}
+      {usdUnknown && (
+        <span
+          title={USD_UNAVAILABLE_HINT}
+          className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
+        >
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          USD amounts unavailable
+          {USD_UNAVAILABLE_LABEL}
         </span>
       )}
       {/* A second, independent caveat: this one is about the SCORE on the rail,
@@ -342,7 +362,7 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
       {marketContextMissing(n.subScores) && (
         <span
           title={MARKET_CONTEXT_MISSING_HINT}
-          className="inline-flex cursor-help items-center gap-1.5 text-xs font-sans text-risk-unknown"
+          className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
         >
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {MARKET_CONTEXT_MISSING_LABEL}

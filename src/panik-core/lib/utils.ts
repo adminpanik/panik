@@ -178,6 +178,24 @@ export function marketContextMissing(sub: {
  * explanation. Plain language: the reader is being told a part of the score is
  * missing, not which provider threw.
  */
+/**
+ * The one wording for a leg whose USD conversion could not be read, and its
+ * explanation.
+ *
+ * A degraded leg REPLACES its money line with this rather than printing the
+ * `formatUsd` unknown glyph into a labelled slot: "Collateral $…" is
+ * indistinguishable from a clipped string, so the honest statement got read as a
+ * broken layout. A sentence cannot be misread that way, and no branch of it can
+ * emit "$0".
+ *
+ * `components/LivePositions.tsx` states the same two things with its own copy of
+ * these strings; pointing it here is a mechanical follow-up outside this change's
+ * file scope.
+ */
+export const USD_UNAVAILABLE_LABEL = "USD amounts unavailable";
+export const USD_UNAVAILABLE_HINT =
+  "A price feed this position's USD conversion depends on was missing or stale. The PANIK score and health factor are unaffected - they are ratios - so only the dollar amounts are unknown.";
+
 export const MARKET_CONTEXT_MISSING_LABEL = "Market risk not measured";
 export const MARKET_CONTEXT_MISSING_HINT =
   "We could not read the market data for this asset or protocol, so those parts are left out. The score is weighted over what we could measure, and your position health is unaffected.";
@@ -335,9 +353,30 @@ export interface LiquidationOutlook {
    * liquidatable-now, "none" for no-debt.
    */
   stripNote: string | null;
+  /**
+   * The same fact for a strip that has NO sub-line to hang `stripNote` on: a
+   * label and a value that are each self-sufficient.
+   *
+   * The Advisor card is exactly that shape — one flex row of label/value pairs —
+   * and it was joining the two halves back together, so a debt-free leg rendered
+   * "Drop to liquidation: none, no debt" and a liquidatable one "0%, liquidatable
+   * now". A field named `value` holds a value; a clause in it is the thing that
+   * gets clipped the moment something truncates.
+   *
+   * The two special cases answer a DIFFERENT question, so they get a different
+   * label rather than a qualified number: there is no drop to state, and "0%"
+   * under "Drop to liquidation" reads as the exact inverse of the truth.
+   */
+  statLabel: string;
+  statValue: string;
   /** The exact health factor, plus the assumption the drop rests on. */
   hover: string;
 }
+
+/** The label `statValue` answers to when a drawdown is the thing being stated. */
+const DROP_LABEL = "Drop to liquidation";
+/** ...and when there is no drawdown to state, because the two are not the same question. */
+const LIQUIDATION_RISK_LABEL = "Liquidation risk";
 
 /**
  * A health factor, in words a non-expert can act on.
@@ -372,6 +411,8 @@ export function liquidationOutlook(
       sentence: "No debt",
       strip: "none",
       stripNote: "no debt",
+      statLabel: LIQUIDATION_RISK_LABEL,
+      statValue: "None",
       hover:
         "Nothing is borrowed against this collateral, so the protocol has nothing to liquidate.",
     };
@@ -386,6 +427,8 @@ export function liquidationOutlook(
       sentence: `Can be liquidated at today's ${symbol} price`,
       strip: formatDrawdownPct(0),
       stripNote: "liquidatable now",
+      statLabel: LIQUIDATION_RISK_LABEL,
+      statValue: "Liquidatable now",
       hover: `${exact} At or below 1.00 the protocol can liquidate this position without the price moving at all.`,
     };
   }
@@ -395,6 +438,8 @@ export function liquidationOutlook(
     sentence: `Liquidates if ${symbol} falls ${pct}`,
     strip: pct,
     stripNote: null,
+    statLabel: DROP_LABEL,
+    statValue: pct,
     hover:
       `${exact} The drop assumes the debt is priced in dollars and the collateral moves as one asset,` +
       ` which holds for a stablecoin loan against a single asset and is an estimate otherwise.`,
