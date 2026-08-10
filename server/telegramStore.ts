@@ -8,9 +8,34 @@
  * The standalone worker reads the same tables via direct pg instead.
  */
 
+import type { TelegramLinkRow } from "./telegramReach";
+
 export interface LinkCode {
   wallet: string;
   expiresAt: number; // epoch ms
+}
+
+/** The reachability columns as PostgREST returns them. */
+interface RawLinkRow {
+  chat_id: number;
+  enabled: boolean;
+  last_delivered_at: string | null;
+  last_probe_at: string | null;
+  last_probe_ok: boolean | null;
+  unreachable_since: string | null;
+}
+
+const ms = (iso: string | null): number | null => (iso ? new Date(iso).getTime() : null);
+
+function decodeLinkRow(r: RawLinkRow): TelegramLinkRow {
+  return {
+    chatId: r.chat_id,
+    enabled: r.enabled,
+    lastDeliveredAt: ms(r.last_delivered_at),
+    lastProbeAt: ms(r.last_probe_at),
+    lastProbeOk: r.last_probe_ok,
+    unreachableSince: ms(r.unreachable_since),
+  };
 }
 
 export class TelegramStore {
@@ -138,6 +163,57 @@ export class TelegramStore {
     const rows = (await res.json()) as { chat_id: number; username: string | null; enabled: boolean }[];
     const row = rows[0];
     return row ? { chatId: row.chat_id, username: row.username, enabled: row.enabled } : null;
+  }
+
+  /**
+   * The link WITH its reachability evidence — what `linkState` needs to tell
+   * linked from subscribed from reachable (server/telegramReach.ts).
+   *
+   * Separate from `getLink` rather than replacing it because `enabled` alone is
+   * still the right answer for the dispatcher's join, and widening every caller
+   * to carry four timestamps it does not read would be noise.
+   */
+  async getLinkState(wallet: string): Promise<TelegramLinkRow | null> {
+    const url =
+      `${this.base}/rest/v1/telegram_links` +
+      `?wallet=eq.${encodeURIComponent(wallet.toLowerCase())}` +
+      `&select=chat_id,enabled,last_delivered_at,last_probe_at,last_probe_ok,unreachable_since&limit=1`;
+    const res = await fetch(url, { headers: this.headers() });
+    if (!res.ok) throw new Error(`getLinkState: HTTP ${res.status}`);
+    const rows = (await res.json()) as RawLinkRow[];
+    const row = rows[0];
+    return row ? decodeLinkRow(row) : null;
+  }
+
+  /**
+   * Stamp the outcome of a delivery or a probe.
+   *
+   * `unreachableSince` is written ONLY on a 403 and cleared on any success, so
+   * the column means "Telegram told us we are blocked", never "we guessed".
+   */
+  async recordReachability(
+    chatId: number,
+    outcome: { kind: "delivered" | "probe"; ok: boolean; blocked: boolean; at: number },
+  ): Promise<void> {
+    const stamp = new Date(outcome.at).toISOString();
+    const body: Record<string, unknown> = { updated_at: stamp };
+    if (outcome.kind === "delivered" && outcome.ok) body.last_delivered_at = stamp;
+    if (outcome.kind === "probe") {
+      body.last_probe_at = stamp;
+      body.last_probe_ok = outcome.ok;
+    }
+    if (outcome.blocked) {
+      body.unreachable_since = stamp;
+      body.enabled = false;
+    } else if (outcome.ok) {
+      body.unreachable_since = null;
+    }
+    const res = await fetch(`${this.base}/rest/v1/telegram_links?chat_id=eq.${chatId}`, {
+      method: "PATCH",
+      headers: this.headers({ Prefer: "return=minimal" }),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`recordReachability: HTTP ${res.status}`);
   }
 
   /** Disable alerts for a chat (the /stop command). */
