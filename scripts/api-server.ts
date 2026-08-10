@@ -42,6 +42,13 @@ import {
 } from "../packages/scoring/src/index";
 import { buildScoringChain, resolveAlchemyKey, scoringChainWire } from "../server/scoringChain";
 import {
+  SimulationCache,
+  SimulationStore,
+  simulationWire,
+  validateArmInput,
+  type ArmSimulationInput,
+} from "../server/simulationStore";
+import {
   getProfileDeps,
   isDuneExecutionId,
   isEvmAddress,
@@ -106,6 +113,22 @@ const providers = {
   systemic: new DefiLlamaProvider(),
 };
 
+/**
+ * The armed market simulation (server/simulationStore.ts), shared by the
+ * scoring path and the admin routes that arm and clear it.
+ *
+ * Null when Supabase is unconfigured, which disables the feature entirely
+ * rather than half-enabling it: an operator able to arm a scenario the worker
+ * cannot see would show a crashed dashboard next to a silent alert channel.
+ */
+const simulations = (() => {
+  try {
+    return new SimulationCache(SimulationStore.fromEnv());
+  } catch {
+    return null;
+  }
+})();
+
 const scoringChain = buildScoringChain({
   mode: process.env.PANIK_SCORING_CHAIN,
   alchemyKey: alchemy.key,
@@ -113,6 +136,7 @@ const scoringChain = buildScoringChain({
   onReaderError: (err) =>
     console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
   onCompoundWarn: (m) => console.warn(`compound reader degraded: ${m}`),
+  simulation: () => simulations?.current() ?? null,
 });
 const { adapter } = scoringChain;
 const chainWire = scoringChainWire(scoringChain.config);
@@ -667,7 +691,21 @@ app.post("/api/wallets/register", strictLimit, async (req, res) => {
 // Wallet-keyed caches are LRU-capped: the keys come from the caller, so an
 // unbounded Map would let anyone grow the heap one address at a time.
 const CACHE_MAX_WALLETS = 2_000;
-const ownPosCache = new LruCache<{ at: number; positions: LivePosition[] }>(CACHE_MAX_WALLETS);
+const ownPosCache = new LruCache<{
+  at: number;
+  positions: LivePosition[];
+  /**
+   * Which simulation these positions were scored under (null = real prices).
+   *
+   * The cache is keyed on it as well as on time, because a 60-second entry is
+   * otherwise 60 seconds during which the marker and the numbers disagree: arm
+   * a scenario and the dashboard would keep serving real figures under a
+   * "simulated" banner, and - much worse - clearing one would drop the banner
+   * off numbers that are still the crashed ones. Either direction is exactly
+   * the screenshot this feature exists to make impossible.
+   */
+  simulationId: string | null;
+}>(CACHE_MAX_WALLETS);
 app.get("/api/positions", walletLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   const profile = riskProfileParam(req.query.profile);
@@ -675,9 +713,21 @@ app.get("/api/positions", walletLimit, async (req, res) => {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
   }
+  // Read ONCE per request and reuse for the cache test, the scoring pass and
+  // the wire: three separate reads could straddle an expiry and describe the
+  // response with a scenario that was not the one it was scored under.
+  const armed = simulations?.current() ?? null;
+  const armedId = armed?.id ?? null;
+  const wire = armed ? simulationWire(armed) : null;
+
   const cached = ownPosCache.get(wallet);
-  if (cached && Date.now() - cached.at < 60_000) {
-    res.json({ updatedAt: cached.at, positions: cached.positions, chain: chainWire });
+  if (cached && Date.now() - cached.at < 60_000 && cached.simulationId === armedId) {
+    res.json({
+      updatedAt: cached.at,
+      positions: cached.positions,
+      chain: chainWire,
+      simulation: wire,
+    });
     return;
   }
   try {
@@ -688,8 +738,8 @@ app.get("/api/positions", walletLimit, async (req, res) => {
       riskProfile: profile,
       profileStatus: statusFor(profile, s.total),
     }));
-    ownPosCache.set(wallet, { at: Date.now(), positions });
-    res.json({ updatedAt: Date.now(), positions, chain: chainWire });
+    ownPosCache.set(wallet, { at: Date.now(), positions, simulationId: armedId });
+    res.json({ updatedAt: Date.now(), positions, chain: chainWire, simulation: wire });
   } catch (err) {
     serverError(req, res, 502, err);
   }
@@ -942,22 +992,31 @@ app.get("/api/advisor", advisorLimit, async (req, res) => {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
   }
-  const key = `${wallet}:${profile}`;
+  // The simulation id is part of the cache key, not a field checked after the
+  // hit: a report written under a scenario and one written under real prices
+  // are answers to different questions and must never substitute for each other.
+  const armedId = simulations?.current()?.id ?? null;
+  const key = `${wallet}:${profile}:${armedId ?? "real"}`;
   const hit = advisorCache.get(key);
   if (hit && Date.now() - hit.at < ADVISOR_TTL_MS) {
     res.json(hit.report);
     return;
   }
   try {
-    // 1 - positions: reuse the /api/positions 60s cache when fresh.
+    // 1 - positions: reuse the /api/positions 60s cache when fresh AND scored
+    // under the same simulation state. The advisor is not special-cased: it
+    // sizes a repay from whatever health factor the engine hands it, so an
+    // entry cached before a scenario was armed would have it recommending HOLD
+    // against a crash the rest of the screen is showing.
     const cachedPos = ownPosCache.get(wallet);
     let scores: ActiveScore[];
-    if (cachedPos && Date.now() - cachedPos.at < 60_000) {
+    if (cachedPos && Date.now() - cachedPos.at < 60_000 && cachedPos.simulationId === armedId) {
       scores = cachedPos.positions;
     } else {
       scores = await adapter.scoreWallet(wallet);
       ownPosCache.set(wallet, {
         at: Date.now(),
+        simulationId: armedId,
         positions: scores.map((s) => ({
           ...s,
           label: null,
@@ -1425,9 +1484,136 @@ async function adminRedemptions(req: express.Request, res: express.Response): Pr
   }
 }
 
+/**
+ * The market-event simulator (server/simulationStore.ts).
+ *
+ * GET    reports what is armed, with the wallets it currently affects.
+ * POST   arms a scenario for a bounded window.
+ * DELETE clears it.
+ *
+ * Behind the same admin gate as the rest, and deliberately not exposed in any
+ * unauthenticated form: arming one changes what every user of the app sees.
+ * Who armed it is recorded from the verified identity where there is one
+ * (`res.locals.adminEmail`, set only by adminBearerGate on a checked Supabase
+ * session) and never from the request body, which the caller controls.
+ */
+async function adminSimulation(req: express.Request, res: express.Response): Promise<void> {
+  if (!requireAdmin(req, res)) return;
+  if (!simulations) {
+    res.status(503).json({ error: "unconfigured (SUPABASE_*)" });
+    return;
+  }
+  const actor = typeof res.locals.adminEmail === "string" ? res.locals.adminEmail : "admin-key";
+  const store = SimulationStore.fromEnv();
+
+  try {
+    if (req.method === "POST") {
+      const body = (req.body ?? {}) as Partial<ArmSimulationInput>;
+      const input: ArmSimulationInput = {
+        scenario: String(body.scenario ?? ""),
+        label: String(body.label ?? ""),
+        multipliers: (body.multipliers ?? {}) as Record<string, number>,
+        durationMinutes: Number(body.durationMinutes),
+        setBy: actor,
+      };
+      const invalid = validateArmInput(input);
+      if (invalid) {
+        res.status(400).json({ error: invalid });
+        return;
+      }
+      await store.arm(input);
+    } else if (req.method === "DELETE") {
+      await store.clear(actor);
+    }
+
+    // Awaited, not left to the TTL: the operator's console must show the state
+    // it just created, and the next scoring pass in THIS process must use it.
+    const active = await simulations.refresh();
+    const watched = await watchedPositions();
+    res.json({
+      simulation: active ? simulationWire(active) : null,
+      affected: active ? affectedPositions(watched, active.multipliers) : [],
+      // Every collateral asset currently held by a watched wallet, so the
+      // console offers the operator the assets that exist rather than a text
+      // box in which to guess at a symbol that matches nothing.
+      assets: [
+        ...new Set(watched.map((p) => p.collateralSymbol).filter((s): s is string => Boolean(s))),
+      ].sort(),
+    });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+}
+
+interface WatchedPosition {
+  wallet: string;
+  protocol: string;
+  collateralSymbol: string | null;
+  updatedAt: string;
+}
+
+/**
+ * Every position on a watched wallet, as of its latest score snapshot.
+ *
+ * Read from snapshots rather than by re-scoring: this feeds an operator's
+ * preview, and making one console refresh re-read four protocols for every
+ * watched wallet would be a chain-read storm in exchange for nothing. It is
+ * therefore "as of the last watch tick", which is what `updatedAt` reports.
+ */
+async function watchedPositions(): Promise<WatchedPosition[]> {
+  const { rows } = await db.query<{
+    wallet: string;
+    protocol: string;
+    collateral_symbol: string | null;
+    created_at: string;
+  }>(
+    `select distinct on (s.wallet, s.protocol)
+            s.wallet, s.protocol, s.collateral_symbol, s.created_at
+       from public.score_snapshots s
+       join public.watched_wallets w on w.wallet = s.wallet and w.is_active
+      order by s.wallet, s.protocol, s.created_at desc`,
+  );
+  return rows.map((r) => ({
+    wallet: r.wallet,
+    protocol: r.protocol,
+    collateralSymbol: r.collateral_symbol,
+    updatedAt: r.created_at,
+  }));
+}
+
+/**
+ * Which of those a scenario's assets actually touch, so the operator knows what
+ * the room is about to see.
+ *
+ * A position whose collateral symbol was never recorded is returned with a null
+ * multiplier rather than 1: "we do not know what this holds" is not the same
+ * claim as "this one is unaffected", and the console renders them differently.
+ * That is also why such a row is kept in the list instead of filtered out - an
+ * operator should see the position they cannot vouch for.
+ */
+function affectedPositions(
+  positions: WatchedPosition[],
+  multipliers: Record<string, number>,
+): Array<WatchedPosition & { multiplier: number | null }> {
+  const byLowerSymbol = new Map(
+    Object.entries(multipliers).map(([k, v]) => [k.trim().toLowerCase(), v]),
+  );
+  return positions
+    .map((p) => ({
+      ...p,
+      multiplier: p.collateralSymbol
+        ? (byLowerSymbol.get(p.collateralSymbol.trim().toLowerCase()) ?? 1)
+        : null,
+    }))
+    .filter((p) => p.multiplier === null || p.multiplier !== 1);
+}
+
 app.get("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.post("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.get("/api/admin/redemptions", adminLimit, adminBearerGate, adminRedemptions);
+app.get("/api/admin/simulation", adminLimit, adminBearerGate, adminSimulation);
+app.post("/api/admin/simulation", adminLimit, adminBearerGate, adminSimulation);
+app.delete("/api/admin/simulation", adminLimit, adminBearerGate, adminSimulation);
 
 app.get("/api/chain", publicLimit, async (req, res) => {
   try {

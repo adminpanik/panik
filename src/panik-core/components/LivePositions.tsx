@@ -23,7 +23,7 @@ import {
   USD_UNAVAILABLE_HINT,
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
-import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
+import { Button, Card, EmptyState, RiskDial, SimulationChip, Skeleton } from "../ui";
 
 /**
  * The row identity the alert feed navigates to. Same shape as the React key, and
@@ -349,6 +349,25 @@ export function LivePositions({
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                         {MARKET_CONTEXT_MISSING_LABEL}
                       </span>
+                    </div>
+                  )}
+
+                  {/* A row whose figures came from a simulated price. PER ROW,
+                      not per screen: a scenario names assets, so one position
+                      can be simulated while the one under it is real, and the
+                      banner at the top of the app cannot say which is which.
+
+                      Deliberately NOT merged with the two markers above. Those
+                      say "we could not measure this"; this one says "we
+                      measured this against a price we invented". A simulated
+                      figure is KNOWN - it is exact arithmetic on a stated
+                      price - and rendering it in the not-measured treatment
+                      would collapse two states the rest of this file spends
+                      considerable effort keeping apart. It also spends no risk
+                      hue: a simulated position can be perfectly safe. */}
+                  {p.simulation && (
+                    <div className="flex">
+                      <SimulationChip />
                     </div>
                   )}
 

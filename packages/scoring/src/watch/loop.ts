@@ -5,6 +5,7 @@
  */
 
 import { statusFor } from "../profile";
+import type { SimulationStamp } from "../simulation";
 import type { Band, ProfileStatus, Protocol, RiskProfile } from "../types";
 
 export interface WatchScore {
@@ -12,6 +13,12 @@ export interface WatchScore {
   wallet: string;
   total: number;
   band: Band;
+  /**
+   * Set when this score came from SIMULATED prices (`../simulation.ts`).
+   * Optional because the loop accepts any shape satisfying `WatchScore`, but an
+   * `ActiveScore` always carries the field explicitly.
+   */
+  simulation?: SimulationStamp | null;
 }
 
 export interface WatchTransition {
@@ -23,6 +30,17 @@ export interface WatchTransition {
   /** null = first observation of this position. */
   from: ProfileStatus | null;
   to: ProfileStatus;
+  /**
+   * Provenance, carried from the score that caused the crossing so it survives
+   * into `watch_transitions` and into the alert body.
+   *
+   * A simulated transition that is stored looking exactly like a real one is a
+   * lie with a long tail: the history surface would show a crash the market
+   * never had, and nobody reading it later could tell. The transition is REAL —
+   * the score genuinely crossed the user's limit and the alert genuinely fired —
+   * but the price that moved it was imagined, and those are different claims.
+   */
+  simulation: SimulationStamp | null;
 }
 
 export interface WatchDeps {
@@ -114,6 +132,7 @@ export class WatchService {
             band: s.band,
             from: committed,
             to: observed,
+            simulation: s.simulation ?? null,
           });
         }
       } catch (error) {

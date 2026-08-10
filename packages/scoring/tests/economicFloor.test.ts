@@ -51,6 +51,10 @@ function leg(overrides: Partial<ActiveScore> = {}): ActiveScore {
     scoredCollateralSymbol: "WETH",
     dominantBorrowSymbol: "USDC",
     assetRiskIsProxy: false,
+    // Real prices by default. A leg scored under a market simulation carries a
+    // stamp here, and the advisor must behave identically either way: the
+    // override lands on the PRICE, not on the recommendation.
+    simulation: null,
     ...overrides,
   };
 }
