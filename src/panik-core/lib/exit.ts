@@ -7,10 +7,11 @@
  * re-run sync:exit-config against a mainnet deployment. Zero component changes.
  */
 
-import { http, createConfig } from "wagmi";
+import { fallback, http, createConfig } from "wagmi";
 import { base, baseSepolia } from "wagmi/chains";
 import type { LiveProtocol } from "./live";
 import { EXIT_CHAIN_ID } from "./exit.generated";
+import { exitRpcUrls } from "./exitRpc";
 
 export type ExitEnv = "testnet" | "mainnet";
 
@@ -25,6 +26,9 @@ export const EXIT_ENV: ExitEnv =
 export function getExitChain() {
   return EXIT_CHAIN === 8453 ? base : baseSepolia;
 }
+
+/** The chain's name, for the sentences a user reads when a call fails. */
+export const EXIT_NETWORK_LABEL = getExitChain().name;
 
 export function exitExplorerTxUrl(hash: string): string {
   const host = EXIT_CHAIN === 8453 ? "basescan.org" : "sepolia.basescan.org";
@@ -49,14 +53,58 @@ export function asContractClient(client: unknown): ContractClient {
   return client as ContractClient;
 }
 
+/**
+ * Operator override for a chain's RPC endpoint, per chain.
+ *
+ * PUBLIC BY DESIGN. `VITE_*` is compiled into the client bundle, so whatever is
+ * set here is readable by anyone who opens devtools - it is for a URL that is
+ * safe to publish, such as a provider endpoint locked to your domain or a node
+ * you run. The repo's `ALCHEMY_API_KEY_BASE_SEPOLIA` is a backend-only secret
+ * and must NOT be reached for here: giving it a `VITE_` name publishes it.
+ *
+ * Unset is the normal case, and the public list below stands on its own.
+ */
+const RPC_OVERRIDES: Record<number, string | undefined> = {
+  [base.id]: import.meta.env.VITE_BASE_RPC_URL as string | undefined,
+  [baseSepolia.id]: import.meta.env.VITE_BASE_SEPOLIA_RPC_URL as string | undefined,
+};
+
+/**
+ * A transport that fails over instead of giving up.
+ *
+ * `http()` with no URL - what this used to be - resolves to the chain's single
+ * default public node, and a rate limit there is the end of the read. `fallback`
+ * moves to the next endpoint instead. viem's fallback does NOT fail over on an
+ * execution revert, so a real revert still surfaces as one rather than being
+ * re-asked of three nodes in turn.
+ *
+ * `retryCount: 0` on the fallback is deliberate: each `http` already retries
+ * itself, and a second retry layer multiplies the wait a rate-limited user sits
+ * through before the next endpoint is tried at all.
+ */
+function exitTransport(chainId: number) {
+  return fallback(
+    exitRpcUrls(chainId, RPC_OVERRIDES[chainId]).map((url) =>
+      http(url, { retryCount: 2, retryDelay: 300, timeout: 15_000 }),
+    ),
+    { retryCount: 0 },
+  );
+}
+
 // panik-core's own wagmi config (do NOT import from panik-founding - bundles
 // are isolated on purpose).
 export const exitWagmiConfig = createConfig({
   chains: [base, baseSepolia],
   transports: {
-    [base.id]: http(),
-    [baseSepolia.id]: http(),
+    [base.id]: exitTransport(base.id),
+    [baseSepolia.id]: exitTransport(baseSepolia.id),
   },
+  // wagmi batches reads through Multicall3 by default, which is why a failing
+  // read shows up as an `aggregate3` call. Kept on - it is the thing that turns
+  // the flow's parallel reads into ONE request against a rate-limited node -
+  // but the size is pinned rather than left implicit, so a future batch cannot
+  // grow into an `eth_call` large enough for a public endpoint to refuse.
+  batch: { multicall: { batchSize: 1024, wait: 16 } },
 });
 
 // `PROTOCOL_ID`, `AMOUNT_FULL` and `ExitLegInput` live in `./exitLegs`, which
@@ -64,8 +112,8 @@ export const exitWagmiConfig = createConfig({
 
 /**
  * Protocols executable in the CURRENT exit environment. On the Sepolia demo
- * only Aave V3 has a live deployment + seeded demo positions; the other three
- * are proven by the mainnet fork suite and unlock at mainnet cutover.
+ * only Aave V3 has a live deployment; the other three are proven by the mainnet
+ * fork suite and unlock at mainnet cutover.
  */
 export const EXECUTABLE_PROTOCOLS: Record<ExitEnv, LiveProtocol[]> = {
   testnet: ["aave_v3"],
