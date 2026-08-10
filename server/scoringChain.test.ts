@@ -1,6 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
-import { buildScoringChain, resolveAlchemyKey, scoringChainWire } from "./scoringChain";
+import { requestScoringChainMode } from "../packages/scoring/src/chains";
+import { LruCache } from "./lruCache";
+import {
+  buildScoringChain,
+  buildScoringChains,
+  chainScopedKey,
+  resolveAlchemyKey,
+  scoringChainWire,
+} from "./scoringChain";
+
+const BOTH_KEYS = {
+  ALCHEMY_API_KEY_BASE_MAINNET: "mk",
+  ALCHEMY_API_KEY_BASE_SEPOLIA: "sk",
+};
 
 const providers = {
   assetRisk: { getAssetRiskInput: vi.fn() },
@@ -74,5 +87,116 @@ describe("scoringChainWire", () => {
       label: "Base Sepolia",
       protocols: ["aave_v3"],
     });
+  });
+});
+
+// -- the chain as a PER-REQUEST choice (Issue #57) -------------------------
+
+describe("requestScoringChainMode", () => {
+  it("uses the deployment default when the caller names no chain", () => {
+    expect(requestScoringChainMode(undefined, "testnet")).toBe("testnet");
+    expect(requestScoringChainMode(null, "testnet")).toBe("testnet");
+    expect(requestScoringChainMode("", "testnet")).toBe("testnet");
+    expect(requestScoringChainMode("   ", "testnet")).toBe("testnet");
+    // Unset default is mainnet, exactly as PANIK_SCORING_CHAIN behaves.
+    expect(requestScoringChainMode(undefined, undefined)).toBe("mainnet");
+  });
+
+  it("honours a chain the registry defines", () => {
+    expect(requestScoringChainMode("testnet", undefined)).toBe("testnet");
+    expect(requestScoringChainMode("mainnet", "testnet")).toBe("mainnet");
+    expect(requestScoringChainMode(" TESTNET ", undefined)).toBe("testnet");
+  });
+
+  it("falls back to mainnet on anything unrecognised, and never throws", () => {
+    // NOT the deployment default: a typo must not inherit testnet, because
+    // "the scores you are reading came from a test chain" is the one thing a
+    // garbled preference must never quietly assert.
+    for (const raw of ["base", "sepolia", "MAINNET_", "0", "8453", "  ?  "]) {
+      expect(requestScoringChainMode(raw, "testnet")).toBe("mainnet");
+    }
+    // Prototype keys index a plain object truthily; they are not modes.
+    expect(requestScoringChainMode("constructor", "testnet")).toBe("mainnet");
+    expect(requestScoringChainMode("__proto__", "testnet")).toBe("mainnet");
+    expect(requestScoringChainMode("toString", "testnet")).toBe("mainnet");
+    // Non-strings arrive from Express as arrays or objects.
+    expect(requestScoringChainMode(["testnet"], undefined)).toBe("mainnet");
+    expect(requestScoringChainMode({}, undefined)).toBe("mainnet");
+    expect(requestScoringChainMode(42, undefined)).toBe("mainnet");
+  });
+});
+
+describe("buildScoringChains", () => {
+  it("builds every chain whose key is configured", () => {
+    const set = buildScoringChains({ defaultMode: undefined, env: BOTH_KEYS, providers });
+    expect([...set.available].sort()).toEqual(["mainnet", "testnet"]);
+    expect(set.defaultMode).toBe("mainnet");
+    expect(set.get("testnet").config.chainId).toBe(EXIT_CHAIN_ID);
+    expect(set.get("mainnet").config.chainId).toBe(8453);
+  });
+
+  it("resolves a request's chain, defaulting and never throwing", () => {
+    const set = buildScoringChains({ defaultMode: "testnet", env: BOTH_KEYS, providers });
+    expect(set.resolve(undefined).config.mode).toBe("testnet");
+    expect(set.resolve("mainnet").config.mode).toBe("mainnet");
+    expect(set.resolve("not-a-chain").config.mode).toBe("mainnet");
+  });
+
+  it("serves the default chain when the asked-for one has no key configured", () => {
+    // The response still names the chain it ACTUALLY read, so a label can
+    // never end up on the other chain's numbers.
+    const set = buildScoringChains({
+      defaultMode: undefined,
+      env: { ALCHEMY_API_KEY_BASE_MAINNET: "mk" },
+      providers,
+    });
+    expect(set.available).toEqual(["mainnet"]);
+    const served = set.resolve("testnet");
+    expect(served.config.mode).toBe("mainnet");
+    expect(scoringChainWire(served.config).label).toBe("Base");
+  });
+
+  it("refuses to boot when the DEFAULT chain has no key", () => {
+    expect(() =>
+      buildScoringChains({
+        defaultMode: "testnet",
+        env: { ALCHEMY_API_KEY_BASE_MAINNET: "mk" },
+        providers,
+      }),
+    ).toThrow(/ALCHEMY_API_KEY_BASE_SEPOLIA/);
+  });
+});
+
+describe("chainScopedKey", () => {
+  const wallet = "0xa48fd1407ce1d31d4b85b6f48ca3209457056894";
+
+  it("keeps one wallet's two chains apart", () => {
+    expect(chainScopedKey("testnet", wallet)).not.toBe(chainScopedKey("mainnet", wallet));
+    expect(chainScopedKey("testnet", wallet)).toBe(`testnet:${wallet}`);
+  });
+
+  it("is what stops a testnet score answering a mainnet request", () => {
+    // The real trap, reproduced against the real cache: one LRU, one wallet,
+    // two chains. Unscoped, the second get() would return the first chain's
+    // position for 60 seconds and the dashboard would print it under the other
+    // chain's label.
+    const cache = new LruCache<{ positions: string[] }>(10);
+    cache.set(chainScopedKey("testnet", wallet), { positions: ["aave_v3 usdc/usdt"] });
+
+    expect(cache.get(chainScopedKey("mainnet", wallet))).toBeUndefined();
+    expect(cache.get(chainScopedKey("testnet", wallet))?.positions).toEqual([
+      "aave_v3 usdc/usdt",
+    ]);
+
+    // An empty mainnet read must not erase the testnet entry either.
+    cache.set(chainScopedKey("mainnet", wallet), { positions: [] });
+    expect(cache.get(chainScopedKey("testnet", wallet))?.positions).toHaveLength(1);
+    expect(cache.get(chainScopedKey("mainnet", wallet))?.positions).toHaveLength(0);
+  });
+
+  it("keeps the advisor's longer key apart per chain too", () => {
+    const parts = ["0xabc", "moderate", "real"];
+    expect(chainScopedKey("mainnet", ...parts)).toBe("mainnet:0xabc:moderate:real");
+    expect(chainScopedKey("testnet", ...parts)).not.toBe(chainScopedKey("mainnet", ...parts));
   });
 });

@@ -124,6 +124,9 @@ export const SCORING_CHAINS: Record<ScoringChainMode, ScoringChainConfig> = {
   },
 };
 
+/** Every mode this registry defines. The allowlist a request is checked against. */
+export const SCORING_CHAIN_MODES = Object.keys(SCORING_CHAINS) as ScoringChainMode[];
+
 /**
  * Parse a configured mode. Anything unrecognised (including undefined) is
  * mainnet: the testnet path must be an explicit, deliberate choice, and a typo
@@ -131,6 +134,43 @@ export const SCORING_CHAINS: Record<ScoringChainMode, ScoringChainConfig> = {
  */
 export function scoringChainMode(raw: string | undefined | null): ScoringChainMode {
   return raw?.trim().toLowerCase() === "testnet" ? "testnet" : "mainnet";
+}
+
+/**
+ * Resolve the chain a single REQUEST asked for.
+ *
+ * Three inputs, in order: what the caller named, what the deployment is
+ * configured for, and mainnet. The distinction between "absent" and
+ * "unrecognised" is deliberate and is the whole reason this is not just
+ * `scoringChainMode(raw ?? fallback)`:
+ *
+ *   absent       -> the deployment's own default, so an existing client that
+ *                   sends no `?chain=` keeps the behaviour it had before this
+ *                   parameter existed.
+ *   unrecognised -> mainnet, never the deployment default and never an error.
+ *                   A typo must not silently inherit a testnet default, and a
+ *                   404/400 on a garbled preference would put an error page in
+ *                   front of a user whose real positions we can read fine.
+ *
+ * Membership is tested with `hasOwnProperty` rather than an index: indexing the
+ * registry with the raw string lets "constructor" and "toString" return a
+ * truthy inherited value that passes a naive guard.
+ */
+export function requestScoringChainMode(
+  raw: unknown,
+  fallback: string | undefined | null,
+): ScoringChainMode {
+  if (raw === undefined || raw === null) return scoringChainMode(fallback);
+  // A string, not something stringifiable: Express hands back an array when a
+  // query key repeats or is written `chain[]=`, and `String(["testnet"])` is
+  // "testnet", so coercing would let a shape we never intended to accept pick
+  // the chain. Anything that is not a plain string is an unrecognised value.
+  if (typeof raw !== "string") return "mainnet";
+  const value = raw.trim().toLowerCase();
+  if (value === "") return scoringChainMode(fallback);
+  return Object.prototype.hasOwnProperty.call(SCORING_CHAINS, value)
+    ? (value as ScoringChainMode)
+    : "mainnet";
 }
 
 export function scoringChainConfig(raw: string | undefined | null): ScoringChainConfig {
