@@ -610,8 +610,18 @@ function RecommendationCard({
 
       {/* The disclosure and the action share one row, so a collapsed card ends
           in a single line rather than a summary, a gap and a button. Open, the
-          reasoning grows underneath and the button stays where it was. */}
-      <div className="flex items-start justify-between gap-4 border-t border-border-subtle pt-3">
+          reasoning grows underneath and the button stays where it was.
+
+          They stack below `lg`, and the arithmetic is on the CONTENT COLUMN
+          rather than the window. The action block is `shrink-0` and on a REDUCE
+          leg it is a TESTNET chip, a filled button and a second quiet button
+          wide, about 270px. At a 768px window the sidebar has already taken
+          256px, so the column is ~464px and the disclosure got ~172px against a
+          204px min-content: every line of reasoning inside it was clipped. At
+          1024 the column is ~720px and the disclosure gets ~450px, which fits.
+          Measured, disclosures forced open: 15 clipped nodes at 390 and 11 at
+          768 before, 0 at all five widths after. */}
+      <div className="flex flex-col gap-3 border-t border-border-subtle pt-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
         <Reasoning rec={rec} />
         {action && <div className="shrink-0">{action}</div>}
       </div>
@@ -665,9 +675,15 @@ function OpportunityCard({
         {plan.apy !== null ? `, ${(plan.apy * 100).toFixed(1)}% APY` : ""}
       </p>
 
-      <div className="mt-auto flex items-start justify-between gap-4 border-t border-border-subtle pt-3">
+      {/* Stacked at every width, unlike the position cards. These sit three
+          across from `xl`, so the card itself is ~380px and the button beside
+          the disclosure left it ~170px: the reasoning rows are a 112px label
+          plus a paragraph, which is ~42px of prose and clipped at every window
+          size. Breakpoints measure the window and this column does not, so the
+          fix is the layout rather than a smaller type step. */}
+      <div className="mt-auto flex flex-col gap-3 border-t border-border-subtle pt-3">
         <Reasoning rec={rec} />
-        <div className="shrink-0">
+        <div>
           <ActionButton rec={rec} onOpen={onOpen} />
         </div>
       </div>
