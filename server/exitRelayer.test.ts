@@ -80,6 +80,8 @@ function row(p: ExitPermit = permit(), status: DelegationStatus = "active"): Del
     chainId: CHAIN_ID,
     executor: EXECUTOR,
     revocationTx: null,
+    signerHadCode: false,
+    signerCodeHash: null,
   };
 }
 
@@ -114,6 +116,15 @@ class FakeExitChainReader implements ExitChainReader {
     return 1_000;
   }
   async receiptFor(): Promise<TxReceiptInfo | null> {
+    return null;
+  }
+  // 4.B added the EIP-7702 reads to ExitChainReader. The relayer never calls
+  // them (it consumes reconciled rows, never re-verifies a signature), so a
+  // plain-EOA answer keeps this fake honest about what it stands in for.
+  async codeAt(): Promise<`0x${string}`> {
+    return "0x";
+  }
+  async isValidSignature(): Promise<`0x${string}` | null> {
     return null;
   }
 }
