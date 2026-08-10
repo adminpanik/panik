@@ -11,13 +11,17 @@
  * essay per position and the answer was the third paragraph down.
  *
  * What changed is the ORDER and the DEFAULT, not the content:
- *   - the RECOMMENDATION is the lead line, at reading size, right under the
- *     protocol it is about;
+ *   - the ACTION and the RECOMMENDATION lead, in that order, in the card's left
+ *     column: what to do, then why, at reading size, right under the protocol
+ *     it is about;
+ *   - the score keeps the right rail to itself, so a verdict about what to DO
+ *     and a score about how BAD it is are no longer one corner of one row;
  *   - the numbers stay in the strip, where they are scannable and where the
  *     prose does not have to restate them;
  *   - POSITION, MARKET and EXECUTION move into a collapsed disclosure. A user
  *     acting on an EXIT deserves the reasoning, so nothing is deleted - it is
- *     one click, keyboard-reachable, and it is the same click for every card.
+ *     one click, keyboard-reachable, and it is the same click for every card;
+ *   - every block of prose names who wrote it, both states, one hover from why.
  *
  * The engine's prose is not edited here. Where it duplicates the strip that is
  * a copy problem in packages/scoring/src/advisor, out of this file's scope.
@@ -27,7 +31,15 @@
  */
 
 import React from "react";
-import { AlertTriangle, ArrowRight, ChevronRight, Eye, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Calculator,
+  ChevronRight,
+  Compass,
+  Eye,
+  Sparkles,
+} from "lucide-react";
 import type {
   AdvisorOpenPlan,
   AdvisorRecommendation,
@@ -37,12 +49,19 @@ import type {
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
 import {
+  ADVISOR_ACTION,
   formatUsd,
   liquidationOutlook,
   MARKET_CONTEXT_MISSING_HINT,
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
+  PROSE_SOURCE_BANNER,
+  PROSE_SOURCE_HINT,
+  PROSE_SOURCE_LABEL,
+  RISK_CHIP,
   RISK_TEXT,
+  USD_UNAVAILABLE_HINT,
+  USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial } from "../ui";
 import { EXIT_ENV } from "../lib/exit";
@@ -76,9 +95,16 @@ const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
  *
  * The band now has exactly one home per card: the RiskDial, borrowed from the
  * Portfolio position rows so a score means the same thing on both screens.
+ *
+ * And the ACTION has exactly one home too, which it did not before: the chip
+ * sat `ml-auto` in the title row, which parked a verdict about what to DO
+ * against a score about how BAD it is, in one corner, reading as one control.
+ * It now opens the card's left column, directly above the sentence that
+ * elaborates it, so the card scans straight down - protocol, action, why,
+ * numbers - and the dial keeps the rail to itself.
  */
 const ACTION_CHIP =
-  "shrink-0 rounded-md border border-border-subtle bg-white/[0.06] px-2.5 py-1 text-2xs font-sans font-bold text-text-primary";
+  "inline-flex shrink-0 rounded-sm border border-border-subtle bg-white/[0.06] px-2 py-0.5 text-2xs font-sans font-bold text-text-primary";
 
 /**
  * What the card says about a collateral-funded repay it cannot yet perform.
@@ -159,32 +185,42 @@ function ActionButton({
 }
 
 /**
- * The block that holds model-phrased prose, and says so.
+ * Who wrote the block of prose above this line.
  *
- * The Advisor mixes two kinds of sentence on one card and they carry different
- * warranties: the numbers, the action and (on a critical leg) the verdict are
- * the engine's and are checked, while the phrasing around them came out of a
+ * The Advisor mixes two kinds of sentence and they carry different warranties:
+ * the numbers, the action and (on a critical leg) the verdict are the engine's
+ * and are checked, while the phrasing around them may have come out of a
  * language model. A reader deciding whether to sign a transaction is entitled
- * to know which is which, so the AI-phrased text sits in a sunken inset under a
- * permanent label rather than reading as the same voice as the figures.
+ * to know which is which.
  *
- * The label is the honest part, so it is never shown over deterministic text:
- * `narrationSource` is per-leg, and a leg that fell back to engine prose gets
- * no block and no label. Saying "AI-generated summary" over a template would be
- * stating a fact the code knows to be false.
+ * It used to be told only half. Model-phrased prose sat in a sunken inset under
+ * an "AI-generated summary" label and engine-written prose got no marker at all,
+ * so the distinction the 1.7 guardrails exist to make read on screen as the app
+ * labelling some cards and not others for no stated reason. BOTH states are
+ * named now, in the same place, at the same size, with the same shape, and the
+ * reason they differ is one hover away.
  *
- * No border, deliberately. A bordered tinted box inside a bordered tinted card
- * is chrome wrapping chrome; the surface step plus the label is the distinction.
+ * The inset went with it. A tinted box inside a tinted card was chrome wrapping
+ * chrome, and once both states are labelled the box is no longer carrying the
+ * distinction - the words are.
+ *
+ * Per BLOCK and not per card, because that is the granularity of the truth: on a
+ * critical leg the server serves the ENGINE's verdict sentence even when the
+ * rest of the leg is narrated (the template slot in AdvisorNarrator), so that
+ * card honestly reads "wording by the engine" on its lead and "wording by AI"
+ * inside "Why this".
  */
-function AiBlock({ children }: { children: React.ReactNode }) {
+function ProseSource({ narrated, hint = false }: { narrated: boolean; hint?: boolean }) {
+  const Icon = narrated ? Sparkles : Calculator;
   return (
-    <div className="space-y-2 rounded-md bg-surface-sunken p-3">
-      <p className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-        <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
-        AI-generated summary
-      </p>
-      {children}
-    </div>
+    <p className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+      <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+      {narrated ? PROSE_SOURCE_LABEL.narrated : PROSE_SOURCE_LABEL.engine}
+      {/* The explanation goes on the marker a reader meets first. Repeating the
+          tip inside the disclosure would be a second control for one idea, one
+          line below the first. */}
+      {hint ? <InfoTip text={PROSE_SOURCE_HINT} className="ml-0.5" /> : null}
+    </p>
   );
 }
 
@@ -230,11 +266,13 @@ function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
         />
         Why this
       </summary>
-      <div className="mt-3">
+      <div className="mt-3 space-y-2">
         {/* These three are always the model's when the leg was narrated - the
             critical-verdict template slot only protects the recommendation
-            above, which is why the label belongs here and not on the card. */}
-        {isNarrated(rec) ? <AiBlock>{body}</AiBlock> : body}
+            above, which is why this block states its own source rather than
+            inheriting the card's. */}
+        {body}
+        <ProseSource narrated={isNarrated(rec)} />
       </div>
     </details>
   );
@@ -261,38 +299,58 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
    * number" answer on this screen lives.
    */
   const outlook = liquidationOutlook(n.healthFactor, n.scoredCollateralSymbol);
+  /**
+   * A degraded leg has no dollars to state, so it states that instead of
+   * printing `formatUsd`'s unknown glyph into two labelled slots. "Collateral
+   * $…" is indistinguishable from a clipped string, which is how a deliberate
+   * honesty state got read as a broken layout - the same reason the position
+   * rows REPLACE their money line rather than dimming it.
+   *
+   * Driven off the values as well as the flag: a null magnitude is unknown
+   * whether or not the leg was flagged, and there is no reading of "$…" in a
+   * labelled slot that is better than saying so in words.
+   */
+  const usdUnknown =
+    n.usdValuesUnavailable === true ||
+    n.collateralValueUsd === null ||
+    n.borrowValueUsd === null;
   const items: { label: string; value: string; hint?: string }[] = [
-    {
-      label: "Drop to liquidation",
-      // This strip has no sub-line to hang `stripNote` on — it is one flex row
-      // of label/value pairs — so the clause joins the value inline. It wraps
-      // rather than truncating here, which is why the tile on Watch reads the
-      // two fields separately and this one does not.
-      value: outlook.stripNote ? `${outlook.strip}, ${outlook.stripNote}` : outlook.strip,
-      hint: outlook.hover,
-    },
-    { label: "Collateral", value: formatUsd(n.collateralValueUsd) },
-    { label: "Debt", value: formatUsd(n.borrowValueUsd) },
+    // `statLabel`/`statValue`, not `strip` + `stripNote`: this strip is one flex
+    // row of label/value pairs with no sub-line, and joining the two halves back
+    // together put a clause where a value goes ("none, no debt", "0%,
+    // liquidatable now"). A debt-free leg has no drop to state, so it answers a
+    // different label rather than a qualified number.
+    { label: outlook.statLabel, value: outlook.statValue, hint: outlook.hover },
   ];
+  if (!usdUnknown) {
+    items.push({ label: "Collateral", value: formatUsd(n.collateralValueUsd) });
+    items.push({ label: "Debt", value: formatUsd(n.borrowValueUsd) });
+  }
   return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
       {items.map(({ label, value, hint }) => (
         <div className="flex items-baseline gap-2" key={label}>
           <span className="flex items-center gap-1 text-xs font-sans text-text-muted">
             {label}
             {hint && <InfoTip text={hint} />}
           </span>
-          <span className="text-sm font-sans font-semibold tabular-nums text-text-primary">
+          <span className="whitespace-nowrap text-sm font-sans font-semibold tabular-nums text-text-primary">
             {value}
           </span>
         </div>
       ))}
-      {/* The degraded caveat is a statement about the two dollar figures beside
-          it, so it sits with them rather than as a fourth pseudo-metric. */}
-      {n.usdValuesUnavailable && (
-        <span className="inline-flex items-center gap-1.5 text-xs font-sans text-risk-unknown">
+      {/* Stands IN for the two money pairs rather than qualifying them, and it
+          takes its treatment from `RISK_CHIP.UNKNOWN` - unfilled, dashed edge,
+          icon and words - so it is the same marker, in the same shape, as the
+          one the position rows already show for this state. Distinctness from a
+          priced leg holds on four axes and no branch of it can emit "$0". */}
+      {usdUnknown && (
+        <span
+          title={USD_UNAVAILABLE_HINT}
+          className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
+        >
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          USD amounts unavailable
+          {USD_UNAVAILABLE_LABEL}
         </span>
       )}
       {/* A second, independent caveat: this one is about the SCORE on the rail,
@@ -304,7 +362,7 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
       {marketContextMissing(n.subScores) && (
         <span
           title={MARKET_CONTEXT_MISSING_HINT}
-          className="inline-flex cursor-help items-center gap-1.5 text-xs font-sans text-risk-unknown"
+          className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
         >
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {MARKET_CONTEXT_MISSING_LABEL}
@@ -509,7 +567,7 @@ function RecommendationCard({
       <div className="flex items-start gap-3">
         <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
 
-        <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
               {PROTOCOL_LABEL[rec.protocol]}
@@ -517,29 +575,22 @@ function RecommendationCard({
             <span className="truncate text-xs font-sans text-text-secondary">
               {rec.numbers.scoredCollateralSymbol}
             </span>
-            <span className={`ml-auto ${ACTION_CHIP}`}>{rec.action}</span>
           </div>
 
-          {/* The lead. This is the answer the page exists to give, so it is the
-              first thing under the name of the thing it is about, at reading
-              size, in primary ink. It was the third of four paragraphs.
-
-              It only enters the AI block when a model actually wrote it. On a
-              critical leg the server serves the ENGINE's verdict sentence even
-              when the rest of the leg is narrated (the template slot in
-              AdvisorNarrator), so the loudest instruction on the screen keeps
-              normal styling and carries no AI label. */}
-          {aiLead ? (
-            <AiBlock>
-              <p className="text-sm font-sans leading-relaxed text-text-primary">
-                {rec.sections.recommendation}
-              </p>
-            </AiBlock>
-          ) : (
+          {/* The lead: what to do, then why. The chip is the scannable half and
+              the sentence is the reading half of one answer, so they are one
+              block. `ADVISOR_ACTION`, not `rec.action` - the raw union is an
+              engine enum and this screen does not shout. */}
+          <div className="space-y-1.5">
+            <span className={ACTION_CHIP}>{ADVISOR_ACTION[rec.action]}</span>
             <p className="text-sm font-sans leading-relaxed text-text-primary">
               {rec.sections.recommendation}
             </p>
-          )}
+            {/* On a critical leg the server serves the ENGINE's verdict sentence
+                even when the rest of the leg is narrated, so this marker is
+                computed from `aiLead` and not from the leg's flag. */}
+            <ProseSource narrated={aiLead} hint />
+          </div>
 
           <NumbersStrip rec={rec} />
         </div>
@@ -559,8 +610,18 @@ function RecommendationCard({
 
       {/* The disclosure and the action share one row, so a collapsed card ends
           in a single line rather than a summary, a gap and a button. Open, the
-          reasoning grows underneath and the button stays where it was. */}
-      <div className="flex items-start justify-between gap-4 border-t border-border-subtle pt-3">
+          reasoning grows underneath and the button stays where it was.
+
+          They stack below `lg`, and the arithmetic is on the CONTENT COLUMN
+          rather than the window. The action block is `shrink-0` and on a REDUCE
+          leg it is a TESTNET chip, a filled button and a second quiet button
+          wide, about 270px. At a 768px window the sidebar has already taken
+          256px, so the column is ~464px and the disclosure got ~172px against a
+          204px min-content: every line of reasoning inside it was clipped. At
+          1024 the column is ~720px and the disclosure gets ~450px, which fits.
+          Measured, disclosures forced open: 15 clipped nodes at 390 and 11 at
+          768 before, 0 at all five widths after. */}
+      <div className="flex flex-col gap-3 border-t border-border-subtle pt-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
         <Reasoning rec={rec} />
         {action && <div className="shrink-0">{action}</div>}
       </div>
@@ -614,13 +675,70 @@ function OpportunityCard({
         {plan.apy !== null ? `, ${(plan.apy * 100).toFixed(1)}% APY` : ""}
       </p>
 
-      <div className="mt-auto flex items-start justify-between gap-4 border-t border-border-subtle pt-3">
+      {/* Stacked at every width, unlike the position cards. These sit three
+          across from `xl`, so the card itself is ~380px and the button beside
+          the disclosure left it ~170px: the reasoning rows are a 112px label
+          plus a paragraph, which is ~42px of prose and clipped at every window
+          size. Breakpoints measure the window and this column does not, so the
+          fix is the layout rather than a smaller type step. */}
+      <div className="mt-auto flex flex-col gap-3 border-t border-border-subtle pt-3">
         <Reasoning rec={rec} />
-        <div className="shrink-0">
+        <div>
           <ActionButton rec={rec} onOpen={onOpen} />
         </div>
       </div>
     </Card>
+  );
+}
+
+/**
+ * How many opportunities the Advisor shows before handing off to Compass.
+ *
+ * This section is a PREVIEW, not an index. Compass is the screen that exists to
+ * list and compare every market the engine scores; the Advisor's job here is to
+ * say "there is something for you over there", which two cards do as well as
+ * five and without turning the answer to "what do I do about my positions" into
+ * a shopping page.
+ */
+const OPPORTUNITY_PREVIEW = 2;
+
+/**
+ * Activate the Compass tab.
+ *
+ * `setActiveTab` lives in AppDemo and this panel is not handed it. What the app
+ * DOES publish is its ARIA tablist contract: exactly one tablist is mounted at a
+ * time (a `matchMedia` hook, not a CSS hide, precisely so the ids are unique)
+ * and each tab button carries a stable `tab-<id>` that every panel already
+ * depends on through `aria-labelledby`. Driving that button is the same thing a
+ * user clicking the rail does, focus move included, rather than a second private
+ * channel into the shell. Threading a real `onNavigate` prop is the cleaner
+ * shape and is a follow-up: it needs an edit in AppDemo.
+ */
+function openCompassTab() {
+  const tab = document.getElementById("tab-compass");
+  tab?.focus();
+  tab?.click();
+}
+
+/**
+ * The handoff, as the last card in the preview grid.
+ *
+ * A real `<button>`, so it has a role, a focus ring from the one global
+ * `:focus-visible` rule, and a 24px+ target. The dashed edge is the idiom
+ * `RISK_CHIP.UNKNOWN` already established for "this is not one of the filled
+ * things beside it", on `border-strong` because this edge is functional rather
+ * than decorative and has to hold 3:1.
+ */
+function SeeAllInCompass() {
+  return (
+    <button
+      type="button"
+      onClick={openCompassTab}
+      className="flex h-full min-h-32 w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border-strong p-4 text-sm font-sans font-semibold text-text-secondary transition-colors hover:bg-white/[0.02] hover:text-text-primary"
+    >
+      <Compass className="h-5 w-5 shrink-0" aria-hidden="true" />
+      See all in Compass
+    </button>
   );
 }
 
@@ -672,10 +790,16 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
             {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
           </p>
           {/* Stays on screen: this one is a disclosure about who wrote the
-              sentences, not a metric. */}
+              sentences, not a metric.
+
+              It used to read "AI-narrated, engine-decided" while the cards below
+              labelled one leg and not the next, which put the banner and the
+              cards in contradiction. It now states the half that is true of
+              every card and hands the per-card half to the per-card markers,
+              which is where the answer actually varies. */}
           {report.narrated ? (
             <p className="mt-1 flex items-center gap-1 text-2xs font-sans text-text-muted">
-              <Sparkles className="h-3 w-3" aria-hidden="true" /> AI-narrated, engine-decided
+              <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" /> {PROSE_SOURCE_BANNER}
             </p>
           ) : null}
         </div>
@@ -712,13 +836,14 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
               the sidebar has already taken 256px, so three of these cards got
               ~137px each and every title ellipsised to a couple of letters. */}
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {opportunities.map((rec) => (
+            {opportunities.slice(0, OPPORTUNITY_PREVIEW).map((rec) => (
               <OpportunityCard
                 key={`${rec.protocol}-${rec.openPlan?.collateralSymbol}`}
                 rec={rec}
                 onOpen={onOpen}
               />
             ))}
+            <SeeAllInCompass />
           </div>
         </div>
       ) : null}

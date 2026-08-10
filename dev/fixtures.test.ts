@@ -188,6 +188,29 @@ describe("dev:mock fixtures — advisor invariants", () => {
     expect(report.recommendations).toHaveLength(MOCK_POSITIONS.length);
   });
 
+  /**
+   * The demo has to be exercisable end to end on the one protocol the testnet
+   * executor can sign for. While the Aave leg was the supply-only one it was a
+   * HOLD with no action and no prefill, so every button that opened a real flow
+   * belonged to a protocol whose button correctly opens a "not deployed on Base
+   * Sepolia" modal instead: nothing in the whole mock could be clicked through.
+   *
+   * `EXECUTABLE_PROTOCOLS.testnet` is restated rather than imported for the same
+   * reason the band thresholds are, and because importing it pulls wagmi into a
+   * fixture test.
+   */
+  it("gives the one testnet-executable protocol something to execute", () => {
+    const executable = "aave_v3";
+    const rec = MOCK_ADVISOR_RECOMMENDATIONS.find((r) => r.protocol === executable);
+    expect(rec, "no advisor leg on the executable protocol").toBeDefined();
+    expect(["EXIT", "REDUCE"]).toContain(rec?.action);
+    // A prefill the exit flow can actually open, on the same protocol.
+    expect(rec?.exitPrefill?.protocol).toBe(executable);
+    // And real debt behind it: an exit with nothing to repay is not a flow.
+    expect(rec?.numbers.borrowValueUsd ?? 0).toBeGreaterThan(0);
+    expect(rec?.numbers.healthFactor).not.toBeNull();
+  });
+
   it("treats the degraded leg as real debt, not as dust", () => {
     const rec = MOCK_ADVISOR_RECOMMENDATIONS.find((r) => r.numbers.usdValuesUnavailable);
     expect(rec).toBeDefined();

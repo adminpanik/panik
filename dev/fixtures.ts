@@ -80,28 +80,46 @@ const ASSET_RISK: Record<string, number> = {
 // only a string in `scoredCollateralSymbol`, orthogonal to band and debt, so it
 // rides on the levered Moonwell leg. Dropping any of the five silently stops
 // exercising a branch nobody then looks at again.
+//
+// WHICH PROTOCOL CARRIES WHICH PATH IS NOT ARBITRARY. `EXECUTABLE_PROTOCOLS`
+// (src/panik-core/lib/exit.ts) names exactly one protocol executable on the
+// Sepolia demo — aave_v3 — and every other protocol's Execute/Reduce button
+// correctly opens a "no Base Sepolia deployment" modal instead of a flow. While
+// the Aave leg was the supply-only one it was a HOLD with no action, so the one
+// protocol the demo can actually sign for had nothing to sign, and no exit could
+// be exercised end to end. The CRITICAL/EXIT path therefore sits on aave_v3 and
+// the debt-free path on morpho. Nothing else moved: morpho keeps the
+// market-context-not-measured degradation, compound_v3 keeps the degraded price
+// feed, moonwell keeps the levered REDUCE leg with both repay routes.
 
 export const MOCK_POSITIONS: LiveWalletPosition[] = [
   {
-    // 1. Supply-only. No debt -> no health factor, no liquidation. The UI must
-    //    print "no debt", never "0.00".
+    // 1. HF 1.05 — the first proximity floor fires: the weighted composite is 54
+    //    (a calm market says "HIGH"), the floor lifts it to 75 / CRITICAL. This
+    //    is exactly the Mar-2023 USDC-depeg case params.ts was written for, so
+    //    the fixture set covers it rather than only the easy path.
+    //
+    //    It is on Aave V3 because Aave V3 is the only protocol the testnet
+    //    executor can sign for, and CRITICAL is what makes the advisor emit EXIT
+    //    with a full `exitPrefill`. This is the leg the demo's Execute exit
+    //    button opens.
     protocol: "aave_v3",
     wallet: MOCK_WALLET,
-    total: 19,
-    band: "LOW",
+    total: 75,
+    band: "CRITICAL",
     subScores: {
-      positionHealth: 0, // no debt -> nothing to liquidate
-      assetRisk: ASSET_RISK.wstETH,
+      positionHealth: 95,
+      assetRisk: ASSET_RISK.cbBTC,
       protocolSafety: PROTOCOL_SAFETY.aave_v3,
       systemicRisk: SYSTEMIC,
     },
-    healthFactor: null,
-    collateralValueUsd: 48_500,
-    borrowValueUsd: 0,
-    scoredCollateralSymbol: "wstETH",
-    label: "Staking sleeve",
+    healthFactor: 1.05,
+    collateralValueUsd: 128_500,
+    borrowValueUsd: 105_200,
+    scoredCollateralSymbol: "cbBTC",
+    label: "BTC carry",
     riskProfile: "moderate",
-    profileStatus: "within",
+    profileStatus: "outside",
   },
   {
     // 2. HF 1.20 — inside the second liquidation-proximity floor (<= 1.25 -> 50).
@@ -131,37 +149,37 @@ export const MOCK_POSITIONS: LiveWalletPosition[] = [
     profileStatus: "outside",
   },
   {
-    // 3. HF 1.05 — the first proximity floor fires: the weighted composite is 61
-    //    (a calm market says "ELEVATED"), the floor lifts it to 75 / CRITICAL.
-    //    This is exactly the Mar-2023 USDC-depeg case params.ts was written for,
-    //    so the fixture set covers it rather than only the easy path.
+    // 3. Supply-only. No debt -> no health factor, no liquidation. The UI must
+    //    say so in words, never "0.00" and never "0%".
     //
     //    Also the DEGRADED MARKET CONTEXT path: the systemic-risk lookup threw
-    //    for this leg (the moonwell/moonwell-artemis id incident), so that
-    //    sub-score is null and the composite renormalises over the three terms
-    //    that were read: (95*.40 + 34*.25 + 52*.20) / .85 = 66.9 -> 67, which
-    //    the HF <= 1.10 floor then lifts to 75. The total is unchanged, which
-    //    is the point: the number stays real and only the SUB-score is unknown,
-    //    so a UI that prints `Math.round(null)` here shows a 0 next to a
-    //    CRITICAL dial and nothing else looks wrong.
+    //    for this leg, so that sub-score is null and the composite renormalises
+    //    over the two terms that were read: (0*.40 + 8*.25 + 52*.20) / .85 =
+    //    14.6 -> 15. The number stays real and only the SUB-score is unknown, so
+    //    a UI that prints `Math.round(null)` here shows a 0 next to a LOW dial
+    //    and nothing else looks wrong.
+    //
+    //    The two degradations still live on different legs (this one withholds
+    //    part of the score, the compound_v3 leg withholds the dollars), which is
+    //    what keeps either renderable on its own.
     protocol: "morpho",
     wallet: MOCK_WALLET,
-    total: 75,
-    band: "CRITICAL",
+    total: 15,
+    band: "LOW",
     subScores: {
-      positionHealth: 95,
-      assetRisk: ASSET_RISK.cbBTC,
+      positionHealth: 0, // no debt -> nothing to liquidate
+      assetRisk: ASSET_RISK.USDC,
       protocolSafety: PROTOCOL_SAFETY.morpho,
       systemicRisk: null, // DefiLlama lookup failed for this leg — not measured, never 0
     },
     marketContextUnavailable: true,
-    healthFactor: 1.05,
-    collateralValueUsd: 128_500,
-    borrowValueUsd: 105_200,
-    scoredCollateralSymbol: "cbBTC",
-    label: "BTC carry",
+    healthFactor: null,
+    collateralValueUsd: 48_500,
+    borrowValueUsd: 0,
+    scoredCollateralSymbol: "USDC",
+    label: "Stable sleeve",
     riskProfile: "moderate",
-    profileStatus: "outside",
+    profileStatus: "within",
   },
   {
     // 4. Degraded price feed. Score, band and HF are ratios and stay EXACT; only
@@ -343,11 +361,11 @@ interface HistoryLeg {
 }
 
 const HISTORY_LEGS: readonly HistoryLeg[] = [
-  // Supply-only: no debt, so no health factor and no HF-driven collateral
-  // drift. Its score moves on asset and systemic risk alone.
-  { protocol: "aave_v3", score: [14, 19], hf: null, collateralUsd: 48_500, borrowUsd: 0 },
+  { protocol: "aave_v3", score: [48, 75], hf: [1.34, 1.05], collateralUsd: 128_500, borrowUsd: 105_200 },
   { protocol: "moonwell", score: [34, 52], hf: [1.62, 1.2], collateralUsd: 84_200, borrowUsd: 56_800 },
-  { protocol: "morpho", score: [48, 75], hf: [1.34, 1.05], collateralUsd: 128_500, borrowUsd: 105_200 },
+  // Supply-only: no debt, so no health factor and no HF-driven collateral
+  // drift. Its score moves on asset and protocol risk alone.
+  { protocol: "morpho", score: [11, 15], hf: null, collateralUsd: 48_500, borrowUsd: 0 },
   // Degraded feed. The health factor is a ratio and stays exact; the dollars are
   // NULL, which is the row scripts/watch-worker.ts actually inserts when
   // `usdValuesUnavailable` is set (it passes collateralValueUsd straight
@@ -385,21 +403,26 @@ type AlertRow = readonly [
   channel: string | null,
 ];
 
+// Each row is READ OFF the snapshot series above, not invented beside it: the
+// score is that leg's score on that day and the status change is one the series
+// actually makes (score >= 50 outside, >= 40 approaching, else within). An alert
+// log that disagrees with the chart under it is two cards stating one history
+// two ways, which is the failure the aggregate/chart guard below exists to stop.
 const ALERT_ROWS: readonly AlertRow[] = [
-  [2, "moonwell", 51, "HIGH", "approaching", "outside", null], // queued: no Telegram in mock mode
-  [4, "morpho", 61, "HIGH", "approaching", "outside", "telegram"],
-  [11, "morpho", 44, "ELEVATED", "within", "approaching", "telegram"],
+  [2, "aave_v3", 76, "CRITICAL", "outside", "outside", null], // queued: no Telegram in mock mode
+  [3, "moonwell", 50, "HIGH", "approaching", "outside", "telegram"],
+  [5, "compound_v3", 39, "ELEVATED", "approaching", "within", "telegram"],
+  [6, "moonwell", 49, "ELEVATED", "outside", "approaching", "telegram"],
+  [7, "moonwell", 51, "HIGH", "approaching", "outside", "telegram"],
+  [8, "compound_v3", 42, "ELEVATED", "within", "approaching", "telegram"],
+  [11, "compound_v3", 37, "ELEVATED", "approaching", "within", "suppressed_cooldown"],
   [13, "compound_v3", 41, "ELEVATED", "within", "approaching", "telegram"],
-  [14, "moonwell", 38, "ELEVATED", "outside", "approaching", "telegram"],
-  [16, "moonwell", 55, "HIGH", "approaching", "outside", "telegram"],
-  [18, "morpho", 78, "CRITICAL", "outside", "outside", "telegram"],
-  [19, "aave_v3", 27, "ELEVATED", "within", "approaching", "suppressed_immaterial"],
-  [21, "compound_v3", 33, "ELEVATED", "approaching", "within", "telegram"],
-  [24, "morpho", 52, "HIGH", "approaching", "outside", "suppressed_cooldown"],
-  [27, "moonwell", 22, "LOW", "approaching", "within", "telegram"],
+  [16, "moonwell", 39, "ELEVATED", "approaching", "within", "suppressed_immaterial"],
+  [20, "moonwell", 40, "ELEVATED", "within", "approaching", "telegram"],
+  [26, "aave_v3", 50, "HIGH", "approaching", "outside", "telegram"],
   // The oldest row, and the only one with no prior status: the first reading
   // this wallet ever produced for that protocol.
-  [29, "aave_v3", 16, "LOW", null, "within", "telegram"],
+  [29, "morpho", 12, "LOW", null, "within", "telegram"],
 ];
 
 export function mockHistory(now = Date.now()): { alerts: HistoryAlert[]; snapshots: HistorySnapshot[] } {
@@ -521,7 +544,7 @@ const numbersOf = (p: LiveWalletPosition): AdvisorRecommendation["numbers"] => (
   scoredCollateralSymbol: p.scoredCollateralSymbol,
 });
 
-const [SUPPLY_ONLY, LEVERED_WETH, CRITICAL_BTC, DEGRADED] = MOCK_POSITIONS;
+const [CRITICAL_BTC, LEVERED_WETH, SUPPLY_ONLY, DEGRADED] = MOCK_POSITIONS;
 
 /** repayToTargetHf(56800, 1.20, 1.75) — moderate targets HF 1.75. */
 const MOONWELL_REPAY_USD = 17_851.43;
@@ -550,27 +573,30 @@ const MOONWELL_COLLATERAL_REPAY_FRACTION = 0.585106;
 
 const RECOMMENDATIONS: AdvisorRecommendation[] = [
   {
-    protocol: "morpho",
+    protocol: "aave_v3",
     wallet: MOCK_WALLET,
     action: "EXIT",
     urgency: "critical",
     triggers: ["band:CRITICAL", "profile:outside", "floor:hf<=1.1"],
     sections: {
       position:
-        "Your Morpho position holds $128,500 collateral against $105,200 debt (health factor 1.05, PANIK score 75 - CRITICAL). A 4.8% cbBTC price drop would trigger liquidation.",
+        "Your Aave V3 position holds $128,500 collateral against $105,200 debt (health factor 1.05, PANIK score 75 - CRITICAL). A 4.8% cbBTC price drop would trigger liquidation.",
       market: "The score is being driven by position health (95/100).",
       recommendation:
-        "Exit this Morpho position in full. The risk level no longer fits any profile band worth holding through.",
+        "Exit this Aave V3 position in full. The risk level no longer fits any profile band worth holding through.",
       execution:
-        "The Exit button pre-selects this Morpho position for a single atomic transaction you sign yourself - debt repaid, collateral withdrawn, proceeds returned as USDC.",
+        "The Exit button pre-selects this Aave V3 position for a single atomic transaction you sign yourself - debt repaid, collateral withdrawn, proceeds returned as USDC.",
     },
     numbers: numbersOf(CRITICAL_BTC),
-    // Narrated, so the AI-label block is reachable in dev:mock — and CRITICAL,
-    // so the verdict above is the one sentence a narrated leg still gets from
-    // the engine (the template slot in AdvisorNarrator). The card should show
-    // the lead unlabelled and the label only inside "Why this".
+    // Narrated, so the "wording by AI" marker is reachable in dev:mock — and
+    // CRITICAL, so the verdict above is the one sentence a narrated leg still
+    // gets from the engine (the template slot in AdvisorNarrator). The card
+    // should read "wording by the engine" on its lead and "wording by AI"
+    // inside "Why this", which is the whole point of labelling both states.
     narrationSource: "narrated",
-    exitPrefill: { protocol: "morpho", kind: "full" },
+    // Aave V3 is the one protocol `EXECUTABLE_PROTOCOLS.testnet` names, so this
+    // is the prefill the demo's Execute exit button opens a real flow with.
+    exitPrefill: { protocol: "aave_v3", kind: "full" },
   },
   {
     protocol: "moonwell",
@@ -647,16 +673,17 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
     numbers: numbersOf(DEGRADED),
   },
   {
-    protocol: "aave_v3",
+    protocol: "morpho",
     wallet: MOCK_WALLET,
     action: "HOLD",
     urgency: "info",
-    triggers: ["band:LOW", "profile:within", "debt:none"],
+    triggers: ["band:LOW", "profile:within", "debt:none", "market:unavailable"],
     sections: {
       position:
-        "Your Aave V3 position holds $48,500 collateral against $0 debt (health factor no debt, PANIK score 19 - LOW). No debt, so no liquidation risk.",
-      market: "The score is being driven by asset volatility risk (44/100).",
-      recommendation: "Hold. This Aave V3 position sits comfortably within your risk profile.",
+        "Your Morpho position holds $48,500 collateral against $0 debt (health factor no debt, PANIK score 15 - LOW). No debt, so no liquidation risk.",
+      market:
+        "The score is being driven by protocol safety (52/100). Market-wide data could not be read for this leg, so the score is weighted over what was measured.",
+      recommendation: "Hold. This Morpho position sits comfortably within your risk profile.",
       execution: "No transaction needed.",
     },
     numbers: numbersOf(SUPPLY_ONLY),
@@ -763,7 +790,7 @@ export function mockAdvisor(profile: string, now = Date.now()): AdvisorReport {
       action: "EXIT",
       urgency: "critical",
       headline:
-        "Critical risk: exit recommended on Morpho. Prices degraded on Compound V3 - position sizes unverified.",
+        "Critical risk: exit recommended on Aave V3. Prices degraded on Compound V3 - position sizes unverified.",
     },
     recommendations: RECOMMENDATIONS,
     opportunities: OPPORTUNITIES,
