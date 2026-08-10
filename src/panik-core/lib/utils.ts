@@ -359,11 +359,42 @@ export function liquidationOutlook(
   };
 }
 
+/**
+ * A PRICE or a dollar amount, with whole dollars at portfolio scale and enough
+ * decimals at token-price scale that the figure is still true.
+ *
+ * `maximumFractionDigits: 0` on its own printed a $0.45 black-swan price as
+ * "$0", which is the "never render an unknown value as a zero" rule failing in
+ * the other direction: not an unknown dressed as zero, but a real, non-zero
+ * number erased into one. A stablecoin market prices everything under a dollar,
+ * so that branch is the common case there rather than an edge.
+ *
+ * The decimal count is derived from the magnitude, so nothing the simulator can
+ * produce rounds away. Cents below $10, because that band is entirely
+ * stablecoin prices and a $1.30 ceiling printed as "$1" is the same erasure one
+ * digit up; more digits still under $1, as far as four. Whole dollars from $10,
+ * where a decimal is noise on a portfolio figure and every call site is an
+ * amount rather than a price.
+ *
+ * Four decimals is the floor, and below it the answer is a bound rather than a
+ * rounded-down "$0" - the same reason `formatUsd` returns "$…" for an unknown.
+ * A hundredth of a cent is already past anything this product prices.
+ */
 export function formatCurrency(value: number): string {
+  if (!Number.isFinite(value)) return "$…";
+  const abs = Math.abs(value);
+  if (abs > 0 && abs < 5e-5) return `${value < 0 ? "-" : ""}<$0.0001`;
+  const maximumFractionDigits =
+    abs === 0 || abs >= 10
+      ? 0
+      : abs >= 1
+        ? 2
+        : Math.min(4, Math.max(2, Math.ceil(-Math.log10(abs)) + 1));
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 0
+    minimumFractionDigits: Math.min(2, maximumFractionDigits),
+    maximumFractionDigits,
   }).format(value);
 }
 
