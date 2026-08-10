@@ -691,6 +691,57 @@ function OpportunityCard({
   );
 }
 
+/**
+ * How many opportunities the Advisor shows before handing off to Compass.
+ *
+ * This section is a PREVIEW, not an index. Compass is the screen that exists to
+ * list and compare every market the engine scores; the Advisor's job here is to
+ * say "there is something for you over there", which two cards do as well as
+ * five and without turning the answer to "what do I do about my positions" into
+ * a shopping page.
+ */
+const OPPORTUNITY_PREVIEW = 2;
+
+/**
+ * Activate the Compass tab.
+ *
+ * `setActiveTab` lives in AppDemo and this panel is not handed it. What the app
+ * DOES publish is its ARIA tablist contract: exactly one tablist is mounted at a
+ * time (a `matchMedia` hook, not a CSS hide, precisely so the ids are unique)
+ * and each tab button carries a stable `tab-<id>` that every panel already
+ * depends on through `aria-labelledby`. Driving that button is the same thing a
+ * user clicking the rail does, focus move included, rather than a second private
+ * channel into the shell. Threading a real `onNavigate` prop is the cleaner
+ * shape and is a follow-up: it needs an edit in AppDemo.
+ */
+function openCompassTab() {
+  const tab = document.getElementById("tab-compass");
+  tab?.focus();
+  tab?.click();
+}
+
+/**
+ * The handoff, as the last card in the preview grid.
+ *
+ * A real `<button>`, so it has a role, a focus ring from the one global
+ * `:focus-visible` rule, and a 24px+ target. The dashed edge is the idiom
+ * `RISK_CHIP.UNKNOWN` already established for "this is not one of the filled
+ * things beside it", on `border-strong` because this edge is functional rather
+ * than decorative and has to hold 3:1.
+ */
+function SeeAllInCompass() {
+  return (
+    <button
+      type="button"
+      onClick={openCompassTab}
+      className="flex h-full min-h-32 w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border-strong p-4 text-sm font-sans font-semibold text-text-secondary transition-colors hover:bg-white/[0.02] hover:text-text-primary"
+    >
+      <Compass className="h-5 w-5 shrink-0" aria-hidden="true" />
+      See all in Compass
+    </button>
+  );
+}
+
 export interface AdvisorPanelProps {
   report: AdvisorReport;
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
@@ -785,13 +836,14 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
               the sidebar has already taken 256px, so three of these cards got
               ~137px each and every title ellipsised to a couple of letters. */}
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {opportunities.map((rec) => (
+            {opportunities.slice(0, OPPORTUNITY_PREVIEW).map((rec) => (
               <OpportunityCard
                 key={`${rec.protocol}-${rec.openPlan?.collateralSymbol}`}
                 rec={rec}
                 onOpen={onOpen}
               />
             ))}
+            <SeeAllInCompass />
           </div>
         </div>
       ) : null}
