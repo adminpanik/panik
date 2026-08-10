@@ -401,6 +401,9 @@ async function signedRow(over: Partial<ExitPermit> = {}, signWith = user): Promi
     chainId: EXIT_CHAIN_ID,
     executor: EXECUTOR_ADDRESS,
     revocationTx: null,
+    // A freshly generated fork key is a plain EOA: no code, so no ERC-1271.
+    signerHadCode: false,
+    signerCodeHash: null,
   };
 }
 

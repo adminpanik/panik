@@ -34,6 +34,7 @@ import {
   verifyPermitSignature,
   type ExitPermit,
 } from "./exitPermit";
+import { checkSignerCode, type SignerCodeCheck } from "./exit7702";
 import type { ExitChainReader } from "./exitChain";
 import type { DelegationRow, DelegationStatus, DelegationStore } from "./exitDelegationStore";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
@@ -94,7 +95,7 @@ export function resolveLiveStatus(
 }
 
 /** A row plus the status the chain actually implies for it right now. */
-interface ReconciledRow {
+export interface ReconciledRow {
   row: DelegationRow;
   status: DelegationStatus;
 }
@@ -103,8 +104,14 @@ interface ReconciledRow {
  * Read every active row for a user, resolve each against live chain state, and
  * lazily persist the ones the chain has since killed (best-effort — a failed
  * write never corrupts the response, because the status was computed live).
+ *
+ * Exported for the Phase 4.B coverage sweep, which needs BOTH sides of the
+ * comparison: the rows the database still calls active (what a UI would have
+ * shown as coverage) and the status the chain actually implies. `liveDelegationsFor`
+ * throws the first half away, which is precisely the half a "believes protected
+ * but isn't" detector is looking for.
  */
-async function reconcile(user: `0x${string}`, deps: DelegationDeps): Promise<ReconciledRow[]> {
+export async function reconcile(user: `0x${string}`, deps: DelegationDeps): Promise<ReconciledRow[]> {
   const chainId = chainOf(deps);
   const executor = executorOf(deps);
   const nowSec = nowSecOf(deps);
@@ -141,8 +148,10 @@ async function reconcile(user: `0x${string}`, deps: DelegationDeps): Promise<Rec
  *
  * Rejects, mirroring exactly what the contract would reject, so no unusable row
  * is ever stored: bad shape (400), signature not recovering to permit.user
- * (401), scope the contract's _validatePermitScope would revert (400), and a
- * permit already dead on-chain — wrong epoch or a spent nonce (409).
+ * (401), a signer carrying code whose ERC-1271 implementation refuses the
+ * permit (400 — see server/exit7702.ts), scope the contract's
+ * _validatePermitScope would revert (400), and a permit already dead on-chain —
+ * wrong epoch or a spent nonce (409).
  */
 export async function submitDelegation(body: unknown, deps: DelegationDeps): Promise<HandlerResult> {
   const parsed = parsePermitBody(body);
@@ -157,8 +166,29 @@ export async function submitDelegation(body: unknown, deps: DelegationDeps): Pro
 
   // The trust check: a signature recovering to permit.user, on the executor's
   // own domain (chainId + verifyingContract). Address format is not authorization.
-  const signerOk = await verifyPermitSignature(permit, signature, { chainId, verifyingContract: executor });
-  if (!signerOk) return { status: 401, body: { error: "signature does not recover to permit.user" } };
+  const domain = { chainId, verifyingContract: executor };
+  const ecdsaValid = await verifyPermitSignature(permit, signature, domain);
+
+  // EIP-7702 GRANT-TIME GATE (Issue #41, layer 2). A signer address that
+  // carries code makes the executor take its ERC-1271 branch, and a valid
+  // ECDSA signature is then irrelevant. Verify the permit THE WAY THE CONTRACT
+  // WILL and refuse to store one it would reject, so the failure lands here,
+  // while the user is present and can act, rather than during a liquidation.
+  // A read failure is not a pass: unknown is not permission to sell coverage.
+  let codeCheck: SignerCodeCheck;
+  try {
+    codeCheck = await checkSignerCode(permit, signature, ecdsaValid, deps.chain, domain);
+  } catch (err) {
+    console.error(`signer code check failed: ${(err as Error).message}`);
+    return { status: 503, body: { error: "could not verify the signer's on-chain code" } };
+  }
+  if (!codeCheck.ok) {
+    // 401 keeps the existing contract for a plain bad signature; a permit the
+    // signer's own code refuses is a 400, because the request is well-formed
+    // and correctly signed and is still one the executor will not honour.
+    const status = codeCheck.state.hasCode ? 400 : 401;
+    return { status, body: { error: codeCheck.error } };
+  }
 
   // Scope, against the executor's live immutable ceiling.
   let ceiling: number;
@@ -191,7 +221,18 @@ export async function submitDelegation(body: unknown, deps: DelegationDeps): Pro
 
   let created: boolean;
   try {
-    created = await deps.store.insert({ permit, signature, chainId, executor });
+    created = await deps.store.insert({
+      permit,
+      signature,
+      chainId,
+      executor,
+      // The 7702 BASELINE. Recorded here and nowhere else, because this is the
+      // only moment the backend knows what the signer looked like when the
+      // permit was verified. Without it, layer 3 cannot tell "had a smart
+      // account all along" from "installed a delegate afterwards".
+      signerHadCode: codeCheck.state.hasCode,
+      signerCodeHash: codeCheck.state.codeHash,
+    });
   } catch (err) {
     console.error(`delegation insert failed: ${(err as Error).message}`);
     return { status: 502, body: { error: "could not store delegation" } };

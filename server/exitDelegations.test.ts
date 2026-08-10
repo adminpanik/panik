@@ -81,6 +81,8 @@ class FakeStore implements DelegationStore {
       chainId: row.chainId,
       executor: row.executor.toLowerCase() as `0x${string}`,
       revocationTx: null,
+      signerHadCode: row.signerHadCode ?? null,
+      signerCodeHash: row.signerCodeHash ?? null,
     });
     return true;
   }
@@ -110,6 +112,17 @@ class FakeChain implements ExitChainReader {
   usedNonces = new Set<string>();
   ceiling = 2_000;
   receipts = new Map<string, TxReceiptInfo>();
+  /** Signer code, keyed by lowercased address. Empty = a plain EOA. */
+  code = new Map<string, `0x${string}`>();
+  /** What ERC-1271 returns for a coded signer; null = reverted / no function. */
+  erc1271: `0x${string}` | null = null;
+
+  async codeAt(address: `0x${string}`): Promise<`0x${string}`> {
+    return this.code.get(address.toLowerCase()) ?? "0x";
+  }
+  async isValidSignature(): Promise<`0x${string}` | null> {
+    return this.erc1271;
+  }
 
   async revocationEpoch(): Promise<bigint> {
     return this.epoch;
@@ -213,6 +226,8 @@ describe("resolveLiveStatus", () => {
     chainId: EXIT_CHAIN_ID,
     executor: EXECUTOR_ADDRESS,
     revocationTx: null,
+    signerHadCode: false,
+    signerCodeHash: null,
   });
 
   it("is expired when the deadline has passed, regardless of chain", () => {

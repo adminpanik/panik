@@ -17,6 +17,17 @@
  *      off, and off means the loop still evaluates and simulates every
  *      candidate and logs what it WOULD have done, so the decision can be
  *      watched against real positions long before anyone arms it.
+ *   4. Monitor loop @5min (Phase 4.B) is the loop that watches the PROMISE
+ *      rather than a component: RPC health across two providers, relayer
+ *      balance against the burst its own caps allow, the coverage sweep (would
+ *      the exit actually execute?), Telegram reachability, and the heartbeat
+ *      staleness of the other loops. See server/monitorAlerts.ts.
+ *
+ * EVERY LOOP PINGS A HEARTBEAT on completion. The absence of a ping past one
+ * expected cycle is itself a page (server/workerHeartbeat.ts), because a worker
+ * that dies or hangs silences every other alert at once and silence is
+ * indistinguishable from health. The row lives in Postgres so the API process —
+ * deployed separately, with its own lifecycle — can be the one that notices.
  *
  * NOTE THE TWO CHAINS. Loops 1-2 score Base MAINNET. Loop 3 executes on the
  * EXECUTOR's chain (Base Sepolia today, from EXIT_CHAIN_ID) because that is
@@ -42,6 +53,7 @@ import {
   WatchService,
   decideSend,
   formatAlert,
+  statusFor,
   type ActiveScore,
   type ProfileStatus,
   type Protocol,
@@ -50,7 +62,28 @@ import {
   type WatchTransition,
 } from "../packages/scoring/src/index";
 import { transactionPoolerUrl } from "../server/profileDeps";
-import { sendMessage } from "../server/telegram";
+import { probeReachable, sendMessage } from "../server/telegram";
+import {
+  AlertDispatcher,
+  MemoryAlertLedger,
+  SupabaseAlertLedger,
+  operatorLogSink,
+  operatorWebhookSink,
+  type AlertLedger,
+  type AlertSink,
+  type MonitorAlert,
+} from "../server/monitorAlerts";
+import {
+  MemoryHeartbeatStore,
+  SupabaseHeartbeatStore,
+  heartbeatAlerts,
+  type HeartbeatStore,
+} from "../server/workerHeartbeat";
+import { assessRpc, endpointsForChain, sampleAll } from "../server/rpcHealth";
+import { RelayerWatch, balanceAlerts, type SignerBalance } from "../server/relayerHealth";
+import { sweepCoverage, type SweepTarget } from "../server/coverageSweep";
+import { ViemCoverageChain, coverageMarketsFromEnv } from "../server/coverageChain";
+import { linkState, probeDue, unreachableAlert } from "../server/telegramReach";
 import { ViemExitChainReader } from "../server/exitChain";
 import { SupabaseDelegationStore } from "../server/exitDelegationStore";
 import { SupabaseRelayerAttemptStore, MemoryRelayerAttemptStore } from "../server/relayerAttemptStore";
@@ -88,6 +121,14 @@ const DISPATCH_MS = 15_000;
 const RELAYER_MS = 30_000;
 const SNAPSHOT_HEARTBEAT_MS = 15 * 60_000;
 const WALLET_RELOAD_EVERY_TICKS = 5;
+/**
+ * Monitor cadence (Phase 4.B). Five minutes, not sixty seconds: the sweep does
+ * O(wallets x reserves) RPC reads, and none of the conditions it looks for
+ * (a revoked approval, an installed 7702 delegate, an expiring permit) appear
+ * and disappear inside a minute. Fast enough to bound how long a silent gap can
+ * stand, slow enough not to be its own load problem.
+ */
+const MONITOR_MS = 5 * 60_000;
 
 // ── chain + scoring adapter (same construction as scripts/api-server.ts) ────
 const rawClient = createPublicClient({
@@ -357,9 +398,14 @@ async function dispatchPending(): Promise<void> {
     const result = await sendMessage(botToken!, Number(r.chat_id), text);
     if (result.ok) {
       await stamp(r.id, "telegram");
+      // PROOF OF REACHABILITY. A delivery Telegram accepted is the strongest
+      // evidence the bot can still reach this user, and stamping it here is
+      // what lets the status API stop claiming coverage it has not verified in
+      // a week (server/telegramReach.ts).
+      await recordDelivery(Number(r.chat_id), true, false);
     } else if (result.errorCode === 403) {
       // User blocked the bot / deleted the chat: terminal. Disable + stop retrying.
-      await db.query("update public.telegram_links set enabled = false, updated_at = now() where chat_id = $1", [r.chat_id]);
+      await recordDelivery(Number(r.chat_id), false, true);
       await stamp(r.id, "blocked");
       console.error(`telegram 403 for chat ${r.chat_id}; link disabled`);
     } else {
@@ -368,6 +414,172 @@ async function dispatchPending(): Promise<void> {
     }
   }
 }
+
+// ── monitoring core (Phase 4.B) ──────────────────────────────────────────────
+//
+// Declared BEFORE the relayer so the relayer's event sink can be wired through
+// `relayerWatch`: 4.A already emits a named event for every submission, failure
+// and skip, and 4.B's job is to consume those, not to re-derive them.
+//
+// DELIVERY. Two operator channels, both optional, plus one that is always on:
+//
+//   * `operatorLogSink` — a single JSON line per alert on stderr. Never
+//     disabled. The log drain is the one path that cannot itself be down, and
+//     it is what a log-based monitor keys on.
+//   * `MONITOR_OPERATOR_WEBHOOK_URL` — generic JSON POST; the body carries both
+//     a rendered `text` (so a Slack/Discord incoming webhook works untouched)
+//     and the structured alert.
+//   * `MONITOR_OPERATOR_TELEGRAM_CHAT_ID` — pages an operator chat through the
+//     bot this worker already holds a token for. No new infrastructure.
+//
+// USER-FACING alerts (an expiring permit, a coverage gap the user can fix) ride
+// the EXISTING Telegram path: same bot, same links table, same 403 handling.
+// They are gated by the same ledger, so a standing condition prompts a user
+// once per window rather than once per five-minute tick.
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY;
+
+/**
+ * The gate is DURABLE when Supabase is configured and in-memory otherwise.
+ *
+ * The fallback is honest but weaker and says so: an in-memory gate means a
+ * crash-loop re-fires every standing condition, which is the spam failure the
+ * durable ledger exists to prevent. It is still better than no gate.
+ */
+const alertLedger: AlertLedger =
+  SUPABASE_URL && SUPABASE_KEY
+    ? new SupabaseAlertLedger(SUPABASE_URL, SUPABASE_KEY)
+    : new MemoryAlertLedger();
+const heartbeats: HeartbeatStore =
+  SUPABASE_URL && SUPABASE_KEY
+    ? new SupabaseHeartbeatStore(SUPABASE_URL, SUPABASE_KEY)
+    : new MemoryHeartbeatStore();
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error(
+    "monitoring degraded: SUPABASE_URL / SUPABASE_SECRET_KEY missing, so the alert gate and the " +
+      "heartbeat are process-local — a crash re-fires every standing alert and no other process " +
+      "can observe this worker's death",
+  );
+}
+
+const operatorChatId = process.env.MONITOR_OPERATOR_TELEGRAM_CHAT_ID;
+const operatorWebhook = process.env.MONITOR_OPERATOR_WEBHOOK_URL;
+
+const alertSinks: AlertSink[] = [operatorLogSink];
+if (operatorWebhook && operatorWebhook.trim()) {
+  alertSinks.push(operatorWebhookSink(operatorWebhook.trim()));
+}
+if (operatorChatId && /^-?\d+$/.test(operatorChatId.trim())) {
+  const chat = Number(operatorChatId.trim());
+  alertSinks.push(async (alert) => {
+    await sendMessage(botToken!, chat, formatOperatorMessage(alert));
+  });
+}
+
+/**
+ * How often the same standing condition may reach a USER.
+ *
+ * Once a day, deliberately slower than the operator cadence. An operator who
+ * gets an hourly reminder about a broken approval is being kept honest; a user
+ * who gets one is being harassed into muting the bot that is supposed to warn
+ * them about a liquidation. The gate is the same ledger, under a `user:` key
+ * prefix, so the two cadences cannot interfere with each other.
+ */
+const USER_ALERT_REPEAT_MS = 24 * 3_600_000;
+
+/**
+ * The USER sink. Only alerts carrying a `userMessage` and a wallet reach a
+ * user, and only through the wallet's own enabled link — an operator alert must
+ * never leak to a customer, and a user must never be told about a wallet that
+ * is not theirs.
+ */
+const userSink: AlertSink = async (alert) => {
+  if (!alert.userMessage || !alert.wallet) return;
+
+  const allowed = await alertLedger
+    .claim({ ...alert, key: `user:${alert.key}` }, USER_ALERT_REPEAT_MS, Date.now())
+    // A ledger outage fails open for the operator (a missed page is the worse
+    // failure) and CLOSED for the user, where the worse failure is a message
+    // every five minutes.
+    .catch(() => false);
+  if (!allowed) return;
+
+  const { rows } = await db.query<{ chat_id: string }>(
+    "select chat_id from public.telegram_links where wallet = $1 and enabled",
+    [alert.wallet.toLowerCase()],
+  );
+  const chatId = rows[0]?.chat_id;
+  if (!chatId) return;
+  const result = await sendMessage(botToken!, Number(chatId), alert.userMessage);
+  if (result.ok) {
+    await recordDelivery(Number(chatId), true, false);
+  } else if (result.errorCode === 403) {
+    await recordDelivery(Number(chatId), false, true);
+  }
+};
+alertSinks.push(userSink);
+
+const alerts = new AlertDispatcher(alertLedger, alertSinks);
+const relayerWatch = new RelayerWatch();
+
+function formatOperatorMessage(alert: MonitorAlert): string {
+  const lines = [`[${alert.severity.toUpperCase()}] ${alert.kind}`, alert.summary];
+  if (alert.wallet) lines.push(`wallet: ${alert.wallet}`);
+  return lines.join("\n").slice(0, 3_500);
+}
+
+/** Fire and forget, but never silently: a failed page is itself an incident. */
+function raise(list: readonly MonitorAlert[]): void {
+  if (list.length === 0) return;
+  void alerts
+    .dispatch(list)
+    .catch((err) => console.error(`alert dispatch failed: ${(err as Error).message.slice(0, 160)}`));
+}
+
+/**
+ * Record what Telegram told us about a chat.
+ *
+ * `blocked` is set ONLY on a 403, so `unreachable_since` means "Telegram said
+ * we are blocked" and never "we have not heard from them lately". Those are
+ * different facts with different alert severities, and conflating them is how
+ * the old `enabled` flag ended up lying.
+ */
+async function recordDelivery(chatId: number, ok: boolean, blocked: boolean): Promise<void> {
+  try {
+    await db.query(
+      `update public.telegram_links
+          set last_delivered_at   = case when $2 then now() else last_delivered_at end,
+              unreachable_since   = case when $3 then now()
+                                         when $2 then null
+                                         else unreachable_since end,
+              enabled             = case when $3 then false else enabled end,
+              updated_at          = now()
+        where chat_id = $1`,
+      [chatId, ok, blocked],
+    );
+  } catch (err) {
+    console.error(`reachability stamp failed for chat ${chatId}: ${(err as Error).message.slice(0, 120)}`);
+  }
+}
+
+/** Ping a loop's heartbeat. Never throws: a failed ping must not kill a loop. */
+async function beat(loop: string, intervalMs: number): Promise<void> {
+  try {
+    await heartbeats.ping(loop, intervalMs, Date.now());
+  } catch (err) {
+    console.error(`heartbeat ping (${loop}) failed: ${(err as Error).message.slice(0, 120)}`);
+  }
+}
+
+/** The loops whose absence is a page. Adding a loop means adding it here. */
+const EXPECTED_LOOPS = ["watch", "dispatch", "monitor"] as const;
+const LOOP_INTERVALS: Record<string, number> = {
+  watch: TICK_MS,
+  dispatch: DISPATCH_MS,
+  monitor: MONITOR_MS,
+};
+const BOOTED_AT = Date.now();
 
 // ── relayer loop (Phase 4.A) ─────────────────────────────────────────────────
 //
@@ -431,7 +643,14 @@ function buildRelayerDeps(): RelayerDeps | null {
     pool,
     limits: limitsFromEnv(),
     hourly: new SubmissionRateWindow(),
-    emit: consoleEventSink,
+    // 4.A's structured events go to stdout exactly as before AND through the
+    // 4.B observer, which turns a failure into a page and a permit that keeps
+    // being skipped for the same reason into one too. The relayer is unaware of
+    // either — it emits facts, this decides what is worth waking someone for.
+    emit: (event) => {
+      consoleEventSink(event);
+      raise(relayerWatch.observe(event, Date.now()));
+    },
     enabled,
     executor: EXECUTOR_ADDRESS,
     expectedChainId: EXIT_CHAIN_ID,
@@ -474,6 +693,206 @@ async function runRelayer(): Promise<void> {
   }
 }
 
+// ── monitor loop (Phase 4.B) ─────────────────────────────────────────────────
+
+const coverageMarkets = coverageMarketsFromEnv();
+const coverageChain = new ViemCoverageChain({
+  rpcUrl: relayerRpcUrl(),
+  chainId: EXIT_CHAIN_ID,
+  reserves: coverageMarkets.aaveReserves,
+});
+
+/**
+ * The wallets to sweep, with the ONE fact that drives severity: is anything
+ * wrong right now?
+ *
+ * `atRisk` comes from the engine's own `statusFor` over the engine's own score,
+ * not from a threshold invented here. A broken approval on a healthy position
+ * is a warning worth fixing this week; the same break on a position the watcher
+ * has already flagged is the exact moment the promise fails.
+ */
+function sweepTargets(): SweepTarget[] {
+  const byWallet = new Map<string, { protocols: Set<Protocol>; atRisk: boolean }>();
+  for (const score of lastScored.values()) {
+    const wallet = score.wallet.toLowerCase();
+    const profile = profileByWallet.get(wallet);
+    // A wallet that has dropped out of the registry is no longer monitored, and
+    // sweeping it would page about coverage nobody is watching.
+    if (!profile) continue;
+    const entry = byWallet.get(wallet) ?? { protocols: new Set<Protocol>(), atRisk: false };
+    entry.protocols.add(score.protocol);
+    if (statusFor(profile, score.total) !== "within") entry.atRisk = true;
+    byWallet.set(wallet, entry);
+  }
+  return [...byWallet.entries()].map(([wallet, v]) => ({
+    wallet: wallet as `0x${string}`,
+    protocols: [...v.protocols],
+    atRisk: v.atRisk,
+  }));
+}
+
+/** RPC health on BOTH chains: scores read mainnet, the executor is elsewhere. */
+async function checkRpc(nowMs: number): Promise<MonitorAlert[]> {
+  const nowSec = Math.floor(nowMs / 1000);
+  const limits = limitsFromEnv();
+  const out: MonitorAlert[] = [];
+  for (const [chainId, label] of [
+    [base.id, "base-mainnet"],
+    [EXIT_CHAIN_ID, "executor-chain"],
+  ] as const) {
+    const endpoints = endpointsForChain(chainId);
+    if (endpoints.length === 0) continue;
+    const samples = await sampleAll(endpoints);
+    out.push(
+      ...assessRpc(samples, {
+        staleAfterSec: limits.sequencerStaleAfterSec,
+        nowSec,
+        nowMs,
+        chainLabel: label,
+      }),
+    );
+  }
+  return out;
+}
+
+/** Relayer signer balances, against the burst the configured caps allow. */
+async function checkRelayerBalances(nowMs: number): Promise<MonitorAlert[]> {
+  const pool = relayerDeps?.pool;
+  if (!relayerDeps || !pool) return [];
+  const balances: SignerBalance[] = [];
+  for (const signer of pool.all()) {
+    try {
+      balances.push({ address: signer.address, balanceWei: await signer.balance() });
+    } catch (err) {
+      console.error(`signer balance read failed (${signer.label}): ${(err as Error).message.slice(0, 120)}`);
+    }
+  }
+  if (balances.length === 0) return [];
+  // The fee is read LIVE so the threshold tracks a gas spike instead of being
+  // invalidated by one. A failed read falls back to the last known good rather
+  // than to a constant, and with no known good it skips the pool-wide check
+  // entirely — a threshold derived from a made-up gas price is worse than none.
+  let fee: bigint;
+  try {
+    fee = (await relayerDeps.chain.fees()).maxFeePerGas;
+  } catch (err) {
+    console.error(`fee read failed, skipping burst check: ${(err as Error).message.slice(0, 120)}`);
+    return balanceAlerts(balances, relayerDeps.limits, 0n, nowMs).filter(
+      (a) => a.kind !== "relayer.balance_under_burst",
+    );
+  }
+  return balanceAlerts(balances, relayerDeps.limits, fee, nowMs);
+}
+
+/** Telegram reachability: probe stale links, page on unreachable at-risk users. */
+async function checkTelegram(targets: readonly SweepTarget[], nowMs: number): Promise<MonitorAlert[]> {
+  const out: MonitorAlert[] = [];
+  const { rows } = await db.query<{
+    wallet: string;
+    chat_id: string;
+    enabled: boolean;
+    last_delivered_at: Date | null;
+    last_probe_at: Date | null;
+    last_probe_ok: boolean | null;
+    unreachable_since: Date | null;
+  }>(
+    `select wallet, chat_id, enabled, last_delivered_at, last_probe_at, last_probe_ok, unreachable_since
+       from public.telegram_links`,
+  );
+  const atRisk = new Set(targets.filter((t) => t.atRisk).map((t) => t.wallet.toLowerCase()));
+
+  for (const r of rows) {
+    let row = {
+      chatId: Number(r.chat_id),
+      enabled: r.enabled,
+      lastDeliveredAt: r.last_delivered_at?.getTime() ?? null,
+      lastProbeAt: r.last_probe_at?.getTime() ?? null,
+      lastProbeOk: r.last_probe_ok,
+      unreachableSince: r.unreachable_since?.getTime() ?? null,
+    };
+
+    if (probeDue(row, nowMs)) {
+      const result = await probeReachable(botToken!, row.chatId);
+      const blocked = result.errorCode === 403;
+      await db.query(
+        `update public.telegram_links
+            set last_probe_at     = now(),
+                last_probe_ok     = $2,
+                unreachable_since = case when $3 then now() when $2 then null else unreachable_since end,
+                enabled           = case when $3 then false else enabled end,
+                updated_at        = now()
+          where chat_id = $1`,
+        [row.chatId, result.ok, blocked],
+      );
+      row = {
+        ...row,
+        lastProbeAt: nowMs,
+        lastProbeOk: result.ok,
+        unreachableSince: blocked ? nowMs : result.ok ? null : row.unreachableSince,
+        enabled: blocked ? false : row.enabled,
+      };
+    }
+
+    // Only wallets with something to be alerted ABOUT. An unreachable link on a
+    // healthy position is a fact, not an emergency, and paging on all of them
+    // is how a channel earns a mute rule.
+    if (!atRisk.has(r.wallet.toLowerCase())) continue;
+    const alert = unreachableAlert(r.wallet, linkState(row, nowMs), nowMs);
+    if (alert) out.push(alert);
+  }
+  return out;
+}
+
+/**
+ * One monitor pass. Each check is isolated: a failing RPC probe must not stop
+ * the coverage sweep, because the sweep is the check that catches the failure
+ * mode nothing else can see.
+ */
+async function runMonitor(): Promise<void> {
+  const nowMs = Date.now();
+  const targets = sweepTargets();
+
+  const checks: [string, Promise<MonitorAlert[]>][] = [
+    ["rpc", checkRpc(nowMs)],
+    ["relayer balances", checkRelayerBalances(nowMs)],
+    ["telegram", checkTelegram(targets, nowMs)],
+    [
+      "coverage sweep",
+      relayerDeps
+        ? sweepCoverage(targets, {
+            delegations: relayerDeps.delegations,
+            chain: coverageChain,
+            markets: coverageMarkets,
+            executor: EXECUTOR_ADDRESS,
+            nowSec: Math.floor(nowMs / 1000),
+            nowMs,
+          }).then((reports) => reports.flatMap((r) => r.alerts))
+        : Promise.resolve([]),
+    ],
+    [
+      "heartbeat",
+      heartbeats
+        .list()
+        .then((records) =>
+          heartbeatAlerts(records, EXPECTED_LOOPS, nowMs, {
+            bootedAt: BOOTED_AT,
+            expectedIntervalMs: LOOP_INTERVALS,
+          }),
+        ),
+    ],
+  ];
+
+  for (const [label, promise] of checks) {
+    try {
+      raise(await promise);
+    } catch (err) {
+      console.error(`monitor check "${label}" failed: ${(err as Error).message.slice(0, 200)}`);
+    }
+  }
+
+  await beat("monitor", MONITOR_MS);
+}
+
 // ── boot ──────────────────────────────────────────────────────────────────────
 let tickCount = 0;
 
@@ -498,11 +917,21 @@ async function main(): Promise<void> {
       }
     }
     await service.tick();
+    // The heartbeat is pinged AFTER the work, never before: a ping at the top
+    // of a loop asserts "I started", and a loop that hangs mid-tick would keep
+    // asserting health forever. Only completion is evidence.
+    await beat("watch", TICK_MS);
   };
 
   await runTick(); // warm immediately
   setInterval(() => void runTick(), TICK_MS);
-  setInterval(() => void dispatchPending().catch((e) => console.error(`dispatch error: ${(e as Error).message.slice(0, 120)}`)), DISPATCH_MS);
+  setInterval(
+    () =>
+      void dispatchPending()
+        .then(() => beat("dispatch", DISPATCH_MS))
+        .catch((e) => console.error(`dispatch error: ${(e as Error).message.slice(0, 120)}`)),
+    DISPATCH_MS,
+  );
 
   if (relayerDeps) {
     console.log(
@@ -517,6 +946,19 @@ async function main(): Promise<void> {
   } else {
     console.log("relayer loop not started (see the reason logged above)");
   }
+
+  // Monitor loop. Started LAST and run once immediately, so the first pass
+  // happens while the process is demonstrably healthy and establishes the
+  // heartbeat baseline every later absence is measured against.
+  setInterval(
+    () => void runMonitor().catch((e) => console.error(`monitor error: ${(e as Error).message.slice(0, 200)}`)),
+    MONITOR_MS,
+  );
+  void runMonitor().catch((e) => console.error(`monitor error: ${(e as Error).message.slice(0, 200)}`));
+  console.log(
+    `monitor loop @${MONITOR_MS / 60_000}min: operator channels = log` +
+      `${operatorWebhook ? " + webhook" : ""}${operatorChatId ? " + telegram" : ""}`,
+  );
 
   console.log("watch worker running");
 }

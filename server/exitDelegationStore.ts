@@ -20,8 +20,23 @@ import type { ExitPermit } from "./exitPermit";
 /** Lifecycle status. `active` is a claim the on-chain reader can override. */
 export type DelegationStatus = "active" | "revoked" | "expired" | "consumed";
 
+/**
+ * What the signer address looked like WHEN THE PERMIT WAS VERIFIED.
+ *
+ * Recorded so the coverage sweep can detect an EIP-7702 delegate installed
+ * AFTER the grant (Issue #41 layer 3) — a transition no grant-time check can
+ * see. Both fields are null on rows written before the column existed, which
+ * the sweep reports as unverifiable rather than as fine.
+ */
+export interface SignerCodeBaseline {
+  /** Did permit.user carry code at grant time? Null = not recorded. */
+  signerHadCode: boolean | null;
+  /** keccak256 of that code, or null for none / not recorded. */
+  signerCodeHash: string | null;
+}
+
 /** A stored delegation, decoded back into typed fields. */
-export interface DelegationRow {
+export interface DelegationRow extends SignerCodeBaseline {
   id: string;
   createdAt: number;
   permit: ExitPermit;
@@ -38,6 +53,9 @@ export interface DelegationInsert {
   signature: `0x${string}`;
   chainId: number;
   executor: `0x${string}`;
+  /** The signer-code baseline; see SignerCodeBaseline. */
+  signerHadCode?: boolean;
+  signerCodeHash?: string | null;
 }
 
 /** The store contract, injectable so orchestration and tests never hit the API. */
@@ -72,6 +90,8 @@ interface RawRow {
   chain_id: number;
   executor_address: string;
   revocation_tx: string | null;
+  signer_had_code: boolean | null;
+  signer_code_hash: string | null;
 }
 
 function decode(r: RawRow): DelegationRow {
@@ -83,6 +103,11 @@ function decode(r: RawRow): DelegationRow {
     chainId: r.chain_id,
     executor: r.executor_address as `0x${string}`,
     revocationTx: r.revocation_tx,
+    // `?? null` rather than a default of false: a row written before the
+    // column existed genuinely does not know, and "false" would tell the sweep
+    // that an address which has code today must have gained it.
+    signerHadCode: r.signer_had_code ?? null,
+    signerCodeHash: r.signer_code_hash ?? null,
     permit: {
       user: r.user_address as `0x${string}`,
       kind: r.kind,
@@ -146,6 +171,8 @@ export class SupabaseDelegationStore implements DelegationStore {
         status: "active",
         chain_id: row.chainId,
         executor_address: row.executor.toLowerCase(),
+        signer_had_code: row.signerHadCode ?? null,
+        signer_code_hash: row.signerCodeHash ?? null,
       }),
     });
     // 201 created, or 200 with ignore-duplicates when the row already existed.

@@ -28,6 +28,7 @@
 import { createPublicClient, http } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
+import { ERC1271_ABI, type SignerCodeReader } from "./exit7702";
 
 // Widened copy of the generated literal: TS flags `84532 === 8453` as a
 // no-overlap comparison, the same trick src/panik-core/lib/exit.ts uses.
@@ -42,6 +43,7 @@ const EXECUTOR_CHAIN: number = EXIT_CHAIN_ID;
  */
 interface ReadClient {
   readContract(args: unknown): Promise<unknown>;
+  getCode(args: { address: `0x${string}` }): Promise<`0x${string}` | undefined>;
   getTransactionReceipt(args: {
     hash: `0x${string}`;
   }): Promise<{ from: string; to: string | null; status: "success" | "reverted" }>;
@@ -86,7 +88,7 @@ export interface TxReceiptInfo {
  * The chain state a stored permit is checked against. Injectable so the store
  * orchestration and tests never touch a real RPC.
  */
-export interface ExitChainReader {
+export interface ExitChainReader extends SignerCodeReader {
   /** revocationEpoch(user). A permit is orphaned when its epoch != this. */
   revocationEpoch(user: `0x${string}`): Promise<bigint>;
   /** isNonceUsed(user, nonce). True once the nonce bit is spent. */
@@ -166,6 +168,40 @@ export class ViemExitChainReader implements ExitChainReader {
     })) as number | bigint;
     this.slippageCeiling = Number(raw);
     return this.slippageCeiling;
+  }
+
+  /**
+   * eth_getCode. Non-empty means the executor will take its ERC-1271 branch
+   * for this signer (EIP-7702 delegate or a smart account) — see
+   * server/exit7702.ts. viem returns undefined for an empty account; that is
+   * normalized to "0x" so callers have one spelling to test.
+   */
+  async codeAt(address: `0x${string}`): Promise<`0x${string}`> {
+    const code = await this.client.getCode({ address });
+    return code ?? "0x";
+  }
+
+  /**
+   * ERC-1271 isValidSignature. Resolves null when the account has no such
+   * function or the call reverts — the common case for a 7702 delegate, and a
+   * REJECTION rather than an error, because "the account did not say yes" is
+   * exactly the fact the caller needs.
+   */
+  async isValidSignature(
+    account: `0x${string}`,
+    digest: `0x${string}`,
+    signature: `0x${string}`,
+  ): Promise<`0x${string}` | null> {
+    try {
+      return (await this.client.readContract({
+        address: account,
+        abi: ERC1271_ABI,
+        functionName: "isValidSignature",
+        args: [digest, signature],
+      })) as `0x${string}`;
+    } catch {
+      return null;
+    }
   }
 
   async receiptFor(txHash: `0x${string}`): Promise<TxReceiptInfo | null> {

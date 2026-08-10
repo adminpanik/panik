@@ -1,0 +1,267 @@
+/**
+ * viem-backed `CoverageChain` (Phase 4.B) — the only place the coverage sweep
+ * touches an RPC.
+ *
+ * Split from server/coverageSweep.ts for the same reason server/relayerChain.ts
+ * is split from server/exitRelayer.ts: the decision about whether a wallet is
+ * really covered is worth testing exhaustively, and it cannot be if it is
+ * welded to a node.
+ *
+ * Every read here is a view. The sweep NEVER simulates `atomicExitFor` against
+ * a live position, and that is a deliberate limitation rather than an
+ * oversight: a simulation would be the strongest possible proof, but the
+ * trigger has not fired, so the contract's own `_assertTriggerMet` would revert
+ * and the result would say nothing about the approvals. Checking the
+ * authorizations directly answers the question that a pre-trigger simulation
+ * cannot.
+ */
+
+import { createPublicClient, http } from "viem";
+import { base, baseSepolia } from "viem/chains";
+import {
+  EXIT_ADAPTERS,
+  EXIT_CHAIN_ID,
+  EXIT_DATA_PROVIDER_ADDRESS,
+  EXIT_USDC_ADDRESS,
+  EXIT_WETH_ADDRESS,
+} from "../src/panik-core/lib/exit.generated";
+import type { CoverageChain, CoverageMarkets } from "./coverageSweep";
+import type { ExitReserveState } from "../src/panik-core/lib/exitLegs";
+
+const ERC20_ABI = [
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+  { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+] as const;
+
+const DATA_PROVIDER_ABI = [
+  {
+    type: "function",
+    name: "getUserReserveData",
+    stateMutability: "view",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [
+      { name: "currentATokenBalance", type: "uint256" },
+      { name: "currentStableDebt", type: "uint256" },
+      { name: "currentVariableDebt", type: "uint256" },
+      { name: "principalStableDebt", type: "uint256" },
+      { name: "scaledVariableDebt", type: "uint256" },
+      { name: "stableBorrowRate", type: "uint256" },
+      { name: "liquidityRate", type: "uint256" },
+      { name: "stableRateLastUpdated", type: "uint40" },
+      { name: "usageAsCollateralEnabled", type: "bool" },
+    ],
+  },
+  {
+    type: "function",
+    name: "getReserveTokensAddresses",
+    stateMutability: "view",
+    inputs: [{ name: "asset", type: "address" }],
+    outputs: [
+      { name: "aTokenAddress", type: "address" },
+      { name: "stableDebtTokenAddress", type: "address" },
+      { name: "variableDebtTokenAddress", type: "address" },
+    ],
+  },
+] as const;
+
+const COMET_ABI = [
+  {
+    type: "function",
+    name: "isAllowed",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "manager", type: "address" },
+    ],
+    outputs: [{ type: "bool" }],
+  },
+] as const;
+
+const MORPHO_ABI = [
+  {
+    type: "function",
+    name: "isAuthorized",
+    stateMutability: "view",
+    inputs: [
+      { name: "authorizer", type: "address" },
+      { name: "authorized", type: "address" },
+    ],
+    outputs: [{ type: "bool" }],
+  },
+] as const;
+
+/** Narrow client view; viem's generic PublicClient does not typecheck here. */
+interface Client {
+  readContract(args: unknown): Promise<unknown>;
+  getCode(args: { address: `0x${string}` }): Promise<`0x${string}` | undefined>;
+}
+
+function chainFor(chainId: number) {
+  return chainId === base.id ? base : baseSepolia;
+}
+
+export interface CoverageChainConfig {
+  rpcUrl: string;
+  chainId?: number;
+  dataProvider?: `0x${string}`;
+  reserves?: readonly `0x${string}`[];
+}
+
+export class ViemCoverageChain implements CoverageChain {
+  private readonly client: Client;
+  private readonly dataProvider: `0x${string}`;
+  private readonly reserves: readonly `0x${string}`[];
+  /** aToken addresses are immutable per reserve; one read per process. */
+  private readonly aTokens = new Map<string, `0x${string}` | null>();
+  private readonly meta = new Map<string, { symbol: string; decimals: number }>();
+
+  constructor(config: CoverageChainConfig) {
+    this.dataProvider = config.dataProvider ?? EXIT_DATA_PROVIDER_ADDRESS;
+    this.reserves = config.reserves ?? [];
+    this.client = createPublicClient({
+      chain: chainFor(config.chainId ?? EXIT_CHAIN_ID),
+      transport: http(config.rpcUrl),
+    }) as unknown as Client;
+  }
+
+  async codeAt(address: `0x${string}`): Promise<`0x${string}`> {
+    return (await this.client.getCode({ address })) ?? "0x";
+  }
+
+  async allowance(
+    token: `0x${string}`,
+    owner: `0x${string}`,
+    spender: `0x${string}`,
+  ): Promise<bigint> {
+    return (await this.client.readContract({
+      address: token,
+      abi: ERC20_ABI,
+      functionName: "allowance",
+      args: [owner, spender],
+    })) as bigint;
+  }
+
+  async aTokenFor(reserve: `0x${string}`): Promise<`0x${string}` | null> {
+    const cached = this.aTokens.get(reserve.toLowerCase());
+    if (cached !== undefined) return cached;
+    try {
+      const out = (await this.client.readContract({
+        address: this.dataProvider,
+        abi: DATA_PROVIDER_ABI,
+        functionName: "getReserveTokensAddresses",
+        args: [reserve],
+      })) as readonly `0x${string}`[];
+      const aToken = out[0] ?? null;
+      // The zero address means "not a listed reserve", which is a null answer
+      // and not an address to go and read an allowance from.
+      const resolved =
+        aToken && aToken !== "0x0000000000000000000000000000000000000000" ? aToken : null;
+      this.aTokens.set(reserve.toLowerCase(), resolved);
+      return resolved;
+    } catch {
+      // NOT cached: a transient RPC failure must not become a permanent null
+      // that the sweep would keep reporting as unverifiable forever.
+      return null;
+    }
+  }
+
+  private async tokenMeta(token: `0x${string}`): Promise<{ symbol: string; decimals: number }> {
+    const cached = this.meta.get(token.toLowerCase());
+    if (cached) return cached;
+    const [decimals, symbol] = await Promise.all([
+      this.client.readContract({ address: token, abi: ERC20_ABI, functionName: "decimals" }),
+      this.client
+        .readContract({ address: token, abi: ERC20_ABI, functionName: "symbol" })
+        .catch(() => token.slice(0, 8)),
+    ]);
+    const meta = { symbol: String(symbol), decimals: Number(decimals) };
+    this.meta.set(token.toLowerCase(), meta);
+    return meta;
+  }
+
+  async reserveStates(user: `0x${string}`): Promise<ExitReserveState[]> {
+    const out: ExitReserveState[] = [];
+    for (const reserve of this.reserves) {
+      const raw = (await this.client.readContract({
+        address: this.dataProvider,
+        abi: DATA_PROVIDER_ABI,
+        functionName: "getUserReserveData",
+        args: [reserve, user],
+      })) as readonly bigint[];
+      const aBalance = raw[0]!;
+      const debt = raw[1]! + raw[2]!;
+      if (aBalance === 0n && debt === 0n) continue;
+      const { symbol, decimals } = await this.tokenMeta(reserve);
+      out.push({ reserve, symbol, decimals, aBalance, debt });
+    }
+    return out;
+  }
+
+  async cometAllowed(
+    comet: `0x${string}`,
+    owner: `0x${string}`,
+    manager: `0x${string}`,
+  ): Promise<boolean> {
+    return (await this.client.readContract({
+      address: comet,
+      abi: COMET_ABI,
+      functionName: "isAllowed",
+      args: [owner, manager],
+    })) as boolean;
+  }
+
+  async morphoAuthorized(
+    morpho: `0x${string}`,
+    owner: `0x${string}`,
+    authorized: `0x${string}`,
+  ): Promise<boolean> {
+    return (await this.client.readContract({
+      address: morpho,
+      abi: MORPHO_ABI,
+      functionName: "isAuthorized",
+      args: [owner, authorized],
+    })) as boolean;
+  }
+}
+
+/** Parse a comma-separated env var into checksum-free 0x addresses. */
+function addressList(raw: string | undefined): `0x${string}`[] {
+  return (raw ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => /^0x[0-9a-f]{40}$/.test(s)) as `0x${string}`[];
+}
+
+/**
+ * The market set the sweep can verify, from env + the generated deploy config.
+ *
+ * The adapters come from `exit.generated.ts` because they are the addresses the
+ * DEPLOYED executor actually calls; a hand-typed adapter address would make the
+ * sweep check an authorization nobody needs. The market lists have no such
+ * source — Comet markets and Morpho are per-deployment — so they are env-driven,
+ * and an unset one leaves that protocol UNVERIFIABLE rather than assumed fine.
+ */
+export function coverageMarketsFromEnv(env: NodeJS.ProcessEnv = process.env): CoverageMarkets {
+  const aave = addressList(env.RELAYER_RESERVES);
+  return {
+    aaveReserves: aave.length > 0 ? aave : [EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS],
+    comets: addressList(env.COVERAGE_COMET_MARKETS),
+    compoundAdapter: EXIT_ADAPTERS.compound,
+    morpho: addressList(env.COVERAGE_MORPHO_ADDRESS)[0] ?? null,
+    morphoAdapter: EXIT_ADAPTERS.morpho,
+    mTokens: addressList(env.COVERAGE_MOONWELL_MTOKENS),
+  };
+}
