@@ -26,7 +26,7 @@ export default defineConfig(({mode}) => {
               req.url = '/app.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
             } else if (url === '/try') {
               req.url = '/try.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
-            } else if (url === '/admin-neithan') {
+            } else if (url === '/admin' || url === '/admin-neithan') {
               req.url = '/admin.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
             }
             next();
@@ -53,8 +53,12 @@ export default defineConfig(({mode}) => {
       // port (scripts/api-server.ts), so a second stack — a mainnet one and a
       // PANIK_SCORING_CHAIN=testnet one, say — comes up on one variable
       // instead of an edit to this file that someone then commits.
+      // PANIK_API_TARGET overrides the whole URL when the second API is not on
+      // this host at all.
       proxy: {
-        '/api': `http://127.0.0.1:${process.env.PANIK_API_PORT ?? 8787}`,
+        '/api':
+          process.env.PANIK_API_TARGET ??
+          `http://127.0.0.1:${process.env.PANIK_API_PORT ?? 8787}`,
       },
     },
     build: {

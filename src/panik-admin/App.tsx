@@ -2,453 +2,146 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * /admin - hidden, secret-gated console for campaign trial cards ("Neithan").
- * Create a campaign (duration + max users), watch live status, download the QR
- * for printing, and expire a code early. All calls carry the X-Admin-Key header;
- * the secret never leaves sessionStorage. See server/adminCampaigns.ts.
+ * /admin - the internal console for the trial voucher cards.
+ *
+ * Three states and nothing between them: signed out (a form and nothing else),
+ * signed in as somebody who is not the admin (a plain refusal, not a blank
+ * page), and signed in as the admin (the manager).
+ *
+ * ── WHAT THIS FILE ENFORCES: NOTHING ──────────────────────────────────────
+ * Which of the three renders is decided from a session in localStorage, which
+ * the visitor owns. Editing it swaps the screen and gets no data: every call
+ * the manager makes carries the Supabase access token, and the server resolves
+ * that token with Supabase and refuses any address but the allow-listed one on
+ * every single request (server/adminIdentity.ts). Hiding the UI is a courtesy
+ * to the person who signed in with the wrong account, never a boundary.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import QRCode from "qrcode";
-import { Loader2, Plus, RefreshCw, Ban, Download, Copy, Check, QrCode, Lock, Users, Mail } from "lucide-react";
+import { KeyRound, LogOut } from "lucide-react";
+
+import { Button, Card } from "../panik-core/ui";
+import { SignIn } from "./SignIn";
+import { ChangePassword } from "./ChangePassword";
+import { CampaignsPanel } from "./CampaignsPanel";
+import { RosterPanel } from "./RosterPanel";
 import {
-  clearStoredKey,
-  createCampaign,
-  expireCampaign,
-  getStoredKey,
-  listCampaigns,
-  listGrants,
-  setStoredKey,
-  type Campaign,
-  type CreateInput,
-  type TrialGrant,
-} from "./lib/adminApi";
-import { evaluateCampaign, formatRemaining, type CampaignStatus } from "../panik-try/lib/trialLogic";
-
-const STATUS_BADGE: Record<CampaignStatus, string> = {
-  active: "bg-risk-low/10 text-risk-low border-risk-low/25",
-  exhausted: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
-  expired: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
-  disabled: "bg-white/10 text-text-muted border-border-subtle",
-};
-
-function tryUrl(code: string): string {
-  return `${window.location.origin}/try?code=${code}`;
-}
-
-// ── Key gate ────────────────────────────────────────────────────────────────
-function KeyGate({ onUnlock }: { onUnlock: (key: string) => void }) {
-  const [key, setKey] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    if (!key.trim()) return;
-    setBusy(true);
-    setError("");
-    const res = await listCampaigns(key.trim());
-    setBusy(false);
-    if (res.ok) {
-      setStoredKey(key.trim());
-      onUnlock(key.trim());
-    } else if (res.status === 401) {
-      setError("That key was rejected.");
-    } else if (res.status === 503) {
-      setError("Admin is not configured on the server (ADMIN_ACCESS_KEY).");
-    } else {
-      setError(res.error ?? "Could not reach the server.");
-    }
-  }
-
-  return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <div className="panik-glass rounded-lg p-7 w-full max-w-sm">
-        <div className="flex items-center gap-2 mb-5">
-          <Lock className="w-4 h-4 text-panik-orange" />
-          <h1 className="font-sans text-lg font-bold text-text-primary">PANIK admin</h1>
-        </div>
-        <input
-          type="password"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Admin access key"
-          className="w-full rounded-md border border-border-strong bg-black/30 px-3 py-2.5 mb-3 font-mono text-sm text-text-primary placeholder:text-text-muted focus:border-panik-orange/40 transition-colors"
-        />
-        {error && <p className="text-xs text-risk-critical/90 mb-3">{error}</p>}
-        <button
-          onClick={submit}
-          disabled={busy}
-          className="flex items-center justify-center gap-2 w-full rounded-md bg-panik-orange px-5 py-3 font-semibold text-surface-base shadow-lg shadow-panik-orange/20 hover:shadow-panik-orange/40 transition-all disabled:opacity-60"
-        >
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Unlock"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── QR block (generated client-side, printable) ─────────────────────────────
-function QrBlock({ code }: { code: string }) {
-  const [dataUrl, setDataUrl] = useState<string>("");
-  const [copied, setCopied] = useState(false);
-  const url = tryUrl(code);
-
-  useEffect(() => {
-    QRCode.toDataURL(url, { width: 320, margin: 2, color: { dark: "var(--color-surface-base)", light: "#FFFFFF" } })
-      .then(setDataUrl)
-      .catch(() => setDataUrl(""));
-  }, [url]);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* ignore */ }
-  }
-
-  return (
-    <div className="mt-3 rounded-md border border-border-subtle bg-black/20 p-4 flex flex-col sm:flex-row items-center gap-4">
-      {dataUrl ? (
-        <img src={dataUrl} alt={`QR for ${code}`} className="w-32 h-32 rounded-md bg-white p-1 shrink-0" />
-      ) : (
-        <div className="w-32 h-32 rounded-md bg-white/5 flex items-center justify-center shrink-0">
-          <Loader2 className="w-5 h-5 animate-spin text-text-muted" />
-        </div>
-      )}
-      <div className="flex-1 min-w-0 w-full">
-        <p className="text-2xs font-mono uppercase tracking-widest text-text-muted mb-1">Print URL</p>
-        <p className="font-mono text-xs text-text-secondary break-all mb-3">{url}</p>
-        <div className="flex flex-wrap gap-2">
-          <a
-            href={dataUrl || "#"}
-            download={`${code}.png`}
-            className={`flex items-center gap-1.5 rounded-md border border-border-subtle px-3 py-1.5 text-xs text-text-secondary hover:bg-white/[0.06] transition-colors ${dataUrl ? "" : "pointer-events-none opacity-50"}`}
-          >
-            <Download className="w-3.5 h-3.5" /> QR PNG
-          </a>
-          <button
-            onClick={copy}
-            className="flex items-center gap-1.5 rounded-md border border-border-subtle px-3 py-1.5 text-xs text-text-secondary hover:bg-white/[0.06] transition-colors"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-panik-orange" /> : <Copy className="w-3.5 h-3.5" />} URL
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Create form ─────────────────────────────────────────────────────────────
-function CreateForm({ apiKey, onCreated }: { apiKey: string; onCreated: (c: Campaign) => void }) {
-  const [label, setLabel] = useState("");
-  const [trialDays, setTrialDays] = useState("3");
-  const [maxRedemptions, setMaxRedemptions] = useState("20");
-  const [claimWindowDays, setClaimWindowDays] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  async function submit() {
-    setBusy(true);
-    setError("");
-    const input: CreateInput = {
-      label: label.trim() || undefined,
-      trialDays: Number(trialDays),
-      maxRedemptions: Number(maxRedemptions),
-      claimWindowDays: claimWindowDays.trim() ? Number(claimWindowDays) : undefined,
-    };
-    const res = await createCampaign(apiKey, input);
-    setBusy(false);
-    if (res.ok && res.data) {
-      onCreated(res.data.campaign);
-      setLabel("");
-    } else {
-      setError(res.error ?? "Create failed.");
-    }
-  }
-
-  const field = "w-full rounded-md border border-border-strong bg-black/30 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-panik-orange/40 transition-colors";
-
-  return (
-    <div className="panik-glass rounded-lg p-6 mb-8">
-      <h2 className="font-sans text-base font-semibold text-text-primary mb-4 flex items-center gap-2">
-        <Plus className="w-4 h-4 text-panik-orange" /> New campaign
-      </h2>
-      <div className="grid sm:grid-cols-2 gap-3 mb-4">
-        <div className="sm:col-span-2">
-          <label className="block text-xs text-text-muted mb-1">Label (internal note)</label>
-          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. ETHDenver booth cards" className={field} />
-        </div>
-        <div>
-          <label className="block text-xs text-text-muted mb-1">Trial duration (days per user)</label>
-          <input value={trialDays} onChange={(e) => setTrialDays(e.target.value)} type="number" min="1" className={field} />
-        </div>
-        <div>
-          <label className="block text-xs text-text-muted mb-1">Max redemptions (users)</label>
-          <input value={maxRedemptions} onChange={(e) => setMaxRedemptions(e.target.value)} type="number" min="1" className={field} />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="block text-xs text-text-muted mb-1">Claim window (days, optional - deadline to redeem the card)</label>
-          <input value={claimWindowDays} onChange={(e) => setClaimWindowDays(e.target.value)} type="number" min="1" placeholder="Leave blank for no deadline" className={field} />
-        </div>
-      </div>
-      {error && <p className="text-xs text-risk-critical/90 mb-3">{error}</p>}
-      <button
-        onClick={submit}
-        disabled={busy}
-        className="flex items-center justify-center gap-2 rounded-md bg-panik-orange px-5 py-2.5 font-semibold text-surface-base shadow-lg shadow-panik-orange/20 hover:shadow-panik-orange/40 transition-all disabled:opacity-60"
-      >
-        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create campaign"}
-      </button>
-    </div>
-  );
-}
-
-// ── Campaign row ────────────────────────────────────────────────────────────
-function CampaignRow({ c, apiKey, onChange }: { c: Campaign; apiKey: string; onChange: (c: Campaign) => void }) {
-  const [showQr, setShowQr] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const status = evaluateCampaign(c);
-  const claimRemaining = c.claim_window_expires_at
-    ? formatRemaining(new Date(c.claim_window_expires_at).getTime() - Date.now())
-    : "no deadline";
-
-  async function expire() {
-    if (!confirm(`Expire ${c.campaign_code} now? Existing trials keep working; no new redemptions.`)) return;
-    setBusy(true);
-    const res = await expireCampaign(apiKey, c.id);
-    setBusy(false);
-    if (res.ok && res.data) onChange(res.data.campaign);
-  }
-
-  return (
-    <div className="panik-glass rounded-md p-4 mb-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="font-mono text-sm text-text-primary">{c.campaign_code}</span>
-        <span className={`text-2xs font-medium uppercase tracking-wide px-2 py-0.5 rounded-full border ${STATUS_BADGE[status]}`}>
-          {status}
-        </span>
-        {c.label && <span className="text-xs text-text-muted truncate">{c.label}</span>}
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => setShowQr((v) => !v)}
-            className="flex items-center gap-1.5 rounded-md border border-border-subtle px-2.5 py-1.5 text-xs text-text-secondary hover:bg-white/[0.06] transition-colors"
-          >
-            <QrCode className="w-3.5 h-3.5" /> QR
-          </button>
-          {c.is_active && (
-            <button
-              onClick={expire}
-              disabled={busy}
-              className="flex items-center gap-1.5 rounded-md border border-risk-critical/25 text-risk-critical/90 px-2.5 py-1.5 text-xs hover:bg-risk-critical/10 transition-colors disabled:opacity-50"
-            >
-              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Expire
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="mt-2.5 flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted">
-        <span>Used <span className="text-text-secondary font-mono">{c.redemption_count}/{c.max_redemptions}</span></span>
-        <span>Trial <span className="text-text-secondary font-mono">{c.trial_duration_hours}h</span></span>
-        <span>Claim window <span className="text-text-secondary font-mono">{claimRemaining}</span></span>
-        <span>Created <span className="text-text-secondary font-mono">{new Date(c.created_at).toLocaleDateString()}</span></span>
-      </div>
-      {showQr && <QrBlock code={c.campaign_code} />}
-    </div>
-  );
-}
-
-// ── Redeemed users (the "how many + who" roster) ────────────────────────────
-// One grant row = one real user. The header count IS the user count; the list
-// is the captured email contact list, copyable for import into a mailer.
-function RedeemedUsers({ apiKey }: { apiKey: string }) {
-  const [grants, setGrants] = useState<TrialGrant[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const res = await listGrants(apiKey);
-    setLoading(false);
-    if (res.ok && res.data) {
-      setGrants(res.data.grants);
-      setError("");
-    } else {
-      setError(res.error ?? "Could not load users.");
-    }
-  }, [apiKey]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const emails = grants.map((g) => g.email).filter((e): e is string => Boolean(e));
-
-  async function copyEmails() {
-    if (emails.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(emails.join("\n"));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* ignore */ }
-  }
-
-  return (
-    <div className="panik-glass rounded-lg p-6 mb-8">
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <h2 className="font-sans text-base font-semibold text-text-primary flex items-center gap-2">
-          <Users className="w-4 h-4 text-panik-orange" /> Redeemed users
-        </h2>
-        <span className="font-mono text-sm text-panik-orange/90 rounded-full border border-panik-orange/25 bg-panik-orange/[0.06] px-2.5 py-0.5">
-          {grants.length}
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={copyEmails}
-            disabled={emails.length === 0}
-            className="flex items-center gap-1.5 rounded-md border border-border-subtle px-2.5 py-1.5 text-xs text-text-secondary hover:bg-white/[0.06] transition-colors disabled:opacity-40"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-panik-orange" /> : <Copy className="w-3.5 h-3.5" />}
-            Copy {emails.length} email{emails.length === 1 ? "" : "s"}
-          </button>
-          <button
-            onClick={refresh}
-            className="flex items-center gap-1.5 rounded-md border border-border-subtle px-2.5 py-1.5 text-xs text-text-secondary hover:bg-white/[0.06] transition-colors"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </button>
-        </div>
-      </div>
-
-      {error && <p className="text-sm text-risk-critical/90 mb-3">{error}</p>}
-      {loading && grants.length === 0 ? (
-        <div className="flex items-center gap-2 text-text-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
-      ) : grants.length === 0 ? (
-        <p className="text-sm text-text-muted">No redemptions yet. Emails show up here the moment someone scans a card and starts a trial.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-2xs font-mono uppercase tracking-widest text-text-muted">
-                <th className="pb-2 pr-4 font-normal">Email</th>
-                <th className="pb-2 pr-4 font-normal">Code</th>
-                <th className="pb-2 pr-4 font-normal">Opened</th>
-                <th className="pb-2 font-normal">Redeemed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {grants.map((g, i) => (
-                <tr key={`${g.email ?? "?"}-${g.created_at}-${i}`} className="border-t border-border-subtle">
-                  <td className="py-2 pr-4">
-                    <span className="flex items-center gap-1.5 text-text-secondary">
-                      <Mail className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                      {g.email ?? <span className="text-text-muted italic">no email</span>}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4 font-mono text-xs text-text-muted">{g.campaign_code ?? "-"}</td>
-                  <td className="py-2 pr-4 text-xs text-text-muted">
-                    {g.first_opened_at ? new Date(g.first_opened_at).toLocaleDateString() : <span className="text-text-muted">not yet</span>}
-                  </td>
-                  <td className="py-2 text-xs text-text-muted">{new Date(g.created_at).toLocaleDateString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Dashboard ───────────────────────────────────────────────────────────────
-function Dashboard({ apiKey, onLock }: { apiKey: string; onLock: () => void }) {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const res = await listCampaigns(apiKey);
-    setLoading(false);
-    if (res.ok && res.data) {
-      setCampaigns(res.data.campaigns);
-      setError("");
-    } else if (res.status === 401) {
-      onLock();
-    } else {
-      setError(res.error ?? "Could not load campaigns.");
-    }
-  }, [apiKey, onLock]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  function upsert(c: Campaign) {
-    setCampaigns((prev) => {
-      const i = prev.findIndex((x) => x.id === c.id);
-      if (i === -1) return [c, ...prev];
-      const next = [...prev];
-      next[i] = c;
-      return next;
-    });
-  }
-
-  return (
-    <main className="relative z-10 max-w-3xl mx-auto px-6 py-12">
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-2.5">
-          <img src="/panik-logo.png" alt="PANIK" width={32} height={32} className="rounded-md object-contain" />
-          <span className="font-sans font-semibold text-lg text-text-primary">Admin</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={refresh} className="flex items-center gap-1.5 rounded-md border border-border-subtle px-2.5 py-1.5 text-xs text-text-secondary hover:bg-white/[0.06] transition-colors">
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </button>
-          <button onClick={onLock} className="rounded-md border border-border-subtle px-2.5 py-1.5 text-xs text-text-muted hover:bg-white/[0.06] transition-colors">
-            Lock
-          </button>
-        </div>
-      </div>
-
-      <CreateForm apiKey={apiKey} onCreated={upsert} />
-
-      <RedeemedUsers apiKey={apiKey} />
-
-      <h2 className="font-sans text-base font-semibold text-text-primary mb-4">Campaigns</h2>
-      {error && <p className="text-sm text-risk-critical/90 mb-4">{error}</p>}
-      {loading && campaigns.length === 0 ? (
-        <div className="flex items-center gap-2 text-text-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
-      ) : campaigns.length === 0 ? (
-        <p className="text-sm text-text-muted">No campaigns yet. Create one above.</p>
-      ) : (
-        // key on an intrinsic wrapper: this repo ships no @types/react, so
-        // JSX.IntrinsicAttributes (which carries `key`) is absent for custom
-        // components; intrinsic elements type as any, so keys ride on them.
-        campaigns.map((c) => (
-          <div key={c.id}>
-            <CampaignRow c={c} apiKey={apiKey} onChange={upsert} />
-          </div>
-        ))
-      )}
-    </main>
-  );
-}
+  ADMIN_EMAIL,
+  ensureFresh,
+  isAdminSession,
+  loadSession,
+  signOut,
+  type Session,
+} from "./lib/supabaseAuth";
 
 export default function App() {
-  const [apiKey, setApiKey] = useState<string>(() => getStoredKey());
+  // Restored synchronously so a reload does not flash the sign-in form at an
+  // operator who is already signed in.
+  const [session, setSession] = useState<Session | null>(() => loadSession());
 
-  function lock() {
-    clearStoredKey();
-    setApiKey("");
+  // A restored session may be minutes past its access-token lifetime. Renew it
+  // once on mount so the first API call is not a guaranteed 401.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    void ensureFresh(session).then((next) => {
+      if (cancelled) return;
+      if (!next) setSession(null);
+      else if (next.accessToken !== session.accessToken) setSession(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Only the identity of the stored session matters here, not every refresh
+    // it goes through: depending on the whole object re-runs this on its own
+    // result.
+  }, [session?.refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Whether the password screen is showing. It opens by itself while the
+   * account is still on the handover credential, so the operator lands on the
+   * one thing that needs doing instead of having to find it.
+   */
+  const [changingPassword, setChangingPassword] = useState(false);
+  /** "Not now" on the first-run prompt. Deliberately not persisted: the nudge
+   *  comes back on the next sign-in until the credential is actually replaced. */
+  const [promptDismissed, setPromptDismissed] = useState(false);
+
+  const forget = useCallback(() => {
+    setSession(null);
+  }, []);
+
+  const endSession = useCallback(async () => {
+    const current = session;
+    setSession(null);
+    await signOut(current);
+  }, [session]);
+
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-surface-base text-text-primary">
+        <SignIn onSignedIn={setSession} />
+      </div>
+    );
   }
 
+  const isAdmin = isAdminSession(session);
+  // Opens on its own while the handover credential is still in force, so the
+  // operator lands on the one thing that needs doing.
+  const passwordPanelOpen =
+    isAdmin && (changingPassword || (!session.passwordRotated && !promptDismissed));
+
   return (
-    <div className="relative min-h-screen bg-surface-base text-text-primary overflow-x-clip">
-      <div className="fixed inset-0 panik-dot-bg pointer-events-none z-0 opacity-40" />
-      {apiKey ? <Dashboard apiKey={apiKey} onLock={lock} /> : <KeyGate onUnlock={setApiKey} />}
+    <div className="min-h-screen bg-surface-base text-text-primary">
+      <header className="border-b border-border-subtle">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-2 px-5 py-4">
+          <img src="/panik-logo.png" alt="" width={28} height={28} className="rounded-sm object-contain" />
+          <span className="text-base font-sans font-bold text-text-primary">Admin</span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="mr-1 hidden text-xs font-sans text-text-secondary sm:inline">{session.email}</span>
+            {isAdmin && !passwordPanelOpen && (
+              <Button variant="quiet" onClick={() => setChangingPassword(true)}>
+                <KeyRound className="h-3.5 w-3.5" aria-hidden="true" /> Password
+              </Button>
+            )}
+            <Button variant="outline" onClick={endSession}>
+              <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> Sign out
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-[1600px] px-5 py-8">
+        {isAdmin ? (
+          passwordPanelOpen ? (
+            <ChangePassword
+              session={session}
+              firstRun={!session.passwordRotated}
+              onChanged={setSession}
+              onDismiss={() => {
+                setChangingPassword(false);
+                setPromptDismissed(true);
+              }}
+            />
+          ) : (
+            <>
+              <RosterPanel session={session} onSignedOut={forget} />
+              <CampaignsPanel session={session} onSignedOut={forget} />
+            </>
+          )
+        ) : (
+          <Card tone="panel" className="mx-auto max-w-md">
+            <h1 className="text-lg font-sans font-bold text-text-primary">This account cannot use admin</h1>
+            <p className="mt-2 text-sm font-sans text-text-secondary">
+              You are signed in as {session.email}. The console is limited to {ADMIN_EMAIL}. Sign out
+              and try that account.
+            </p>
+            <Button variant="outline" className="mt-5" onClick={endSession}>
+              <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> Sign out
+            </Button>
+          </Card>
+        )}
+      </main>
     </div>
   );
 }

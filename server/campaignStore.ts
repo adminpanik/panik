@@ -87,6 +87,47 @@ export interface TrialGrant {
   created_at: string;
 }
 
+/**
+ * One successful redemption of a single campaign, with the capture metadata.
+ *
+ * `claim_ip` and `claim_user_agent` are PERSONAL DATA. They exist so the
+ * operator can tell a real scan from a bot sweep, and they leave the database
+ * only through the admin-gated, rate-limited redemptions route. `access_token`
+ * is deliberately absent: it is a bearer credential for the trial itself, and
+ * a roster is not a reason to move one.
+ */
+export interface CampaignRedemption {
+  email: string | null;
+  claim_ip: string | null;
+  claim_user_agent: string | null;
+  first_opened_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/**
+ * One attempt against a campaign code, successful or not. The failures are the
+ * point: a wall of `exhausted` says the print run was too small, and a wall of
+ * `not_found` from one address says somebody is guessing codes.
+ */
+export interface RedemptionAttempt {
+  outcome: RedeemOutcome;
+  ip: string | null;
+  user_agent: string | null;
+  /** Whether this attempt actually minted a trial token. */
+  granted: boolean;
+  created_at: string;
+}
+
+/** Hard ceiling on rows either redemption read can return. */
+const REDEMPTION_PAGE_MAX = 500;
+
+/** Clamp a caller-supplied page size into [1, REDEMPTION_PAGE_MAX]. */
+function pageSize(requested: number): number {
+  if (!Number.isFinite(requested) || requested <= 0) return 200;
+  return Math.min(Math.floor(requested), REDEMPTION_PAGE_MAX);
+}
+
 export class CampaignStore {
   private readonly base: string;
 
@@ -226,6 +267,62 @@ export class CampaignStore {
       campaign_label: r.product_campaigns?.label ?? null,
       first_opened_at: r.first_opened_at,
       expires_at: r.expires_at,
+      created_at: r.created_at,
+    }));
+  }
+
+  /**
+   * Who redeemed ONE campaign, newest first. Filtered with a PostgREST inner
+   * embed on the FK so the code -> id lookup and the row read are one round
+   * trip rather than two.
+   */
+  async listRedemptions(code: string, limit = 200): Promise<CampaignRedemption[]> {
+    const select =
+      "email,claim_ip,claim_user_agent,first_opened_at,expires_at,created_at,product_campaigns!inner(campaign_code)";
+    const url =
+      `${this.base}/rest/v1/trial_grants?select=${encodeURIComponent(select)}` +
+      `&product_campaigns.campaign_code=eq.${encodeURIComponent(code)}` +
+      `&order=created_at.desc&limit=${pageSize(limit)}`;
+    const res = await fetch(url, { headers: this.headers() });
+    if (!res.ok) {
+      await logErrorBody("listRedemptions", res);
+      throw new Error(`listRedemptions: HTTP ${res.status}`);
+    }
+    const rows = (await res.json()) as (CampaignRedemption & { product_campaigns?: unknown })[];
+    return rows.map((r) => ({
+      email: r.email,
+      claim_ip: r.claim_ip,
+      claim_user_agent: r.claim_user_agent,
+      first_opened_at: r.first_opened_at,
+      expires_at: r.expires_at,
+      created_at: r.created_at,
+    }));
+  }
+
+  /** Every attempt against ONE campaign code, newest first, failures included. */
+  async listAttempts(code: string, limit = 200): Promise<RedemptionAttempt[]> {
+    const url =
+      `${this.base}/rest/v1/redemption_attempts?select=outcome,ip,user_agent,granted_token_id,created_at` +
+      `&campaign_code=eq.${encodeURIComponent(code)}` +
+      `&order=created_at.desc&limit=${pageSize(limit)}`;
+    const res = await fetch(url, { headers: this.headers() });
+    if (!res.ok) {
+      await logErrorBody("listAttempts", res);
+      throw new Error(`listAttempts: HTTP ${res.status}`);
+    }
+    type Row = {
+      outcome: RedeemOutcome;
+      ip: string | null;
+      user_agent: string | null;
+      granted_token_id: string | null;
+      created_at: string;
+    };
+    const rows = (await res.json()) as Row[];
+    return rows.map((r) => ({
+      outcome: r.outcome,
+      ip: r.ip,
+      user_agent: r.user_agent,
+      granted: r.granted_token_id !== null,
       created_at: r.created_at,
     }));
   }
