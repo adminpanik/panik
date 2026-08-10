@@ -45,7 +45,8 @@ const BUTTON_SIZE = {
   lg: "px-4 py-2.5 text-sm",
 } as const;
 
-* `ComponentPropsWithRef`, not `ButtonHTMLAttributes`: in React 19 `ref` is an
+/**
+ * `ComponentPropsWithRef`, not `ButtonHTMLAttributes`: in React 19 `ref` is an
  * ordinary prop on a function component, so it reaches the `<button>` through
  * the same spread as everything else — but only the ref-aware prop type admits
  * it. A caller that has to return focus to a button it rendered (the Portfolio
