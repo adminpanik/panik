@@ -66,7 +66,7 @@ export function useWalletOwnership(): { getProof: GetProof } {
   const getProof = useCallback<GetProof>(
     async (wallet, action) => {
       const target = wallet.trim().toLowerCase();
-      if (!isEvmAddress(target)) throw new Error("Needs an EVM wallet (0x...).");
+      if (!isEvmAddress(target)) throw new OwnershipError("Needs an EVM wallet (0x...).");
 
       let signer = isConnected ? address : undefined;
       if (!signer) {
@@ -74,7 +74,9 @@ export function useWalletOwnership(): { getProof: GetProof } {
         signer = accounts[0];
       }
       if (!signer || signer.toLowerCase() !== target) {
-        throw new Error(`Connect ${target.slice(0, 6)}...${target.slice(-4)} to prove you own it.`);
+        throw new OwnershipError(
+          `Alerts need a signature from ${target.slice(0, 6)}...${target.slice(-4)}. Connect that wallet to turn them on.`,
+        );
       }
 
       const nonce = await fetchNonce();
@@ -96,10 +98,36 @@ export function useWalletOwnership(): { getProof: GetProof } {
   return { getProof };
 }
 
+/**
+ * An error whose message THIS FILE wrote, and which is therefore safe to put on
+ * screen. Everything else thrown in here comes from wagmi or viem, and their
+ * messages are written for a developer reading a stack trace: the reason this
+ * class exists is that `(err as Error).message` was being interpolated straight
+ * into the alerts banner, so a user with no wallet extension installed read
+ * "Provider not found. Version: @wagmi/core@3.5.1" across the top of the app.
+ */
+export class OwnershipError extends Error {}
+
+/**
+ * Why monitoring is off, which decides how loudly to say so.
+ *
+ *   "blocked"    we tried, we failed, and the user has reason to believe they
+ *                are covered when they are not. This is the silent-failure case
+ *                the banner exists for.
+ *   "unverified" a precondition was never met — no wallet connected, or the
+ *                connected one is not the address being watched. Nothing broke.
+ *                A watch-only address someone pasted to look around cannot be
+ *                monitored and never could be, so raising a critical alarm over
+ *                it spends the loudest surface in the product on a non-event.
+ */
+export type MonitoringSeverity = "blocked" | "unverified";
+
 /** Outcome of a registration attempt. `error` is safe to show the user. */
 export interface RegisterResult {
   ok: boolean;
   error: string | null;
+  /** Null exactly when `ok`. */
+  severity: MonitoringSeverity | null;
 }
 
 /**
@@ -129,9 +157,10 @@ export async function registerWatchedWallet(
   getProof: GetProof,
 ): Promise<RegisterResult> {
   const target = wallet.trim().toLowerCase();
-  if (!isEvmAddress(target)) return { ok: false, error: "Monitoring needs an EVM wallet (0x...)." };
+  if (!isEvmAddress(target))
+    return { ok: false, error: "Monitoring needs an EVM wallet (0x...).", severity: "unverified" };
   const key = `${target}:${profile}`;
-  if (registeredThisSession.has(key)) return { ok: true, error: null };
+  if (registeredThisSession.has(key)) return { ok: true, error: null, severity: null };
   try {
     const proof = await getProof(target, "wallet-register");
     const res = await fetch("/api/wallets/register", {
@@ -139,17 +168,58 @@ export async function registerWatchedWallet(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...proof, profile }),
     });
-    if (!res.ok) return { ok: false, error: "Panik could not enable monitoring for this wallet." };
+    if (!res.ok)
+      return { ok: false, error: "Panik could not enable monitoring for this wallet.", severity: "blocked" };
     registeredThisSession.add(key);
-    return { ok: true, error: null };
+    return { ok: true, error: null, severity: null };
   } catch (err) {
+    return { ok: false, ...describeFailure(err) };
+  }
+}
+
+/**
+ * Turn whatever was thrown into a sentence a user can act on.
+ *
+ * The rule is that NO library message reaches this return value. A raw wagmi or
+ * viem string names an internal it wants a developer to go read, and on the
+ * alerts banner it read as the product being broken when the actual situation
+ * was "this browser has no wallet extension".
+ */
+function describeFailure(err: unknown): { error: string; severity: MonitoringSeverity } {
+  if (rejectedSignature(err)) {
     return {
-      ok: false,
-      error: rejectedSignature(err)
-        ? "Signature declined. Alerts stay off until you verify this wallet."
-        : ((err as Error).message ?? "Could not verify wallet ownership."),
+      error: "Signature declined. Alerts stay off until you verify this wallet.",
+      severity: "blocked",
     };
   }
+  // Our own message, written for this screen — the only one safe to pass along.
+  if (err instanceof OwnershipError) return { error: err.message, severity: "unverified" };
+  if (noWalletAvailable(err)) {
+    return {
+      error: "Panik cannot watch a wallet it has not verified. Connect this wallet to turn alerts on.",
+      severity: "unverified",
+    };
+  }
+  return {
+    error: "Panik could not verify that you own this wallet, so alerts are off.",
+    severity: "blocked",
+  };
+}
+
+/**
+ * No wallet to sign with: no extension installed, or none connected. wagmi
+ * raises these as ProviderNotFoundError / ConnectorNotFoundError; the message
+ * test is a fallback for the versions that only set one of the two, and is used
+ * ONLY to classify — the string itself never reaches the screen.
+ */
+function noWalletAvailable(err: unknown): boolean {
+  const e = err as { name?: string; message?: string };
+  return (
+    e?.name === "ProviderNotFoundError" ||
+    e?.name === "ConnectorNotFoundError" ||
+    e?.name === "ConnectorNotConnectedError" ||
+    /provider not found|connector not found|no injected/i.test(e?.message ?? "")
+  );
 }
 
 /** User dismissed the wallet prompt (EIP-1193 4001, or viem's wrapper). */

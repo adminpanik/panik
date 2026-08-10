@@ -107,6 +107,7 @@ import {
   useTelegramLink,
   useWalletOwnership,
   isEvmAddress,
+  type MonitoringSeverity,
   type RegisterResult,
   type RiskProfile as WatchRiskProfile,
 } from "./lib/telegram";
@@ -933,8 +934,22 @@ export function AppDemo() {
   // Registration needs a signature the wallet must actually be able to produce.
   // When it fails the user is UNMONITORED, so the failure is surfaced instead
   // of swallowed. Null = fine (or not attempted yet).
-  const [monitoringError, setMonitoringError] = useState<string | null>(null);
+  //
+  // Held as ONE object rather than a message plus a severity, because the two
+  // are read together on every render and two useStates can be set apart.
+  const [monitoringIssue, setMonitoringIssue] = useState<{
+    message: string;
+    severity: MonitoringSeverity;
+  } | null>(null);
   const [monitoringBusy, setMonitoringBusy] = useState(false);
+  /** `null` when registration succeeded or has not been attempted. */
+  const noteMonitoring = useCallback((result: RegisterResult) => {
+    setMonitoringIssue(
+      result.ok || !result.error || !result.severity
+        ? null
+        : { message: result.error, severity: result.severity },
+    );
+  }, []);
   const [monitoringTarget, setMonitoringTarget] = useState<{ wallet: string; profile: WatchRiskProfile } | null>(null);
 
   const enableMonitoring = useCallback(
@@ -942,10 +957,10 @@ export function AppDemo() {
       setMonitoringTarget({ wallet, profile });
       setMonitoringBusy(true);
       const result = await registerWatchedWallet(wallet, profile, getProof);
-      setMonitoringError(result.ok ? null : result.error);
+      noteMonitoring(result);
       setMonitoringBusy(false);
     },
-    [getProof],
+    [getProof, noteMonitoring],
   );
 
   const retryMonitoring = useCallback(() => {
@@ -3689,31 +3704,55 @@ export function AppDemo() {
           the silent one: onboarding completes, the dashboard looks alive, and
           the wallet was never added to watched_wallets, so no liquidation alert
           will ever be sent. Persistent (no dismiss) until monitoring is on. */}
-      {monitoringError && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[210] w-full max-w-xl px-4">
-          <div
-            role="alert"
-            className="flex items-center gap-3 bg-surface-overlay border border-risk-critical/40 rounded-md px-4 py-3 shadow-2xl shadow-black/60"
-          >
-            <ShieldAlert className="w-4 h-4 shrink-0 text-risk-critical" />
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-sans font-bold text-risk-critical">
-                Alerts inactive
-              </p>
-              <p className="text-2xs text-text-secondary mt-0.5">
-                {monitoringError} Verify wallet ownership to enable liquidation alerts.
-              </p>
-            </div>
-            <button
-              onClick={retryMonitoring}
-              disabled={monitoringBusy}
-              className="shrink-0 px-3 py-1.5 rounded-md bg-text-primary hover:opacity-90 disabled:opacity-50 text-2xs font-sans font-bold text-black transition-colors cursor-pointer"
+      {monitoringIssue && (() => {
+        // "blocked" is the case the banner was built for: we tried, we failed,
+        // and the user believes they are covered. It keeps the risk hue.
+        //
+        // "unverified" is not a failure. Pasting an address to look around is
+        // the ordinary way into this product, and a watch-only address cannot
+        // be monitored and never could be. Shouting about it in risk-critical
+        // red put a permanent alarm on the busiest surface in the app for a
+        // non-event, and spent the one hue reserved for actual liquidation
+        // risk on a wallet-connection prompt. Same words, stated calmly.
+        const blocked = monitoringIssue.severity === "blocked";
+        return (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[210] w-full max-w-xl px-4">
+            <div
+              role={blocked ? "alert" : "status"}
+              className={`flex items-center gap-3 bg-surface-overlay border rounded-md px-4 py-3 shadow-2xl shadow-black/60 ${
+                blocked ? "border-risk-critical/40" : "border-border-subtle"
+              }`}
             >
-              {monitoringBusy ? "Verifying..." : "Retry"}
-            </button>
+              <ShieldAlert
+                className={`w-4 h-4 shrink-0 ${blocked ? "text-risk-critical" : "text-text-muted"}`}
+                aria-hidden="true"
+              />
+              <div className="min-w-0 flex-1">
+                <p
+                  className={`text-xs font-sans font-bold ${
+                    blocked ? "text-risk-critical" : "text-text-primary"
+                  }`}
+                >
+                  Alerts inactive
+                </p>
+                {/* The message is a COMPLETE sentence carrying its own
+                    consequence. It used to have "Verify wallet ownership to
+                    enable liquidation alerts." concatenated onto whatever came
+                    back, which read as two half-sentences whenever the first
+                    half was a library string. */}
+                <p className="text-2xs text-text-secondary mt-0.5">{monitoringIssue.message}</p>
+              </div>
+              <button
+                onClick={retryMonitoring}
+                disabled={monitoringBusy}
+                className="shrink-0 px-3 py-1.5 rounded-md bg-text-primary hover:opacity-90 disabled:opacity-50 text-2xs font-sans font-bold text-black transition-colors cursor-pointer"
+              >
+                {monitoringBusy ? "Verifying..." : blocked ? "Retry" : "Connect"}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Atomic Exit / Reduce flow (Phase 2) - real transactions, user-signed */}
       {exitPrefill && (
@@ -3730,7 +3769,7 @@ export function AppDemo() {
           // an unregistered onboarding — route it to the same banner.
           onMonitoring={(wallet, profile, result: RegisterResult) => {
             setMonitoringTarget({ wallet, profile });
-            setMonitoringError(result.ok ? null : result.error);
+            noteMonitoring(result);
           }}
         />
       )}
