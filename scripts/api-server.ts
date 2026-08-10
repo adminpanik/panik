@@ -477,13 +477,44 @@ app.use((req, res, next) => {
 //             DefiLlama lookups + findOpportunities + several OpenRouter
 //             completions + Postgres inserts. The UI polls it once a minute.
 //   strict    spends third-party quota or mints state (Dune, Telegram, trials)
-const publicLimit = rateLimit({ limit: 120 });            // 60s-cached GETs, no caller-supplied key
-const walletLimit = rateLimit({ limit: 30 });             // /positions, /history — wallet-keyed
+//
+// ── WHY THE READ PATH IS MULTIPLIABLE ─────────────────────────────────────
+// Every limiter keys on ipBucket(clientIp(req)). In production that is one
+// bucket per client. On a developer's machine it is ONE BUCKET FOR EVERYTHING:
+// the app tab, the admin console, a second tab, and any curl all arrive as
+// 127.0.0.1, so they share a single 30/min budget. Two tabs plus a few reloads
+// exhausts it, /positions starts answering 429, and the dashboard renders "Live
+// feed unavailable" — which reads as a broken scoring feed and invites the
+// retry that keeps the window full. That cost a demo rehearsal.
+//
+// So the CHEAP, CACHED READS take a multiplier, default 1 (production is
+// unchanged by this). Set PANIK_RATE_LIMIT_X locally in .env.
+//
+// adminLimit is multiplied too, and it is the one worth justifying. It is NOT
+// what stops a stranger guessing their way in: that is the failed-auth brake in
+// server/adminAuth.ts, keyed on a HASH OF THE PRESENTED CREDENTIAL rather than
+// on the caller's address, and nothing here touches it. This is a generic
+// per-IP brake in front of routes that are already bearer-gated, and 10/min is
+// tight for a console that loads the simulator, the campaigns and the
+// redemptions on every render: one operator with the page open exhausted it and
+// read "rate limit exceeded" on a panel that had done nothing wrong.
+//
+// Deliberately NOT multiplied: advisorLimit (OpenRouter completions per miss),
+// strictLimit (spends third-party quota) and webhookLimit. Widening those to
+// make local dev comfortable would widen the exact controls that exist because
+// the request costs money, and one stray env var in production should not be
+// able to reach them.
+// Anything unparseable, zero or negative means "no opinion", not "no limit".
+const rawRateLimitX = Number(process.env.PANIK_RATE_LIMIT_X ?? 1);
+const RATE_LIMIT_X =
+  Number.isFinite(rawRateLimitX) && rawRateLimitX >= 1 ? Math.min(rawRateLimitX, 100) : 1;
+const publicLimit = rateLimit({ limit: 120 * RATE_LIMIT_X }); // 60s-cached GETs, no caller-supplied key
+const walletLimit = rateLimit({ limit: 30 * RATE_LIMIT_X });  // /positions, /history — wallet-keyed
 const advisorLimit = rateLimit({ limit: 10 });            // RPC + LLM + DB per miss; UI polls 1/min
-const telegramStatusLimit = rateLimit({ limit: 60 });     // 3s poll during linking
-const profileResultLimit = rateLimit({ limit: 40 });      // 3s poll during the reveal
+const telegramStatusLimit = rateLimit({ limit: 60 * RATE_LIMIT_X }); // 3s poll during linking
+const profileResultLimit = rateLimit({ limit: 40 * RATE_LIMIT_X });  // 3s poll during the reveal
 const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
-const adminLimit = rateLimit({ limit: 10 });              // failed-auth brake lives in server/adminAuth.ts
+const adminLimit = rateLimit({ limit: 10 * RATE_LIMIT_X }); // failed-auth brake lives in server/adminAuth.ts
 // Telegram's own delivery rate for one bot is far below this; the limiter is
 // here so the webhook is not the one unmetered POST in the app (its secret is
 // only checked AFTER the body is parsed).

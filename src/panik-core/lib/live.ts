@@ -189,6 +189,29 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * Was this failure OUR OWN limiter rather than an unreachable feed?
+ *
+ * The two must not render as the same thing. "We could not reach the scoring
+ * feed, so this wallet's positions are unknown" is a claim about the outside
+ * world; being throttled says nothing about it. Whatever was last fetched is
+ * still the truth, so a caller holds it and lets the next poll refresh.
+ *
+ * It also breaks the loop that surfaced this: the panel read as broken, which
+ * invited a reload, which spent another request from the same 60s window and so
+ * guaranteed the next attempt failed too. Every limiter keys on the client IP,
+ * and on one developer machine the app tab, the admin console and a stray curl
+ * are all 127.0.0.1 sharing one budget — so this is reachable without anyone
+ * abusing anything.
+ *
+ * Reads the status off `getJson`'s thrown message, which is the only thing that
+ * carries it today. Kept here, beside the throw it has to agree with, rather
+ * than repeated at each catch site.
+ */
+function isRateLimited(err: unknown): boolean {
+  return (err as Error | undefined)?.message === "429";
+}
+
 /** Poll a JSON endpoint on an interval; null until first success. */
 function usePolled<T>(url: string, intervalMs: number): { data: T | null; offline: boolean } {
   const [data, setData] = useState<T | null>(null);
@@ -203,8 +226,12 @@ function usePolled<T>(url: string, intervalMs: number): { data: T | null; offlin
           setData(body);
           setOffline(false);
         }
-      } catch {
-        if (!cancelled) setOffline(true);
+      } catch (err) {
+        // Every polled hook gets the throttling rule, not just the two that
+        // happened to hit it. Compass and the ops registry share the same IP
+        // bucket and the same 60s cadence; they had simply not been looked at
+        // on the day the limiter bit.
+        if (!cancelled && !isRateLimited(err)) setOffline(true);
       }
     };
     void load();
@@ -283,8 +310,8 @@ export function useWalletPositions(wallet: string | null, profile: string, chain
           setData(body);
           setOffline(false);
         }
-      } catch {
-        if (!cancelled) setOffline(true);
+      } catch (err) {
+        if (!cancelled && !isRateLimited(err)) setOffline(true);
       }
     };
     void load();
@@ -616,8 +643,8 @@ export function useAdvisor(wallet: string | null, profile: string, chain: string
           setData(body);
           setOffline(false);
         }
-      } catch {
-        if (!cancelled) setOffline(true);
+      } catch (err) {
+        if (!cancelled && !isRateLimited(err)) setOffline(true);
       }
     };
     void load();
