@@ -490,11 +490,20 @@ app.use((req, res, next) => {
 // So the CHEAP, CACHED READS take a multiplier, default 1 (production is
 // unchanged by this). Set PANIK_RATE_LIMIT_X locally in .env.
 //
+// adminLimit is multiplied too, and it is the one worth justifying. It is NOT
+// what stops a stranger guessing their way in: that is the failed-auth brake in
+// server/adminAuth.ts, keyed on a HASH OF THE PRESENTED CREDENTIAL rather than
+// on the caller's address, and nothing here touches it. This is a generic
+// per-IP brake in front of routes that are already bearer-gated, and 10/min is
+// tight for a console that loads the simulator, the campaigns and the
+// redemptions on every render: one operator with the page open exhausted it and
+// read "rate limit exceeded" on a panel that had done nothing wrong.
+//
 // Deliberately NOT multiplied: advisorLimit (OpenRouter completions per miss),
-// strictLimit (spends third-party quota), adminLimit (an auth surface) and
-// webhookLimit. Widening those to make local dev comfortable would widen the
-// exact controls that exist because the request costs money or grants access,
-// and one stray env var in production should not be able to reach them.
+// strictLimit (spends third-party quota) and webhookLimit. Widening those to
+// make local dev comfortable would widen the exact controls that exist because
+// the request costs money, and one stray env var in production should not be
+// able to reach them.
 const RATE_LIMIT_X = (() => {
   const raw = Number(process.env.PANIK_RATE_LIMIT_X ?? 1);
   // Anything unparseable, zero or negative means "no opinion", not "no limit".
@@ -506,7 +515,7 @@ const advisorLimit = rateLimit({ limit: 10 });            // RPC + LLM + DB per 
 const telegramStatusLimit = rateLimit({ limit: 60 * RATE_LIMIT_X }); // 3s poll during linking
 const profileResultLimit = rateLimit({ limit: 40 * RATE_LIMIT_X });  // 3s poll during the reveal
 const strictLimit = rateLimit({ limit: 10 });             // spends money / mints state
-const adminLimit = rateLimit({ limit: 10 });              // failed-auth brake lives in server/adminAuth.ts
+const adminLimit = rateLimit({ limit: 10 * RATE_LIMIT_X }); // failed-auth brake lives in server/adminAuth.ts
 // Telegram's own delivery rate for one bot is far below this; the limiter is
 // here so the webhook is not the one unmetered POST in the app (its secret is
 // only checked AFTER the body is parsed).
