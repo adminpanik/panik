@@ -234,8 +234,18 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
    */
   const [kind, setKind] = useState<ExitPrefill["kind"]>(prefill.kind);
   /**
-   * Set once a full exit has reverted, so the offer is made exactly once and a
-   * revert of the narrowed plan reads as a plain failure rather than looping.
+   * Set the first time a full exit reverts, and never cleared.
+   *
+   * It is what keeps the `Repay the debt instead` button on screen after the
+   * notice it came with has been replaced — press the primary again, get a
+   * second revert, and the smaller plan is still there to take. What it does
+   * NOT do is stop the offer reappearing after narrowing: `kind` becomes
+   * `full_repay` and never goes back, so the `kind === "full"` guard below
+   * already covers that on its own.
+   *
+   * Its one narrowing effect is on the sentence: appended to the first revert
+   * and not to later ones, because the user has already read it and it is the
+   * button underneath that carries the offer from then on.
    */
   const [fallbackOffered, setFallbackOffered] = useState(false);
 
