@@ -37,6 +37,7 @@ import {
   formatCurrency,
   formatUsd,
   liquidationOutlook,
+  PROTOCOL_LABEL,
   RISK_CHIP,
   RISK_FILL,
   RISK_TEXT,
@@ -325,12 +326,8 @@ const truncateAddress = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.
  */
 const SHOW_AUTO_REPAY_CARD = false;
 
-const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho" | "Compound V3"> = {
-  aave_v3: "Aave V3",
-  moonwell: "Moonwell",
-  morpho: "Morpho",
-  compound_v3: "Compound V3",
-};
+/** The shared table in lib/utils, under this file's long-standing local name. */
+const LIVE_PROTOCOL_LABEL = PROTOCOL_LABEL;
 
 /** How long a position row stays emphasised after an alert points at it. */
 const HIGHLIGHT_MS = 4000;

@@ -4,7 +4,7 @@
  */
 
 import { PositionState } from "./types";
-import type { AdvisorAction, Band, ProfileStatus } from "./live";
+import type { AdvisorAction, Band, LiveProtocol, ProfileStatus } from "./live";
 /**
  * A VALUE import from the engine, which every other import in panik-core is
  * careful not to be, and the exception is deliberate: `prospective.ts` has no
@@ -18,6 +18,33 @@ import {
   drawdownToLiquidation,
   formatDrawdownPct,
 } from "../../../packages/scoring/src/prospective";
+
+/**
+ * A protocol id in the product's own words.
+ *
+ * This table existed SIX times, character for character, in `AppDemo`,
+ * `AdvisorPanel`, `AdvisorPopup`, `DelegationManager`, `OpenFlow` and
+ * `LivePositions` - three typed against the union and three as a loose
+ * `Record<string, string>`. A protocol added to the engine needed six edits,
+ * and whichever copy was missed put a raw `compound_v3` on screen.
+ *
+ * `Record<LiveProtocol, …>` rather than a loose index, so a protocol added to
+ * the engine is a compile error here instead of an enum leaking to the UI. The
+ * value type is the literal union because `VaultPreset.protocol` is that union
+ * and the Watch simulator assigns a label straight into it.
+ *
+ * Callers reading a protocol off the wire keep their `?? protocol` fallback:
+ * the type says what this build knows, not what an API response can contain.
+ */
+export const PROTOCOL_LABEL: Record<
+  LiveProtocol,
+  "Aave V3" | "Moonwell" | "Morpho" | "Compound V3"
+> = {
+  aave_v3: "Aave V3",
+  moonwell: "Moonwell",
+  morpho: "Morpho",
+  compound_v3: "Compound V3",
+};
 
 /**
  * Calculates a DeFi position health factor and PANIK risk score.

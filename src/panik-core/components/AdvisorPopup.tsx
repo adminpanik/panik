@@ -19,17 +19,10 @@ import type {
   AdvisorReport,
   AdvisorUrgency,
 } from "../lib/live";
-import { formatUsd } from "../lib/utils";
+import { formatUsd, PROTOCOL_LABEL } from "../lib/utils";
 
 const STORE_KEY = "panik_advisor_popup_v1";
 const COOLDOWN_MS = 30 * 60 * 1000;
-
-const PROTOCOL_LABEL: Record<string, string> = {
-  aave_v3: "Aave V3",
-  moonwell: "Moonwell",
-  morpho: "Morpho",
-  compound_v3: "Compound V3",
-};
 
 interface PopupStore {
   /** Last-seen action per protocol leg. */

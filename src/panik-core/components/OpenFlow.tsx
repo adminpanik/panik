@@ -35,13 +35,7 @@ import {
   type RegisterResult,
   type RiskProfile as WatchRiskProfile,
 } from "../lib/telegram";
-
-const PROTOCOL_LABEL: Record<string, string> = {
-  aave_v3: "Aave V3",
-  moonwell: "Moonwell",
-  morpho: "Morpho",
-  compound_v3: "Compound V3",
-};
+import { PROTOCOL_LABEL } from "../lib/utils";
 
 type Step = "connect" | "chain" | "review" | "executing" | "done" | "unsupported";
 
