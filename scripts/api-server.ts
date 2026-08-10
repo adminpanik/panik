@@ -504,11 +504,10 @@ app.use((req, res, next) => {
 // make local dev comfortable would widen the exact controls that exist because
 // the request costs money, and one stray env var in production should not be
 // able to reach them.
-const RATE_LIMIT_X = (() => {
-  const raw = Number(process.env.PANIK_RATE_LIMIT_X ?? 1);
-  // Anything unparseable, zero or negative means "no opinion", not "no limit".
-  return Number.isFinite(raw) && raw >= 1 ? Math.min(raw, 100) : 1;
-})();
+// Anything unparseable, zero or negative means "no opinion", not "no limit".
+const rawRateLimitX = Number(process.env.PANIK_RATE_LIMIT_X ?? 1);
+const RATE_LIMIT_X =
+  Number.isFinite(rawRateLimitX) && rawRateLimitX >= 1 ? Math.min(rawRateLimitX, 100) : 1;
 const publicLimit = rateLimit({ limit: 120 * RATE_LIMIT_X }); // 60s-cached GETs, no caller-supplied key
 const walletLimit = rateLimit({ limit: 30 * RATE_LIMIT_X });  // /positions, /history — wallet-keyed
 const advisorLimit = rateLimit({ limit: 10 });            // RPC + LLM + DB per miss; UI polls 1/min
