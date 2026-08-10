@@ -11,17 +11,25 @@
  * essay per position and the answer was the third paragraph down.
  *
  * What changed is the ORDER and the DEFAULT, not the content:
- *   - the ACTION and the RECOMMENDATION lead, in that order, in the card's left
- *     column: what to do, then why, at reading size, right under the protocol
- *     it is about;
+ *   - the RECOMMENDATION leads, at reading size, right under the protocol it is
+ *     about, and the ACTION is the button at the foot of the card;
  *   - the score keeps the right rail to itself, so a verdict about what to DO
  *     and a score about how BAD it is are no longer one corner of one row;
  *   - the numbers stay in the strip, where they are scannable and where the
  *     prose does not have to restate them;
  *   - POSITION, MARKET and EXECUTION move into a collapsed disclosure. A user
  *     acting on an EXIT deserves the reasoning, so nothing is deleted - it is
- *     one click, keyboard-reachable, and it is the same click for every card;
- *   - every block of prose names who wrote it, both states, one hover from why.
+ *     one click, keyboard-reachable, and it is the same click for every card.
+ *
+ * EXIT and REDUCE are the two highest-consequence things this product offers and
+ * they were reading as decoration: a small quiet chip in the prose column, then a
+ * small quiet button sharing its row with the disclosure trigger and a TESTNET
+ * badge. The card now spends its hierarchy on them instead - the chip is gone
+ * where a button says the same verb, the button is a size step larger and alone
+ * on its row above a demoted `Details`, and TESTNET is stated once for the whole
+ * panel. None of that spends a hue: `Button` is a neutral fill by design, and the
+ * urgency is already carried legitimately by the dial and by the drop to
+ * liquidation in the strip.
  *
  * The engine's prose is not edited here. Where it duplicates the strip that is
  * a copy problem in packages/scoring/src/advisor, out of this file's scope.
@@ -31,15 +39,7 @@
  */
 
 import React from "react";
-import {
-  AlertTriangle,
-  ArrowRight,
-  Calculator,
-  ChevronRight,
-  Compass,
-  Eye,
-  Sparkles,
-} from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronRight, Compass, Eye } from "lucide-react";
 import type {
   AdvisorOpenPlan,
   AdvisorRecommendation,
@@ -50,14 +50,12 @@ import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
 import {
   ADVISOR_ACTION,
+  AI_PROSE_NOTE,
   formatUsd,
   liquidationOutlook,
   MARKET_CONTEXT_MISSING_HINT,
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
-  PROSE_SOURCE_BANNER,
-  PROSE_SOURCE_HINT,
-  PROSE_SOURCE_LABEL,
   RISK_CHIP,
   RISK_TEXT,
   USD_UNAVAILABLE_HINT,
@@ -84,7 +82,7 @@ const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
 };
 
 /**
- * The action, as a chip, in NEUTRAL ink.
+ * The action, as a chip, in NEUTRAL ink, on the cards that have no button.
  *
  * It used to be painted off the risk ramp: EXIT red, REDUCE orange, HOLD green,
  * plus a sky blue and a violet for MONITOR and REBALANCE. Two problems. An
@@ -96,15 +94,29 @@ const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
  * The band now has exactly one home per card: the RiskDial, borrowed from the
  * Portfolio position rows so a score means the same thing on both screens.
  *
- * And the ACTION has exactly one home too, which it did not before: the chip
- * sat `ml-auto` in the title row, which parked a verdict about what to DO
- * against a score about how BAD it is, in one corner, reading as one control.
- * It now opens the card's left column, directly above the sentence that
- * elaborates it, so the card scans straight down - protocol, action, why,
- * numbers - and the dial keeps the rail to itself.
+ * The chip is now WATCH, HOLD and MOVE only. On an EXIT or a REDUCE leg it said
+ * the verb the primary button says two inches below it, which is a duplicate
+ * that also flattens the two: the loudest statement of a call to action should
+ * not be a 11px pill in the prose column. Cards that are not a call to action
+ * keep it, because there it is the only place the verdict is stated, and it
+ * stays quiet because "watch this" is not something to do today.
  */
 const ACTION_CHIP =
   "inline-flex shrink-0 rounded-sm border border-border-subtle bg-white/[0.06] px-2 py-0.5 text-2xs font-sans font-bold text-text-primary";
+
+/**
+ * The two costs this screen genuinely does not know, behind `Details`.
+ *
+ * Gas comes from the simulation the exit flow runs against the real position and
+ * the price floor is read from the deployed swap config, so neither exists until
+ * a wallet is connected. Naming them is the only honest option, because a
+ * plausible-looking estimate here would be a number the code never had. What it
+ * is not is something to read before deciding, which is why it moved off the
+ * face of the card and into the disclosure with the rest of the second-order
+ * explanation.
+ */
+const GAS_CAVEAT =
+  "Gas is estimated at signing. The price floor for anything sold is shown at the same point.";
 
 /**
  * What the card says about a collateral-funded repay it cannot yet perform.
@@ -131,35 +143,31 @@ function ActionButton({
     const label = rec.action === "EXIT" ? "Execute exit" : "Reduce position";
     const disabledHint = "Transaction flow ships with the Atomic Exit integration";
     return (
-      <div className="flex flex-col items-stretch gap-1.5">
-        <span className="inline-flex items-center gap-2">
-          {/* Neutral, like every other chip here. TESTNET is a statement about
-              which chain you are signing on, not about how risky the position is,
-              and it was spending an orange on a card whose colour budget is one
-              dial. The word is the warning. */}
-          {EXIT_ENV === "testnet" ? (
-            <span className="rounded-sm border border-border-subtle bg-white/[0.06] px-1.5 py-0.5 text-2xs font-sans font-bold text-text-secondary">
-              TESTNET
-            </span>
-          ) : null}
-          {/* The `Button` primitive, which by design does not accept a risk band:
-              these were a red fill and an orange fill, so the loudest element on
-              the card was the control rather than the reading it acts on. */}
-          <Button onClick={onExit ? () => onExit(prefill) : undefined} disabled={!onExit}
-            title={onExit ? undefined : disabledHint}>
-            {label} <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
-        </span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* The `Button` primitive, which by design does not accept a risk band:
+            these were a red fill and an orange fill, so the loudest element on
+            the card was the control rather than the reading it acts on. The size
+            step is what replaces that loudness legitimately - a 14px label on a
+            near-white plate at 18.1:1, alone on the card's last row, against a
+            12px `Details` beneath it. */}
+        <Button
+          size="lg"
+          onClick={onExit ? () => onExit(prefill) : undefined}
+          disabled={!onExit}
+          title={onExit ? undefined : disabledHint}
+        >
+          {label} <ArrowRight className="h-4 w-4" />
+        </Button>
         {/* The declinable alternative. The engine still RECOMMENDS the exit, so
-            the exit keeps the one primary fill on this card and this stays
-            `quiet`: a second filled button would put two equal answers on a
-            card whose job is to give one. It is a real control rather than a
-            line of prose because the engine has a prefill for it, and the
-            sentence offering it is already in the recommendation above. */}
+            the exit keeps the one primary fill and the larger step on this card
+            and this stays `quiet` at the default size: a second equal button
+            would put two equal answers on a card whose job is to give one. It is
+            a real control rather than a line of prose because the engine has a
+            prefill for it, and the sentence offering it is already in the
+            recommendation above. */}
         {rec.alternative ? (
           <Button
             variant="quiet"
-            className="justify-center"
             onClick={
               onExit ? () => onExit({ protocol: rec.protocol, kind: "full_repay" }) : undefined
             }
@@ -185,59 +193,19 @@ function ActionButton({
 }
 
 /**
- * Who wrote the block of prose above this line.
- *
- * The Advisor mixes two kinds of sentence and they carry different warranties:
- * the numbers, the action and (on a critical leg) the verdict are the engine's
- * and are checked, while the phrasing around them may have come out of a
- * language model. A reader deciding whether to sign a transaction is entitled
- * to know which is which.
- *
- * It used to be told only half. Model-phrased prose sat in a sunken inset under
- * an "AI-generated summary" label and engine-written prose got no marker at all,
- * so the distinction the 1.7 guardrails exist to make read on screen as the app
- * labelling some cards and not others for no stated reason. BOTH states are
- * named now, in the same place, at the same size, with the same shape, and the
- * reason they differ is one hover away.
- *
- * The inset went with it. A tinted box inside a tinted card was chrome wrapping
- * chrome, and once both states are labelled the box is no longer carrying the
- * distinction - the words are.
- *
- * Per BLOCK and not per card, because that is the granularity of the truth: on a
- * critical leg the server serves the ENGINE's verdict sentence even when the
- * rest of the leg is narrated (the template slot in AdvisorNarrator), so that
- * card honestly reads "wording by the engine" on its lead and "wording by AI"
- * inside "Why this".
- */
-function ProseSource({ narrated, hint = false }: { narrated: boolean; hint?: boolean }) {
-  const Icon = narrated ? Sparkles : Calculator;
-  return (
-    <p className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-      <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
-      {narrated ? PROSE_SOURCE_LABEL.narrated : PROSE_SOURCE_LABEL.engine}
-      {/* The explanation goes on the marker a reader meets first. Repeating the
-          tip inside the disclosure would be a second control for one idea, one
-          line below the first. */}
-      {hint ? <InfoTip text={PROSE_SOURCE_HINT} className="ml-0.5" /> : null}
-    </p>
-  );
-}
-
-/** True when a leg's prose was written by the model rather than the engine. */
-function isNarrated(rec: AdvisorRecommendation): boolean {
-  return rec.narrationSource === "narrated";
-}
-
-/**
- * The three sections that are not the recommendation, behind one disclosure.
+ * The three sections that are not the recommendation, behind one disclosure,
+ * plus whatever caveat the card owes a reader who is about to act.
  *
  * A native `<details>`: it is focusable, it is announced as expandable, it
  * works with no JavaScript and it costs no dependency. `list-none` plus the
  * webkit marker reset removes the browser's own triangle, so the chevron is
  * the only marker and it is the one that rotates.
+ *
+ * Labelled `Details`, not `Why this`. It holds the position, the market, the
+ * execution notes and the gas caveat, and "why this" claimed only the first of
+ * those while reading as a question the card had failed to answer above.
  */
-function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
+function Reasoning({ rec, footnote }: { rec: AdvisorRecommendation; footnote?: string }) {
   const rows: [string, string][] = [
     ["Position", rec.sections.position],
     ["Market", rec.sections.market],
@@ -254,25 +222,21 @@ function Reasoning({ rec }: { rec: AdvisorRecommendation }) {
     </div>
   );
   return (
-    <details className="group min-w-0 flex-1">
-      {/* `min-h-8.5` matches the button beside it (33.6px), so the summary text
-          and the button label sit on one line whether the card is open or
-          closed. Without it the summary is 16px tall and the row reads as two
-          controls at two different heights. */}
-      <summary className="flex min-h-8.5 cursor-pointer list-none items-center gap-1 text-xs font-sans font-semibold text-text-secondary hover:text-text-primary [&::-webkit-details-marker]:hidden">
+    <details className="group min-w-0">
+      {/* `inline-flex`, so the hit area is the width of the words rather than
+          the width of the card: this is the quiet half of the last row and a
+          full-bleed target reads as a second control. `min-h-6` keeps it at the
+          24px floor for a tap target (WCAG 2.5.8) at 12px type. */}
+      <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 text-xs font-sans font-semibold text-text-secondary hover:text-text-primary [&::-webkit-details-marker]:hidden">
         <ChevronRight
           className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90"
           aria-hidden="true"
         />
-        Why this
+        Details
       </summary>
-      <div className="mt-3 space-y-2">
-        {/* These three are always the model's when the leg was narrated - the
-            critical-verdict template slot only protects the recommendation
-            above, which is why this block states its own source rather than
-            inheriting the card's. */}
+      <div className="mt-3 space-y-2.5">
         {body}
-        <ProseSource narrated={isNarrated(rec)} />
+        {footnote ? <p className="text-xs font-sans text-text-muted">{footnote}</p> : null}
       </div>
     </details>
   );
@@ -410,15 +374,6 @@ interface Outcome {
 function outcomesFor(rec: AdvisorRecommendation): Outcome[] {
   const n = rec.numbers;
   const symbol = n.scoredCollateralSymbol;
-  // A degraded leg has real ratios and unknown magnitudes. It names the asset
-  // instead of printing the engine's "$—" into the middle of a sentence; what
-  // it never does is substitute a zero.
-  const debtPhrase =
-    n.borrowValueUsd === null ? "your debt" : `${fmtUsd(n.borrowValueUsd)} of debt`;
-  const collateralPhrase =
-    n.collateralValueUsd === null
-      ? `your ${symbol} collateral`
-      : `${fmtUsd(n.collateralValueUsd)} of ${symbol}`;
 
   const out: Outcome[] = [];
 
@@ -429,7 +384,13 @@ function outcomesFor(rec: AdvisorRecommendation): Outcome[] {
       // Both halves, because the exit is wallet-funded on the repay side too:
       // a user reading only "sells your collateral" would arrive at the modal
       // and find they also need the debt asset in hand.
-      cost: `Repays ${debtPhrase} from your wallet, then sells ${collateralPhrase} for USDC.`,
+      //
+      // Neither half quotes a figure. The two it would quote ARE the strip's
+      // `Debt` and `Collateral`, the same engine fields, two lines above: an
+      // exit moves the whole position by definition. The sentence is about what
+      // moves and where, the strip is about how much, and printing the numbers
+      // twice was the clearest instance of the card repeating itself.
+      cost: `Repays your debt from your wallet, then sells your ${symbol} collateral for USDC.`,
       protection: "Nothing left to liquidate, and the position is closed.",
     });
   }
@@ -508,18 +469,29 @@ function outcomesFor(rec: AdvisorRecommendation): Outcome[] {
  * the same block is ~450px wide and two columns would be 210 each, which is
  * where a sentence starts breaking one word per line.
  */
-function Outcomes({ rec }: { rec: AdvisorRecommendation }) {
-  const outcomes = outcomesFor(rec);
+function Outcomes({ outcomes }: { outcomes: Outcome[] }) {
   if (outcomes.length === 0) return null;
+  /**
+   * The titles are the columns' labels, so they exist only once there are
+   * columns to tell apart. On a card with one outcome the heading sat directly
+   * above a sentence that said the same thing in more words ("Exit the position"
+   * over "Repays your debt from your wallet, then sells..."), and the verb was
+   * also on the button below and in the recommendation above: four statements of
+   * one idea. With two or three routes on the card it is the only thing that
+   * distinguishes them at a glance, so it stays.
+   */
+  const titled = outcomes.length > 1;
   return (
     <div
       className={`grid gap-x-8 gap-y-4 border-t border-border-subtle pt-3 ${
-        outcomes.length > 1 ? "lg:grid-cols-2" : ""
+        titled ? "lg:grid-cols-2" : ""
       }`}
     >
       {outcomes.map((o) => (
         <div key={o.key} className="min-w-0 space-y-1">
-          <p className="text-xs font-sans font-semibold text-text-primary">{o.title}</p>
+          {titled ? (
+            <p className="text-xs font-sans font-semibold text-text-primary">{o.title}</p>
+          ) : null}
           <p className="text-sm font-sans leading-relaxed tabular-nums text-text-secondary">
             {o.cost}
           </p>
@@ -533,16 +505,6 @@ function Outcomes({ rec }: { rec: AdvisorRecommendation }) {
           {o.note ? <p className="text-xs font-sans text-text-muted">{o.note}</p> : null}
         </div>
       ))}
-      {/* The two costs this screen genuinely does not know. Gas comes from the
-          simulation the exit flow runs against the real position, and the price
-          floor for anything sold is read from the deployed swap config, so
-          neither exists until a wallet is connected. Naming them is the only
-          honest option: a plausible-looking estimate here would be a number the
-          code never had. */}
-      <p className={`text-xs font-sans text-text-muted ${outcomes.length > 1 ? "lg:col-span-2" : ""}`}>
-        Gas is estimated at signing. The price floor for anything sold is shown at the same
-        point.
-      </p>
     </div>
   );
 }
@@ -556,8 +518,14 @@ function RecommendationCard({
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
   onOpen?: (plan: AdvisorOpenPlan) => void;
 }) {
-  const action = <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} />;
-  const aiLead = isNarrated(rec) && rec.urgency !== "critical";
+  const outcomes = outcomesFor(rec);
+  /**
+   * Whether this card offers a control, which is also whether the action chip
+   * would be repeating a button label. `ActionButton` renders nothing for
+   * WATCH, HOLD and MOVE, and nothing for an OPEN with no plan attached.
+   */
+  const hasAction =
+    rec.action === "EXIT" || rec.action === "REDUCE" || (rec.action === "OPEN" && !!rec.openPlan);
   return (
     /* `Card`, so the container does not tint by state. The border used to turn
        risk-critical on an EXIT leg, which is a whole box painted with a band -
@@ -577,19 +545,18 @@ function RecommendationCard({
             </span>
           </div>
 
-          {/* The lead: what to do, then why. The chip is the scannable half and
-              the sentence is the reading half of one answer, so they are one
-              block. `ADVISOR_ACTION`, not `rec.action` - the raw union is an
-              engine enum and this screen does not shout. */}
+          {/* The lead. On a card with a button the sentence is the whole lead
+              and the verb is the button; on a card without one the chip is the
+              only statement of the verdict, so it opens the block above the
+              sentence that elaborates it. `ADVISOR_ACTION`, not `rec.action` -
+              the raw union is an engine enum and this screen does not shout. */}
           <div className="space-y-1.5">
-            <span className={ACTION_CHIP}>{ADVISOR_ACTION[rec.action]}</span>
+            {hasAction ? null : (
+              <span className={ACTION_CHIP}>{ADVISOR_ACTION[rec.action]}</span>
+            )}
             <p className="text-sm font-sans leading-relaxed text-text-primary">
               {rec.sections.recommendation}
             </p>
-            {/* On a critical leg the server serves the ENGINE's verdict sentence
-                even when the rest of the leg is narrated, so this marker is
-                computed from `aiLead` and not from the leg's flag. */}
-            <ProseSource narrated={aiLead} hint />
           </div>
 
           <NumbersStrip rec={rec} />
@@ -606,24 +573,21 @@ function RecommendationCard({
           between the reading and the controls because that is the order the
           decision is made in: here is the position, here is what each way out
           costs and leaves, here are the buttons. */}
-      <Outcomes rec={rec} />
+      <Outcomes outcomes={outcomes} />
 
-      {/* The disclosure and the action share one row, so a collapsed card ends
-          in a single line rather than a summary, a gap and a button. Open, the
-          reasoning grows underneath and the button stays where it was.
+      {/* The action owns the card's last row, alone, and `Details` sits under it
+          at 12px. They used to share a row, which made a 12px disclosure trigger
+          and the one control on the card read as a pair of equal footer links.
+          The action is the point of the card; the reasoning is available.
 
-          They stack below `lg`, and the arithmetic is on the CONTENT COLUMN
-          rather than the window. The action block is `shrink-0` and on a REDUCE
-          leg it is a TESTNET chip, a filled button and a second quiet button
-          wide, about 270px. At a 768px window the sidebar has already taken
-          256px, so the column is ~464px and the disclosure got ~172px against a
-          204px min-content: every line of reasoning inside it was clipped. At
-          1024 the column is ~720px and the disclosure gets ~450px, which fits.
-          Measured, disclosures forced open: 15 clipped nodes at 390 and 11 at
-          768 before, 0 at all five widths after. */}
-      <div className="flex flex-col gap-3 border-t border-border-subtle pt-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
-        <Reasoning rec={rec} />
-        {action && <div className="shrink-0">{action}</div>}
+          Stacking them also retires the clipping arithmetic this row used to
+          need. Side by side, the action block was `shrink-0` at about 270px, so
+          at a 768px window (sidebar 256, column ~464) the disclosure got ~172px
+          against a 204px min-content and every line of reasoning inside it was
+          clipped. Full-width children cannot reproduce that at any width. */}
+      <div className="space-y-3 border-t border-border-subtle pt-4">
+        {hasAction ? <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} /> : null}
+        <Reasoning rec={rec} footnote={outcomes.length > 0 ? GAS_CAVEAT : undefined} />
       </div>
     </Card>
   );
@@ -675,17 +639,17 @@ function OpportunityCard({
         {plan.apy !== null ? `, ${(plan.apy * 100).toFixed(1)}% APY` : ""}
       </p>
 
-      {/* Stacked at every width, unlike the position cards. These sit three
-          across from `xl`, so the card itself is ~380px and the button beside
+      {/* Stacked, action first, the same shape as the position cards. These sit
+          three across from `xl`, so the card itself is ~380px and a button beside
           the disclosure left it ~170px: the reasoning rows are a 112px label
           plus a paragraph, which is ~42px of prose and clipped at every window
           size. Breakpoints measure the window and this column does not, so the
           fix is the layout rather than a smaller type step. */}
       <div className="mt-auto flex flex-col gap-3 border-t border-border-subtle pt-3">
-        <Reasoning rec={rec} />
         <div>
           <ActionButton rec={rec} onOpen={onOpen} />
         </div>
+        <Reasoning rec={rec} />
       </div>
     </Card>
   );
@@ -789,26 +753,25 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
             {overall.headline}
             {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
           </p>
-          {/* Stays on screen: this one is a disclosure about who wrote the
-              sentences, not a metric.
-
-              It used to read "AI-narrated, engine-decided" while the cards below
-              labelled one leg and not the next, which put the banner and the
-              cards in contradiction. It now states the half that is true of
-              every card and hands the per-card half to the per-card markers,
-              which is where the answer actually varies. */}
-          {report.narrated ? (
-            <p className="mt-1 flex items-center gap-1 text-2xs font-sans text-text-muted">
-              <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" /> {PROSE_SOURCE_BANNER}
-            </p>
-          ) : null}
         </div>
       </Card>
 
       {/* Position legs */}
       {recommendations.length > 0 ? (
         <div className="space-y-4">
-          <h3 className="text-sm font-sans font-semibold text-text-primary">Your positions</h3>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h3 className="text-sm font-sans font-semibold text-text-primary">Your positions</h3>
+            {/* Once, for the section, instead of a TESTNET pill beside every
+                exit button on every card. The chain you are signing on is a
+                property of the release, not of a position, and the flow the
+                button opens states it again in its own header and banner before
+                anything can be signed. */}
+            {EXIT_ENV === "testnet" ? (
+              <p className="text-xs font-sans text-text-muted">
+                Exits run on Base Sepolia against a demo position.
+              </p>
+            ) : null}
+          </div>
           {recommendations.map((rec) => (
             <RecommendationCard
               key={`${rec.protocol}-${rec.numbers.scoredCollateralSymbol}`}
@@ -846,6 +809,17 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
             <SeeAllInCompass />
           </div>
         </div>
+      ) : null}
+
+      {/* The panel's one AI disclosure, at the foot, where a standing fact about
+          how the page is written belongs. It replaces a marker under every block
+          of prose on every card plus a banner line explaining that the markers
+          exist: which sentences a model rephrased is not a thing the reader
+          acts on, and the engine decides the recommendation either way. `narrated`
+          is true as soon as any leg is model-phrased, so the line is present
+          exactly when there is something to disclose. */}
+      {report.narrated ? (
+        <p className="text-xs font-sans text-text-muted">{AI_PROSE_NOTE}</p>
       ) : null}
     </div>
   );
