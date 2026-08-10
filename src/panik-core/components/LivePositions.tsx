@@ -17,17 +17,13 @@ import {
   MARKET_CONTEXT_MISSING_HINT,
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
+  PROTOCOL_LABEL,
   RISK_CHIP,
   RISK_TEXT,
+  USD_UNAVAILABLE_HINT,
+  USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, SimulationChip, Skeleton } from "../ui";
-
-const PROTOCOL_NAME: Record<LiveWalletPosition["protocol"], string> = {
-  aave_v3: "Aave V3",
-  moonwell: "Moonwell",
-  morpho: "Morpho",
-  compound_v3: "Compound V3",
-};
 
 /**
  * The row identity the alert feed navigates to. Same shape as the React key, and
@@ -219,7 +215,7 @@ export function LivePositions({
                     : "border-border-subtle bg-surface-raised/50"
                 }`}
               >
-                <ProtocolLogo protocol={PROTOCOL_NAME[p.protocol]} size="w-8 h-8" />
+                <ProtocolLogo protocol={PROTOCOL_LABEL[p.protocol]} size="w-8 h-8" />
 
                 <div className="min-w-0 flex-1 space-y-1.5">
                   {/* Line 1 — identity. The protocol never shrinks; only the
@@ -229,7 +225,7 @@ export function LivePositions({
                       this line three short strings on a 390px phone. */}
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
-                      {PROTOCOL_NAME[p.protocol]}
+                      {PROTOCOL_LABEL[p.protocol]}
                     </h4>
                     <span className="truncate text-xs font-sans text-text-secondary">
                       {p.scoredCollateralSymbol}
@@ -301,11 +297,11 @@ export function LivePositions({
                   {p.usdValuesUnavailable ? (
                     <div className="flex">
                       <span
-                        title="A price feed this position's USD conversion depends on was missing or stale. The PANIK score and health factor are unaffected - they are ratios - so only the dollar amounts are unknown."
+                        title={USD_UNAVAILABLE_HINT}
                         className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
                       >
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                        USD amounts unavailable
+                        {USD_UNAVAILABLE_LABEL}
                       </span>
                     </div>
                   ) : (
@@ -412,7 +408,7 @@ export function LivePositions({
                       variant="quiet"
                       onClick={() => onStressTest(p)}
                       title="Stress-test this position in Watch"
-                      aria-label={`Stress-test the ${PROTOCOL_NAME[p.protocol]} position in Watch`}
+                      aria-label={`Stress-test the ${PROTOCOL_LABEL[p.protocol]} position in Watch`}
                       className="px-1.5 py-1"
                     >
                       {/* Eye, not sliders: this button lands on Watch, and Watch

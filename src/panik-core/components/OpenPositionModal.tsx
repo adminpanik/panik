@@ -14,7 +14,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowRight, CheckCircle2, Loader2, X } from "lucide-react";
-import { formatCurrency } from "../lib/utils";
+import { demoMaxLtv, formatCurrency } from "../lib/utils";
 import { ProtocolLogo } from "./ProtocolLogo";
 
 export interface OpenPositionTarget {
@@ -43,7 +43,7 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
   const [phase, setPhase] = useState<"config" | "submitting" | "done">("config");
   const [txHash, setTxHash] = useState("");
 
-  const maxLTV = target.protocol === "Aave V3" ? 0.82 : 0.78;
+  const maxLTV = demoMaxLtv(target.protocol);
   const borrowUsd = (depositUsd * borrowPct) / 100;
   const estHf = borrowUsd > 0 ? (depositUsd * maxLTV) / borrowUsd : Infinity;
   const liqBufferPct = borrowUsd > 0 ? Math.max(0, Math.round((1 - borrowUsd / maxLTV / depositUsd) * 100)) : 100;

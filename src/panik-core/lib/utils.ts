@@ -4,7 +4,7 @@
  */
 
 import { PositionState } from "./types";
-import type { AdvisorAction, Band, ProfileStatus } from "./live";
+import type { AdvisorAction, Band, LiveProtocol, ProfileStatus } from "./live";
 /**
  * A VALUE import from the engine, which every other import in panik-core is
  * careful not to be, and the exception is deliberate: `prospective.ts` has no
@@ -20,6 +20,53 @@ import {
 } from "../../../packages/scoring/src/prospective";
 
 /**
+ * A protocol id in the product's own words.
+ *
+ * This table existed SIX times, character for character, in `AppDemo`,
+ * `AdvisorPanel`, `AdvisorPopup`, `DelegationManager`, `OpenFlow` and
+ * `LivePositions` - three typed against the union and three as a loose
+ * `Record<string, string>`. A protocol added to the engine needed six edits,
+ * and whichever copy was missed put a raw `compound_v3` on screen.
+ *
+ * `Record<LiveProtocol, …>` rather than a loose index, so a protocol added to
+ * the engine is a compile error here instead of an enum leaking to the UI. The
+ * value type is the literal union because `VaultPreset.protocol` is that union
+ * and the Watch simulator assigns a label straight into it.
+ *
+ * Callers reading a protocol off the wire keep their `?? protocol` fallback:
+ * the type says what this build knows, not what an API response can contain.
+ */
+export const PROTOCOL_LABEL: Record<
+  LiveProtocol,
+  "Aave V3" | "Moonwell" | "Morpho" | "Compound V3"
+> = {
+  aave_v3: "Aave V3",
+  moonwell: "Moonwell",
+  morpho: "Morpho",
+  compound_v3: "Compound V3",
+};
+
+/**
+ * Max borrow LTV for the DEMO surfaces, as a fraction.
+ *
+ * One rule, written by hand four times before this: here, twice in `AppDemo`
+ * (the Watch simulator's LTV ceiling and its health-factor preview) and once in
+ * `OpenPositionModal`, which prints it to the user as a fact about their
+ * protocol ("Near max LTV (78%)").
+ *
+ * NOT the engine's number, deliberately. `MARKETS` in `packages/scoring` holds
+ * the real per-asset parameters and they disagree with these two (Aave WETH
+ * 0.80 and wstETH 0.75, Morpho 0.86, Compound V3 WETH 0.78). Pointing these
+ * surfaces at the engine is the right fix AND it changes figures on screen, so
+ * it is a behaviour change and belongs in its own commit, not in a
+ * consolidation pass.
+ */
+export function demoMaxLtv(protocol: string): number {
+  // Aave is the slightly higher blue-chip parameter; everything else shares one.
+  return protocol === "Aave V3" ? 0.82 : 0.78;
+}
+
+/**
  * Calculates a DeFi position health factor and PANIK risk score.
  * Formula models general lending logic:
  * Max LTV is assumed to be 80% (0.80).
@@ -31,7 +78,7 @@ export function calculateDynamicPosition(
   borrow: number,
   collateralPrice: number
 ): PositionState {
-  const maxLTV = protocol === "Aave V3" ? 0.82 : 0.78; // Aave is slightly higher blue-chip parameter
+  const maxLTV = demoMaxLtv(protocol);
   const collateralValueUsd = (collateral * collateralPrice);
   const borrowValueUsd = borrow;
   
@@ -86,18 +133,6 @@ export function calculateDynamicPosition(
     ? Math.round(borrowValueUsd / (collateralQty * maxLTV)) 
     : 0;
 
-  // Generate recommendation plain language string
-  let recommendation = "Position optimal. Collateral buffer protects against severe asset volatility.";
-  if (status === "CRITICAL") {
-    const repayAmount = Math.round(borrowValueUsd - (collateralValueUsd * maxLTV * 0.6));
-    recommendation = `CRITICAL ALERT: Repay $${repayAmount} USDC immediately to prevent liquidator bids!`;
-  } else if (status === "HIGH") {
-    const repayAmount = Math.round(borrowValueUsd - (collateralValueUsd * maxLTV * 0.75));
-    recommendation = `ACTION REQUIRED: Repay $${Math.max(50, repayAmount)} USDC to return health factor to a secure 1.75.`;
-  } else if (status === "ELEVATED") {
-    recommendation = `RECOMMENDED: Supply $${Math.round(collateralValueUsd * 0.15)} more collateral to suppress minor market swings.`;
-  }
-
   // Breakdowns
   const baseSafety = protocol === "Aave V3" ? 12 : 35; // Aave is highly audited, Moonwell has brief local history
   const systemic = status === "CRITICAL" ? 88 : status === "HIGH" ? 72 : status === "ELEVATED" ? 48 : 22;
@@ -112,7 +147,6 @@ export function calculateDynamicPosition(
     healthFactor,
     liquidationPrice,
     currentPrice: collateralPrice,
-    recommendation,
     breakdown: {
       positionHealth: Math.min(100, Math.round(currentLTV * 100)),
       assetVolatility: protocol === "Aave V3" ? 28 : 42, // Ether has moderate volatility, wstETH is derivative pegged
@@ -187,10 +221,6 @@ export function marketContextMissing(sub: {
  * indistinguishable from a clipped string, so the honest statement got read as a
  * broken layout. A sentence cannot be misread that way, and no branch of it can
  * emit "$0".
- *
- * `components/LivePositions.tsx` states the same two things with its own copy of
- * these strings; pointing it here is a mechanical follow-up outside this change's
- * file scope.
  */
 export const USD_UNAVAILABLE_LABEL = "USD amounts unavailable";
 export const USD_UNAVAILABLE_HINT =

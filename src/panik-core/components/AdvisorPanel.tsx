@@ -53,7 +53,6 @@ import type {
   AdvisorOpenPlan,
   AdvisorRecommendation,
   AdvisorReport,
-  LiveProtocol,
 } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
@@ -65,6 +64,7 @@ import {
   MARKET_CONTEXT_MISSING_HINT,
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
+  PROTOCOL_LABEL,
   RISK_CHIP,
   RISK_TEXT,
   USD_UNAVAILABLE_HINT,
@@ -82,13 +82,6 @@ import { EXIT_ENV } from "../lib/exit";
  */
 import { fmtBps, fmtGasUnits, fmtUsd } from "../../../packages/scoring/src/advisor/fallback";
 import { isDeleverageExecutable } from "../lib/exit";
-
-const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
-  aave_v3: "Aave V3",
-  moonwell: "Moonwell",
-  morpho: "Morpho",
-  compound_v3: "Compound V3",
-};
 
 /**
  * The action, as a chip, in NEUTRAL ink, on the cards that have no button.

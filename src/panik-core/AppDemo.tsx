@@ -33,10 +33,12 @@ import {
   bandOfHealthFactor,
   bandOfScore,
   calculateDynamicPosition,
+  demoMaxLtv,
   formatCompactUsd,
   formatCurrency,
   formatUsd,
   liquidationOutlook,
+  PROTOCOL_LABEL,
   RISK_CHIP,
   RISK_FILL,
   RISK_TEXT,
@@ -339,12 +341,8 @@ const truncateAddress = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.
  */
 const SHOW_AUTO_REPAY_CARD = false;
 
-const LIVE_PROTOCOL_LABEL: Record<LiveProtocol, "Aave V3" | "Moonwell" | "Morpho" | "Compound V3"> = {
-  aave_v3: "Aave V3",
-  moonwell: "Moonwell",
-  morpho: "Morpho",
-  compound_v3: "Compound V3",
-};
+/** The shared table in lib/utils, under this file's long-standing local name. */
+const LIVE_PROTOCOL_LABEL = PROTOCOL_LABEL;
 
 /** How long a position row stays emphasised after an alert points at it. */
 const HIGHLIGHT_MS = 4000;
@@ -1447,16 +1445,6 @@ export function AppDemo() {
   );
   const liveWatch = useProspective(prospectiveArgs);
 
-  const recommendationFor = (status: PositionState["status"]): string => {
-    if (status === "CRITICAL")
-      return `CRITICAL ALERT: Repay ${activeMarket.debtAsset} debt immediately to prevent liquidator bids!`;
-    if (status === "HIGH")
-      return `ACTION REQUIRED: Repay part of the ${activeMarket.debtAsset} debt to restore a secure buffer.`;
-    if (status === "ELEVATED")
-      return `RECOMMENDED: Supply more ${activeMarket.collateralAsset} to suppress minor market swings.`;
-    return "Position optimal. Collateral buffer protects against severe asset volatility.";
-  };
-
   const positionState: PositionState = liveWatch
     ? {
         protocol: activeMarket.protocol,
@@ -1474,7 +1462,6 @@ export function AppDemo() {
             ? Math.round(assetPrice * (1 - liveWatch.liquidationDrawdown))
             : 0,
         currentPrice: assetPrice,
-        recommendation: recommendationFor(liveWatch.band),
         breakdown: {
           positionHealth: Math.round(liveWatch.subScores.positionHealth),
           assetVolatility: Math.round(liveWatch.subScores.assetRisk),
@@ -1516,7 +1503,7 @@ export function AppDemo() {
   // "Infinity%".
   const watchLtvPct =
     watchCollateralValue > 0 ? Math.round((borrowUsd / watchCollateralValue) * 100) : null;
-  const watchMaxLtvPct = activeMarket.protocol === "Aave V3" ? 82 : 78;
+  const watchMaxLtvPct = Math.round(demoMaxLtv(activeMarket.protocol) * 100);
   const watchLiqPrice = positionState.liquidationPrice;
   const watchDropSub = [
     positionState.healthFactor === null
@@ -2239,7 +2226,7 @@ export function AppDemo() {
                     <div className="grid grid-cols-2 gap-2">
                       {PRICE_SCENARIOS.map((s) => {
                         const price = scenarioPrice(s.pct);
-                        const maxLTV = activeMarket.protocol === "Aave V3" ? 0.82 : 0.78;
+                        const maxLTV = demoMaxLtv(activeMarket.protocol);
                         const estHf = borrowUsd > 0 ? (collateralAmount * price * maxLTV) / borrowUsd : Infinity;
                         const active = activeScenario === s.key;
                         const liquidated = Number.isFinite(estHf) && estHf < 1;
@@ -2617,9 +2604,9 @@ export function AppDemo() {
                     positions to summarise, so every figure below comes from
                     `liveMacro` and there is no literal for it to fall back to.
                     An empty wallet gets the EmptyState above and no cards at
-                    all; it used to get this row, which meant "No positions yet"
-                    sat directly on top of a dashboard claiming $18,450 of
-                    monitored capital. */}
+                    all, because "No positions yet" directly above a dashboard
+                    stating a monitored total is the screen contradicting
+                    itself. */}
                 {liveMacro && (() => {
                   const aggregate = liveMacro.aggregate;
                   // Legs the engine could not price contribute nothing to the
@@ -3567,15 +3554,10 @@ export function AppDemo() {
                         </p>
                       </div>
 
-                      {/* The "Pool liquidity signal" that stood here is deleted.
-                          It was one hardcoded sentence, identical for every
-                          preset, protocol and market: $82,000,000 of depth,
-                          a 0.15% depth buffer, and "No oracle drift" - a live
-                          safety claim about an oracle nothing in this codebase
-                          checks. Pool TVL above is the real depth reading and it
-                          comes from DefiLlama. ("vault lines", the phrase this
-                          sentence used, is the same non-referring jargon
-                          DESIGN_SYSTEM records deleting once already.) */}
+                      {/* No "pool liquidity signal" here: depth and oracle
+                          drift are live market facts nothing in this codebase
+                          reads, so this panel may not assert them. Pool TVL
+                          above is the real depth reading, from DefiLlama. */}
 
                       {/* Position signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">

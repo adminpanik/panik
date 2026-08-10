@@ -48,7 +48,7 @@ import {
 import { asContractClient, EXIT_ENV, getExitChain } from "../lib/exit";
 import { PROTOCOL_ID } from "../lib/exitLegs";
 import type { LiveProtocol } from "../lib/live";
-import { liquidationOutlook } from "../lib/utils";
+import { liquidationOutlook, PROTOCOL_LABEL } from "../lib/utils";
 import {
   clampSlippageBps,
   composeExitPermit,
@@ -65,14 +65,6 @@ import {
 } from "../lib/exitPermitCompose";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
 import { Button } from "../ui";
-
-/** Display names for a protocol id (never a risk number). */
-const PROTOCOL_LABEL: Record<LiveProtocol, string> = {
-  aave_v3: "Aave V3",
-  moonwell: "Moonwell",
-  compound_v3: "Compound V3",
-  morpho: "Morpho",
-};
 
 const BPS = 10_000;
 
