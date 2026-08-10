@@ -18,6 +18,14 @@ import {
   drawdownToLiquidation,
   formatDrawdownPct,
 } from "../../../packages/scoring/src/prospective";
+/**
+ * The second deliberate value import, on the same terms: `markets.ts` imports
+ * one TYPE and nothing else, so it erases to a bare table and drags no adapter
+ * behind it. The alternative was the UI holding its own copy of the borrow
+ * limits, which is exactly what it was doing (issue #61) and exactly what put a
+ * number on screen the engine did not agree with.
+ */
+import { marketParams } from "../../../packages/scoring/src/markets";
 
 /**
  * A protocol id in the product's own words.
@@ -47,24 +55,116 @@ export const PROTOCOL_LABEL: Record<
 };
 
 /**
- * Max borrow LTV for the DEMO surfaces, as a fraction.
+ * A display label back to the engine's protocol id: the inverse of
+ * `PROTOCOL_LABEL`, for the surfaces that carry the label and not the id.
  *
- * One rule, written by hand four times before this: here, twice in `AppDemo`
- * (the Watch simulator's LTV ceiling and its health-factor preview) and once in
- * `OpenPositionModal`, which prints it to the user as a fact about their
- * protocol ("Near max LTV (78%)").
+ * `OpenPositionModal` is one: its `target` was shaped for display before the
+ * engine had anything to say to it, so the label is the only protocol it holds.
+ * Typed against `PROTOCOL_LABEL`'s own value union, so a protocol added to the
+ * engine breaks this table too rather than silently resolving to `undefined`.
+ */
+const PROTOCOL_ID: Record<(typeof PROTOCOL_LABEL)[LiveProtocol], LiveProtocol> = {
+  "Aave V3": "aave_v3",
+  Moonwell: "moonwell",
+  Morpho: "morpho",
+  "Compound V3": "compound_v3",
+};
+
+/**
+ * Max borrow LTV for the WATCH simulator, as a fraction.
  *
- * NOT the engine's number, deliberately. `MARKETS` in `packages/scoring` holds
- * the real per-asset parameters and they disagree with these two (Aave WETH
- * 0.80 and wstETH 0.75, Morpho 0.86, Compound V3 WETH 0.78). Pointing these
- * surfaces at the engine is the right fix AND it changes figures on screen, so
- * it is a behaviour change and belongs in its own commit, not in a
- * consolidation pass.
+ * NOT the engine's number, and the last surfaces still reading it are the Watch
+ * simulator's price-scenario previews in `AppDemo` plus
+ * `calculateDynamicPosition` below, which feeds them. `MARKETS` in
+ * `packages/scoring` holds the real per-asset parameters and disagrees with
+ * both of these (Aave WETH 0.80 and wstETH 0.75, Morpho 0.86, Compound V3 WETH
+ * 0.78).
+ *
+ * The Open-position modal moved off it in issue #61 and now reads
+ * `assetLoanToValue`. Watch cannot follow in the same change: it is keyed by
+ * protocol with no collateral symbol in the signature, so per-asset parameters
+ * mean a new argument at every call site inside `AppDemo`, which a concurrent
+ * branch is editing. Deleting this function is the last step of that follow-up,
+ * not of this one.
  */
 export function demoMaxLtv(protocol: string): number {
   // Aave is the slightly higher blue-chip parameter; everything else shares one.
   return protocol === "Aave V3" ? 0.82 : 0.78;
 }
+
+/**
+ * Percentage points the simulator's borrow ceiling stops short of the
+ * protocol's borrow limit.
+ *
+ * A ceiling AT the borrow limit is a position the protocol would open and then
+ * be entitled to close: on Morpho and Moonwell the borrow limit and the
+ * liquidation threshold are the same number, so a slider that reached it would
+ * offer a starting health factor of exactly 1.00. Four points keeps the worst
+ * offer on any listed market at 1.05 (Morpho, 0.86 / 0.82), which is thin but
+ * is a position rather than a liquidation.
+ *
+ * It is a MARGIN, not a threshold, and the copy beside it never calls it one:
+ * the two figures the engine actually holds are stated in full underneath.
+ */
+const SIMULATION_MARGIN_PCT = 4;
+
+/** What one protocol lets one collateral asset do, in whole percent. */
+export interface AssetLoanToValue {
+  /** Highest loan to value the protocol lets this asset borrow at. */
+  borrowLimitPct: number;
+  /** Loan to value from which the protocol may liquidate. */
+  liquidationPct: number;
+  /** Highest loan to value the simulator offers, a margin below the limit. */
+  ceilingPct: number;
+  /** Both engine figures, in a sentence, for the line under the control. */
+  note: string;
+}
+
+/**
+ * The loan-to-value parameters `MARKETS` lists for one asset on one protocol,
+ * or null when it lists none.
+ *
+ * PER ASSET, which is the whole point: wstETH and WETH are 75% and 80% on the
+ * same Aave, and the single 82/78 pair this replaced was neither of them on any
+ * protocol. Null rather than a fallback literal — a market we hold no
+ * parameters for is not a market with average parameters, and the caller has to
+ * say so instead of printing a guess.
+ */
+export function assetLoanToValue(
+  protocolLabel: string,
+  collateralSymbol: string,
+): AssetLoanToValue | null {
+  const protocol = PROTOCOL_ID[protocolLabel as (typeof PROTOCOL_LABEL)[LiveProtocol]];
+  if (protocol === undefined) return null;
+  const params = marketParams(protocol, collateralSymbol);
+  if (params === null) return null;
+  // The engine tolerates the proxy marker; a sentence a user reads does not.
+  const symbol = collateralSymbol.replace(" (proxy)", "");
+  const borrowLimitPct = Math.round(params.maxLtv * 100);
+  const liquidationPct = Math.round(params.liquidationThreshold * 100);
+  return {
+    borrowLimitPct,
+    liquidationPct,
+    ceilingPct: Math.max(0, borrowLimitPct - SIMULATION_MARGIN_PCT),
+    note:
+      `${protocolLabel} lets ${symbol} borrow up to ${borrowLimitPct}% loan to value` +
+      ` and can liquidate from ${liquidationPct}%.`,
+  };
+}
+
+/**
+ * What a surface says instead of a number when `assetLoanToValue` has none.
+ *
+ * The rule this exists for is "never render an unknown value as a zero": a
+ * missing listing reaching `Math.round(undefined * 100)` is an NaN, and the
+ * nearest tidy-looking repair is a `?? 0` that offers a 0% ceiling, or a `?? 78`
+ * that invents the very literal this replaced. Neither states what is true,
+ * which is that we do not hold this market's parameters, so the simulation
+ * covers the deposit alone.
+ */
+export const LOAN_TO_VALUE_UNAVAILABLE_LABEL = "Borrow limits unavailable";
+export const LOAN_TO_VALUE_UNAVAILABLE_HINT =
+  "We do not hold the loan-to-value limits this market lists, so there is no borrowing ceiling to simulate against. This preview covers the deposit only.";
 
 /**
  * Calculates a DeFi position health factor and PANIK risk score.

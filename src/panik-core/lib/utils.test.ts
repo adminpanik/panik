@@ -6,11 +6,18 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  assetLoanToValue,
   liquidationOutlook,
+  LOAN_TO_VALUE_UNAVAILABLE_HINT,
+  LOAN_TO_VALUE_UNAVAILABLE_LABEL,
   MARKET_CONTEXT_MISSING_HINT,
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
+  PROTOCOL_LABEL,
 } from "./utils";
+import type { LiveProtocol } from "./live";
+import { MARKETS } from "../../../packages/scoring/src/markets";
+import { estimateHealthFactor } from "../../../packages/scoring/src/prospective";
 
 describe("liquidationOutlook", () => {
   it("states a health factor as the price drop it means", () => {
@@ -130,6 +137,115 @@ describe("liquidationOutlook", () => {
       expect(o.statLabel).not.toContain("—");
       expect(o.statValue).not.toContain("—");
       expect(o.hover).not.toContain("—");
+    }
+  });
+});
+
+/**
+ * Issue #61: the Open flow printed one hand-written pair of borrow limits
+ * (82/78) as a fact about the user's protocol, and the engine disagreed with it
+ * on every market it lists. These assert the two properties that stops
+ * recurring: the figures come from `MARKETS`, and a market `MARKETS` does not
+ * list produces no figure at all.
+ */
+describe("assetLoanToValue", () => {
+  it("reads the engine's parameters per ASSET, not per protocol", () => {
+    // The four rows of the issue's table, plus the pair that makes the point:
+    // WETH and wstETH are different numbers on the same Aave.
+    expect(assetLoanToValue("Aave V3", "WETH")).toMatchObject({
+      borrowLimitPct: 80,
+      liquidationPct: 83,
+    });
+    expect(assetLoanToValue("Aave V3", "wstETH")).toMatchObject({
+      borrowLimitPct: 75,
+      liquidationPct: 79,
+    });
+    expect(assetLoanToValue("Morpho", "WETH")).toMatchObject({
+      borrowLimitPct: 86,
+      liquidationPct: 86,
+    });
+    expect(assetLoanToValue("Compound V3", "WETH")).toMatchObject({
+      borrowLimitPct: 78,
+      liquidationPct: 84,
+    });
+    // Neither of the two literals this replaced was any market's number.
+    for (const [protocol, assets] of Object.entries(MARKETS)) {
+      for (const symbol of Object.keys(assets)) {
+        const ltv = assetLoanToValue(PROTOCOL_LABEL[protocol as LiveProtocol], symbol);
+        expect(ltv?.borrowLimitPct).toBe(Math.round(assets[symbol]!.maxLtv * 100));
+        expect(ltv?.liquidationPct).toBe(
+          Math.round(assets[symbol]!.liquidationThreshold * 100),
+        );
+      }
+    }
+  });
+
+  it("moves the ceiling with the selected asset", () => {
+    // Same protocol, different asset, different ceiling — the behaviour the
+    // single 82/78 literal could not express.
+    expect(assetLoanToValue("Aave V3", "WETH")?.ceilingPct).toBe(76);
+    expect(assetLoanToValue("Aave V3", "wstETH")?.ceilingPct).toBe(71);
+    expect(assetLoanToValue("Aave V3", "cbBTC")?.ceilingPct).toBe(69);
+    // Same asset, different protocol, different ceiling.
+    expect(assetLoanToValue("Morpho", "WETH")?.ceilingPct).toBe(82);
+    expect(assetLoanToValue("Compound V3", "WETH")?.ceilingPct).toBe(74);
+  });
+
+  /**
+   * The reason the ceiling is a margin below the borrow limit rather than the
+   * limit itself: on Morpho and Moonwell the limit IS the liquidation
+   * threshold, so a slider reaching it would offer a position whose starting
+   * health factor is exactly 1.00 — openable and immediately liquidatable.
+   */
+  it("never offers a position that opens liquidatable", () => {
+    for (const [protocol, assets] of Object.entries(MARKETS)) {
+      for (const symbol of Object.keys(assets)) {
+        const ltv = assetLoanToValue(PROTOCOL_LABEL[protocol as LiveProtocol], symbol)!;
+        const hf = estimateHealthFactor(100, ltv.ceilingPct, ltv.liquidationPct / 100);
+        expect(hf).not.toBeNull();
+        expect(hf!).toBeGreaterThan(1);
+        // ...and it is a margin, so it never claims to be either engine figure.
+        expect(ltv.ceilingPct).toBeLessThan(ltv.borrowLimitPct);
+        expect(ltv.ceilingPct).toBeLessThan(ltv.liquidationPct);
+      }
+    }
+  });
+
+  it("has no figure for a market the engine does not list", () => {
+    expect(assetLoanToValue("Moonwell", "wstETH")).toBeNull(); // not listed
+    expect(assetLoanToValue("Compound V3", "USDC")).toBeNull(); // the base asset
+    expect(assetLoanToValue("Aave V3", "PEPE")).toBeNull();
+    expect(assetLoanToValue("Some New Protocol", "WETH")).toBeNull();
+    // Null, not zero: a "0%" ceiling is a number, and a number here is a claim.
+    expect(assetLoanToValue("Moonwell", "wstETH")?.ceilingPct).toBeUndefined();
+  });
+
+  it("resolves a symbol carrying the engine's proxy marker", () => {
+    // `active.ts` scores an unpriceable asset against WETH and says so in the
+    // symbol. It is still a WETH position as far as this table is concerned.
+    expect(assetLoanToValue("Aave V3", "WETH (proxy)")?.borrowLimitPct).toBe(80);
+    // ...and the marker never reaches the sentence a user reads.
+    expect(assetLoanToValue("Aave V3", "WETH (proxy)")?.note).not.toContain("proxy");
+  });
+
+  it("states both engine figures in words, with no abbreviation or enum", () => {
+    const note = assetLoanToValue("Aave V3", "wstETH")!.note;
+    expect(note).toBe(
+      "Aave V3 lets wstETH borrow up to 75% loan to value and can liquidate from 79%.",
+    );
+    expect(note).not.toMatch(/\bLTV\b/);
+    expect(note).not.toContain("—");
+    expect(note).not.toMatch(/aave_v3|compound_v3|maxLtv|liquidationThreshold/);
+  });
+});
+
+describe("the missing-borrow-limits copy", () => {
+  it("says what is unknown without printing a figure for it", () => {
+    expect(LOAN_TO_VALUE_UNAVAILABLE_LABEL).not.toMatch(/\d/);
+    expect(LOAN_TO_VALUE_UNAVAILABLE_HINT).not.toMatch(/\d/);
+    for (const s of [LOAN_TO_VALUE_UNAVAILABLE_LABEL, LOAN_TO_VALUE_UNAVAILABLE_HINT]) {
+      expect(s).not.toContain("—");
+      expect(s).not.toMatch(/\bLTV\b|null|undefined|NaN/);
     }
   });
 });
