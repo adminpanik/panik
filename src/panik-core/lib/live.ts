@@ -283,8 +283,20 @@ export function useWalletPositions(wallet: string | null, profile: string, chain
           setData(body);
           setOffline(false);
         }
-      } catch {
-        if (!cancelled) setOffline(true);
+      } catch (err) {
+        // A 429 is OUR OWN limiter, not an unreachable feed, and the two must
+        // not render as the same thing. "We could not reach the scoring feed,
+        // so this wallet's positions are unknown" is a claim about the outside
+        // world; being throttled says nothing about it. Whatever we last
+        // fetched is still the truth, so hold it and let the next poll refresh.
+        //
+        // It also breaks the loop that surfaced this: the panel read as broken,
+        // which invited a reload, which spent another request from the same 60s
+        // window and so guaranteed the next attempt failed too. Every limiter
+        // here keys on the client IP, and on one developer machine the app tab,
+        // the admin console and a stray curl are all 127.0.0.1 sharing one
+        // budget — so this is reachable without anyone abusing anything.
+        if (!cancelled && (err as Error | undefined)?.message !== "429") setOffline(true);
       }
     };
     void load();
@@ -616,8 +628,20 @@ export function useAdvisor(wallet: string | null, profile: string, chain: string
           setData(body);
           setOffline(false);
         }
-      } catch {
-        if (!cancelled) setOffline(true);
+      } catch (err) {
+        // A 429 is OUR OWN limiter, not an unreachable feed, and the two must
+        // not render as the same thing. "We could not reach the scoring feed,
+        // so this wallet's positions are unknown" is a claim about the outside
+        // world; being throttled says nothing about it. Whatever we last
+        // fetched is still the truth, so hold it and let the next poll refresh.
+        //
+        // It also breaks the loop that surfaced this: the panel read as broken,
+        // which invited a reload, which spent another request from the same 60s
+        // window and so guaranteed the next attempt failed too. Every limiter
+        // here keys on the client IP, and on one developer machine the app tab,
+        // the admin console and a stray curl are all 127.0.0.1 sharing one
+        // budget — so this is reachable without anyone abusing anything.
+        if (!cancelled && (err as Error | undefined)?.message !== "429") setOffline(true);
       }
     };
     void load();
