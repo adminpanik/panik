@@ -7,8 +7,10 @@
  * simulation (never a hardcoded limit).
  *
  * Testnet honesty gate: execution targets the wallet's REAL Base Sepolia
- * position (seed one via the demo docs) - the user's mainnet position is
- * never touched, and the banner says so. Mainnet cutover is a config flip.
+ * position - the user's mainnet position is never touched, and the banner says
+ * so. Nothing here creates a position: a wallet with none on Base Sepolia is
+ * told that in plain words rather than shown a button that cannot work.
+ * Mainnet cutover is a config flip.
  */
 
 import React, { useCallback, useEffect, useState } from "react";
@@ -29,10 +31,12 @@ import {
   EXIT_DATA_PROVIDER_ABI,
   EXIT_ENV,
   EXIT_ERC20_ABI,
+  EXIT_NETWORK_LABEL,
   exitExplorerTxUrl,
   getExitChain,
   isExitExecutable,
 } from "../lib/exit";
+import { classifyExitError } from "../lib/exitRpc";
 import {
   AMOUNT_FULL,
   buildExitLegs,
@@ -150,6 +154,19 @@ interface FundingRow {
   swapConfig: SwapConfigRead | null;
 }
 
+/**
+ * Something the user needs to read before they can go on.
+ *
+ * `tone` exists because two different things used to share one red box. A
+ * transport failure or a revert is a problem. "This wallet holds nothing on the
+ * test network" is a fact about the wallet, and painting a fact in the risk ramp
+ * spends a hue this product reserves for risk indicators.
+ */
+interface Notice {
+  tone: "problem" | "info";
+  message: string;
+}
+
 interface LoadedPosition {
   legs: ReturnType<typeof buildExitLegs>["legs"];
   views: ExitLegView[];
@@ -176,7 +193,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
   const executable = isExitExecutable(prefill.protocol);
   const [step, setStep] = useState<Step>(executable ? "connect" : "unavailable");
   const [status, setStatus] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [position, setPosition] = useState<LoadedPosition | null>(null);
   const [receipt, setReceipt] = useState<{ hash: string; usdcReceived: bigint } | null>(null);
 
@@ -191,39 +208,86 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
   const loadPosition = useCallback(async () => {
     if (!publicClient || !address) return;
     const client = asContractClient(publicClient);
-    setError(null);
+    setNotice(null);
     try {
       const known: { reserve: `0x${string}`; symbol: string }[] = [
         { reserve: EXIT_USDC_ADDRESS, symbol: "USDC" },
         { reserve: EXIT_WETH_ADDRESS, symbol: "WETH" },
       ];
 
+      // Reserves the configured market will not answer for. Tracked apart from
+      // a transport failure on purpose: "this asset is not in this market" is a
+      // fact about the deployment and "we cannot reach the chain" is a fact
+      // about the connection, and telling a user one when it is the other sends
+      // them to retry something that cannot start working.
+      const unreadable: string[] = [];
+
+      // The four reads below are issued together, not one after another. They
+      // have no dependency on each other, and awaiting them in sequence made
+      // four separate round trips to a rate-limited public node; in one tick
+      // wagmi's Multicall3 batching folds them into a single request.
+      // `Promise.all` preserves `known`'s order, which is what the USDC lookup
+      // further down relies on.
+      //
       // Decimals come from each token, never from the symbol: the repay is
       // denominated in the debt asset, and a WETH repay scaled by 10^6 is off
       // by twelve orders of magnitude.
-      const reserves: ExitReserveState[] = [];
-      for (const { reserve, symbol } of known) {
-        const [aBal, stableDebt, varDebt] = (await client.readContract({
-          address: EXIT_DATA_PROVIDER_ADDRESS,
-          abi: EXIT_DATA_PROVIDER_ABI,
-          functionName: "getUserReserveData",
-          args: [reserve, address],
-        })) as [bigint, bigint, bigint];
-        const decimals = Number(
-          await client.readContract({
-            address: reserve,
-            abi: EXIT_ERC20_ABI,
-            functionName: "decimals",
-          }),
-        );
-        reserves.push({
-          reserve,
-          symbol,
-          decimals,
-          aBalance: aBal,
-          debt: stableDebt + varDebt,
+      const readings = await Promise.all(
+        known.map(async ({ reserve, symbol }): Promise<ExitReserveState | null> => {
+          try {
+            const [userReserve, rawDecimals] = await Promise.all([
+              client.readContract({
+                address: EXIT_DATA_PROVIDER_ADDRESS,
+                abi: EXIT_DATA_PROVIDER_ABI,
+                functionName: "getUserReserveData",
+                args: [reserve, address],
+              }) as Promise<[bigint, bigint, bigint]>,
+              client.readContract({
+                address: reserve,
+                abi: EXIT_ERC20_ABI,
+                functionName: "decimals",
+              }),
+            ]);
+            const [aBal, stableDebt, varDebt] = userReserve;
+            return {
+              reserve,
+              symbol,
+              // uint8 token metadata, not a wei amount - the one place `Number`
+              // is safe on a chain read in this file.
+              decimals: Number(rawDecimals),
+              aBalance: aBal,
+              debt: stableDebt + varDebt,
+            };
+          } catch (err) {
+            const failure = classifyExitError(err, EXIT_NETWORK_LABEL);
+            // A transport failure says nothing about this particular reserve -
+            // every read is failing. Let it out so the outer catch reports the
+            // connection, rather than blaming the asset.
+            if (failure.kind === "network") throw err;
+            console.error(
+              `[exit] reserve ${symbol} (${reserve}) is unreadable on ${EXIT_NETWORK_LABEL}:`,
+              failure.detail,
+            );
+            unreadable.push(symbol);
+            return null;
+          }
+        }),
+      );
+      const reserves = readings.filter((r): r is ExitReserveState => r !== null);
+
+      // Legs built from a partial view of the position would repay what could be
+      // read and leave the rest, under a button that says the position is
+      // closed. Refusing is the only honest option, and the sentence says whose
+      // fault it is: this is the same for every wallet, so it is not the user's.
+      if (unreadable.length > 0) {
+        setNotice({
+          tone: "problem",
+          message: `We cannot read this wallet's ${unreadable.join(" and ")} position on ${EXIT_NETWORK_LABEL} right now, so we cannot promise a complete exit and nothing has been sent. This is a problem on our side, not with your wallet.`,
         });
+        setStep("error");
+        return;
       }
+
       const usdcDecimals =
         reserves.find((r) => r.reserve === EXIT_USDC_ADDRESS)?.decimals ?? 6;
 
@@ -237,15 +301,22 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       let { legs, views, dust } = build(prefill.repayFraction);
 
       if (legs.length === 0) {
-        setError(
-          prefill.kind === "partial"
-            ? dust.length > 0
-              ? `The suggested reduction is too small to execute against your ${dust.join(" and ")} debt on the Base Sepolia demo position.`
-              : "This wallet has no debt to reduce on the Base Sepolia demo position."
-            : prefill.kind === "full_repay"
-              ? "This wallet has no debt to repay on the Base Sepolia demo position."
-              : "This wallet has no Aave position on Base Sepolia. Seed a demo position first (see docs).",
-        );
+        // Nothing failed here. The reads worked and the answer is that there is
+        // nothing to act on, so this says so in the same register as the rest of
+        // the modal instead of the developer note ("Seed a demo position first
+        // (see docs)") that used to stand here pointing at docs that do not
+        // exist.
+        setNotice({
+          tone: "info",
+          message:
+            prefill.kind === "partial"
+              ? dust.length > 0
+                ? `The suggested reduction is too small to execute against this wallet's ${dust.join(" and ")} debt on ${EXIT_NETWORK_LABEL}.`
+                : `This wallet has no debt to reduce on ${EXIT_NETWORK_LABEL}.`
+              : prefill.kind === "full_repay"
+                ? `This wallet has no debt to repay on ${EXIT_NETWORK_LABEL}.`
+                : `This wallet has no Aave V3 position on ${EXIT_NETWORK_LABEL}, so there is nothing here to exit. Execution runs against what this wallet actually holds on the test network, and it holds nothing there yet. To try it, open a small Aave V3 borrow on ${EXIT_NETWORK_LABEL} with this wallet first.`,
+        });
         setStep("error");
         return;
       }
@@ -259,7 +330,15 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         args: [address, legs],
       })) as `0x${string}`[];
       if (locked.length > 0) {
-        setError(`Position is currently locked by the protocol (${locked.join(", ")}). Try again later.`);
+        // `locked` is a list of bytes32 protocol ids. It belongs in the console,
+        // not on screen: a user cannot act on a hash, and the actionable part of
+        // this is entirely in the sentence.
+        console.info("[exit] legs locked by protocol", locked);
+        setNotice({
+          tone: "info",
+          message:
+            "This position cannot be exited right now because the protocol has it locked. Try again in a little while.",
+        });
         setStep("error");
         return;
       }
@@ -367,7 +446,14 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       setPosition({ legs, views, approvals, funding, cap, usdcDecimals });
       setStep("review");
     } catch (err) {
-      setError((err as Error).message.slice(0, 300));
+      // viem builds a transport error's `.message` out of the endpoint URL and
+      // the full JSON-RPC request body, so the old `.message.slice(0, 300)` put
+      // an https:// endpoint and a page of `aggregate3` calldata in front of the
+      // user. The raw text goes to the console, where it is useful; the modal
+      // gets a sentence.
+      const failure = classifyExitError(err, EXIT_NETWORK_LABEL);
+      console.error(`[exit] position load failed (${failure.kind}):`, failure.detail, err);
+      setNotice({ tone: "problem", message: failure.message });
       setStep("error");
     }
   }, [publicClient, address, prefill]);
@@ -380,7 +466,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
     if (!publicClient || !address || !position) return;
     const client = asContractClient(publicClient);
     setStep("executing");
-    setError(null);
+    setNotice(null);
     try {
       setStatus("Checking approvals...");
       await ensureApprovals(position.approvals, (label) => setStatus(`${label}...`));
@@ -421,8 +507,13 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
       setReceipt({ hash, usdcReceived });
       setStep("done");
     } catch (err) {
-      const message = (err as Error).message ?? String(err);
-      setError(message.split("\n")[0]?.slice(0, 300) ?? "transaction failed");
+      // Same rule as the loader, plus the two cases only signing can produce: a
+      // wallet rejection reads as a dismissal rather than a failure, and a
+      // revert is named as a revert so the user is not told to retry something
+      // that will fail the same way every time.
+      const failure = classifyExitError(err, EXIT_NETWORK_LABEL);
+      console.error(`[exit] execution failed (${failure.kind}):`, failure.detail, err);
+      setNotice({ tone: "problem", message: failure.message });
       setStep("review");
     }
   }, [publicClient, address, position, ensureApprovals, writeContractAsync]);
@@ -470,6 +561,20 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
           outcome: `${liquidationOutlook(cap.appliedHf, prefill.collateralSymbol).sentence} after it, instead of ${liquidationOutlook(cap.requestedHf, prefill.collateralSymbol).strip}.`,
         };
 
+  // One box, both places it is shown, so the review step and the terminal error
+  // step cannot drift into styling the same sentence two different ways.
+  const noticeBox = notice ? (
+    <div
+      className={
+        notice.tone === "problem"
+          ? "rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-sans leading-relaxed"
+          : "rounded-md border border-border-subtle bg-white/[0.02] p-3 text-xs text-text-secondary font-sans leading-relaxed"
+      }
+    >
+      {notice.message}
+    </div>
+  ) : null;
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
@@ -494,8 +599,13 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
 
         {EXIT_ENV === "testnet" && step !== "unavailable" ? (
           <div className="rounded-md border border-risk-elevated/25 bg-risk-elevated/[0.06] p-3 text-xs text-risk-elevated/90 font-sans leading-relaxed">
-            Execution runs on <b>Base Sepolia</b> against a demo position - your mainnet position
-            is not touched. Mainnet execution ships after audit.
+            {/* "against a demo position" used to stand here, which told every
+                reader that a position had been prepared for them. Nothing in
+                this app creates one, and the founder's fresh wallet held
+                nothing. What is true is the chain the transaction lands on and
+                the position it cannot touch. */}
+            Execution runs on <b>Base Sepolia</b>, against whatever this wallet holds there. Your
+            mainnet position is not touched. Mainnet execution ships after audit.
           </div>
         ) : null}
 
@@ -612,11 +722,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
               </div>
             ) : null}
 
-            {error ? (
-              <div className="rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-sans break-words">
-                {error}
-              </div>
-            ) : null}
+            {noticeBox}
 
             <button
               onClick={() => void execute()}
@@ -672,14 +778,12 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
 
         {step === "error" ? (
           <div className="space-y-4">
-            <div className="rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-sans break-words">
-              {error}
-            </div>
+            {noticeBox}
             <button
               onClick={() => setStep("loading")}
               className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
             >
-              Retry
+              {notice?.tone === "info" ? "Check again" : "Retry"}
             </button>
           </div>
         ) : null}
