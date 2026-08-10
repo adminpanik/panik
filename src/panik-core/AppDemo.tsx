@@ -342,9 +342,18 @@ const ALERT_PAGE_SIZE = 8;
 /** How long a position row stays emphasised after an alert points at it. */
 const HIGHLIGHT_MS = 4000;
 
-/** One alert row's layout, shared by the linked (button) and inert (div) forms. */
+/**
+ * One alert row's layout, shared by the linked (button) and inert (div) forms.
+ *
+ * `py-4` is the `p-4` a position row carries, so the two cards standing side by
+ * side on Portfolio share one rhythm. At `py-2.5` with 12px content this feed
+ * was visibly denser and smaller than the list beside it, which read as a
+ * secondary panel rather than the other half of the same dashboard. The rules
+ * stay hairlines rather than becoming boxes: a bordered row inside a bordered
+ * card is chrome wrapping chrome, and `divide-y` is what this card is for.
+ */
 const ALERT_ROW_CLS =
-  "flex w-full items-baseline justify-between gap-3 py-2.5 first:pt-0 last:pb-0";
+  "flex w-full items-baseline justify-between gap-3 py-4 first:pt-0 last:pb-0";
 
 /** Alert-outcome chip copy for the Portfolio history feed. */
 const CHIP_QUIET = "text-text-muted border-border-subtle bg-white/[0.03]";
@@ -2641,21 +2650,33 @@ export function AppDemo() {
                   );
                 })()}
 
-                {/* Two COLUMNS, each stacking its own cards — not two rows of
-                    two. Portfolio has one tall card (Positions, which grows with
-                    the wallet) and three short ones, and as rows the tall card
-                    set row 1's height and left ~300px of structural void beside
-                    it that nothing could fill. Left takes the wide pair (a chart
-                    wants horizontal room), right the narrow pair (lists read
-                    better narrow). Below `lg` all four stack in DOM order.
+                {/* ONE grid, two rows. Row 1 is Positions (7) beside the stacked
+                    Asset allocation + Alert history (5); row 2 is Risk index
+                    history across all 12. Both row-1 items are grid items in the
+                    same row, so they end on the same line by definition, and the
+                    chart is not paying for that alignment with half the width it
+                    could have. The previous arrangement put the chart under
+                    Positions, which made the right column's job "be as tall as
+                    two cards": at a 1440 window the Alert history ran 339px past
+                    the bottom of the list it sits beside, measured.
 
-                    Both columns are `flex flex-col gap-6`, identically: the right
-                    needs flex so Alert history can absorb slack with `flex-1`,
-                    and matching the left keeps one spacing mechanism per column
-                    rather than a `space-y` cancelled by a `space-y-0`. */}
+                    `lg` is the breakpoint, and it is measured on the WINDOW while
+                    the split happens in the CONTENT column: at a 1024px window
+                    the sidebar and padding leave 698px of content, so the 7 and 5
+                    tracks measure 397px and 277px at the moment they first
+                    appear. That is wide enough for a position row's three lines
+                    and for a legend row's symbol-and-amount pair; `md` would have
+                    split at ~442px of content and crushed both. Below `lg` the
+                    three cards stack full width in DOM order.
+
+                    The Positions wrapper is `grid` rather than `flex flex-col`
+                    for one reason: a single grid child stretches to the row
+                    height, so when the right column is the taller of the two the
+                    Positions card grows to meet it instead of ending short with
+                    its wrapper stretched around empty space. */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4">
-                  {/* Left column: the wide pair. */}
-                  <div className="lg:col-span-7 flex flex-col gap-6">
+                  {/* Row 1, left: the position list. */}
+                  <div className="lg:col-span-7 grid">
                     <LivePositions
                       positions={portfolioPositions}
                       highlightKey={highlightedPositionKey}
@@ -2667,83 +2688,14 @@ export function AppDemo() {
                         setActiveTab("watch");
                       }}
                     />
-
-                    {/* Risk index over time (score_snapshots via /api/history) */}
-                    <Card>
-                      <div className="flex items-baseline justify-between mb-4">
-                        <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
-                          Risk index history
-                          <InfoTip text="Aggregate PANIK score of this wallet over time, protocols weighted by collateral." />
-                        </h3>
-                        {/* The delta, not the score. "57 / 100" is already the
-                            Aggregate risk index card two rows up, and the same
-                            figure printed twice reads as two metrics that happen
-                            to agree. Direction over the window is the one fact
-                            this card knows that the stat card cannot. */}
-                        {riskHistory && riskHistory.series.length > 1 && (() => {
-                          const s = riskHistory.series;
-                          const delta = Math.round(s[s.length - 1] - s[0]);
-                          // The WINDOW, not the interval count. 30 daily points
-                          // span 29 intervals, and this header used to say "29d"
-                          // beside an x-axis reading "30d ago" — two defensible
-                          // numbers describing one chart, which reads as a bug.
-                          // `riskHistory.xStart` counts days the same way.
-                          const days = s.length;
-                          return (
-                            <span className="text-xs font-sans tabular-nums text-text-secondary">
-                              {delta === 0
-                                ? `flat over ${days}d`
-                                : `${delta > 0 ? "up" : "down"} ${Math.abs(delta)} over ${days}d`}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      {riskHistory ? (
-                        // Series colour is cool and fixed: repainting 30 days of history in
-                        // today's band colour claims the whole series was that band. The
-                        // current band is already stated in the chip above.
-                        // The axis is 0-100 because the SCORE is 0-100. Scaled to
-                        // its own min/max the line filled the card whatever it
-                        // did, and cropped out the two facts worth having: the
-                        // band boundaries, and the level at which PANIK starts
-                        // alerting this user. The threshold is the user's own,
-                        // read from their profile, and drawn as a neutral
-                        // annotation — not a fifth band colour.
-                        <Sparkline
-                          data={riskHistory.series}
-                          /* At 220 the crossings of the alert line are legible,
-                             which is the one event this chart exists to show;
-                             110px was a sparkline height on a card carrying a
-                             y-axis, a threshold and a caption.
-
-                             150 while the card is full bleed, which is `lg` — the
-                             SAME breakpoint as the two-column grid, not the nav's
-                             `md`. Following the nav gave the 768-1023 band a
-                             220px chart in a full-width card, the exact case the
-                             shorter height exists for. */
-                          height={isWide ? 220 : 150}
-                          stroke="var(--color-chart-series)"
-                          domain={riskDomain}
-                          reference={{
-                            value: ALERT_THRESHOLD[selectedRiskProfile],
-                            label: `alert ${ALERT_THRESHOLD[selectedRiskProfile]}`,
-                          }}
-                          axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
-                        />
-                      ) : (
-                        <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
-                          History builds as the watch worker scores this wallet every 60s.
-                        </div>
-                      )}
-                    </Card>
                   </div>
 
-                  {/* Right column: the narrow pair. Alert history takes `lg:flex-1`
-                      and absorbs whatever slack the left column leaves — grid
-                      items already stretch to the tallest row, so the two columns
-                      end level at any position count and any chart height, with
-                      no magic number to go stale. Below `lg` the cards size to
-                      their content as normal. */}
+                  {/* Row 1, right: the narrow pair. Alert history takes
+                      `lg:flex-1` and absorbs whatever slack the position list
+                      leaves — grid items already stretch to the tallest item in
+                      the row, so the two columns end level at any position count,
+                      with no magic number to go stale. Below `lg` the cards size
+                      to their content as normal. */}
                   <div className="lg:col-span-5 flex flex-col gap-6">
                     {/* Asset allocation: the visual collateral breakdown. */}
                     <Card className="space-y-6">
@@ -2805,80 +2757,104 @@ export function AppDemo() {
                         <>
                           {/* Rules, not boxes. Bordered, tinted rows inside a Card
                               that is already bordered and tinted is chrome
-                              wrapping chrome; a hairline separates rows for free. */}
-                          <div className="divide-y divide-border-subtle lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
-                            {walletHistory.alerts.slice(0, alertsShown).map((a, i) => {
-                              const chip = deliveryChip(a.notify_channel);
-                              const protocolLabel = LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol;
-                              const event = limitEventCopy(a.to_status);
-                              const when = timeAgo(a.created_at);
-                              /* The position this alert is ABOUT, if the wallet
-                                 still holds it. A closed position has no row to
-                                 scroll to, so the alert stays a record rather than
-                                 becoming a control: no button, no hover, no
-                                 pointer. A control that looks live and does
-                                 nothing is worse than a plain line of text. */
-                              const target = alertTargets.get(a.protocol) ?? null;
-                              /* The score, the band and the ORIGIN status live
-                                 here rather than in the row: the band is a pure
-                                 function of the score, and "approaching →
-                                 outside" is a state-machine dump on the card
-                                 whose job is to say what happened to someone's
-                                 money. What happened is the destination. */
-                              const hover = `PANIK score ${a.score} (${a.band}). ${
-                                a.from_status
-                                  ? `Previously ${limitStateCopy(a.from_status)}.`
-                                  : "First reading recorded for this position."
-                              }${target ? "" : " This position is no longer open."}`;
-                              const body = (
-                                <>
-                                  {/* Wraps rather than truncates: clipping this
-                                      line kept the protocol and ate the event,
-                                      which is the half that says whether things
-                                      got worse. */}
-                                  <span className="min-w-0 text-left text-xs font-sans font-bold text-text-primary">
-                                    {protocolLabel}
-                                    <span className="text-text-secondary font-normal"> {event}</span>
-                                    {/* The space is load-bearing: `ml-1` is
-                                        margin, not whitespace, so without it a
-                                        screen reader and every text scrape run the
-                                        event into the chip ("risk limitQueued"). */}
-                                    {chip && (
-                                      <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
-                                        {chip.label}
-                                      </span></>
-                                    )}
-                                  </span>
-                                  {/* Timestamps stay muted. This is what
-                                      text-muted is FOR — you glance at it, you do
-                                      not read it. */}
-                                  <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{when}</span>
-                                </>
-                              );
-                              return target ? (
-                                /* A real <button>, not a div with onClick: it is
-                                   in the tab order, Enter and Space activate it,
-                                   the global :focus-visible ring applies, and the
-                                   accessibility tree calls it a button because it
-                                   is one. */
-                                <button
-                                  type="button"
-                                  key={`${a.created_at}-${i}`}
-                                  onClick={() => setHighlightedPositionKey(target)}
-                                  title={hover}
-                                  aria-label={`${protocolLabel} ${event}${
-                                    chip ? `, ${chip.label}` : ""
-                                  }, ${when}. Show this position.`}
-                                  className={`${ALERT_ROW_CLS} rounded-sm text-left cursor-pointer transition-colors hover:bg-white/[0.03]`}
-                                >
-                                  {body}
-                                </button>
-                              ) : (
-                                <div key={`${a.created_at}-${i}`} className={ALERT_ROW_CLS} title={hover}>
-                                  {body}
-                                </div>
-                              );
-                            })}
+                              wrapping chrome; a hairline separates rows for free.
+
+                              The list is taken OUT OF FLOW at `lg` (absolute
+                              inside a relative flex-1 well) so it contributes
+                              nothing to the column's intrinsic height. `flex-1`
+                              and `min-h-0` alone were not enough: a flex item
+                              still reports its content as its max-content
+                              contribution, so the grid row grew with the feed
+                              instead of the feed absorbing the row. Measured at
+                              2000, "Show 4 older alerts" took the row 168px
+                              taller and dragged the position list up to match,
+                              handing it 168px of empty space, which is the gap
+                              this whole arrangement exists to close. Out of flow,
+                              the layout sets the height in both directions and
+                              the scroller does the rest. Below `lg` there is no
+                              fixed height to scroll inside, so the wrapper is a
+                              plain block and the page scrolls. */}
+                          <div className="lg:relative lg:flex-1 lg:min-h-0">
+                            <div className="divide-y divide-border-subtle lg:absolute lg:inset-0 lg:overflow-y-auto">
+                              {walletHistory.alerts.slice(0, alertsShown).map((a, i) => {
+                                const chip = deliveryChip(a.notify_channel);
+                                const protocolLabel = LIVE_PROTOCOL_LABEL[a.protocol] ?? a.protocol;
+                                const event = limitEventCopy(a.to_status);
+                                const when = timeAgo(a.created_at);
+                                /* The position this alert is ABOUT, if the wallet
+                                   still holds it. A closed position has no row to
+                                   scroll to, so the alert stays a record rather than
+                                   becoming a control: no button, no hover, no
+                                   pointer. A control that looks live and does
+                                   nothing is worse than a plain line of text. */
+                                const target = alertTargets.get(a.protocol) ?? null;
+                                /* The score, the band and the ORIGIN status live
+                                   here rather than in the row: the band is a pure
+                                   function of the score, and "approaching →
+                                   outside" is a state-machine dump on the card
+                                   whose job is to say what happened to someone's
+                                   money. What happened is the destination. */
+                                const hover = `PANIK score ${a.score} (${a.band}). ${
+                                  a.from_status
+                                    ? `Previously ${limitStateCopy(a.from_status)}.`
+                                    : "First reading recorded for this position."
+                                }${target ? "" : " This position is no longer open."}`;
+                                const body = (
+                                  <>
+                                    {/* Wraps rather than truncates: clipping this
+                                        line kept the protocol and ate the event,
+                                        which is the half that says whether things
+                                        got worse.
+
+                                        14px/600 in primary ink, the same weight a
+                                        position row gives its money line. The
+                                        protocol and what happened to it are the
+                                        content of this row, and content is not
+                                        what `text-muted` and 12px are for. */}
+                                    <span className="min-w-0 text-left text-sm font-sans font-semibold text-text-primary">
+                                      {protocolLabel}
+                                      <span className="text-text-secondary font-normal"> {event}</span>
+                                      {/* The space is load-bearing: `ml-1` is
+                                          margin, not whitespace, so without it a
+                                          screen reader and every text scrape run the
+                                          event into the chip ("risk limitQueued"). */}
+                                      {chip && (
+                                        <>{" "}<span className={`ml-1 inline-block align-middle text-2xs font-sans px-1.5 py-0.5 rounded-sm border ${chip.cls}`}>
+                                          {chip.label}
+                                        </span></>
+                                      )}
+                                    </span>
+                                    {/* Timestamps stay muted. This is what
+                                        text-muted is FOR — you glance at it, you do
+                                        not read it. */}
+                                    <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{when}</span>
+                                  </>
+                                );
+                                return target ? (
+                                  /* A real <button>, not a div with onClick: it is
+                                     in the tab order, Enter and Space activate it,
+                                     the global :focus-visible ring applies, and the
+                                     accessibility tree calls it a button because it
+                                     is one. */
+                                  <button
+                                    type="button"
+                                    key={`${a.created_at}-${i}`}
+                                    onClick={() => setHighlightedPositionKey(target)}
+                                    title={hover}
+                                    aria-label={`${protocolLabel} ${event}${
+                                      chip ? `, ${chip.label}` : ""
+                                    }, ${when}. Show this position.`}
+                                    className={`${ALERT_ROW_CLS} rounded-sm text-left cursor-pointer transition-colors hover:bg-white/[0.03]`}
+                                  >
+                                    {body}
+                                  </button>
+                                ) : (
+                                  <div key={`${a.created_at}-${i}`} className={ALERT_ROW_CLS} title={hover}>
+                                    {body}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                           {alertsRemaining > 0 && (
                             /* Counts what is left rather than saying "Show more":
@@ -2888,7 +2864,7 @@ export function AppDemo() {
                                thousand. */
                             <Button
                               variant="outline"
-                              className="mt-3 w-full justify-center"
+                              className="mt-3 w-full shrink-0 justify-center"
                               onClick={() => setAlertsShown((n) => n + ALERT_PAGE_SIZE)}
                             >
                               {alertsRemaining <= ALERT_PAGE_SIZE
@@ -2905,6 +2881,86 @@ export function AppDemo() {
                       )}
                     </Card>
                   </div>
+
+                  {/* Row 2: risk index over time (score_snapshots via
+                      /api/history), across all twelve columns.
+
+                      Full width because this is the one card on the tab whose
+                      readability is a function of horizontal room. At a 1440
+                      window its 30 daily points had ~21px of x each in a 7-of-12
+                      track; across all twelve they have ~34px, which is what
+                      makes a crossing of the alert line readable as an event
+                      rather than a kink. The y-domain is `riskDomain`, computed
+                      from the series and the user's own alert threshold and
+                      independent of the width, so the extra room lengthens the
+                      line without flattening what it shows. */}
+                  <Card className="lg:col-span-12">
+                    <div className="flex items-baseline justify-between mb-4">
+                      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
+                        Risk index history
+                        <InfoTip text="Aggregate PANIK score of this wallet over time, protocols weighted by collateral." />
+                      </h3>
+                      {/* The delta, not the score. "57 / 100" is already the
+                          Aggregate risk index card two rows up, and the same
+                          figure printed twice reads as two metrics that happen
+                          to agree. Direction over the window is the one fact
+                          this card knows that the stat card cannot. */}
+                      {riskHistory && riskHistory.series.length > 1 && (() => {
+                        const s = riskHistory.series;
+                        const delta = Math.round(s[s.length - 1] - s[0]);
+                        // The WINDOW, not the interval count. 30 daily points
+                        // span 29 intervals, and this header used to say "29d"
+                        // beside an x-axis reading "30d ago" — two defensible
+                        // numbers describing one chart, which reads as a bug.
+                        // `riskHistory.xStart` counts days the same way.
+                        const days = s.length;
+                        return (
+                          <span className="text-xs font-sans tabular-nums text-text-secondary">
+                            {delta === 0
+                              ? `flat over ${days}d`
+                              : `${delta > 0 ? "up" : "down"} ${Math.abs(delta)} over ${days}d`}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    {riskHistory ? (
+                      // Series colour is cool and fixed: repainting 30 days of history in
+                      // today's band colour claims the whole series was that band. The
+                      // current band is already stated in the chip above.
+                      // The axis is 0-100 because the SCORE is 0-100. Scaled to
+                      // its own min/max the line filled the card whatever it
+                      // did, and cropped out the two facts worth having: the
+                      // band boundaries, and the level at which PANIK starts
+                      // alerting this user. The threshold is the user's own,
+                      // read from their profile, and drawn as a neutral
+                      // annotation — not a fifth band colour.
+                      <Sparkline
+                        data={riskHistory.series}
+                        /* At 220 the crossings of the alert line are legible,
+                           which is the one event this chart exists to show;
+                           110px was a sparkline height on a card carrying a
+                           y-axis, a threshold and a caption.
+
+                           The card is full width at every size now, so the
+                           height tracks how much of it the chart can afford
+                           rather than how wide the card is: 150 below `lg`,
+                           where the whole page is one narrow column and 220px of
+                           chart would push the tab's other cards off screen. */
+                        height={isWide ? 220 : 150}
+                        stroke="var(--color-chart-series)"
+                        domain={riskDomain}
+                        reference={{
+                          value: ALERT_THRESHOLD[selectedRiskProfile],
+                          label: `alert ${ALERT_THRESHOLD[selectedRiskProfile]}`,
+                        }}
+                        axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
+                      />
+                    ) : (
+                      <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
+                        History builds as the watch worker scores this wallet every 60s.
+                      </div>
+                    )}
+                  </Card>
                 </div>
 
               </TabPanel>
