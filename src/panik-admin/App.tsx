@@ -25,6 +25,7 @@ import { SignIn } from "./SignIn";
 import { ChangePassword } from "./ChangePassword";
 import { CampaignsPanel } from "./CampaignsPanel";
 import { RosterPanel } from "./RosterPanel";
+import { SimulationPanel } from "./SimulationPanel";
 import {
   ADMIN_EMAIL,
   ensureFresh,
@@ -125,6 +126,9 @@ export default function App() {
             />
           ) : (
             <>
+              {/* First, and deliberately: it is the only control here that
+                  changes what every user of the app is looking at right now. */}
+              <SimulationPanel session={session} onSignedOut={forget} />
               <RosterPanel session={session} onSignedOut={forget} />
               <CampaignsPanel session={session} onSignedOut={forget} />
             </>

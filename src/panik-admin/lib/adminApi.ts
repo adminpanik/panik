@@ -126,3 +126,67 @@ export const expireCampaign = (session: Session, id: string) =>
     method: "POST",
     body: JSON.stringify({ id }),
   });
+
+// ── market-event simulator ──────────────────────────────────────────────────
+
+/**
+ * The armed scenario as the server describes it. Mirrors `SimulationWire` in
+ * server/simulationStore.ts. `expiresAt` is epoch ms, so the console renders
+ * the countdown from the operator's own clock and never from a server string it
+ * would have to parse a timezone out of.
+ */
+export interface Simulation {
+  id: string;
+  scenario: string;
+  label: string;
+  multipliers: Record<string, number>;
+  startedAt: number;
+  expiresAt: number;
+}
+
+/**
+ * One watched position a scenario touches, as of the last watch tick.
+ *
+ * `multiplier` is null when the position's collateral asset was never recorded:
+ * "we do not know what this holds" is not "this one is unaffected", and the
+ * console renders them differently.
+ */
+export interface AffectedPosition {
+  wallet: string;
+  protocol: string;
+  collateralSymbol: string | null;
+  multiplier: number | null;
+  updatedAt: string;
+}
+
+export interface SimulationState {
+  simulation: Simulation | null;
+  affected: AffectedPosition[];
+  /**
+   * Every collateral asset a watched wallet currently holds. The console offers
+   * these rather than a free-text box, so an operator cannot arm a scenario
+   * against a symbol that matches nothing and watch the demo do nothing.
+   * Optional: an older server, or the serverless mirror, omits it.
+   */
+  assets?: string[];
+}
+
+export interface ArmSimulationInput {
+  scenario: string;
+  label: string;
+  /** SYMBOL -> price multiplier. 0.6 = that asset is priced 40% lower. */
+  multipliers: Record<string, number>;
+  durationMinutes: number;
+}
+
+export const getSimulation = (session: Session) =>
+  call<SimulationState>("/api/admin/simulation", session);
+
+export const armSimulation = (session: Session, input: ArmSimulationInput) =>
+  call<SimulationState>("/api/admin/simulation", session, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const clearSimulation = (session: Session) =>
+  call<SimulationState>("/api/admin/simulation", session, { method: "DELETE" });
