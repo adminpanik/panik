@@ -306,6 +306,16 @@ export function SimulationPanel({
               <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
               {busy ? "Arming..." : "Arm scenario"}
             </Button>
+            {/* The cache the scoring path reads sits behind a 10s TTL
+                (SIMULATION_CACHE_TTL_MS in server/simulationStore.ts) and the
+                refresh is fire-and-forget, so the first poll right after
+                arming can still show the old scores. Hardcoded rather than
+                imported: that module holds the Supabase service key and must
+                never enter a client bundle. Keep this number in sync by hand
+                if the TTL changes. */}
+            <p className="mt-1.5 max-w-xs text-2xs font-sans text-text-muted">
+              Arming takes up to about 10 seconds to reach everyone watching.
+            </p>
           </div>
         </div>
       )}
@@ -381,10 +391,17 @@ function ArmedView({
               {new Date(simulation.expiresAt).toLocaleTimeString()}.
             </p>
           </div>
-          <Button variant="outline" onClick={onStop} disabled={busy}>
-            <Square className="h-3.5 w-3.5" aria-hidden="true" />
-            {busy ? "Stopping..." : "Stop now"}
-          </Button>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <Button variant="outline" onClick={onStop} disabled={busy}>
+              <Square className="h-3.5 w-3.5" aria-hidden="true" />
+              {busy ? "Stopping..." : "Stop now"}
+            </Button>
+            {/* Same 10s cache TTL as the arm-form hint above; see the note
+                there for why the number is hardcoded rather than imported. */}
+            <p className="max-w-[10rem] text-right text-2xs font-sans text-text-muted">
+              Stopping takes up to about 10 seconds to reach everyone watching.
+            </p>
+          </div>
         </div>
       </div>
 
