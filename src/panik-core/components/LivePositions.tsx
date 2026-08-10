@@ -429,21 +429,27 @@ export function LivePositions({
                       "Reduce position") rather than a second vocabulary for the
                       same two outcomes.
 
-                      `quiet` and default size against the Advisor's `lg`
-                      primary: this is the dashboard, and a full-strength control
-                      on every elevated row would give a screen whose job is to
-                      show you where you stand four competing next steps. The one
-                      obvious next step still lives on the Advisor card. */}
+                      The SAME treatment as the Advisor's control - `lg` primary,
+                      14px label on the near-white plate - because it is the same
+                      action opening the same modal with the same prefill. It was
+                      briefly a quieter `outline` here on the theory that the
+                      dashboard should not compete with the Advisor for the one
+                      obvious next step; that traded a real cost for a
+                      hypothetical one. Two visual weights for one action teaches
+                      a user that they are two different things, and the moment
+                      they look different someone has to work out which is the
+                      real one. `Button` accepts no risk band either way, so
+                      matching the Advisor costs nothing from the risk ramp. */}
                   {action && (
                     <div className="mt-2">
                       <Button
-                        variant="outline"
+                        size="lg"
                         onClick={exitEnabled ? () => onExit?.(action.prefill) : undefined}
                         disabled={!exitEnabled}
                         title={exitEnabled ? undefined : exitDisabledHint}
                       >
                         {action.label}
-                        <ArrowRight className="h-3.5 w-3.5" />
+                        <ArrowRight className="h-4 w-4" />
                       </Button>
                     </div>
                   )}
