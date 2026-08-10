@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useRef } from "react";
-import { AlertTriangle, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, Eye } from "lucide-react";
 import type { LiveWalletPosition } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
@@ -307,7 +307,10 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
                       aria-label={`Stress-test the ${PROTOCOL_NAME[p.protocol]} position in Watch`}
                       className="px-1.5 py-1"
                     >
-                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                      {/* Eye, not sliders: this button lands on Watch, and Watch
+                          wears the eye in the nav. The icon should name where it
+                          goes, not what it does to the numbers once it arrives. */}
+                      <Eye className="h-3.5 w-3.5" />
                     </Button>
                   )}
                 </div>
