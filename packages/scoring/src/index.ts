@@ -4,6 +4,7 @@ export * from "./math";
 export * from "./computeScore";
 export * from "./profile";
 export * from "./prospective";
+export * from "./simulation";
 export { scorePositionHealth } from "./subscores/positionHealth";
 export { scoreAssetRisk } from "./subscores/assetRisk";
 export { scoreProtocolSafety, PROTOCOL_SAFETY } from "./subscores/protocolSafety";
