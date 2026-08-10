@@ -14,7 +14,16 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ArrowRight, CheckCircle2, Loader2, X } from "lucide-react";
-import { demoMaxLtv, formatCurrency } from "../lib/utils";
+import {
+  assetLoanToValue,
+  bandOfHealthFactor,
+  formatCurrency,
+  liquidationOutlook,
+  LOAN_TO_VALUE_UNAVAILABLE_HINT,
+  LOAN_TO_VALUE_UNAVAILABLE_LABEL,
+  RISK_TEXT,
+} from "../lib/utils";
+import { estimateHealthFactor } from "../../../packages/scoring/src/prospective";
 import { ProtocolLogo } from "./ProtocolLogo";
 
 export interface OpenPositionTarget {
@@ -43,10 +52,24 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
   const [phase, setPhase] = useState<"config" | "submitting" | "done">("config");
   const [txHash, setTxHash] = useState("");
 
-  const maxLTV = demoMaxLtv(target.protocol);
-  const borrowUsd = (depositUsd * borrowPct) / 100;
-  const estHf = borrowUsd > 0 ? (depositUsd * maxLTV) / borrowUsd : Infinity;
-  const liqBufferPct = borrowUsd > 0 ? Math.max(0, Math.round((1 - borrowUsd / maxLTV / depositUsd) * 100)) : 100;
+  /**
+   * The engine's parameters for THIS collateral on THIS protocol, so the
+   * ceiling and the figures beside it move with the asset (issue #61). Null
+   * when `MARKETS` lists no such pair, and every consumer below branches on
+   * that rather than substituting a number.
+   */
+  const ltv = assetLoanToValue(target.protocol, target.collateralAsset);
+  // Clamped, not just bounded by the input: `customBorrowPct` arrives from the
+  // Watch simulator and can sit above the ceiling of a different asset.
+  const borrowPctOffered = ltv === null ? 0 : Math.min(borrowPct, ltv.ceilingPct);
+  const borrowUsd = (depositUsd * borrowPctOffered) / 100;
+  // The engine's formula and the engine's threshold. Health factor is measured
+  // against the LIQUIDATION threshold, never the borrow limit, and the drop is
+  // `drawdownToLiquidation` inside `liquidationOutlook` rather than a second
+  // copy of 1 - 1/HF written here.
+  const estHf =
+    ltv === null ? null : estimateHealthFactor(depositUsd, borrowUsd, ltv.liquidationPct / 100);
+  const outlook = liquidationOutlook(estHf, target.collateralAsset);
 
   const submit = () => {
     setTxHash(fakeTxHash());
@@ -138,41 +161,81 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
               <div>
                 <div className="flex justify-between text-2xs font-sans text-text-secondary mb-2">
                   <span>Borrow ({target.debtAsset})</span>
-                  <span className="text-text-primary normal-case tabular-nums">
-                    {formatCurrency(borrowUsd)} · {borrowPct}% of deposit
-                  </span>
+                  {ltv !== null && (
+                    <span className="text-text-primary normal-case tabular-nums">
+                      {formatCurrency(borrowUsd)} · {borrowPctOffered}% of deposit
+                    </span>
+                  )}
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.round(maxLTV * 100) - 4}
-                  step={5}
-                  value={borrowPct}
-                  onChange={(e) => setBorrowPct(Number(e.target.value))}
-                  className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
-                  aria-label="Borrow percent of deposit"
-                />
-                <div className="flex justify-between text-xs font-sans text-text-muted mt-1">
-                  <span>No debt (0%)</span>
-                  <span>Near max LTV ({Math.round(maxLTV * 100) - 4}%)</span>
-                </div>
+                {ltv === null ? (
+                  /* No listing, so no ceiling. Stating that is the only honest
+                     option: a slider needs a maximum, and every maximum
+                     available here would be one this build invented. */
+                  <div className="bg-white/[0.02] border border-border-subtle rounded-md p-3">
+                    <span className="block text-xs font-sans text-text-primary">
+                      {LOAN_TO_VALUE_UNAVAILABLE_LABEL}
+                    </span>
+                    <span className="block text-xs font-sans text-text-secondary leading-relaxed mt-1">
+                      {LOAN_TO_VALUE_UNAVAILABLE_HINT}
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    {/* Whole points, because the ceiling is the engine's borrow
+                        limit less a margin and lands on 76 / 71 / 82 / 74. A
+                        five-point step cannot reach any of them, so the label
+                        would name a maximum the control could not produce. */}
+                    <input
+                      type="range"
+                      min={0}
+                      max={ltv.ceilingPct}
+                      step={1}
+                      value={borrowPctOffered}
+                      onChange={(e) => setBorrowPct(Number(e.target.value))}
+                      className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
+                      aria-label="Borrow percent of deposit"
+                    />
+                    <div className="flex justify-between text-xs font-sans text-text-muted mt-1">
+                      <span>No debt (0%)</span>
+                      <span className="tabular-nums">
+                        Highest loan to value ({ltv.ceilingPct}%)
+                      </span>
+                    </div>
+                    {/* The two figures the engine holds, in full. The ceiling
+                        above is a margin below the first of them and is never
+                        labelled as either. */}
+                    <span className="block text-xs font-sans text-text-secondary leading-relaxed mt-2">
+                      {ltv.note}
+                    </span>
+                  </>
+                )}
               </div>
 
               {/* Projection */}
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
+                {/* One risk-hued element, as before: the health factor. The
+                    band comes from `bandOfHealthFactor` rather than a fourth
+                    hand-written 1.3 / 1.7 chain, and no-debt is a state rather
+                    than an infinity, so it is inked as neutrally as it reads. */}
+                <div className="flex flex-col justify-between bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
                   <span className="block text-xs font-sans text-text-muted mb-0.5">Est. health</span>
-                  <strong className={`text-sm font-sans tabular-nums ${
-                    !Number.isFinite(estHf) ? "text-risk-low" : estHf < 1.3 ? "text-risk-critical" : estHf < 1.7 ? "text-risk-elevated" : "text-risk-low"
-                  }`}>
-                    {Number.isFinite(estHf) ? estHf.toFixed(2) : "∞"}
+                  <strong
+                    className={`text-sm font-sans tabular-nums ${
+                      estHf === null ? "text-text-primary" : RISK_TEXT[bandOfHealthFactor(estHf)]
+                    }`}
+                  >
+                    {estHf === null ? "No debt" : estHf.toFixed(2)}
                   </strong>
                 </div>
-                <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
-                  <span className="block text-xs font-sans text-text-muted mb-0.5">Liq. buffer</span>
-                  <strong className="text-sm font-sans tabular-nums text-text-primary">{liqBufferPct}%</strong>
+                <div className="flex flex-col justify-between bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
+                  <span className="block text-xs font-sans text-text-muted mb-0.5">
+                    {outlook.statLabel}
+                  </span>
+                  <strong className="text-sm font-sans tabular-nums text-text-primary">
+                    {outlook.statValue}
+                  </strong>
                 </div>
-                <div className="bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
+                <div className="flex flex-col justify-between bg-white/[0.02] border border-border-subtle rounded-md p-2.5">
                   <span className="block text-xs font-sans text-text-muted mb-0.5">Supply APY</span>
                   <strong className="text-sm font-sans tabular-nums text-risk-low">{target.apy.toFixed(1)}%</strong>
                 </div>

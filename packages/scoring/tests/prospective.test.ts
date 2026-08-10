@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scoreProspective } from "../src/adapters/prospective";
+import { marketParams } from "../src/markets";
 import type { AssetRiskInput, SystemicRiskInput } from "../src/types";
 
 /** Calm-market stub providers — isolate the adapter's own math. */
@@ -76,5 +77,29 @@ describe("scoreProspective (Compass scenario adapter)", () => {
         providers,
       ),
     ).rejects.toThrow("Unknown market");
+  });
+});
+
+/**
+ * The one way to read `MARKETS`. It exists because a UI surface indexing the
+ * table itself is how a missing listing became a borrow limit on screen (issue
+ * #61): `undefined` multiplies to `NaN` and the tidy-looking repair is a
+ * literal, whereas a `null` has to be handled.
+ */
+describe("marketParams", () => {
+  it("answers per asset, not per protocol", () => {
+    expect(marketParams("aave_v3", "WETH")?.maxLtv).toBe(0.8);
+    expect(marketParams("aave_v3", "wstETH")?.maxLtv).toBe(0.75);
+    expect(marketParams("morpho", "WETH")?.maxLtv).toBe(0.86);
+    expect(marketParams("compound_v3", "WETH")?.maxLtv).toBe(0.78);
+  });
+
+  it("is null for a pair the table does not list", () => {
+    expect(marketParams("moonwell", "wstETH")).toBeNull();
+    expect(marketParams("aave_v3", "DOGE")).toBeNull();
+  });
+
+  it("looks through the proxy marker, which is not part of the symbol", () => {
+    expect(marketParams("aave_v3", "WETH (proxy)")).toBe(marketParams("aave_v3", "WETH"));
   });
 });

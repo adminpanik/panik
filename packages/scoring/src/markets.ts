@@ -47,6 +47,28 @@ export const MARKETS: Record<Protocol, Record<string, AssetMarketParams>> = {
   },
 };
 
+/**
+ * The listed parameters for ONE collateral asset on ONE protocol, or null when
+ * this build holds no listing for that pair.
+ *
+ * The one way to read `MARKETS`, so that "we have no parameters for this asset"
+ * is a value every caller has to handle rather than an `undefined` that flows on
+ * into arithmetic. A UI surface reading the table directly is how a missing
+ * listing became a `0` borrow limit on screen; a `null` cannot be multiplied by
+ * a hundred and printed.
+ *
+ * The proxy suffix is stripped here because it is an internal marker, not part
+ * of the symbol: `active.ts` sets `scoredCollateralSymbol` to "WETH (proxy)"
+ * when the asset-risk term fell back to a WETH price history, and the position
+ * is still a WETH position as far as this table is concerned.
+ */
+export function marketParams(
+  protocol: Protocol,
+  collateralSymbol: string,
+): AssetMarketParams | null {
+  return MARKETS[protocol]?.[collateralSymbol.replace(" (proxy)", "")] ?? null;
+}
+
 /** DefiLlama protocol slugs for systemic-risk lookups (verified live 2026-06-13). */
 export const PROTOCOL_DEFILLAMA_SLUG: Record<Protocol, string> = {
   aave_v3: "aave-v3",
