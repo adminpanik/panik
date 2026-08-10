@@ -21,13 +21,17 @@ import {
   CompoundActiveReader,
   MoonwellActiveReader,
   MorphoActiveReader,
+  requestScoringChainMode,
+  SCORING_CHAIN_MODES,
   scoringChainConfig,
+  scoringChainMode,
   type ActiveReader,
   type AssetRiskProvider,
   type MarketSimulation,
   type Protocol,
   type PublicClientLike,
   type ScoringChainConfig,
+  type ScoringChainMode,
   type SystemicRiskProvider,
 } from "../packages/scoring/src/index";
 
@@ -128,6 +132,86 @@ export function buildScoringChain(opts: BuildScoringChainOptions): ScoringChainR
       { marketContext: config.marketContext, simulation: opts.simulation },
     ),
   };
+}
+
+/**
+ * Every chain this process can actually read, and the one it falls back to.
+ *
+ * The chain used to be a process-wide constant, so a switch meant a redeploy.
+ * It is now a per-REQUEST choice, which puts two chains' scores inside one
+ * process at the same time. Nothing else about the scoring path changes: each
+ * mode still gets exactly one runtime, built from exactly one registry entry.
+ */
+export interface ScoringChainSet {
+  /** Used when the caller names no chain, or names one this process cannot read. */
+  defaultMode: ScoringChainMode;
+  /** Modes with a configured Alchemy key, so a runtime exists. */
+  available: ScoringChainMode[];
+  /** The runtime for a mode, or the default one when that mode is unconfigured. */
+  get(mode: ScoringChainMode): ScoringChainRuntime;
+  /** A raw `?chain=` value -> a runtime that exists. Never throws, never 4xxs. */
+  resolve(raw: unknown): ScoringChainRuntime;
+}
+
+export interface BuildScoringChainsOptions
+  extends Omit<BuildScoringChainOptions, "mode" | "alchemyKey"> {
+  /** Raw PANIK_SCORING_CHAIN value: the default when a request names none. */
+  defaultMode: string | undefined;
+  /** Where the per-chain Alchemy keys are read from (usually `process.env`). */
+  env: Record<string, string | undefined>;
+}
+
+/**
+ * Build one runtime per chain whose Alchemy key is configured.
+ *
+ * A mode with no key is left OUT rather than built against an empty key: a
+ * client that then asks for it gets the default chain, and the `chain` block
+ * served with the positions names the chain it actually got. That is the only
+ * arrangement in which the label can never disagree with the numbers.
+ *
+ * Throws when the DEFAULT mode has no key, which is the boot failure the API
+ * server and the worker already exit on.
+ */
+export function buildScoringChains(opts: BuildScoringChainsOptions): ScoringChainSet {
+  const defaultMode = scoringChainMode(opts.defaultMode);
+  const runtimes = new Map<ScoringChainMode, ScoringChainRuntime>();
+  for (const mode of SCORING_CHAIN_MODES) {
+    const resolved = resolveAlchemyKey(mode, opts.env);
+    if (resolved.key === null) continue;
+    runtimes.set(mode, buildScoringChain({ ...opts, mode, alchemyKey: resolved.key }));
+  }
+  const fallback = runtimes.get(defaultMode);
+  if (!fallback) {
+    throw new Error(
+      `no Alchemy key for the default scoring chain (${scoringChainConfig(defaultMode).alchemyKeyEnv})`,
+    );
+  }
+  return {
+    defaultMode,
+    available: [...runtimes.keys()],
+    get: (mode) => runtimes.get(mode) ?? fallback,
+    resolve(raw) {
+      return runtimes.get(requestScoringChainMode(raw, opts.defaultMode)) ?? fallback;
+    },
+  };
+}
+
+/**
+ * A cache key scoped to the chain its value was computed on.
+ *
+ * THE trap in making the chain per-request: every warm cache in the API is
+ * keyed on a wallet, and one wallet has a different position on each chain. An
+ * unscoped key lets a Base Sepolia score answer a Base mainnet request for 60
+ * seconds, which is the exact screenshot this feature exists to make
+ * impossible: a testnet health factor under a "Base" label, or an empty mainnet
+ * read erasing a testnet position the user is looking at.
+ *
+ * The mode goes FIRST so the key is unambiguous however the later parts are
+ * shaped, and it is not omitted for mainnet: a default that leaves the segment
+ * out is a default that collides with any future mode named "".
+ */
+export function chainScopedKey(mode: ScoringChainMode, ...parts: string[]): string {
+  return [mode, ...parts].join(":");
 }
 
 /**

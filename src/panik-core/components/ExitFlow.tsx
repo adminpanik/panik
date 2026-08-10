@@ -29,13 +29,18 @@ import type { LiveProtocol } from "../lib/live";
 import {
   asContractClient,
   EXIT_DATA_PROVIDER_ABI,
-  EXIT_ENV,
   EXIT_ERC20_ABI,
   EXIT_NETWORK_LABEL,
   exitExplorerTxUrl,
   getExitChain,
   isExitExecutable,
 } from "../lib/exit";
+import {
+  CHAIN_MODE_LABEL,
+  exitAvailabilityLine,
+  exitsExecutableOn,
+  useChainMode,
+} from "../lib/chainMode";
 import { classifyExitError } from "../lib/exitRpc";
 // Shared with the relayer (server/relayerChain.ts) and the coverage sweep
 // (server/coverageChain.ts). One resolution, cached per deployment; see the
@@ -196,7 +201,15 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
   const { writeContractAsync } = useWriteContract();
   const { ensureApprovals } = useExitApprovals(address);
 
-  const executable = isExitExecutable(prefill.protocol);
+  // Two independent gates, and they fail for different reasons, so the
+  // `unavailable` step below has to tell them apart: the protocol may have no
+  // deployment on the exit chain, or the user may be LOOKING at a chain the
+  // executor is not deployed on at all. Sending someone to "Aave V3 works, try
+  // that" when the real answer is "no exit works on Base yet" is the dead end
+  // this switch exists to close.
+  const chainMode = useChainMode();
+  const chainExecutable = exitsExecutableOn(chainMode);
+  const executable = chainExecutable && isExitExecutable(prefill.protocol);
   const [step, setStep] = useState<Step>(executable ? "connect" : "unavailable");
   const [status, setStatus] = useState<string>("");
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -611,7 +624,10 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-sans font-bold text-text-primary">{copy.title}</h2>
-            {EXIT_ENV === "testnet" ? (
+            {/* Follows the SWITCH, not the build: what the badge asserts is
+                that the chain you are looking at is a test network, and that is
+                now the user's choice rather than a property of the bundle. */}
+            {chainMode === "testnet" ? (
               <span className="px-2 py-0.5 rounded-sm border border-risk-elevated/40 bg-risk-elevated/10 text-risk-elevated text-2xs font-sans font-bold">
                 TESTNET
               </span>
@@ -622,22 +638,25 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
           </button>
         </div>
 
-        {EXIT_ENV === "testnet" && step !== "unavailable" ? (
+        {chainMode === "testnet" && step !== "unavailable" ? (
           <div className="rounded-md border border-risk-elevated/25 bg-risk-elevated/[0.06] p-3 text-xs text-risk-elevated/90 font-sans leading-relaxed">
             {/* "against a demo position" used to stand here, which told every
                 reader that a position had been prepared for them. Nothing in
                 this app creates one, and the founder's fresh wallet held
                 nothing. What is true is the chain the transaction lands on and
                 the position it cannot touch. */}
-            Execution runs on <b>Base Sepolia</b>, against whatever this wallet holds there. Your
-            mainnet position is not touched. Mainnet execution ships after audit.
+            Execution runs on <b>{CHAIN_MODE_LABEL.testnet}</b>, against whatever this wallet holds
+            there. Your {CHAIN_MODE_LABEL.mainnet} position is not touched.{" "}
+            {CHAIN_MODE_LABEL.mainnet} execution ships after the audit.
           </div>
         ) : null}
 
         {step === "unavailable" ? (
           <div className="space-y-4">
             <p className="text-sm text-text-secondary font-sans leading-relaxed">
-              {`${prefill.protocol.replace("_", " ")} exits are proven against Base mainnet in the
+              {!chainExecutable
+                ? exitAvailabilityLine(chainMode)
+                : `${prefill.protocol.replace("_", " ")} exits are proven against Base mainnet in the
               executor's fork suite, but this protocol has no Base Sepolia demo deployment - it
               unlocks with the mainnet release. The Aave V3 demo exit is available today.`}
             </p>

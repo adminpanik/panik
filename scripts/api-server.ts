@@ -40,7 +40,13 @@ import {
   type WalletInsights,
   type YieldTable,
 } from "../packages/scoring/src/index";
-import { buildScoringChain, resolveAlchemyKey, scoringChainWire } from "../server/scoringChain";
+import {
+  buildScoringChains,
+  chainScopedKey,
+  resolveAlchemyKey,
+  scoringChainWire,
+  type ScoringChainRuntime,
+} from "../server/scoringChain";
 import {
   SimulationCache,
   SimulationStore,
@@ -129,22 +135,41 @@ const simulations = (() => {
   }
 })();
 
-const scoringChain = buildScoringChain({
-  mode: process.env.PANIK_SCORING_CHAIN,
-  alchemyKey: alchemy.key,
+/**
+ * Every chain this process can score, not just the configured one.
+ *
+ * The chain is a per-REQUEST choice now (`?chain=`), because the product has
+ * two honest modes: mainnet shows the risk management working on real money,
+ * testnet shows the exit actually settling, since the executor is deployed on
+ * Base Sepolia alone. Those used to be two builds. PANIK_SCORING_CHAIN is still
+ * the default, so a deployment that sets nothing and a client that sends
+ * nothing both behave exactly as before.
+ */
+const scoringChains = buildScoringChains({
+  defaultMode: process.env.PANIK_SCORING_CHAIN,
+  env: process.env,
   providers,
   onReaderError: (err) =>
     console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
   onCompoundWarn: (m) => console.warn(`compound reader degraded: ${m}`),
   simulation: () => simulations?.current() ?? null,
 });
-const { adapter } = scoringChain;
-const chainWire = scoringChainWire(scoringChain.config);
-console.log(
-  `scoring chain: ${scoringChain.config.label} (${scoringChain.config.chainId}), ` +
-    `protocols ${scoringChain.config.protocols.join(", ")}, ` +
-    `market context ${scoringChain.config.marketContext}`,
-);
+/**
+ * The registry-wide loop (/api/scores) and the boot log read this one. It is
+ * NOT the adapter a wallet request uses: those resolve their own runtime from
+ * `?chain=`, and reusing this one would score every caller on the deployment's
+ * default chain while telling them which chain they asked for.
+ */
+const defaultChain = scoringChains.get(scoringChains.defaultMode);
+const { adapter } = defaultChain;
+for (const mode of scoringChains.available) {
+  const cfg = scoringChains.get(mode).config;
+  console.log(
+    `scoring chain ${mode === scoringChains.defaultMode ? "(default) " : ""}` +
+      `${cfg.label} (${cfg.chainId}), protocols ${cfg.protocols.join(", ")}, ` +
+      `market context ${cfg.marketContext}`,
+  );
+}
 
 // Persona profiler (analytics tier — once-per-wallet, cached; NOT the live loop).
 // Deps (Dune + Supabase cache + optional OpenRouter narrator) are built lazily
@@ -336,21 +361,28 @@ async function getPoolYields(): Promise<typeof poolYieldCache> {
 // Wallet persona profiles are handled by the shared start/poll session
 // (Supabase-cached), identical to the Vercel functions — see the routes below.
 
-// ── chain telemetry (10s cache) ───────────────────────────────────────────
-let chainCache: { at: number; blockNumber: number; gasGwei: number } = {
-  at: 0,
-  blockNumber: 0,
-  gasGwei: 0,
-};
+// ── chain telemetry (10s cache, PER CHAIN) ────────────────────────────────
+// One entry per mode, not one entry: a block height and a gas price are facts
+// about a specific chain, and Base Sepolia's block number served under a "Base"
+// label is a wrong number rather than a stale one.
+interface ChainTelemetry {
+  at: number;
+  blockNumber: number;
+  gasGwei: number;
+}
+const chainCaches = new Map<string, ChainTelemetry>();
 
-async function getChain(): Promise<typeof chainCache> {
-  if (Date.now() - chainCache.at < 10_000) return chainCache;
+async function getChain(runtime: ScoringChainRuntime): Promise<ChainTelemetry> {
+  const key = runtime.config.mode;
+  const hit = chainCaches.get(key);
+  if (hit && Date.now() - hit.at < 10_000) return hit;
   const [block, gas] = await Promise.all([
-    scoringChain.telemetry.getBlockNumber(),
-    scoringChain.telemetry.getGasPrice(),
+    runtime.telemetry.getBlockNumber(),
+    runtime.telemetry.getGasPrice(),
   ]);
-  chainCache = { at: Date.now(), blockNumber: Number(block), gasGwei: Number(gas) / 1e9 };
-  return chainCache;
+  const fresh = { at: Date.now(), blockNumber: Number(block), gasGwei: Number(gas) / 1e9 };
+  chainCaches.set(key, fresh);
+  return fresh;
 }
 
 // ── HTTP ───────────────────────────────────────────────────────────────────
@@ -621,11 +653,15 @@ app.get("/api/wallets", adminLimit, async (req, res) => {
   }
 });
 
+// Admin, and deliberately NOT per-request: this is the watch registry's own
+// scores, produced by the loop the worker runs on PANIK_SCORING_CHAIN. Letting
+// a caller re-point it would return positions the alerting path never looked
+// at, under the registry's label. The chain block names the chain it IS.
 app.get("/api/scores", adminLimit, async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
     const { at, positions } = await getScores();
-    res.json({ updatedAt: at, positions, chain: chainWire });
+    res.json({ updatedAt: at, positions, chain: scoringChainWire(defaultChain.config) });
   } catch (err) {
     serverError(req, res, 500, err);
   }
@@ -685,9 +721,9 @@ app.post("/api/wallets/register", strictLimit, async (req, res) => {
 });
 
 // Live positions for ONE arbitrary wallet — the onboarded user's own wallet —
-// scored on demand via the same ActiveAdapter (current Base positions). Lets the
-// dashboard follow the pasted wallet instead of the seeded validation registry.
-// 60s cache per wallet (mirrors the live-loop cadence).
+// scored on demand via that request's ActiveAdapter. Lets the dashboard follow
+// the pasted wallet instead of the seeded validation registry.
+// 60s cache per CHAIN AND wallet (mirrors the live-loop cadence).
 // Wallet-keyed caches are LRU-capped: the keys come from the caller, so an
 // unbounded Map would let anyone grow the heap one address at a time.
 const CACHE_MAX_WALLETS = 2_000;
@@ -713,33 +749,46 @@ app.get("/api/positions", walletLimit, async (req, res) => {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
   }
+  // An unrecognised ?chain= resolves to mainnet rather than 400ing: the value
+  // is a display preference read out of the user's own browser storage, and a
+  // stale or edited one must not put an error page over positions we can read.
+  const runtime = scoringChains.resolve(req.query.chain);
   // Read ONCE per request and reuse for the cache test, the scoring pass and
   // the wire: three separate reads could straddle an expiry and describe the
   // response with a scenario that was not the one it was scored under.
   const armed = simulations?.current() ?? null;
   const armedId = armed?.id ?? null;
   const wire = armed ? simulationWire(armed) : null;
+  // Chain-scoped, for the reason spelled out on `chainScopedKey`: one wallet
+  // holds a different position on each chain, and a shared key would let one
+  // answer the other for a minute.
+  const cacheKey = chainScopedKey(runtime.config.mode, wallet);
 
-  const cached = ownPosCache.get(wallet);
+  const cached = ownPosCache.get(cacheKey);
   if (cached && Date.now() - cached.at < 60_000 && cached.simulationId === armedId) {
     res.json({
       updatedAt: cached.at,
       positions: cached.positions,
-      chain: chainWire,
+      chain: scoringChainWire(runtime.config),
       simulation: wire,
     });
     return;
   }
   try {
-    const scored = await adapter.scoreWallet(wallet);
+    const scored = await runtime.adapter.scoreWallet(wallet);
     const positions: LivePosition[] = scored.map((s) => ({
       ...s,
       label: null,
       riskProfile: profile,
       profileStatus: statusFor(profile, s.total),
     }));
-    ownPosCache.set(wallet, { at: Date.now(), positions, simulationId: armedId });
-    res.json({ updatedAt: Date.now(), positions, chain: chainWire, simulation: wire });
+    ownPosCache.set(cacheKey, { at: Date.now(), positions, simulationId: armedId });
+    res.json({
+      updatedAt: Date.now(),
+      positions,
+      chain: scoringChainWire(runtime.config),
+      simulation: wire,
+    });
   } catch (err) {
     serverError(req, res, 502, err);
   }
@@ -992,11 +1041,14 @@ app.get("/api/advisor", advisorLimit, async (req, res) => {
     res.status(400).json({ error: "invalid EVM wallet address" });
     return;
   }
+  const runtime = scoringChains.resolve(req.query.chain);
   // The simulation id is part of the cache key, not a field checked after the
   // hit: a report written under a scenario and one written under real prices
   // are answers to different questions and must never substitute for each other.
+  // The chain is in the key for the same reason, one step further out: a report
+  // is advice about a position, and the two chains hold different positions.
   const armedId = simulations?.current()?.id ?? null;
-  const key = `${wallet}:${profile}:${armedId ?? "real"}`;
+  const key = chainScopedKey(runtime.config.mode, wallet, profile, armedId ?? "real");
   const hit = advisorCache.get(key);
   if (hit && Date.now() - hit.at < ADVISOR_TTL_MS) {
     res.json(hit.report);
@@ -1008,13 +1060,14 @@ app.get("/api/advisor", advisorLimit, async (req, res) => {
     // sizes a repay from whatever health factor the engine hands it, so an
     // entry cached before a scenario was armed would have it recommending HOLD
     // against a crash the rest of the screen is showing.
-    const cachedPos = ownPosCache.get(wallet);
+    const posKey = chainScopedKey(runtime.config.mode, wallet);
+    const cachedPos = ownPosCache.get(posKey);
     let scores: ActiveScore[];
     if (cachedPos && Date.now() - cachedPos.at < 60_000 && cachedPos.simulationId === armedId) {
       scores = cachedPos.positions;
     } else {
-      scores = await adapter.scoreWallet(wallet);
-      ownPosCache.set(wallet, {
+      scores = await runtime.adapter.scoreWallet(wallet);
+      ownPosCache.set(posKey, {
         at: Date.now(),
         simulationId: armedId,
         positions: scores.map((s) => ({
@@ -1061,7 +1114,7 @@ app.get("/api/advisor", advisorLimit, async (req, res) => {
     // chain's. Having nothing to suggest is the honest answer, and an empty
     // list is a state the Advisor already renders.
     const opportunities =
-      scoringChain.config.marketContext === "unavailable"
+      runtime.config.marketContext === "unavailable"
         ? []
         : await findOpportunities({
             wallet,
@@ -1617,7 +1670,8 @@ app.delete("/api/admin/simulation", adminLimit, adminBearerGate, adminSimulation
 
 app.get("/api/chain", publicLimit, async (req, res) => {
   try {
-    res.json({ ...(await getChain()), chain: chainWire });
+    const runtime = scoringChains.resolve(req.query.chain);
+    res.json({ ...(await getChain(runtime)), chain: scoringChainWire(runtime.config) });
   } catch (err) {
     serverError(req, res, 500, err);
   }

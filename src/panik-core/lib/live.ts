@@ -238,8 +238,16 @@ export function useLiveScores() {
  * Live positions for ONE wallet — the onboarded user's own wallet. Polls
  * /api/positions every 60s; no-ops (returns null) when wallet is null. Degrades
  * gracefully offline like the other hooks.
+ *
+ * `chain` is the user's selected mode (lib/chainMode.ts). It is a REQUEST, not
+ * a claim: the answer carries the chain the API actually read, and every label
+ * drawn from this hook comes from that. Changing it resets the state for the
+ * same reason a wallet change does, one step stronger: the previous chain's
+ * positions are a different wallet's worth of money, and showing them under the
+ * new chain's name for one poll is exactly the lie this whole feature is built
+ * to avoid.
  */
-export function useWalletPositions(wallet: string | null, profile: string) {
+export function useWalletPositions(wallet: string | null, profile: string, chain: string) {
   const [data, setData] = useState<{
     updatedAt: number;
     positions: LiveWalletPosition[];
@@ -260,7 +268,9 @@ export function useWalletPositions(wallet: string | null, profile: string) {
     setOffline(false);
     if (!wallet) return;
     let cancelled = false;
-    const url = `/api/positions?wallet=${wallet}&profile=${encodeURIComponent(profile)}`;
+    const url =
+      `/api/positions?wallet=${wallet}&profile=${encodeURIComponent(profile)}` +
+      `&chain=${encodeURIComponent(chain)}`;
     const load = async () => {
       try {
         const body = await getJson<{
@@ -283,7 +293,7 @@ export function useWalletPositions(wallet: string | null, profile: string) {
       cancelled = true;
       clearInterval(t);
     };
-  }, [wallet, profile]);
+  }, [wallet, profile, chain]);
 
   return {
     positions: data?.positions ?? null,
@@ -390,9 +400,18 @@ export function useWalletRegistry() {
   return data?.wallets ?? null;
 }
 
-/** Real Base block number + gas price (15s). */
-export function useChainTelemetry() {
-  const { data } = usePolled<{ blockNumber: number; gasGwei: number }>("/api/chain", 15_000);
+/**
+ * Block number + gas price for the SELECTED chain (15s).
+ *
+ * Chain-scoped because a gas price is not a global fact: Base Sepolia's is not
+ * Base's, and the header strip that prints it sits above positions read on
+ * whichever chain the user picked.
+ */
+export function useChainTelemetry(chain: string) {
+  const { data } = usePolled<{ blockNumber: number; gasGwei: number }>(
+    `/api/chain?chain=${encodeURIComponent(chain)}`,
+    15_000,
+  );
   return { blockNumber: data?.blockNumber ?? null, gasGwei: data?.gasGwei ?? null };
 }
 
@@ -574,19 +593,22 @@ export interface AdvisorReport {
  * the expensive narration for 5 min). Null wallet or offline degrades to null,
  * so the Advisor tab can keep its Coming-Soon fallback.
  */
-export function useAdvisor(wallet: string | null, profile: string) {
+export function useAdvisor(wallet: string | null, profile: string, chain: string) {
   const [data, setData] = useState<AdvisorReport | null>(null);
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
-    // Reset on wallet change - never show the previous wallet's advice.
+    // Reset on wallet OR chain change - advice is about a position, and each
+    // chain holds a different one. Never show the previous one's advice.
     setData(null);
     if (!wallet) {
       setOffline(false);
       return;
     }
     let cancelled = false;
-    const url = `/api/advisor?wallet=${wallet.toLowerCase()}&profile=${encodeURIComponent(profile)}`;
+    const url =
+      `/api/advisor?wallet=${wallet.toLowerCase()}&profile=${encodeURIComponent(profile)}` +
+      `&chain=${encodeURIComponent(chain)}`;
     const load = async () => {
       try {
         const body = await getJson<AdvisorReport>(url);
@@ -604,7 +626,7 @@ export function useAdvisor(wallet: string | null, profile: string) {
       cancelled = true;
       clearInterval(t);
     };
-  }, [wallet, profile]);
+  }, [wallet, profile, chain]);
 
   return { report: data, offline };
 }
