@@ -24,7 +24,7 @@ import {
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, SimulationChip, Skeleton } from "../ui";
-import { exitAvailabilityLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
+import { exitControlState, useChainMode } from "../lib/chainMode";
 import type { ExitPrefill } from "./ExitFlow";
 
 /**
@@ -105,15 +105,10 @@ export function LivePositions({
   onExit,
   highlightKey,
 }: LivePositionsProps) {
-  // Same two reasons the Advisor's control can be dead, named the same way: the
-  // flow may not be wired in on this surface, or the chain being read cannot
-  // execute an exit at all. Disabled with the reason on hover, not hidden — a
-  // control that vanishes teaches nothing about why.
-  const chainMode = useChainMode();
-  const exitEnabled = Boolean(onExit) && exitsExecutableOn(chainMode);
-  const exitDisabledHint = !exitsExecutableOn(chainMode)
-    ? exitAvailabilityLine(chainMode)
-    : "Transaction flow ships with the Atomic Exit integration";
+  // Shared with the Advisor card, so the same control cannot be live on one
+  // surface and dead on the other. Disabled with the reason on hover, not
+  // hidden — a control that vanishes teaches nothing about why.
+  const { enabled: exitEnabled, hint: exitDisabledHint } = exitControlState(onExit, useChainMode());
   const provenance = chainProvenance(chain);
   /**
    * One ref, attached to the highlighted row only. Refs are set during commit,

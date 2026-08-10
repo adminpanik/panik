@@ -54,6 +54,7 @@ import type {
   AdvisorRecommendation,
   AdvisorReport,
 } from "../lib/live";
+import { recommendedExitAction } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
 import {
@@ -71,7 +72,7 @@ import {
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial } from "../ui";
-import { exitAvailabilityLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
+import { exitAvailabilityLine, exitControlState, useChainMode } from "../lib/chainMode";
 /**
  * The engine's dollar formatter, not the panel's `formatUsd`.
  *
@@ -141,17 +142,14 @@ function ActionButton({
   onOpen?: (plan: AdvisorOpenPlan) => void;
 }) {
   const chainMode = useChainMode();
-  if (rec.action === "EXIT" || rec.action === "REDUCE") {
-    const prefill = rec.exitPrefill ?? { protocol: rec.protocol, kind: "full" as const };
-    const label = rec.action === "EXIT" ? "Execute exit" : "Reduce position";
+  const recommended = recommendedExitAction(rec);
+  if (recommended) {
+    const { prefill, label } = recommended;
     // Two reasons the control can be dead and the hover has to name the right
     // one: the flow may not be wired in on this surface, or the chain the user
-    // is reading cannot execute an exit at all.
-    const exitable = exitsExecutableOn(chainMode);
-    const enabled = Boolean(onExit) && exitable;
-    const disabledHint = !exitable
-      ? exitAvailabilityLine(chainMode)
-      : "Transaction flow ships with the Atomic Exit integration";
+    // is reading cannot execute an exit at all. Shared with the Portfolio row,
+    // which offers the same action.
+    const { enabled, hint: disabledHint } = exitControlState(onExit, chainMode);
     return (
       // A fragment, not a wrapper: the card's action row is the one flex-wrap
       // context, so the primary, the alternative and `Details` wrap as three

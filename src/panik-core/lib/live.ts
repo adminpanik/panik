@@ -496,6 +496,30 @@ export interface AdvisorOpenPlan {
   apy: number | null;
 }
 
+/**
+ * The action a recommendation offers, as a label and a prefill, or null when it
+ * offers none.
+ *
+ * One function because three surfaces need the same answer — the Advisor card,
+ * the Advisor popup and the Portfolio row — and deriving it three times is how
+ * the vocabulary drifts. It already had: two call sites said "Reduce position"
+ * and a third said "Reduce", for the same engine action opening the same modal.
+ * Two names for one outcome teaches a user they are two different things.
+ *
+ * The `?? { kind: "full" }` fallback is part of the answer, not a detail of one
+ * call site: a recommendation to EXIT with no prefill still means close the
+ * position, and a surface that forgot the fallback would render a dead button.
+ */
+export function recommendedExitAction(
+  rec: Pick<AdvisorRecommendation, "action" | "protocol" | "exitPrefill">,
+): { label: string; prefill: NonNullable<AdvisorRecommendation["exitPrefill"]> } | null {
+  if (rec.action !== "EXIT" && rec.action !== "REDUCE") return null;
+  return {
+    label: rec.action === "EXIT" ? "Execute exit" : "Reduce position",
+    prefill: rec.exitPrefill ?? { protocol: rec.protocol, kind: "full" as const },
+  };
+}
+
 export interface AdvisorRecommendation {
   protocol: LiveProtocol;
   wallet: string;

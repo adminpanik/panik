@@ -86,6 +86,7 @@ import {
   useCompassYields,
   useProspective,
   useWalletHistory,
+  recommendedExitAction,
   useWalletPositions,
   type LiveProtocol,
   type PoolYield,
@@ -937,13 +938,11 @@ export function AppDemo() {
   const portfolioExitActions = useMemo(() => {
     const out: Record<string, { label: string; prefill: ExitPrefill }> = {};
     for (const rec of advisorLive.report?.recommendations ?? []) {
-      if (rec.action !== "EXIT" && rec.action !== "REDUCE") continue;
-      out[rec.protocol] = {
-        // The Advisor card's own labels. Two vocabularies for one outcome is how
-        // a user ends up believing they are two different things.
-        label: rec.action === "EXIT" ? "Execute exit" : "Reduce position",
-        prefill: rec.exitPrefill ?? { protocol: rec.protocol, kind: "full" as const },
-      };
+      // The Advisor card's own label and prefill, from the one function that
+      // derives them. Two vocabularies for one outcome is how a user ends up
+      // believing they are two different things.
+      const recommended = recommendedExitAction(rec);
+      if (recommended) out[rec.protocol] = recommended;
     }
     return out;
   }, [advisorLive.report]);
