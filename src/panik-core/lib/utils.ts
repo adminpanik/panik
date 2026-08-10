@@ -47,6 +47,26 @@ export const PROTOCOL_LABEL: Record<
 };
 
 /**
+ * Max borrow LTV for the DEMO surfaces, as a fraction.
+ *
+ * One rule, written by hand four times before this: here, twice in `AppDemo`
+ * (the Watch simulator's LTV ceiling and its health-factor preview) and once in
+ * `OpenPositionModal`, which prints it to the user as a fact about their
+ * protocol ("Near max LTV (78%)").
+ *
+ * NOT the engine's number, deliberately. `MARKETS` in `packages/scoring` holds
+ * the real per-asset parameters and they disagree with these two (Aave WETH
+ * 0.80 and wstETH 0.75, Morpho 0.86, Compound V3 WETH 0.78). Pointing these
+ * surfaces at the engine is the right fix AND it changes figures on screen, so
+ * it is a behaviour change and belongs in its own commit, not in a
+ * consolidation pass.
+ */
+export function demoMaxLtv(protocol: string): number {
+  // Aave is the slightly higher blue-chip parameter; everything else shares one.
+  return protocol === "Aave V3" ? 0.82 : 0.78;
+}
+
+/**
  * Calculates a DeFi position health factor and PANIK risk score.
  * Formula models general lending logic:
  * Max LTV is assumed to be 80% (0.80).
@@ -58,7 +78,7 @@ export function calculateDynamicPosition(
   borrow: number,
   collateralPrice: number
 ): PositionState {
-  const maxLTV = protocol === "Aave V3" ? 0.82 : 0.78; // Aave is slightly higher blue-chip parameter
+  const maxLTV = demoMaxLtv(protocol);
   const collateralValueUsd = (collateral * collateralPrice);
   const borrowValueUsd = borrow;
   

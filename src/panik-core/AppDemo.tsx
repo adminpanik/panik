@@ -33,6 +33,7 @@ import {
   bandOfHealthFactor,
   bandOfScore,
   calculateDynamicPosition,
+  demoMaxLtv,
   formatCompactUsd,
   formatCurrency,
   formatUsd,
@@ -1467,7 +1468,7 @@ export function AppDemo() {
   // "Infinity%".
   const watchLtvPct =
     watchCollateralValue > 0 ? Math.round((borrowUsd / watchCollateralValue) * 100) : null;
-  const watchMaxLtvPct = activeMarket.protocol === "Aave V3" ? 82 : 78;
+  const watchMaxLtvPct = Math.round(demoMaxLtv(activeMarket.protocol) * 100);
   const watchLiqPrice = positionState.liquidationPrice;
   const watchDropSub = [
     positionState.healthFactor === null
@@ -2178,7 +2179,7 @@ export function AppDemo() {
                     <div className="grid grid-cols-2 gap-2">
                       {PRICE_SCENARIOS.map((s) => {
                         const price = scenarioPrice(s.pct);
-                        const maxLTV = activeMarket.protocol === "Aave V3" ? 0.82 : 0.78;
+                        const maxLTV = demoMaxLtv(activeMarket.protocol);
                         const estHf = borrowUsd > 0 ? (collateralAmount * price * maxLTV) / borrowUsd : Infinity;
                         const active = activeScenario === s.key;
                         const liquidated = Number.isFinite(estHf) && estHf < 1;
