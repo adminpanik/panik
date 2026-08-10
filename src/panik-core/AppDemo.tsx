@@ -61,7 +61,7 @@ import { AlertFeed, AlertHistoryView, ALERT_PREVIEW_COUNT } from "./components/A
 import { Sparkline } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
-import { Button, Card, EmptyState, RiskChip, Stat, TabPanel } from "./ui";
+import { Button, Card, EmptyState, RiskChip, Skeleton, Stat, TabPanel } from "./ui";
 import {
   useAdvisor,
   useChainTelemetry,
@@ -1150,19 +1150,40 @@ export function AppDemo() {
     // Counted, not just flagged: a total that silently omits a $128,500 leg is
     // the same "unknown rendered as a zero" the null sub-scores exist to stop,
     // and the cards below say how many legs are missing from the sum.
-    const usd = (v: number | null) => (v === null || !Number.isFinite(v) ? 0 : v);
-    const capital = portfolioPositions.reduce((a, p) => a + usd(p.collateralValueUsd), 0);
-    const debt = portfolioPositions.reduce((a, p) => a + usd(p.borrowValueUsd), 0);
+    //
+    // Every figure here is `number | null`, and null is the ONLY thing an
+    // unmeasurable total is allowed to become. Mapping a missing price to 0 and
+    // summing looks harmless one leg at a time and is catastrophic at the
+    // limit: with every leg unpriced `capital` came out 0, which sent the
+    // collateral-weighted average to its `: 0` branch, and the wallet whose
+    // data we trusted least rendered a serene `0 / 100` with no warning glyph.
+    // A total nobody could measure is not a small total.
+    const priced = (v: number | null): v is number => v !== null && Number.isFinite(v);
+    const collateralValues = portfolioPositions
+      .map((p) => p.collateralValueUsd)
+      .filter(priced);
+    const debtValues = portfolioPositions.map((p) => p.borrowValueUsd).filter(priced);
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    const capital = collateralValues.length > 0 ? sum(collateralValues) : null;
+    const debt = debtValues.length > 0 ? sum(debtValues) : null;
+    // Weighted by collateral value, so a leg with no price contributes neither
+    // a numerator nor a denominator. With no weight at all there is no average
+    // to take, and the honest rendering of that is "we could not measure it",
+    // never a number.
     const aggregate =
-      capital > 0
+      capital !== null && capital > 0
         ? Math.round(
-            portfolioPositions.reduce((a, p) => a + p.total * usd(p.collateralValueUsd), 0) / capital,
+            sum(
+              portfolioPositions.map((p) =>
+                priced(p.collateralValueUsd) ? p.total * p.collateralValueUsd : 0,
+              ),
+            ) / capital,
           )
-        : 0;
+        : null;
     return {
       capital,
       debt,
-      ltv: capital > 0 ? debt / capital : 0,
+      ltv: capital !== null && capital > 0 && debt !== null ? debt / capital : null,
       positions: portfolioPositions.length,
       protocols: new Set(portfolioPositions.map((p) => p.protocol)).size,
       // The card used to name "Aave V3, Moonwell" from a string literal no
@@ -1172,29 +1193,43 @@ export function AppDemo() {
         ...new Set(portfolioPositions.map((p) => LIVE_PROTOCOL_LABEL[p.protocol] ?? p.protocol)),
       ],
       aggregate,
-      unpricedLegs: portfolioPositions.filter((p) => p.usdValuesUnavailable).length,
+      // The flag OR a missing value: a payload cached before the flag existed
+      // carries the null without it, and this count is what tells the reader how
+      // much of their wallet the figures above leave out. Counting only the flag
+      // would let a leg drop out of every sum with nothing on screen saying so.
+      unpricedLegs: portfolioPositions.filter(
+        (p) => p.usdValuesUnavailable === true || !priced(p.collateralValueUsd),
+      ).length,
     };
   }, [portfolioPositions]);
 
-  // Collateral allocation for the SELECTED wallet (mock weights when offline)
+  /**
+   * Collateral allocation for the SELECTED wallet.
+   *
+   * Positions only. This used to fall back to a hand-typed
+   * wstETH/USDC/ETH/USDT split with dollar amounts, so a wallet holding nothing
+   * — and a wallet still loading — was shown a complete, plausible portfolio it
+   * did not own, under a heading that claims to describe its collateral. The
+   * fallback is deleted rather than hidden behind a flag: there is no state in
+   * which inventing someone's holdings is the right answer, and the card now
+   * simply does not render when there is nothing to break down.
+   *
+   * A leg the engine could not price is EXCLUDED from the split, not entered at
+   * zero. A zero-width segment with a real symbol beside it reads as "you hold
+   * none of this", which is a different and false claim; the count of excluded
+   * legs is stated on the card instead.
+   */
   const allocation = useMemo(() => {
     const bySymbol: Record<string, number> = {};
     for (const p of portfolioPositions ?? []) {
+      if (p.collateralValueUsd === null || !Number.isFinite(p.collateralValueUsd)) continue;
       bySymbol[p.scoredCollateralSymbol] =
-        (bySymbol[p.scoredCollateralSymbol] ?? 0) + (p.collateralValueUsd ?? 0);
+        (bySymbol[p.scoredCollateralSymbol] ?? 0) + p.collateralValueUsd;
     }
-    const src: { symbol: string; usd: number }[] =
-      portfolioPositions && portfolioPositions.length > 0
-        ? Object.keys(bySymbol)
-            .map((symbol) => ({ symbol, usd: bySymbol[symbol] ?? 0 }))
-            .sort((a, b) => b.usd - a.usd)
-            .slice(0, 4)
-        : [
-            { symbol: "wstETH (LST Locked)", usd: 8022 },
-            { symbol: "USDC Spot", usd: 7000 },
-            { symbol: "ETH Spot", usd: 1928 },
-            { symbol: "USDT Pool", usd: 1500 },
-          ];
+    const src = Object.keys(bySymbol)
+      .map((symbol) => ({ symbol, usd: bySymbol[symbol] ?? 0 }))
+      .sort((a, b) => b.usd - a.usd)
+      .slice(0, 4);
     const total = src.reduce((a, b) => a + b.usd, 0) || 1;
     // CATEGORICAL, not sequential. Telling cbBTC from WETH from wstETH is data
     // encoding, and a single stepped grey destroys it: four opacities of white
@@ -2511,9 +2546,44 @@ export function AppDemo() {
                   </div>
                 )}
 
-                {/* Macro metrics columns — computed from LIVE positions when available */}
-                {(() => {
-                  const aggregate = liveMacro?.aggregate ?? 22;
+                {/* Still reading the chain. A reserved block, not a figure:
+                    the four cards used to print $18,450 / $9,310 / 50% / 22
+                    from string literals whenever `liveMacro` was null, which is
+                    exactly the window in which the code knows nothing at all. */}
+                {portfolioPositions === null && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+                    {["capital", "liabilities", "protocols", "aggregate"].map((slot) => (
+                      <Card key={slot} tone="raised">
+                        <Skeleton className="h-4 w-28" />
+                        <Skeleton className="mt-2 h-8 w-32" />
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {/* Nothing on this wallet could be priced. Stated once, loudly,
+                    above the cards: the aggregate card is the one making a
+                    safety claim and it previously carried no caveat whatsoever,
+                    so the caveat that mattered most was the one the screen did
+                    not have. `problem`, not `clear` — this is "we could not
+                    look", which is never good news. */}
+                {liveMacro && liveMacro.capital === null && (
+                  <EmptyState
+                    tone="problem"
+                    title="Dollar amounts are unavailable for this wallet"
+                    hint="A price feed PANIK converts these positions with is missing or stale, so there is no portfolio total and no combined score to show. Each position's own score and health factor below are unaffected, because they are ratios."
+                  />
+                )}
+
+                {/* Macro metrics columns. Rendered only when there are real
+                    positions to summarise, so every figure below comes from
+                    `liveMacro` and there is no literal for it to fall back to.
+                    An empty wallet gets the EmptyState above and no cards at
+                    all; it used to get this row, which meant "No positions yet"
+                    sat directly on top of a dashboard claiming $18,450 of
+                    monitored capital. */}
+                {liveMacro && (() => {
+                  const aggregate = liveMacro.aggregate;
                   // Legs the engine could not price contribute nothing to the
                   // three dollar-weighted figures here, so each one is a FLOOR
                   // and not the wallet. A numeral that quietly drops a position
@@ -2525,24 +2595,50 @@ export function AppDemo() {
                   // single line, so a caveat long enough to be cut is a caveat
                   // that disappears exactly when the card gets narrow. The
                   // sentence explaining it lives in the tips, which wrap.
-                  const unpriced = liveMacro?.unpricedLegs ?? 0;
+                  const unpriced = liveMacro.unpricedLegs;
+                  const nothingPriced = liveMacro.capital === null;
                   const unpricedNote =
                     unpriced > 0 ? `${unpriced} position${unpriced === 1 ? "" : "s"} not priced` : null;
-                  const unpricedHint =
-                    unpriced > 0
+                  const unpricedHint = nothingPriced
+                    ? " No position on this wallet could be priced, so there is no dollar figure to give. The scores and health factors are still exact."
+                    : unpriced > 0
                       ? ` A price feed was missing for ${unpriced === 1 ? "one position" : `${unpriced} positions`}, so ${unpriced === 1 ? "it is" : "they are"} left out of this figure. The scores and health factors are still exact.`
                       : "";
+                  // One rendering for "we could not measure this", in the value
+                  // slot where a number would otherwise go. The treatment is
+                  // `RISK_CHIP.UNKNOWN`, the same dashed unfilled grey a
+                  // degraded position row uses, so the marker means the same
+                  // thing everywhere: shape, icon and words, no hue, and no
+                  // number standing in for a blank. Its explanation rides in
+                  // the InfoTip the label already carries rather than buying a
+                  // second hover on the same card.
+                  const notMeasured = (
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      Not measured
+                    </span>
+                  );
                   // The verdict is carried by the WORD, not by a hue. A 28px
                   // numeral repainted red is the single loudest thing a
                   // dashboard can emit, and it was firing on a summary figure
                   // while the four per-position bands — the numbers a user can
                   // actually act on — sat in 11px chips beside it.
+                  //
+                  // There is no verdict for an unweighable wallet, and this is
+                  // the whole point of the change: the old chain took `?? 22`
+                  // and then `0` from an all-degraded wallet and read it as
+                  // "Secure health status", asserting safety at the moment the
+                  // data was least trustworthy.
                   const aggregateVerdict =
-                    aggregate >= 50
-                      ? "Elevated portfolio risk"
-                      : aggregate >= 25
-                        ? "Watch status"
-                        : "Secure health status";
+                    aggregate === null
+                      ? "No priced positions to weigh"
+                      : aggregate >= 50
+                        ? "Elevated portfolio risk"
+                        : aggregate >= 25
+                          ? "Watch status"
+                          : "Secure health status";
                   // The verdict is still carried by the WORD — the sentence
                   // stays secondary grey, and the 28px figure above it stays
                   // neutral. What the word could not do on its own is be
@@ -2556,8 +2652,13 @@ export function AppDemo() {
                   // changes colour trains people to stop looking at it, and it
                   // would also spend a fifth risk-hued element on a page whose
                   // whole colour budget is the four position chips.
-                  const aggregateBand = bandOfScore(aggregate);
-                  const aggregateAlarming = aggregateBand !== "LOW";
+                  //
+                  // Absent for an unscorable wallet too, but for the opposite
+                  // reason: a band is a severity, and "we could not measure
+                  // this" is not one. The `Not measured` marker in the value
+                  // slot carries that state, in grey, on four non-colour axes.
+                  const aggregateBand = aggregate === null ? null : bandOfScore(aggregate);
+                  const aggregateAlarming = aggregateBand !== null && aggregateBand !== "LOW";
                   // 1 -> 2 -> 4. The old jump straight from 1 to 4 at `sm` gave
                   // each card ~150px at 640px wide, which is narrower than
                   // "Monitored liabilities" and narrower than the figure under
@@ -2583,7 +2684,7 @@ export function AppDemo() {
                              When one is not, the sub-line is the only thing
                              standing between this figure and a lie. */
                           sub={unpricedNote}
-                          value={liveMacro ? formatUsd(liveMacro.capital) : "$18,450"}
+                          value={liveMacro.capital === null ? notMeasured : formatUsd(liveMacro.capital)}
                         />
                       </Card>
 
@@ -2600,8 +2701,16 @@ export function AppDemo() {
                               />
                             </>
                           }
-                          value={liveMacro ? formatUsd(liveMacro.debt) : "$9,310"}
-                          sub={`Net LTV ratio: ${liveMacro ? `${Math.round(liveMacro.ltv * 100)}%` : "50%"}`}
+                          value={liveMacro.debt === null ? notMeasured : formatUsd(liveMacro.debt)}
+                          /* No ratio when either side of it is unknown. "Net
+                             LTV ratio: 0%" was the reassuring end of the same
+                             bug the aggregate card had: a wallet with no
+                             readable prices reads as a wallet with no debt. */
+                          sub={
+                            liveMacro.ltv === null
+                              ? "Net LTV ratio not measured"
+                              : `Net LTV ratio: ${Math.round(liveMacro.ltv * 100)}%`
+                          }
                         />
                       </Card>
 
@@ -2611,11 +2720,7 @@ export function AppDemo() {
                             <>
                               Protocols watched
                               <InfoTip
-                                text={
-                                  liveMacro
-                                    ? `PANIK covers ${coveredProtocolSentence} on ${coveredChainLabel}. This wallet holds a position on ${liveMacro.protocolNames.join(", ")}; the dimmed marks are covered but empty.`
-                                    : `PANIK covers ${coveredProtocolSentence} on ${coveredChainLabel}. The dimmed marks are covered but hold no position.`
-                                }
+                                text={`PANIK covers ${coveredProtocolSentence} on ${coveredChainLabel}. This wallet holds a position on ${liveMacro.protocolNames.join(", ")}; the dimmed marks are covered but empty.`}
                               />
                             </>
                           }
@@ -2643,7 +2748,7 @@ export function AppDemo() {
                           value={
                             <span className="flex h-11 items-center">
                               <ProtocolMarks
-                                protocols={liveMacro?.protocolNames ?? []}
+                                protocols={liveMacro.protocolNames}
                                 covered={coveredProtocols}
                               />
                             </span>
@@ -2670,10 +2775,10 @@ export function AppDemo() {
                               />
                             </>
                           }
-                          value={`${aggregate} / 100`}
+                          value={aggregate === null ? notMeasured : `${aggregate} / 100`}
                           sub={
                             <span className="flex items-center gap-1.5">
-                              {aggregateAlarming && (
+                              {aggregateAlarming && aggregateBand !== null && (
                                 <AlertTriangle
                                   className={`h-3.5 w-3.5 shrink-0 ${RISK_TEXT[aggregateBand]}`}
                                   aria-hidden="true"
@@ -2738,7 +2843,16 @@ export function AppDemo() {
                       with no magic number to go stale. Below `lg` the cards size
                       to their content as normal. */}
                   <div className="lg:col-span-5 flex flex-col gap-6">
-                    {/* Asset allocation: the visual collateral breakdown. */}
+                    {/* Asset allocation: the visual collateral breakdown.
+                        Only when there is collateral to break down. A card that
+                        renders a bar, four dots, four symbols and four dollar
+                        amounts has to be describing something, and when this had
+                        no positions to describe it described a wstETH/USDC/ETH/
+                        USDT portfolio nobody held. The empty and loading paths
+                        are covered by the states above and by the position list
+                        beside it, so the honest thing here is to render nothing
+                        rather than a heading over four blank rows. */}
+                    {allocation.length > 0 && (
                     <Card className="space-y-6">
                       <h3 className="text-sm font-sans font-semibold text-text-primary">
                         Asset allocation
@@ -2757,7 +2871,7 @@ export function AppDemo() {
                         ))}
                       </div>
 
-                      {/* Asset distribution — computed from LIVE positions (mock when offline) */}
+                      {/* Asset distribution, from this wallet's live positions. */}
                       <div className="space-y-3">
                         {allocation.map((a) => (
                           <div key={a.symbol} className="flex justify-between items-center gap-3">
@@ -2777,7 +2891,20 @@ export function AppDemo() {
                           </div>
                         ))}
                       </div>
+
+                      {/* A leg with no price is not in this split. Said here
+                          rather than left to arithmetic, because percentages
+                          that sum to 100 over a subset look exactly like
+                          percentages that sum to 100 over the whole wallet. */}
+                      {liveMacro && liveMacro.unpricedLegs > 0 && (
+                        <p className="text-xs font-sans leading-relaxed text-text-secondary">
+                          {liveMacro.unpricedLegs === 1
+                            ? "One position could not be priced and is not in this split."
+                            : `${liveMacro.unpricedLegs} positions could not be priced and are not in this split.`}
+                        </p>
+                      )}
                     </Card>
+                    )}
 
                     {/* Alert history (watch_transitions IS the alert log).
 
@@ -3196,28 +3323,38 @@ export function AppDemo() {
                     )}
                   </div>
 
-                  {/* 10 Risk Dimensions Table/Cards Grid */}
+                  {/* TWO groups, and the split is a data-honesty requirement,
+                      not a layout preference.
+
+                      This grid used to hold twelve numbered cells of identical
+                      shape: same well, same muted label, same InfoTip, same bold
+                      figure. Three of them were arithmetic on hand-written
+                      `VAULT_PRESETS` constants and one was arithmetic on the
+                      risk score itself, and nothing on screen told them apart
+                      from the engine's live readings sitting in the next cell.
+                      The `DEMO` badge above does not cover them either: it is
+                      keyed on whether the SCORE came back live, and a preset
+                      constant is a constant in both cases.
+
+                      So the live readings keep this heading, and the example
+                      position the preview is scored against gets its own,
+                      stated in words above the cells rather than left for the
+                      reader to infer.
+
+                      The 1-12 prefixes went with the split. They were the
+                      spec's numbering rather than anything a reader needed, and
+                      with two cells deleted and the rest regrouped there is no
+                      contiguous sequence left to preserve. */}
                   <div className="space-y-3">
                     <span className="block text-2xs font-sans text-text-muted">
                       Liquidation & pool metrics
                     </span>
-                    
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* Dimension 1: LTV */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          1. LTV rating
-                          <InfoTip text="Debt as a share of collateral value. Closer to the protocol's max means a smaller cushion." />
-                        </span>
-                        <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
-                          {Math.round((selectedRiskBreakdownPreset.defaultBorrow / (selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)) * 100)}%
-                        </span>
-                      </div>
 
-                      {/* Dimension 2: Health Factor (live engine value when available) */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Health factor (live engine value when available) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          2. Health factor
+                          Health factor
                           <InfoTip text="Below 1.00 the protocol can liquidate this position. No debt means no liquidation risk." />
                         </span>
                         {breakdownData?.healthFactor == null ? (
@@ -3229,21 +3366,10 @@ export function AppDemo() {
                         )}
                       </div>
 
-                      {/* Dimension 3: Liquidation Price (from the engine's drawdown when live) */}
+                      {/* Buffer to liquidation (the engine's drawdown) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          3. Liquidation price
-                          <InfoTip text="The collateral price at which this position becomes liquidatable." />
-                        </span>
-                        <span className="text-sm font-sans font-bold text-text-primary mt-1 tabular-nums">
-                          {breakdownData?.liqPrice != null ? formatCurrency(breakdownData.liqPrice) : "-"}
-                        </span>
-                      </div>
-
-                      {/* Dimension 4: Buffer to Liquidation */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          4. Buffer to liquidation
+                          Buffer to liquidation
                           <InfoTip text="How far the collateral price must fall before liquidation. Your real safety margin - the most decision-useful number here." />
                         </span>
                         <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
@@ -3251,41 +3377,10 @@ export function AppDemo() {
                         </span>
                       </div>
 
-                      {/* Dimension 5: Collateral Value */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="text-2xs font-sans text-text-muted">5. Collateral value</span>
-                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
-                          {selectedRiskBreakdownPreset.defaultCollateral} {selectedRiskBreakdownPreset.collateralAsset} ({formatCurrency(selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)})
-                        </span>
-                      </div>
-
-                      {/* Dimension 6: Borrowed Amount */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="text-2xs font-sans text-text-muted">6. Borrowed amount</span>
-                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
-                          {selectedRiskBreakdownPreset.defaultBorrow} {selectedRiskBreakdownPreset.debtAsset}
-                        </span>
-                      </div>
-
-                      {/* Dimension 7: Pool Utilization */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md col-span-2 flex justify-between items-center text-xs font-sans">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          7. Pool borrow utilization
-                          <InfoTip text="Share of the pool's supplied funds currently borrowed. Very high utilization can delay withdrawals and spike rates." />
-                        </span>
-                        {/* Neutral. Utilization is not a risk band, and painting
-                            it risk-low put a green figure beside the health
-                            factor's genuine band two rows up — two greens in one
-                            panel, only one of them meaning "safe". */}
-                        <span className="text-xs font-sans font-bold text-text-primary tabular-nums">
-                          {72 + (selectedRiskBreakdownPreset.baseRisk % 12)}% (optimal range)
-                        </span>
-                      </div>
-
-                      {/* Dimension 8: Supply APY with 30d trend (DefiLlama) */}
+                      {/* Supply APY with 30d trend (DefiLlama) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          8. Supply APY (30d)
+                          Supply APY (30d)
                           <InfoTip text="What suppliers earn in this pool right now, with the last 30 days' trend." />
                         </span>
                         {breakdownData?.poolYield ? (
@@ -3306,10 +3401,10 @@ export function AppDemo() {
                         )}
                       </div>
 
-                      {/* Dimension 9: Pool TVL with 30d trend (DefiLlama) */}
+                      {/* Pool TVL with 30d trend (DefiLlama) */}
                       <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
                         <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          9. Pool TVL (30d)
+                          Pool TVL (30d)
                           <InfoTip text="Total value locked in this pool. Falling TVL can signal capital flight." />
                         </span>
                         {breakdownData?.poolYield ? (
@@ -3326,6 +3421,61 @@ export function AppDemo() {
                     </div>
                   </div>
 
+                  {/* The example position, said in words. Every figure below is
+                      read from this market's entry in `VAULT_PRESETS`: it is the
+                      sample trade the preview is scored against, and the reader
+                      does not hold it. Kept rather than deleted because the four
+                      numbers are what make the score above legible - a risk
+                      figure with no position attached to it explains nothing -
+                      but kept UNDER a heading that says what they are. */}
+                  <div className="space-y-3">
+                    <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+                      Example position this preview is scored on
+                      <InfoTip text="PANIK previews each market against a sample position of a fixed size. These are that sample's figures, not a position you hold. Open the simulator to score your own numbers." />
+                    </span>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+                          Loan to value
+                          <InfoTip text="Debt as a share of collateral value. Closer to the protocol's max means a smaller cushion." />
+                        </span>
+                        <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
+                          {Math.round((selectedRiskBreakdownPreset.defaultBorrow / (selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)) * 100)}%
+                        </span>
+                      </div>
+
+                      {/* Liquidation price sits with the example, not with the
+                          live readings: the drawdown is the engine's, but it is
+                          applied to the example's anchor price, so the dollar
+                          figure that lands on screen is only as real as the
+                          sample it is multiplied against. */}
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
+                          Liquidation price
+                          <InfoTip text="The collateral price at which the example position becomes liquidatable." />
+                        </span>
+                        <span className="text-sm font-sans font-bold text-text-primary mt-1 tabular-nums">
+                          {breakdownData?.liqPrice != null ? formatCurrency(breakdownData.liqPrice) : "-"}
+                        </span>
+                      </div>
+
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="text-2xs font-sans text-text-muted">Collateral value</span>
+                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
+                          {selectedRiskBreakdownPreset.defaultCollateral} {selectedRiskBreakdownPreset.collateralAsset} ({formatCurrency(selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)})
+                        </span>
+                      </div>
+
+                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
+                        <span className="text-2xs font-sans text-text-muted">Borrowed amount</span>
+                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
+                          {selectedRiskBreakdownPreset.defaultBorrow} {selectedRiskBreakdownPreset.debtAsset}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Dimension 8, 9, 10: Risk Signals */}
                   <div className="space-y-3.5">
                     <span className="block text-2xs font-sans text-text-muted">
@@ -3333,9 +3483,9 @@ export function AppDemo() {
                     </span>
 
                     <div className="space-y-2 text-xs font-sans">
-                      {/* Dimension 10: Protocol Signals */}
+                      {/* Protocol signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">10. Protocol security signal</span>
+                        <span className="block text-2xs text-text-muted mb-1 font-bold">Protocol security signal</span>
                         <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.protocol === "Aave V3" && "Aave V3 safety module is funded and active. Dynamic interest-rate curves and isolation mode in place. Governance secured by multi-sig and timelock."}
                           {selectedRiskBreakdownPreset.protocol === "Moonwell" && "Moonwell markets run on Base with a 48-hour governance timelock on system parameters. Collateral factors monitored continuously."}
@@ -3344,17 +3494,19 @@ export function AppDemo() {
                         </p>
                       </div>
 
-                      {/* Dimension 11: Pool Signals */}
-                      <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">11. Pool liquidity signal</span>
-                        <p className="text-text-secondary">
-                          Primary pool depth exceeds $82,000,000 in active vault lines. Slippage parameters on decentralized exchanges index &lt; 0.15% depth buffer. No oracle drift.
-                        </p>
-                      </div>
+                      {/* The "Pool liquidity signal" that stood here is deleted.
+                          It was one hardcoded sentence, identical for every
+                          preset, protocol and market: $82,000,000 of depth,
+                          a 0.15% depth buffer, and "No oracle drift" - a live
+                          safety claim about an oracle nothing in this codebase
+                          checks. Pool TVL above is the real depth reading and it
+                          comes from DefiLlama. ("vault lines", the phrase this
+                          sentence used, is the same non-referring jargon
+                          DESIGN_SYSTEM records deleting once already.) */}
 
-                      {/* Dimension 12: Position Signals */}
+                      {/* Position signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">12. Position watch signal</span>
+                        <span className="block text-2xs text-text-muted mb-1 font-bold">Position watch signal</span>
                         <p className="text-text-secondary">
                           {selectedRiskBreakdownPreset.baseRisk < 20 
                             ? "Position health maintains normal volatility parameters. No automated hedges currently required."
