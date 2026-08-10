@@ -18,6 +18,7 @@ import {
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
   RISK_CHIP,
+  RISK_TEXT,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
@@ -142,6 +143,15 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
             const outlook = liquidationOutlook(p.healthFactor, p.scoredCollateralSymbol);
             const key = positionKey(p);
             const highlighted = key === highlightKey;
+            /**
+             * The Advisor rations its severity glyph to the legs it is telling you
+             * to act on (EXIT / REDUCE). This list has no action column, so the
+             * equivalent is the band the row already carries: anything above LOW
+             * is a position with something to decide about. No new threshold is
+             * invented here, and none is needed - the dial beside it is drawn from
+             * the same `p.band`.
+             */
+            const actionable = p.band !== "LOW";
             return (
               <li
                 key={key}
@@ -149,11 +159,12 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
                 tabIndex={-1}
                 /* Emphasis, not a risk statement. The alert feed points here,
                    so the row has to be findable the moment it scrolls into
-                   view — but a fifth risk hue on this page would break the
-                   "one colour per band, five coloured things" budget the
-                   Portfolio is held to. A stronger edge on the neutral border
-                   token says "this one" without saying anything about how
-                   dangerous it is. */
+                   view — but the risk ramp is spoken for on this screen, and a
+                   row painted because it was NAVIGATED to would be the ramp
+                   asserting something about danger that the score does not
+                   support. A stronger edge on the neutral border token says
+                   "this one" without saying anything about how dangerous it
+                   is. */
                 className={`flex items-start gap-3 rounded-md border p-4 transition-colors ${
                   highlighted
                     ? "border-border-strong bg-white/[0.05]"
@@ -175,6 +186,34 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
                     <span className="truncate text-xs font-sans text-text-secondary">
                       {p.scoredCollateralSymbol}
                     </span>
+                    {/* Severity, on the line that identifies the position, and
+                        the same element the Advisor puts there so the two
+                        surfaces read as one system: same Lucide triangle, same
+                        14px, same hue source. This is the ramp doing the job it
+                        exists for - a band is a measurement - and it is not the
+                        ramp making a claim about an action or a number.
+
+                        Hue from `RISK_TEXT`, the band table beside `RISK_CHIP`.
+                        Never a local band -> colour map: a second copy of that
+                        table is how scores 50-74 once rendered in critical red.
+
+                        `aria-hidden`, because `RiskDial` on the rail already
+                        announces "PANIK risk score 75 of 100, CRITICAL". Colour
+                        is not the only carrier either: the dial's numeral, the
+                        drop-to-liquidation sentence and the limit clause all say
+                        it in text.
+
+                        A row can carry this AND a `risk-unknown` marker on line
+                        2, and both stay. They answer different questions - how
+                        exposed this position is, versus which inputs we could
+                        not read - they sit on different lines, and the grey one
+                        is deliberately not a band. */}
+                    {actionable && (
+                      <AlertTriangle
+                        className={`h-3.5 w-3.5 shrink-0 self-center ${RISK_TEXT[p.band]}`}
+                        aria-hidden="true"
+                      />
+                    )}
                     {showWallet && (
                       <span className="ml-auto shrink-0 text-xs font-mono text-text-muted">
                         {p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}
@@ -249,8 +288,10 @@ export function LivePositions({ positions, offline, onStressTest, highlightKey }
                       `RISK_CHIP.UNKNOWN`: unfilled, dashed edge, icon and
                       words, so "not measured" survives greyscale and is
                       distinguishable from a healthy row on four axes. The grey
-                      is `risk-unknown`, which is not a band, so this row still
-                      spends exactly one risk hue (its dial).
+                      is `risk-unknown`, which is NOT a band, so this marker
+                      spends none of the row's risk-hue budget and must never
+                      take a band colour: "we could not measure this" is not a
+                      severity.
 
                       `text-xs`, one step under the money line it sits below:
                       this is a caveat about the score on the rail, not the
