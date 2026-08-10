@@ -6,7 +6,7 @@
  */
 
 import type { ActiveScore } from "../adapters/active";
-import { MARKETS } from "../markets";
+import { MARKETS, marketParams } from "../markets";
 import { ALERT_POLICY, CRASH_REGIME, LIQUIDATION_PROXIMITY_FLOORS, PROTO_FLOOR } from "../params";
 import { statusFor } from "../profile";
 import { scoreProtocolSafety } from "../subscores/protocolSafety";
@@ -134,9 +134,8 @@ export function safestAlternativeProtocol(
   current: Protocol,
   collateralSymbol: string,
 ): Protocol | null {
-  const symbol = collateralSymbol.replace(" (proxy)", "");
   const candidates = (Object.keys(MARKETS) as Protocol[]).filter(
-    (p) => p !== current && MARKETS[p][symbol] !== undefined,
+    (p) => p !== current && marketParams(p, collateralSymbol) !== null,
   );
   candidates.sort((a, b) => scoreProtocolSafety(a) - scoreProtocolSafety(b));
   return candidates[0] ?? null;
