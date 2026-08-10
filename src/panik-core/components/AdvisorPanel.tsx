@@ -31,9 +31,10 @@
  *
  * The SEVERITY does spend one, on purpose. An EXIT leg is a critical position
  * and a dial alone was not saying so loudly enough, so those two card types
- * carry a `RiskChip` on their identity line. That is the ramp measuring a
- * position, which is what it is for, and it is the opposite of painting a verb.
- * It is rationed to them: a WATCH or HOLD leg has no urgency to signal.
+ * carry a warning glyph in their band's hue on the identity line. That is the
+ * ramp measuring a position, which is what it is for, and it is the opposite of
+ * painting a verb. It is rationed to them: a WATCH or HOLD leg has no urgency to
+ * signal.
  *
  * The ways out are a LEAD plus footnotes, never a comparison. Two columns of
  * prose, one of them describing a route the app cannot sign, is the shape that
@@ -59,7 +60,6 @@ import { InfoTip } from "./InfoTip";
 import {
   ADVISOR_ACTION,
   AI_PROSE_NOTE,
-  BAND_LABEL,
   formatUsd,
   liquidationOutlook,
   MARKET_CONTEXT_MISSING_HINT,
@@ -70,7 +70,7 @@ import {
   USD_UNAVAILABLE_HINT,
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
-import { Button, Card, EmptyState, RiskChip, RiskDial } from "../ui";
+import { Button, Card, EmptyState, RiskDial } from "../ui";
 import { EXIT_ENV } from "../lib/exit";
 /**
  * The engine's dollar formatter, not the panel's `formatUsd`.
@@ -136,7 +136,7 @@ const GAS_CAVEAT =
  * card quietly offering a dead button. It disappears on its own the moment
  * `DELEVERAGE_EXECUTABLE_PROTOCOLS` names a chain.
  */
-const DELEVERAGE_NOT_LIVE = "This route is not available to sign yet.";
+const DELEVERAGE_NOT_LIVE = "Not ready to sign yet.";
 
 function ActionButton({
   rec,
@@ -152,13 +152,17 @@ function ActionButton({
     const label = rec.action === "EXIT" ? "Execute exit" : "Reduce position";
     const disabledHint = "Transaction flow ships with the Atomic Exit integration";
     return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      // A fragment, not a wrapper: the card's action row is the one flex-wrap
+      // context, so the primary, the alternative and `Details` wrap as three
+      // independent items instead of the buttons wrapping inside a box that
+      // then wraps as a whole.
+      <>
         {/* The `Button` primitive, which by design does not accept a risk band:
             these were a red fill and an orange fill, so the loudest element on
             the card was the control rather than the reading it acts on. The size
-            step is what replaces that loudness legitimately - a 14px label on a
-            near-white plate at 18.1:1, alone on the card's last row, against a
-            12px `Details` beneath it. */}
+            step is what replaces that loudness legitimately: a 14px label on a
+            near-white plate at 18.1:1, opening the row, against a 12px `Details`
+            in plain text at the other end of it. */}
         <Button
           size="lg"
           onClick={onExit ? () => onExit(prefill) : undefined}
@@ -186,7 +190,7 @@ function ActionButton({
             Repay everything instead
           </Button>
         ) : null}
-      </div>
+      </>
     );
   }
   if (rec.action === "OPEN" && rec.openPlan) {
@@ -205,53 +209,70 @@ function ActionButton({
  * The three sections that are not the recommendation, behind one disclosure,
  * plus whatever caveat the card owes a reader who is about to act.
  *
- * A native `<details>`: it is focusable, it is announced as expandable, it
- * works with no JavaScript and it costs no dependency. `list-none` plus the
- * webkit marker reset removes the browser's own triangle, so the chevron is
- * the only marker and it is the one that rotates.
- *
  * Labelled `Details`, not `Why this`. It holds the position, the market, the
  * execution notes and the gas caveat, and "why this" claimed only the first of
  * those while reading as a question the card had failed to answer above.
+ *
+ * The WAI-ARIA disclosure pattern rather than a native `<details>`, and the
+ * trade is deliberate. `Details` belongs on the action row, to the right of the
+ * button, and a `<details>` element cannot put its trigger in a flex row while
+ * its body opens full width underneath: summary and body are siblings INSIDE the
+ * element, so the body inherits whatever narrow track the trigger got. That is
+ * the exact geometry that clipped every line of reasoning at 390 and 768 two
+ * passes ago. The alternatives were `display: contents`, whose behaviour on
+ * `<details>` is not something to bet a money screen on, or leaving the trigger
+ * on its own line against an explicit review note.
+ *
+ * Nothing accessible is lost: a real `<button>` with `aria-expanded` and
+ * `aria-controls` is announced as expandable and toggles on Enter and Space
+ * exactly as a summary does, and the one global `:focus-visible` rule still
+ * draws its ring. The body is always in the DOM and toggled with the `hidden`
+ * attribute, so `aria-controls` always resolves to something.
+ *
+ * Returns a FRAGMENT, so the trigger and the body are both direct children of
+ * the card's flex row: the trigger sits beside the button and the body carries
+ * `w-full`, which makes it wrap to its own full-width line.
  */
 function Reasoning({ rec, notes = [] }: { rec: AdvisorRecommendation; notes?: string[] }) {
+  const [open, setOpen] = React.useState(false);
+  const bodyId = React.useId();
   const rows: [string, string][] = [
     ["Position", rec.sections.position],
     ["Market", rec.sections.market],
     ["Execution", rec.sections.execution],
   ];
-  const body = (
-    <div className="space-y-2.5">
-      {rows.map(([label, text]) => (
-        <div key={label} className="flex flex-col sm:flex-row sm:gap-4">
-          <span className="w-28 shrink-0 pt-0.5 text-xs font-sans text-text-muted">{label}</span>
-          <p className="flex-1 text-sm font-sans leading-relaxed text-text-secondary">{text}</p>
-        </div>
-      ))}
-    </div>
-  );
   return (
-    <details className="group min-w-0">
-      {/* `inline-flex`, so the hit area is the width of the words rather than
-          the width of the card: this is the quiet half of the last row and a
-          full-bleed target reads as a second control. `min-h-6` keeps it at the
-          24px floor for a tap target (WCAG 2.5.8) at 12px type. */}
-      <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 text-xs font-sans font-semibold text-text-secondary hover:text-text-primary [&::-webkit-details-marker]:hidden">
+    <>
+      {/* `min-h-6` keeps a 12px label at the 24px tap-target floor (WCAG 2.5.8),
+          and the hit area is the width of the words: this is the quiet half of
+          the row and a full-bleed target would read as a second control. */}
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex min-h-6 shrink-0 cursor-pointer items-center gap-1 text-xs font-sans font-semibold text-text-secondary transition-colors hover:text-text-primary"
+      >
         <ChevronRight
-          className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90"
+          className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
           aria-hidden="true"
         />
         Details
-      </summary>
-      <div className="mt-3 space-y-2.5">
-        {body}
+      </button>
+      <div id={bodyId} hidden={!open} className="w-full space-y-2.5">
+        {rows.map(([label, text]) => (
+          <div key={label} className="flex flex-col sm:flex-row sm:gap-4">
+            <span className="w-28 shrink-0 pt-0.5 text-xs font-sans text-text-muted">{label}</span>
+            <p className="flex-1 text-sm font-sans leading-relaxed text-text-secondary">{text}</p>
+          </div>
+        ))}
         {notes.map((note) => (
           <p key={note} className="text-xs font-sans tabular-nums text-text-muted">
             {note}
           </p>
         ))}
       </div>
-    </details>
+    </>
   );
 }
 
@@ -453,17 +474,19 @@ function routesFor(rec: AdvisorRecommendation): Routes {
     const outlook = liquidationOutlook(collateralFunded.projectedHf, symbol);
     alternates.push({
       key: "collateral_funded",
-      // The repay is the figure the engine sized; the collateral sold is that
-      // plus the fees, which is why the line names the repay and says the
-      // collateral funds it rather than quoting a sale amount nothing computed.
+      // Thirty words for an option nobody can take, cut to seventeen. What
+      // survives is what distinguishes it: where the money comes from, that the
+      // wallet needs nothing, and that it cannot be signed. The DOLLAR FIGURE
+      // went with the rest. It is not why this line exists, it is a second
+      // amount sitting beside the recommended one where the two are deliberately
+      // different, and it is one click away in `Details` for anyone who wants
+      // to size the route rather than learn that it is there.
       line:
-        `Or fund it from your collateral: repays ${fmtUsd(collateralFunded.repayUsd)}` +
-        `${collateralFunded.repayAssetSymbol ? ` of ${collateralFunded.repayAssetSymbol}` : ""}` +
-        ` by selling part of your ${symbol}, with nothing needed in your wallet` +
         // A second sentence rather than a clause when the protections differ:
         // `outlook.sentence` opens with a capital and carries an asset symbol,
-        // so it cannot be lowercased into the middle of one.
-        `${sameProtection ? ", for the same protection." : `. ${outlook.sentence}.`}` +
+        // so it cannot be folded into the middle of one.
+        `${sameProtection ? "The same protection, funded" : "Funded"} from your collateral` +
+        ` with nothing in your wallet.${sameProtection ? "" : ` ${outlook.sentence}.`}` +
         // The honesty gate, on the same line as the offer rather than under it.
         // The contract that performs this is not deployed on any chain the app
         // talks to, so the card explains the option and says plainly that it
@@ -471,26 +494,34 @@ function routesFor(rec: AdvisorRecommendation): Routes {
         // for something the code cannot do is the exact failure "never state a
         // fact the code does not know" exists to stop.
         (isDeleverageExecutable(rec.protocol) ? "" : ` ${DELEVERAGE_NOT_LIVE}`),
-      // The three costs this route pays and the wallet-funded one does not.
-      // Kept, because they are money the user would spend, and moved into
-      // `Details` because they describe a route the card is not recommending.
-      // Gas is units: a dollar figure needs a live gas price and an ETH price
-      // the app does not hold here.
-      costs: costs
-        ? `Funding the repay from your collateral costs ${fmtBps(costs.flashFeeBps)} to borrow` +
-          ` the funds, up to ${fmtBps(costs.slippageBps)} of the sale price, and about` +
-          ` ${fmtGasUnits(costs.gasUnits)} gas.`
-        : undefined,
+      // What the route costs AND what it is sized at, both in `Details`. The
+      // repay is the figure the engine sized; the collateral sold is that plus
+      // the fees, which is why this names the repay and says the collateral
+      // funds it rather than quoting a sale amount nothing computed. Gas is
+      // units: a dollar figure needs a live gas price and an ETH price the app
+      // does not hold here.
+      costs:
+        `Funding the repay from your collateral repays ${fmtUsd(collateralFunded.repayUsd)}` +
+        `${collateralFunded.repayAssetSymbol ? ` of ${collateralFunded.repayAssetSymbol}` : ""}` +
+        ` by selling part of your ${symbol}.` +
+        (costs
+          ? ` It costs ${fmtBps(costs.flashFeeBps)} to borrow the funds, up to` +
+            ` ${fmtBps(costs.slippageBps)} of the sale price, and about` +
+            ` ${fmtGasUnits(costs.gasUnits)} gas.`
+          : ""),
     });
   }
 
-  // Executable, and it has its own `quiet` button below, so one line describing
-  // it is the same weight the control it belongs to already carries.
+  // Executable, and it has its own `quiet` button on the row below, so one short
+  // line is the same weight the control it belongs to already carries. The
+  // button says the verb, so this says only what the button cannot: where the
+  // money comes from and what survives. The amount is gone for the same reason
+  // it is gone from the EXIT lead - a full repay IS the strip's `Debt`, which is
+  // `Math.round(borrowUsd)` in the engine and sits four lines above.
   if (rec.alternative) {
-    const plan = rec.alternative.plan;
     alternates.push({
       key: "full_repay",
-      line: `Or repay everything instead: ${fmtUsd(plan.repayUsd)}${plan.repayAssetSymbol ? ` of ${plan.repayAssetSymbol}` : ""} from your wallet, nothing sold, and your collateral stays deposited.`,
+      line: "Repaying everything instead comes from your wallet, and keeps your collateral deposited.",
     });
   }
 
@@ -578,18 +609,33 @@ function RecommendationCard({
                 measurement, whereas painting `Execute exit` red would be the
                 ramp making a claim about an ACTION.
 
-                It is deliberately not fused to the button and not on the rail.
-                On the identity line it reads as "this Aave V3 cbBTC position is
-                critical", and the row already wraps, so at 390 the chip drops to
-                its own line instead of squeezing the prose column.
+                A GLYPH, not a chip. "Critical risk" in a tinted pill was the
+                word for a thing the dial two inches away already states as a
+                number and an arc, so it was a second reading of one measurement
+                carrying a fill and a border of its own. The triangle says the
+                same thing in one element and no words.
+
+                Hue from `RISK_TEXT`, which is the band table beside `RISK_CHIP`,
+                so CRITICAL is red and a HIGH or ELEVATED leg takes its own step
+                down the ramp. Never a literal.
+
+                `aria-hidden`, because the band is already announced: the
+                `RiskDial` beside it carries "PANIK risk score 75 of 100" in its
+                own label, and a second announcement of one fact is noise in a
+                screen reader for exactly the reason the chip was noise on
+                screen. Colour is not the only carrier either - the dial's
+                numeral, the drop-to-liquidation figure and the button's own verb
+                all say it in text.
 
                 Rationed to the legs with something worth doing about them. A
-                WATCH or a HOLD leg gets no chip: its dial already says the
+                WATCH or a HOLD leg gets nothing: its dial already says the
                 score, and a card whose advice is "nothing today" has no urgency
-                to signal. That is +2 hued elements on this screen, 5 to 7,
-                spent on the two cards where severity is the point. */}
+                to signal. */}
             {urgent ? (
-              <RiskChip band={rec.numbers.band}>{BAND_LABEL[rec.numbers.band]}</RiskChip>
+              <AlertTriangle
+                className={`h-3.5 w-3.5 shrink-0 self-center ${RISK_TEXT[rec.numbers.band]}`}
+                aria-hidden="true"
+              />
             ) : null}
           </div>
 
@@ -623,17 +669,18 @@ function RecommendationCard({
           costs and leaves, here are the buttons. */}
       <Outcomes routes={routes} />
 
-      {/* The action owns the card's last row, alone, and `Details` sits under it
-          at 12px. They used to share a row, which made a 12px disclosure trigger
-          and the one control on the card read as a pair of equal footer links.
-          The action is the point of the card; the reasoning is available.
+      {/* One row: the action, then `Details` as the secondary affordance beside
+          it. They are not two calls to action - a 42px filled plate against 12px
+          plain text is the whole hierarchy, and it is the same hierarchy whether
+          the row holds one button or three items.
 
-          Stacking them also retires the clipping arithmetic this row used to
-          need. Side by side, the action block was `shrink-0` at about 270px, so
-          at a 768px window (sidebar 256, column ~464) the disclosure got ~172px
-          against a 204px min-content and every line of reasoning inside it was
-          clipped. Full-width children cannot reproduce that at any width. */}
-      <div className="space-y-3 border-t border-border-subtle pt-4">
+          The clipping this row used to cause is structural now rather than
+          arithmetic. `Reasoning` returns a fragment whose body carries `w-full`,
+          so the body is a flex item that cannot share a line: it wraps to its
+          own full-width row under the controls at every width, which is the one
+          geometry a native `<details>` could not give (see `Reasoning`). No
+          child of this row is ever narrower than the card. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-border-subtle pt-4">
         {hasAction ? <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} /> : null}
         {/* The costs of a route the card demoted, and then the caveat that
             applies to whichever one is signed. Both are money facts about a
@@ -697,16 +744,14 @@ function OpportunityCard({
         {plan.apy !== null ? `, ${(plan.apy * 100).toFixed(1)}% APY` : ""}
       </p>
 
-      {/* Stacked, action first, the same shape as the position cards. These sit
-          three across from `xl`, so the card itself is ~380px and a button beside
-          the disclosure left it ~170px: the reasoning rows are a 112px label
-          plus a paragraph, which is ~42px of prose and clipped at every window
-          size. Breakpoints measure the window and this column does not, so the
-          fix is the layout rather than a smaller type step. */}
-      <div className="mt-auto flex flex-col gap-3 border-t border-border-subtle pt-3">
-        <div>
-          <ActionButton rec={rec} onOpen={onOpen} />
-        </div>
+      {/* The same action row as the position cards: control, then `Details`.
+          These sit three across from `xl`, so the card is only ~380px and the
+          old side-by-side layout left the disclosure ~170px against reasoning
+          rows that are a 112px label plus a paragraph. That is why the body is a
+          `w-full` flex item now rather than a column beside the button: it
+          cannot be given a narrow track, at 380px or at any other width. */}
+      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-border-subtle pt-3">
+        <ActionButton rec={rec} onOpen={onOpen} />
         <Reasoning rec={rec} />
       </div>
     </Card>
