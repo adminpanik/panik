@@ -20,6 +20,8 @@ import {
   PROTOCOL_LABEL,
   RISK_CHIP,
   RISK_TEXT,
+  USD_UNAVAILABLE_HINT,
+  USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, Skeleton } from "../ui";
 
@@ -295,11 +297,11 @@ export function LivePositions({
                   {p.usdValuesUnavailable ? (
                     <div className="flex">
                       <span
-                        title="A price feed this position's USD conversion depends on was missing or stale. The PANIK score and health factor are unaffected - they are ratios - so only the dollar amounts are unknown."
+                        title={USD_UNAVAILABLE_HINT}
                         className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
                       >
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                        USD amounts unavailable
+                        {USD_UNAVAILABLE_LABEL}
                       </span>
                     </div>
                   ) : (

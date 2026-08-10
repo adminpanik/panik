@@ -221,10 +221,6 @@ export function marketContextMissing(sub: {
  * indistinguishable from a clipped string, so the honest statement got read as a
  * broken layout. A sentence cannot be misread that way, and no branch of it can
  * emit "$0".
- *
- * `components/LivePositions.tsx` states the same two things with its own copy of
- * these strings; pointing it here is a mechanical follow-up outside this change's
- * file scope.
  */
 export const USD_UNAVAILABLE_LABEL = "USD amounts unavailable";
 export const USD_UNAVAILABLE_HINT =
