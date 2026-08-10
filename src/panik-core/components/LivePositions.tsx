@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useRef } from "react";
-import { AlertTriangle, Eye } from "lucide-react";
+import { AlertTriangle, ArrowRight, Eye } from "lucide-react";
 import type { LiveWalletPosition, ScoringChainInfo } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
@@ -24,6 +24,8 @@ import {
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial, SimulationChip, Skeleton } from "../ui";
+import { exitControlState, useChainMode } from "../lib/chainMode";
+import type { ExitPrefill } from "./ExitFlow";
 
 /**
  * The row identity the alert feed navigates to. Same shape as the React key, and
@@ -72,6 +74,21 @@ interface LivePositionsProps {
   /** Optional: open this real position in the Watch simulator (stress-test bridge). */
   onStressTest?: (position: LiveWalletPosition) => void;
   /**
+   * The action the ENGINE recommends for a protocol, keyed by protocol id, or
+   * an absent key for "nothing to do here".
+   *
+   * Passed in rather than derived, and that is the whole point of the shape.
+   * This list knows a band and a health factor; it does not know whether the
+   * answer is to close the position or to repay part of it, and it cannot size
+   * a repay. The Advisor does, so the row offers the Advisor's own
+   * recommendation and its own prefill. A button here that assumed "critical
+   * means full exit" would be this component inventing advice, and it would
+   * disagree with the Advisor tab the moment the engine sized a REDUCE instead.
+   */
+  exitActions?: Record<string, { label: string; prefill: ExitPrefill } | undefined>;
+  /** Runs the action above. Absent disables the control rather than hiding it. */
+  onExit?: (prefill: ExitPrefill) => void;
+  /**
    * `positionKey` of the row an alert just pointed at, or null for none. The row
    * scrolls into view, takes focus and holds a neutral emphasis until the caller
    * clears it.
@@ -84,8 +101,14 @@ export function LivePositions({
   offline,
   chain = null,
   onStressTest,
+  exitActions,
+  onExit,
   highlightKey,
 }: LivePositionsProps) {
+  // Shared with the Advisor card, so the same control cannot be live on one
+  // surface and dead on the other. Disabled with the reason on hover, not
+  // hidden — a control that vanishes teaches nothing about why.
+  const { enabled: exitEnabled, hint: exitDisabledHint } = exitControlState(onExit, useChainMode());
   const provenance = chainProvenance(chain);
   /**
    * One ref, attached to the highlighted row only. Refs are set during commit,
@@ -196,6 +219,7 @@ export function LivePositions({
              * the same `p.band`.
              */
             const actionable = p.band !== "LOW";
+            const action = exitActions?.[p.protocol];
             return (
               <li
                 key={key}
@@ -391,6 +415,39 @@ export function LivePositions({
                     </span>
                     , {status}
                   </p>
+
+                  {/* Line 4 — the way out, on the rows that have one.
+
+                      Only where the ENGINE named an action for this protocol, so
+                      a row never offers a door the Advisor is not also pointing
+                      at, and the label is the Advisor's ("Execute exit" /
+                      "Reduce position") rather than a second vocabulary for the
+                      same two outcomes.
+
+                      The SAME treatment as the Advisor's control - `lg` primary,
+                      14px label on the near-white plate - because it is the same
+                      action opening the same modal with the same prefill. It was
+                      briefly a quieter `outline` here on the theory that the
+                      dashboard should not compete with the Advisor for the one
+                      obvious next step; that traded a real cost for a
+                      hypothetical one. Two visual weights for one action teaches
+                      a user that they are two different things, and the moment
+                      they look different someone has to work out which is the
+                      real one. `Button` accepts no risk band either way, so
+                      matching the Advisor costs nothing from the risk ramp. */}
+                  {action && (
+                    <div className="mt-2">
+                      <Button
+                        size="lg"
+                        onClick={exitEnabled ? () => onExit?.(action.prefill) : undefined}
+                        disabled={!exitEnabled}
+                        title={exitEnabled ? undefined : exitDisabledHint}
+                      >
+                        {action.label}
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Right rail — the score and the one thing you can do about

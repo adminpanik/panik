@@ -157,3 +157,31 @@ function subscribe(listener: () => void): () => void {
 export function useChainMode(): ChainMode {
   return useSyncExternalStore(subscribe, getChainMode, defaultChainMode);
 }
+
+/**
+ * Whether an exit control may be pressed, and what to say on hover when it may
+ * not.
+ *
+ * The composition, not just the primitives. `exitsExecutableOn` and
+ * `exitAvailabilityLine` were already exported, so the two surfaces that offer
+ * an exit — the Advisor card and the Portfolio row — each wrote the same three
+ * lines around them, down to the same fallback sentence. That is one policy
+ * decision ("is this control live, and why not") stored in two places, and the
+ * product presents both as the same control: a third state, or a reworded hint,
+ * would have made the same button disagree with itself across two tabs.
+ *
+ * `handler` is the surface's own `onExit` prop. Absent means the flow is not
+ * wired in on that surface at all, which is a different reason from the chain
+ * being unable to execute, and the hint has to name the right one.
+ */
+export function exitControlState(
+  handler: unknown,
+  mode: ChainMode,
+): { enabled: boolean; hint: string | undefined } {
+  const executable = exitsExecutableOn(mode);
+  if (!executable) return { enabled: false, hint: exitAvailabilityLine(mode) };
+  if (!handler) {
+    return { enabled: false, hint: "Transaction flow ships with the Atomic Exit integration" };
+  }
+  return { enabled: true, hint: undefined };
+}
