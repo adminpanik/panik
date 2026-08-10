@@ -66,6 +66,22 @@ export const SIMULATION_DEFAULT_MINUTES = 60;
 export const SIMULATION_MAX_MINUTES = 240;
 
 /**
+ * How long a cached scenario is trusted before the store is asked again.
+ *
+ * Here rather than beside the cache that reads it (server/simulationStore.ts),
+ * because two things need this number and only one of them is the server. The
+ * admin console has to tell an operator how long arming or stopping takes to
+ * reach everyone, and the honest answer IS this TTL — the refresh on a stale
+ * read is fire-and-forget, so the first poll after a change still returns the
+ * previous state. It lived next to `SimulationCache`, which holds the Supabase
+ * service key, so the client could not import it and hardcoded `10` twice with
+ * a comment asking the next person to keep them in sync by hand. The constant
+ * itself is a bare number and depends on nothing; the module it sat in was the
+ * only reason it looked un-importable.
+ */
+export const SIMULATION_CACHE_TTL_MS = 10_000;
+
+/**
  * A price multiplier this module will act on. Anything else is refused rather
  * than coerced: 0 would report every position as instantly liquidatable and a
  * negative or non-finite value is not a price at all. An out-of-range entry

@@ -21,10 +21,15 @@
 import {
   activeSimulation,
   isUsableMultiplier,
+  SIMULATION_CACHE_TTL_MS,
   SIMULATION_MAX_MINUTES,
   SIMULATION_MIN_MINUTES,
   type MarketSimulation,
 } from "../packages/scoring/src/simulation";
+
+// Re-exported so callers that reached for it here still resolve; the definition
+// lives in packages/scoring so the admin console can import it too.
+export { SIMULATION_CACHE_TTL_MS };
 
 /**
  * PostgREST error bodies quote the failing SQL and, on an auth failure, the
@@ -226,9 +231,6 @@ export class SimulationStore {
     }
   }
 }
-
-/** How long a cached scenario is trusted before the store is asked again. */
-export const SIMULATION_CACHE_TTL_MS = 10_000;
 
 /**
  * The read path for the scoring processes: a tiny TTL cache in front of the
