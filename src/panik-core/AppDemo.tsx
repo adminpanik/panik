@@ -2534,9 +2534,8 @@ export function AppDemo() {
                 )}
 
                 {/* Still reading the chain. A reserved block, not a figure:
-                    the four cards used to print $18,450 / $9,310 / 50% / 22
-                    from string literals whenever `liveMacro` was null, which is
-                    exactly the window in which the code knows nothing at all. */}
+                    while `liveMacro` is null the code knows nothing at all, so
+                    there is no number these four cards may stand in with. */}
                 {portfolioPositions === null && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
                     {["capital", "liabilities", "protocols", "aggregate"].map((slot) => (
@@ -2566,9 +2565,9 @@ export function AppDemo() {
                     positions to summarise, so every figure below comes from
                     `liveMacro` and there is no literal for it to fall back to.
                     An empty wallet gets the EmptyState above and no cards at
-                    all; it used to get this row, which meant "No positions yet"
-                    sat directly on top of a dashboard claiming $18,450 of
-                    monitored capital. */}
+                    all, because "No positions yet" directly above a dashboard
+                    stating a monitored total is the screen contradicting
+                    itself. */}
                 {liveMacro && (() => {
                   const aggregate = liveMacro.aggregate;
                   // Legs the engine could not price contribute nothing to the
@@ -3481,15 +3480,10 @@ export function AppDemo() {
                         </p>
                       </div>
 
-                      {/* The "Pool liquidity signal" that stood here is deleted.
-                          It was one hardcoded sentence, identical for every
-                          preset, protocol and market: $82,000,000 of depth,
-                          a 0.15% depth buffer, and "No oracle drift" - a live
-                          safety claim about an oracle nothing in this codebase
-                          checks. Pool TVL above is the real depth reading and it
-                          comes from DefiLlama. ("vault lines", the phrase this
-                          sentence used, is the same non-referring jargon
-                          DESIGN_SYSTEM records deleting once already.) */}
+                      {/* No "pool liquidity signal" here: depth and oracle
+                          drift are live market facts nothing in this codebase
+                          reads, so this panel may not assert them. Pool TVL
+                          above is the real depth reading, from DefiLlama. */}
 
                       {/* Position signals */}
                       <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
