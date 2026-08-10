@@ -26,7 +26,7 @@ export default defineConfig(({mode}) => {
               req.url = '/app.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
             } else if (url === '/try') {
               req.url = '/try.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
-            } else if (url === '/admin-neithan') {
+            } else if (url === '/admin' || url === '/admin-neithan') {
               req.url = '/admin.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
             }
             next();
@@ -48,8 +48,11 @@ export default defineConfig(({mode}) => {
       // Local scoring API (npm run dev:api) — keys stay server-side; the
       // browser only sees score JSON. 127.0.0.1 (not localhost): Node 17+
       // resolves localhost to ::1 first on Windows → ECONNREFUSED.
+      // PANIK_API_TARGET overrides the port, so a second dev API can be run
+      // alongside the founder's without editing this file (and forgetting to
+      // put it back).
       proxy: {
-        '/api': 'http://127.0.0.1:8787',
+        '/api': process.env.PANIK_API_TARGET ?? 'http://127.0.0.1:8787',
       },
     },
     build: {
