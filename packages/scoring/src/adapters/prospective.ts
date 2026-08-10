@@ -5,7 +5,7 @@
  */
 
 import { computeScore } from "../computeScore";
-import { MARKETS, PROTOCOL_DEFILLAMA_SLUG } from "../markets";
+import { marketParams, PROTOCOL_DEFILLAMA_SLUG } from "../markets";
 import { estimateHealthFactor, liquidationDrawdown } from "../prospective";
 import type { AssetRiskProvider, SystemicRiskProvider } from "../providers/types";
 import type { Protocol, ScoreResult, ScoringInput } from "../types";
@@ -34,7 +34,7 @@ export async function scoreProspective(
   scenario: ProspectiveScenario,
   providers: ProspectiveProviders,
 ): Promise<ProspectiveScore> {
-  const market = MARKETS[scenario.protocol]?.[scenario.collateralSymbol];
+  const market = marketParams(scenario.protocol, scenario.collateralSymbol);
   if (!market) {
     throw new Error(
       `Unknown market: ${scenario.protocol} / ${scenario.collateralSymbol}`,
