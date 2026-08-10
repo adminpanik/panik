@@ -56,6 +56,7 @@ import {
   type WatchTransition,
 } from "../packages/scoring/src/index";
 import { buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
+import { SimulationCache, SimulationStore } from "../server/simulationStore";
 import { transactionPoolerUrl } from "../server/profileDeps";
 import { probeReachable, sendMessage } from "../server/telegram";
 import {
@@ -136,6 +137,26 @@ const providers = {
   systemic: new DefiLlamaProvider(),
 };
 
+/**
+ * The armed market simulation, read through a 10s TTL cache.
+ *
+ * The worker and the API are separate processes, so this row is the only thing
+ * that can tell them the same story: an operator arms a scenario against the
+ * API and the very next watch tick here scores under it, within one TTL. And
+ * because the cache re-judges expiry against the current clock on every read,
+ * a scenario dies on schedule even if this process has been unable to reach the
+ * database since it was armed. Unconfigured Supabase leaves it permanently
+ * null, which is exactly the previous behaviour.
+ */
+const simulations = (() => {
+  try {
+    return new SimulationCache(SimulationStore.fromEnv());
+  } catch {
+    console.warn("market simulation disabled: SUPABASE_URL / SUPABASE_SECRET_KEY missing");
+    return null;
+  }
+})();
+
 const scoringChain = buildScoringChain({
   mode: process.env.PANIK_SCORING_CHAIN,
   alchemyKey: alchemy.key,
@@ -143,6 +164,7 @@ const scoringChain = buildScoringChain({
   onReaderError: (err) =>
     console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
   onCompoundWarn: (m) => console.warn(`compound reader degraded: ${m}`),
+  simulation: () => simulations?.current() ?? null,
 });
 const adapter = scoringChain.adapter;
 console.log(
@@ -235,8 +257,8 @@ async function maybeSnapshot(s: ActiveScore): Promise<void> {
       `insert into public.score_snapshots
          (wallet, protocol, total, band, sub_scores, health_factor, current_ltv,
           collateral_usd, borrow_usd, collateral_symbol, asset_risk_is_proxy,
-          usd_values_unavailable)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          usd_values_unavailable, simulation_id, simulation_hf_multiplier)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         s.wallet.toLowerCase(),
         s.protocol,
@@ -250,6 +272,11 @@ async function maybeSnapshot(s: ActiveScore): Promise<void> {
         s.scoredCollateralSymbol,
         s.assetRiskIsProxy,
         s.usdValuesUnavailable,
+        // NULL = scored from real prices. Written here rather than derived
+        // later because the scenario can be cleared a minute after the snapshot
+        // and the row still has to say what produced it.
+        s.simulation?.id ?? null,
+        s.simulation?.healthFactorMultiplier ?? null,
       ],
     );
     lastSnapshotAt.set(k, Date.now());
@@ -262,9 +289,24 @@ async function persistTransition(t: WatchTransition): Promise<void> {
   try {
     await db.query(
       `insert into public.watch_transitions
-         (wallet, protocol, risk_profile, score, band, from_status, to_status)
-       values ($1,$2,$3,$4,$5,$6,$7)`,
-      [t.wallet.toLowerCase(), t.protocol, t.profile, t.score, t.band, t.from, t.to],
+         (wallet, protocol, risk_profile, score, band, from_status, to_status,
+          simulation_id, simulation_label)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        t.wallet.toLowerCase(),
+        t.protocol,
+        t.profile,
+        t.score,
+        t.band,
+        t.from,
+        t.to,
+        // The crossing is real; the price that caused it may not have been.
+        // The label is denormalised so the dispatcher can mark the alert
+        // without a join - an alert whose marker depends on a join is an alert
+        // that goes out unmarked the day the join fails.
+        t.simulation?.id ?? null,
+        t.simulation?.label ?? null,
+      ],
     );
   } catch (err) {
     console.error(`transition insert failed for ${t.wallet}:${t.protocol}: ${(err as Error).message.slice(0, 100)}`);
@@ -315,6 +357,16 @@ interface PendingRow {
   collateral_usd: string | null;
   borrow_usd: string | null;
   usd_values_unavailable: boolean | null;
+  /**
+   * Read from the TRANSITION, not from the latest snapshot, and that choice is
+   * the correctness of the marker. The snapshot join is "what does this
+   * position look like now"; these two columns are "what produced this
+   * crossing". A scenario cleared in the seconds between the crossing and the
+   * dispatch would, on the snapshot's evidence, send an unmarked alert about a
+   * price that had never moved.
+   */
+  simulation_id: string | null;
+  simulation_label: string | null;
 }
 
 async function stamp(id: string, channel: string): Promise<void> {
@@ -333,7 +385,7 @@ async function dispatchPending(): Promise<void> {
 
   const { rows } = await db.query<PendingRow>(
     `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band, t.to_status,
-            t.created_at, l.chat_id,
+            t.created_at, t.simulation_id, t.simulation_label, l.chat_id,
             s.health_factor, s.collateral_usd, s.borrow_usd, s.usd_values_unavailable
        from public.watch_transitions t
        join public.telegram_links l on l.wallet = t.wallet and l.enabled
@@ -383,11 +435,21 @@ async function dispatchPending(): Promise<void> {
         band: r.band,
         from: priorRow?.to_status ?? null,
         to: r.to_status,
+        // The stamp itself is not recoverable from a row (it carries
+        // multipliers and an expiry the table does not keep), so the marker
+        // travels as `extras.simulation`, which asks only for what WAS
+        // persisted. `formatAlert` refuses to build an unmarked body once
+        // either is set, which makes "a simulated alert says so" a property of
+        // the message builder rather than of this caller remembering.
+        simulation: null,
       },
       {
         healthFactor: r.health_factor == null ? null : Number(r.health_factor),
         collateralUsd: r.collateral_usd == null ? null : Number(r.collateral_usd),
         borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
+        simulation: r.simulation_id
+          ? { label: r.simulation_label ?? "Simulated market event" }
+          : null,
       },
     );
 

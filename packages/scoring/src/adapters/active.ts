@@ -8,6 +8,8 @@ import type { MarketContextAvailability } from "../chains";
 import { computeScoreFromAvailable } from "../computeScore";
 import { PROTOCOL_DEFILLAMA_SLUG, SYMBOL_TO_COINGECKO } from "../markets";
 import type { AssetRiskProvider, SystemicRiskProvider } from "../providers/types";
+import { applySimulationToReading } from "../simulation";
+import type { MarketSimulation, SimulationStamp } from "../simulation";
 import type {
   AssetRiskInput,
   DegradableSubScores,
@@ -79,6 +81,19 @@ export interface ActiveScore extends Omit<DegradedScoreResult, "subScores"> {
   dominantBorrowSymbol: string | null;
   /** True when collateral discovery failed and WETH was used as proxy. */
   assetRiskIsProxy: boolean;
+  /**
+   * Non-null when this leg was scored from SIMULATED prices — see
+   * `../simulation.ts`. Everything above it (total, band, healthFactor, the USD
+   * magnitudes) then follows from an imagined price by the normal path, which is
+   * the point: the simulation is not a second code path, it is the same one with
+   * a different price at the door.
+   *
+   * Every surface that renders a number from this score must render the marker
+   * too, and every alert built from it must say so. Null means the leg was
+   * scored from real prices; it is never optional-undefined, so a consumer
+   * cannot forget to consider it.
+   */
+  simulation: SimulationStamp | null;
 }
 
 export interface ActiveAdapterOptions {
@@ -94,10 +109,28 @@ export interface ActiveAdapterOptions {
    * measure this" is one state, not two.
    */
   marketContext?: MarketContextAvailability;
+  /**
+   * The currently armed market simulation, or null. A GETTER rather than a
+   * value, because the adapter is built once at boot (`server/scoringChain.ts`)
+   * and lives for the process, while a scenario is armed and expires during it.
+   * Reading it per scoring pass is what lets an operator arm a scenario in the
+   * admin console and have the very next watch tick score under it, and what
+   * lets expiry take effect with nobody doing anything.
+   *
+   * This is deliberately the ONLY hook: everything that scores a live position
+   * goes through `scoreWallet` on the one adapter instance, so the API's
+   * `/api/positions` and `/api/advisor`, the watch worker, the relayer and the
+   * monitor all inherit the override rather than each needing to remember it.
+   */
+  simulation?: () => MarketSimulation | null;
+  /** Injectable clock, so expiry can be tested without waiting. */
+  now?: () => number;
 }
 
 export class ActiveAdapter {
   private readonly marketContextAvailability: MarketContextAvailability;
+  private readonly simulation: () => MarketSimulation | null;
+  private readonly now: () => number;
 
   constructor(
     private readonly readers: ActiveReader[],
@@ -114,6 +147,8 @@ export class ActiveAdapter {
     options: ActiveAdapterOptions = {},
   ) {
     this.marketContextAvailability = options.marketContext ?? "measured";
+    this.simulation = options.simulation ?? (() => null);
+    this.now = options.now ?? Date.now;
   }
 
   /**
@@ -160,8 +195,19 @@ export class ActiveAdapter {
     });
     const scores: ActiveScore[] = [];
 
-    for (const reading of readings) {
-      if (!reading) continue;
+    // One clock read for the whole pass, so two legs of the same wallet can
+    // never disagree about whether a scenario had expired mid-loop.
+    const nowMs = this.now();
+    const armed = this.simulation();
+
+    for (const raw of readings) {
+      if (!raw) continue;
+
+      // THE PRICE BOUNDARY. Everything below this line — the sub-scores, the
+      // composite, the band, the liquidation floors — runs on the reading as it
+      // stands here and neither knows nor needs to know whether the price behind
+      // it was observed or imagined.
+      const { reading, stamp } = applySimulationToReading(raw, armed, nowMs);
 
       const symbol = reading.dominantCollateralSymbol;
       const coingeckoId = symbol ? SYMBOL_TO_COINGECKO[symbol] : undefined;
@@ -191,6 +237,7 @@ export class ActiveAdapter {
         scoredCollateralSymbol: assetRiskIsProxy ? "WETH (proxy)" : (symbol as string),
         dominantBorrowSymbol: reading.dominantBorrowSymbol,
         assetRiskIsProxy,
+        simulation: stamp,
       });
     }
     return scores;

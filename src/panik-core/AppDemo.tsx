@@ -55,13 +55,28 @@ import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
  * would have had the UI stating a wrong one with no visual tell.
  */
 import { COMPOSITE_WEIGHTS } from "../../packages/scoring/src/params";
+/**
+ * The price-scenario magnitudes, from the engine for the same reason again:
+ * `simulation.ts` has no runtime imports, and the operator-facing market
+ * simulator arms these exact numbers against the live scoring path.
+ */
+import { MARKET_SCENARIOS } from "../../packages/scoring/src/simulation";
 import { PositionState } from "./lib/types";
 import { LivePositions, positionKey } from "./components/LivePositions";
 import { AlertFeed, AlertHistoryView, ALERT_PREVIEW_COUNT } from "./components/AlertHistory";
 import { Sparkline } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
-import { Button, Card, EmptyState, RiskChip, Skeleton, Stat, TabPanel } from "./ui";
+import {
+  Button,
+  Card,
+  EmptyState,
+  RiskChip,
+  SimulationBanner,
+  Skeleton,
+  Stat,
+  TabPanel,
+} from "./ui";
 import {
   useAdvisor,
   useChainTelemetry,
@@ -396,13 +411,15 @@ function demoSubScores(total: number) {
  * Simulator scenario presets (one-tap answers before sliders). Magnitudes are
  * anchored to the backtest event set (docs/technical-docs/BACKTEST_METHODOLOGY.md)
  * rather than arbitrary round numbers.
+ *
+ * These four USED to be declared here. They now come from the engine, because
+ * the operator-facing market simulator arms the same three magnitudes against
+ * the live scoring path: a "Crash" that previews -40% in this panel while
+ * applying something else to everyone's real score would be the same class of
+ * bug as the hardcoded `COMPOSITE_WEIGHTS` this file already had to import.
+ * One list, one meaning for the word.
  */
-const PRICE_SCENARIOS = [
-  { key: "current", label: "Current", pct: 0, note: "market price" },
-  { key: "stress", label: "Stress", pct: -0.2, note: "sharp correction" },
-  { key: "crash", label: "Crash", pct: -0.4, note: "FTX week, Nov 2022" },
-  { key: "blackswan", label: "Black swan", pct: -0.55, note: "ETH, Jun 2022" },
-] as const;
+const PRICE_SCENARIOS = MARKET_SCENARIOS;
 type ScenarioKey = (typeof PRICE_SCENARIOS)[number]["key"] | "custom";
 
 // Engine-supported presets (Aave V3 + Moonwell on Base — the camp scope).
@@ -863,6 +880,27 @@ export function AppDemo() {
     return wire.map((p) => LIVE_PROTOCOL_LABEL[p] ?? p);
   }, [ownLive.chain]);
   const coveredChainLabel = ownLive.chain?.label ?? "Base";
+
+  /**
+   * The armed market simulation, served with the positions it produced.
+   *
+   * Gated on the client clock as well as on the server's answer. The API stops
+   * applying a scenario the instant its window closes, but this response can be
+   * up to a poll old, and a marker that outlives the numbers it describes is
+   * the same lie as one that arrives late. Both ends check the same expiry.
+   */
+  const [simulationNow, setSimulationNow] = useState(() => Date.now());
+  const activeSimulation =
+    ownLive.simulation && simulationNow < ownLive.simulation.expiresAt ? ownLive.simulation : null;
+
+  // Thirty seconds, not one: the remaining time is rendered at minute
+  // granularity (the product bans live tickers), so a faster clock would only
+  // re-render the same string.
+  useEffect(() => {
+    if (!ownLive.simulation) return;
+    const t = setInterval(() => setSimulationNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [ownLive.simulation]);
   const coveredProtocolSentence = useMemo(
     () =>
       coveredProtocols.length > 1
@@ -1608,7 +1646,14 @@ export function AppDemo() {
 
       {/* 2. MAIN APPLICATION CONTENT AREA */}
       <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-surface-base relative">
-        
+
+        {/* SIMULATED-PRICE MARKER. Above the header and outside the scroller,
+            so it is in frame at every scroll position and every width: it must
+            be impossible to screenshot an affected figure without it. It is
+            served ON the positions payload, so it can never describe a
+            different poll than the numbers below it (lib/live.ts). */}
+        {activeSimulation && <SimulationBanner simulation={activeSimulation} now={simulationNow} />}
+
         {/* TOP STATUS BAR (Gas feeds, Block Number precisely simulating real active smart contracts) */}
         <header className="h-16 shrink-0 border-b border-border-subtle px-4 md:px-8 flex items-center justify-between gap-3 bg-surface-raised/40 backdrop-blur-md">
           <div className="flex items-center gap-2.5 min-w-0">

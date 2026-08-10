@@ -10,6 +10,7 @@ const base: WatchTransition = {
   band: "HIGH",
   from: "approaching",
   to: "outside",
+  simulation: null,
 };
 
 // Em dash (U+2014) and en dash (U+2013) are banned by house style. Built from

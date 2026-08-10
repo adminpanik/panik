@@ -93,6 +93,13 @@ export interface LiveWalletPosition {
   label: string | null;
   riskProfile: string;
   profileStatus: ProfileStatus;
+  /**
+   * Non-null when THIS position was scored from simulated prices. Optional so a
+   * payload cached before the field existed still parses; absent and null both
+   * mean "scored from the real market", which is the honest reading of a
+   * response written when no simulator existed.
+   */
+  simulation?: SimulationStampInfo | null;
 }
 
 /**
@@ -117,6 +124,46 @@ export interface ScoringChainInfo {
    * protocols were checked when none of them were.
    */
   protocols: LiveProtocol[];
+}
+
+/**
+ * An armed market simulation, as served WITH the positions it produced.
+ * Mirrors `SimulationWire` in server/simulationStore.ts.
+ *
+ * It travels on the positions response rather than being polled separately, and
+ * that is a correctness requirement rather than a saved round trip: a
+ * separately-fetched marker can light up over the previous poll's real numbers,
+ * or - much worse - go dark a tick before the crashed figures do. The marker
+ * has to describe the payload it arrived with, so it arrives with it.
+ */
+export interface SimulationInfo {
+  id: string;
+  scenario: string;
+  /** Human label for the marker, e.g. "Crash". Never an engine enum. */
+  label: string;
+  /** SYMBOL -> price multiplier. 0.6 = that asset is priced 40% lower. */
+  multipliers: Record<string, number>;
+  /** Epoch ms. */
+  startedAt: number;
+  expiresAt: number;
+}
+
+/**
+ * Per-leg provenance. Mirrors `SimulationStamp` in packages/scoring.
+ *
+ * Present on a position means every figure on that row - score, band, health
+ * factor, dollar amounts - came from an imagined price, and the row must carry
+ * the marker. Absent means the row is real, including while a simulation is
+ * armed against some other asset.
+ */
+export interface SimulationStampInfo {
+  id: string;
+  label: string;
+  scenario: string;
+  collateralMultiplier: number;
+  borrowMultiplier: number;
+  healthFactorMultiplier: number;
+  expiresAt: number;
 }
 
 export interface CompassLiveScore {
@@ -197,6 +244,7 @@ export function useWalletPositions(wallet: string | null, profile: string) {
     updatedAt: number;
     positions: LiveWalletPosition[];
     chain?: ScoringChainInfo;
+    simulation?: SimulationInfo | null;
   } | null>(null);
   const [offline, setOffline] = useState(false);
 
@@ -219,6 +267,7 @@ export function useWalletPositions(wallet: string | null, profile: string) {
           updatedAt: number;
           positions: LiveWalletPosition[];
           chain?: ScoringChainInfo;
+          simulation?: SimulationInfo | null;
         }>(url);
         if (!cancelled) {
           setData(body);
@@ -240,6 +289,9 @@ export function useWalletPositions(wallet: string | null, profile: string) {
     positions: data?.positions ?? null,
     updatedAt: data?.updatedAt ?? 0,
     chain: data?.chain ?? null,
+    // Read off the SAME payload as the positions, so the marker and the figures
+    // can never describe two different moments.
+    simulation: data?.simulation ?? null,
     offline,
   };
 }

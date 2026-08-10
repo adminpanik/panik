@@ -31,6 +31,21 @@ import {
   mockHistory,
   mockProspective,
 } from "./fixtures";
+/**
+ * The real engine, not a mock of it. This plugin runs in Node during `vite
+ * serve`, never in a browser bundle, so the usual deep-import discipline does
+ * not apply here and the fixture can use the actual override arithmetic and the
+ * actual band rule. A hand-rolled "times 0.6" here would be a second copy of
+ * the thing being demonstrated, free to disagree with it.
+ */
+import { bandFor } from "../packages/scoring/src/computeScore";
+import { LIQUIDATION_PROXIMITY_FLOORS } from "../packages/scoring/src/params";
+import {
+  applySimulationToReading,
+  multiplierFromPct,
+  scenarioByKey,
+  type MarketSimulation,
+} from "../packages/scoring/src/simulation";
 
 /**
  * localStorage the dashboard reads. Seeded from the page itself rather than by
@@ -74,10 +89,93 @@ const SEED: Record<string, string> = {
  */
 const seedScript = `(function(){var s=${JSON.stringify(SEED)};try{for(var k in s){if(localStorage.getItem(k)===null)localStorage.setItem(k,s[k]);}}catch(e){}})();`;
 
+/**
+ * PANIK_MOCK_SIM arms a market simulation in mock mode, so the user-facing
+ * marker can be built and measured without a Supabase row, an admin session and
+ * a wallet with real testnet debt.
+ *
+ * Value is a scenario key (`stress` / `crash` / `blackswan`) or a signed
+ * percentage (`-30`). Unset means no simulation, which is the default and the
+ * previous behaviour exactly.
+ */
+function mockSimulation(): MarketSimulation | null {
+  const raw = process.env.PANIK_MOCK_SIM?.trim();
+  if (!raw) return null;
+  const preset = scenarioByKey(raw);
+  const pct = preset ? preset.pct : Number(raw) / 100;
+  if (!Number.isFinite(pct) || pct === 0) return null;
+  const multiplier = multiplierFromPct(pct);
+  // Every collateral asset the fixture holds, so the marker appears on rows
+  // rather than on none of them.
+  const multipliers: Record<string, number> = {};
+  for (const p of MOCK_POSITIONS) multipliers[p.scoredCollateralSymbol] = multiplier;
+  const startedAt = Date.now();
+  return {
+    id: "mock-simulation",
+    scenario: preset ? preset.key : "custom",
+    label: preset ? preset.label : `Custom ${Number(raw)}%`,
+    multipliers,
+    setBy: "dev",
+    startedAt,
+    expiresAt: startedAt + 60 * 60_000,
+  };
+}
+
+/**
+ * Apply a mock scenario to the fixture positions, through the engine's own
+ * override and the engine's own band rule.
+ *
+ * WHAT THIS DOES NOT DO: re-derive the composite's market-context terms. Asset
+ * risk and systemic risk come from CoinGecko and DefiLlama, and mock mode has
+ * neither, so the fixture's own sub-scores stand. What IS applied is the
+ * liquidation-proximity floor, which is the rule that actually escalates a band
+ * during a crash (params.ts: HF at or below 1.25 floors the score at 50, at or
+ * below 1.1 at 75). So the numbers here move for the same reason and by the
+ * same rule as the real path, and the one term that would need a live provider
+ * is left alone rather than invented.
+ */
+function simulatedPositions(sim: MarketSimulation): typeof MOCK_POSITIONS {
+  return MOCK_POSITIONS.map((p) => {
+    const { reading, stamp } = applySimulationToReading(
+      {
+        protocol: p.protocol,
+        positionHealth: {
+          healthFactor: p.healthFactor,
+          currentLtv:
+            p.collateralValueUsd && p.borrowValueUsd ? p.borrowValueUsd / p.collateralValueUsd : 0,
+          maxLtv: 0.8,
+        },
+        collateralValueUsd: p.collateralValueUsd,
+        borrowValueUsd: p.borrowValueUsd,
+        weightedLiquidationThreshold: null,
+        dominantCollateralSymbol: p.scoredCollateralSymbol,
+        dominantBorrowSymbol: null,
+      },
+      sim,
+      Date.now(),
+    );
+    if (!stamp) return p;
+    const hf = reading.positionHealth.healthFactor;
+    const floor =
+      hf === null ? 0 : (LIQUIDATION_PROXIMITY_FLOORS.find((f) => hf <= f.hfAtOrBelow)?.minScore ?? 0);
+    const total = Math.max(p.total, floor);
+    return {
+      ...p,
+      total,
+      band: bandFor(total),
+      healthFactor: hf,
+      collateralValueUsd: reading.collateralValueUsd,
+      borrowValueUsd: reading.borrowValueUsd,
+      simulation: stamp,
+    };
+  });
+}
+
 /** Route table: pathname -> body. Returning undefined means "not mine". */
 function handle(url: URL): unknown {
   const profile = url.searchParams.get("profile") ?? "moderate";
   const updatedAt = Date.now();
+  const sim = mockSimulation();
 
   switch (url.pathname) {
     case "/api/scores":
@@ -87,7 +185,24 @@ function handle(url: URL): unknown {
       // typo in the query shows up as an empty dashboard, not as fake data.
       const wallet = url.searchParams.get("wallet") ?? "";
       const mine = wallet.toLowerCase() === MOCK_WALLET;
-      return { updatedAt, positions: mine ? MOCK_POSITIONS : [], chain: MOCK_SCORING_CHAIN };
+      const positions = mine ? (sim ? simulatedPositions(sim) : MOCK_POSITIONS) : [];
+      return {
+        updatedAt,
+        positions,
+        chain: MOCK_SCORING_CHAIN,
+        // Mirrors the real route: the marker travels WITH the payload it
+        // describes, never on a separate poll.
+        simulation: sim
+          ? {
+              id: sim.id,
+              scenario: sim.scenario,
+              label: sim.label,
+              multipliers: sim.multipliers,
+              startedAt: sim.startedAt,
+              expiresAt: sim.expiresAt,
+            }
+          : null,
+      };
     }
     case "/api/history":
       return mockHistory();

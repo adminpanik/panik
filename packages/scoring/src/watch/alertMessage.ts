@@ -13,6 +13,8 @@
  */
 
 import { ALERT_THRESHOLD } from "../profile";
+import { simulationAlertLine } from "../simulation";
+import type { SimulationMark } from "../simulation";
 import type { Protocol } from "../types";
 import type { WatchTransition } from "./loop";
 
@@ -32,6 +34,14 @@ export interface AlertExtras {
   healthFactor?: number | null;
   collateralUsd?: number | null;
   borrowUsd?: number | null;
+  /**
+   * Set when the transition was produced under a market simulation. Callers
+   * normally leave this alone: `formatAlert` reads the stamp off the transition
+   * itself, which is the record of what was true when the crossing happened.
+   * This is the path for a caller that reconstructs the transition from a
+   * database row, where the label is all that was persisted.
+   */
+  simulation?: SimulationMark | null;
 }
 
 /** 0xabcdef...1234 */
@@ -75,8 +85,21 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
   const wallet = truncateWallet(t.wallet);
   const protocol = PROTOCOL_LABEL[t.protocol] ?? t.protocol;
   const outside = t.to === "outside";
+  // The transition's own stamp is the record of what was true at the crossing;
+  // `extras` only fills in for the dispatcher reading it back out of the row.
+  const simulation = t.simulation ?? extras.simulation ?? null;
 
   const lines: string[] = [];
+  // FIRST, above the siren, and that placement is the requirement rather than a
+  // preference: a push notification shows the opening characters and nothing
+  // else, so a marker buried in the body reaches the user only after they have
+  // already believed the headline. A crash alert for a crash that did not happen
+  // is the worst false alarm a liquidation alerter can send - it teaches the
+  // user to discount the next one, which is the real one.
+  if (simulation) {
+    lines.push(simulationAlertLine(simulation));
+    lines.push("");
+  }
   lines.push(
     outside
       ? "🚨 Panik alert - position past your risk limit"
@@ -106,6 +129,17 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
       ? "⛔ Your position has crossed your risk threshold and is trending toward liquidation. Act now: add collateral or repay debt to pull it back."
       : "⏳ This position is getting close to your liquidation comfort zone. Consider adding collateral or repaying debt before it crosses the line.",
   );
+
+  // Bookended on purpose. The action line above tells the user to act, and under
+  // a simulation that instruction is answering a price that did not move; the
+  // marker has to be the last thing read as well as the first, so no crop of
+  // this message shows an instruction without the reason it was issued.
+  if (simulation) {
+    lines.push("");
+    lines.push(
+      "🧪 Reminder: the price move above is simulated. Nothing has happened to the market.",
+    );
+  }
 
   return lines.join("\n");
 }
