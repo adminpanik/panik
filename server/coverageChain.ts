@@ -19,12 +19,15 @@
 import { createPublicClient, http } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import {
+  EXECUTOR_ADDRESS,
   EXIT_ADAPTERS,
   EXIT_CHAIN_ID,
   EXIT_DATA_PROVIDER_ADDRESS,
-  EXIT_USDC_ADDRESS,
-  EXIT_WETH_ADDRESS,
 } from "../src/panik-core/lib/exit.generated";
+// The SAME resolution the relayer and the UI use. `EXIT_USDC_ADDRESS` is
+// deliberately not imported here any more: it is `executor.usdc()`, the PAYOUT
+// token, and sweeping it checked an approval on an asset no position holds.
+import { exitReserveAddresses, loadExitReserveSet } from "../src/panik-core/lib/exitReserves";
 import type { CoverageChain, CoverageMarkets } from "./coverageSweep";
 import type { ExitReserveState } from "../src/panik-core/lib/exitLegs";
 
@@ -117,24 +120,60 @@ export interface CoverageChainConfig {
   rpcUrl: string;
   chainId?: number;
   dataProvider?: `0x${string}`;
+  executor?: `0x${string}`;
+  /**
+   * Explicit reserve addresses. Omit (or pass empty) to resolve the market's
+   * reserve list intersected with the executor's tracked assets, which is what
+   * the relayer would actually build legs against.
+   */
   reserves?: readonly `0x${string}`[];
 }
 
 export class ViemCoverageChain implements CoverageChain {
   private readonly client: Client;
   private readonly dataProvider: `0x${string}`;
-  private readonly reserves: readonly `0x${string}`[];
+  private readonly executor: `0x${string}`;
+  private readonly chainId: number;
+  /** Operator override. Empty means "resolve from chain". */
+  private readonly reserveOverride: readonly `0x${string}`[];
   /** aToken addresses are immutable per reserve; one read per process. */
   private readonly aTokens = new Map<string, `0x${string}` | null>();
   private readonly meta = new Map<string, { symbol: string; decimals: number }>();
 
   constructor(config: CoverageChainConfig) {
     this.dataProvider = config.dataProvider ?? EXIT_DATA_PROVIDER_ADDRESS;
-    this.reserves = config.reserves ?? [];
+    this.executor = config.executor ?? EXECUTOR_ADDRESS;
+    this.chainId = config.chainId ?? EXIT_CHAIN_ID;
+    this.reserveOverride = config.reserves ?? [];
     this.client = createPublicClient({
-      chain: chainFor(config.chainId ?? EXIT_CHAIN_ID),
+      chain: chainFor(this.chainId),
       transport: http(config.rpcUrl),
     }) as unknown as Client;
+  }
+
+  /**
+   * The reserves the sweep inspects, resolved once per process.
+   *
+   * This is the answer to "which assets could a delegated exit actually name for
+   * this wallet". It used to fall back to `[EXIT_USDC_ADDRESS,
+   * EXIT_WETH_ADDRESS]`, which meant the sweep checked approvals on the payout
+   * token - an asset no Aave position holds - found nothing wrong, and reported
+   * coverage healthy while a cbETH or USDT position sat unapproved. The sweep
+   * exists to make "the user believes they are protected and they are not"
+   * impossible, so it has to look at the same list the relayer would.
+   *
+   * Throws rather than returning a partial list when the chain cannot be read:
+   * the caller turns that into a failed check, never into a clean sweep.
+   */
+  async aaveReserves(): Promise<readonly `0x${string}`[]> {
+    if (this.reserveOverride.length > 0) return this.reserveOverride;
+    return exitReserveAddresses(
+      await loadExitReserveSet(this.client, {
+        chainId: this.chainId,
+        dataProvider: this.dataProvider,
+        executor: this.executor,
+      }),
+    );
   }
 
   async codeAt(address: `0x${string}`): Promise<`0x${string}`> {
@@ -194,7 +233,7 @@ export class ViemCoverageChain implements CoverageChain {
 
   async reserveStates(user: `0x${string}`): Promise<ExitReserveState[]> {
     const out: ExitReserveState[] = [];
-    for (const reserve of this.reserves) {
+    for (const reserve of await this.aaveReserves()) {
       const raw = (await this.client.readContract({
         address: this.dataProvider,
         abi: DATA_PROVIDER_ABI,
@@ -250,14 +289,22 @@ function addressList(raw: string | undefined): `0x${string}`[] {
  *
  * The adapters come from `exit.generated.ts` because they are the addresses the
  * DEPLOYED executor actually calls; a hand-typed adapter address would make the
- * sweep check an authorization nobody needs. The market lists have no such
- * source — Comet markets and Morpho are per-deployment — so they are env-driven,
- * and an unset one leaves that protocol UNVERIFIABLE rather than assumed fine.
+ * sweep check an authorization nobody needs. The Comet markets and Morpho have
+ * no such source — they are per-deployment — so they stay env-driven, and an
+ * unset one leaves that protocol UNVERIFIABLE rather than assumed fine.
+ *
+ * `aaveReserves` is passed in rather than read from env, because it now comes
+ * from `ViemCoverageChain.aaveReserves()` — the chain, not a constant. The old
+ * `[EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS]` fallback is gone: an empty list here
+ * makes the sweep report Aave UNVERIFIABLE, which is the honest answer, where
+ * the wrong list made it report healthy.
  */
-export function coverageMarketsFromEnv(env: NodeJS.ProcessEnv = process.env): CoverageMarkets {
-  const aave = addressList(env.RELAYER_RESERVES);
+export function coverageMarketsFromEnv(
+  aaveReserves: readonly `0x${string}`[],
+  env: NodeJS.ProcessEnv = process.env,
+): CoverageMarkets {
   return {
-    aaveReserves: aave.length > 0 ? aave : [EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS],
+    aaveReserves,
     comets: addressList(env.COVERAGE_COMET_MARKETS),
     compoundAdapter: EXIT_ADAPTERS.compound,
     morpho: addressList(env.COVERAGE_MORPHO_ADDRESS)[0] ?? null,
