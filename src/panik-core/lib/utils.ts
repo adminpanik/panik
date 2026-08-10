@@ -221,26 +221,25 @@ export const ADVISOR_ACTION: Record<AdvisorAction, string> = {
 };
 
 /**
- * Who wrote the prose on an advisor card, as a permanent per-block marker.
+ * The Advisor's one AI disclosure, for the whole panel.
  *
- * Only the model-phrased state used to be labelled, so the difference between a
- * leg the guardrails passed and one they rejected read as the app labelling
- * cards at random. Both states are named now, in the same place, in the same
- * shape, and the reason they differ is one hover away.
+ * Provenance used to be stated per BLOCK: a marker under the lead sentence and
+ * another inside every disclosure, each naming which of the engine and the model
+ * phrased the paragraph above it, one of them carrying a tooltip about the
+ * guardrails, plus a banner line at the top saying that the blocks do this. Six
+ * markers and two tooltips on a screen whose job is "here is what to do", for a
+ * distinction the reader cannot act on: the recommendation, the numbers and the
+ * action are the engine's either way.
  *
- * The decision, the numbers and the action are the engine's on EVERY card, which
- * is what the banner says and what these two labels must not contradict.
+ * One line survives because the summaries genuinely are model-phrased and saying
+ * so is an obligation rather than a design choice (EU AI Act Article 50, in
+ * force since 2026-08-02). It states the fact and stops: which legs passed which
+ * checks is an implementation detail, and the second clause is scope, not
+ * marketing, because without it the line reads as "the advice is AI-generated",
+ * which is false.
  */
-export const PROSE_SOURCE_LABEL = {
-  narrated: "Wording by AI",
-  engine: "Wording by the engine",
-} as const;
-
-export const PROSE_SOURCE_HINT =
-  "Every recommendation, number and action here is decided by the risk engine. A language model rephrases the engine's findings when the phrasing passes our checks; when it does not, the engine's own wording is shown instead. Each block says which one you are reading.";
-
-/** The banner's provenance line, which the per-card labels then resolve. */
-export const PROSE_SOURCE_BANNER = "Engine-decided. Each block says who wrote its wording.";
+export const AI_PROSE_NOTE =
+  "Summaries are worded by AI. Every number and recommendation is decided by the risk engine.";
 
 export const RISK_TEXT: Record<Band, string> = {
   LOW: "text-risk-low",
