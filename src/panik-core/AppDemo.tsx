@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { 
+import { useAccount } from "wagmi";
+import {
   ShieldAlert,
   AlertTriangle,
   ArrowDown,
@@ -81,7 +82,7 @@ import { DelegationManager } from "./components/DelegationManager";
 import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
-import { ProtocolLogo, ProtocolMarks } from "./components/ProtocolLogo";
+import { ALL_PROTOCOLS, ProtocolLogo, ProtocolMarks } from "./components/ProtocolLogo";
 import { Onboarding } from "./components/Onboarding";
 import {
   forgetRegistration,
@@ -793,6 +794,32 @@ export function AppDemo() {
     () => localStorage.getItem("panik_risk_tier") as RiskTier | null
   );
 
+  /**
+   * The CONNECTED wallet wins over the stored one.
+   *
+   * `panik_wallet` is a plain localStorage string with no ownership proof
+   * behind it, and everything on this dashboard (positions, advisor, history)
+   * is keyed on it. `npm run dev:mock` seeds the fixture address into that key
+   * (dev/mockApi.ts), the real app then reads it back, and the user spends the
+   * session looking at a wallet they have never owned while their own position
+   * is invisible. The exit flow, meanwhile, reads the chain for whatever wallet
+   * is actually connected, so the dashboard and the Exit button were describing
+   * two different accounts.
+   *
+   * Preferring the connected address is the smallest fix that makes those two
+   * agree: it is the only wallet the user can prove and the only one the exit
+   * can act on. Proving ownership properly (SIWE-gated identity, watch-only
+   * addresses done deliberately rather than by accident) is Issue #51 and is
+   * NOT built here.
+   */
+  const { address: connectedWallet } = useAccount();
+  useEffect(() => {
+    if (!connectedWallet) return;
+    if (onboardedWallet && onboardedWallet.toLowerCase() === connectedWallet.toLowerCase()) return;
+    localStorage.setItem("panik_wallet", connectedWallet);
+    setOnboardedWallet(connectedWallet);
+  }, [connectedWallet, onboardedWallet]);
+
   const handleOnboardingComplete = (result: ProfileResult, wallet: string) => {
     saveProfileForWallet(wallet.trim(), result); // per-wallet memory (wallet-switch flow)
     localStorage.setItem("panik_onboarded", "true");
@@ -874,6 +901,28 @@ export function AppDemo() {
   // boundMode hides the registry selector entirely. (SIWE later proves ownership.)
   const boundMode = Boolean(onboardedWallet);
   const ownLive = useWalletPositions(onboardedWallet, selectedRiskProfile);
+
+  /**
+   * Coverage is a property of the chain being read, and the API is the only
+   * thing that knows which chain that was. Until it answers, the four marks
+   * stay: that is the default configuration and the claim the product has
+   * always made. Once it answers, the row shows exactly what was scanned, so a
+   * Base Sepolia user is not told that three protocols with no market there
+   * were checked and found empty.
+   */
+  const coveredProtocols = useMemo(() => {
+    const wire = ownLive.chain?.protocols;
+    if (!wire || wire.length === 0) return ALL_PROTOCOLS;
+    return wire.map((p) => LIVE_PROTOCOL_LABEL[p] ?? p);
+  }, [ownLive.chain]);
+  const coveredChainLabel = ownLive.chain?.label ?? "Base";
+  const coveredProtocolSentence = useMemo(
+    () =>
+      coveredProtocols.length > 1
+        ? `${coveredProtocols.slice(0, -1).join(", ")} and ${coveredProtocols[coveredProtocols.length - 1]}`
+        : (coveredProtocols[0] as string),
+    [coveredProtocols],
+  );
 
   // AI Advisor (Phase 2): live report for the onboarded wallet. Null while
   // offline or pre-onboarding - the tab keeps its Coming-Soon fallback then.
@@ -2576,8 +2625,8 @@ export function AppDemo() {
                               <InfoTip
                                 text={
                                   liveMacro
-                                    ? `PANIK covers Aave V3, Moonwell, Morpho and Compound V3. This wallet holds a position on ${liveMacro.protocolNames.join(", ")}; the dimmed marks are covered but empty.`
-                                    : "PANIK covers Aave V3, Moonwell, Morpho and Compound V3. The dimmed marks are covered but hold no position."
+                                    ? `PANIK covers ${coveredProtocolSentence} on ${coveredChainLabel}. This wallet holds a position on ${liveMacro.protocolNames.join(", ")}; the dimmed marks are covered but empty.`
+                                    : `PANIK covers ${coveredProtocolSentence} on ${coveredChainLabel}. The dimmed marks are covered but hold no position.`
                                 }
                               />
                             </>
@@ -2606,7 +2655,8 @@ export function AppDemo() {
                           value={
                             <span className="flex h-11 items-center">
                               <ProtocolMarks
-                                protocols={liveMacro?.protocolNames ?? ["Aave V3", "Moonwell"]}
+                                protocols={liveMacro?.protocolNames ?? []}
+                                covered={coveredProtocols}
                               />
                             </span>
                           }
@@ -2681,6 +2731,9 @@ export function AppDemo() {
                       positions={portfolioPositions}
                       highlightKey={highlightedPositionKey}
                       offline={boundMode ? ownLive.offline : liveOffline}
+                      // Only the bound path carries a chain the API vouched
+                      // for; the ops registry view claims nothing about one.
+                      chain={boundMode ? ownLive.chain : null}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
                         setSelectedLivePositionKey(`${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`);
