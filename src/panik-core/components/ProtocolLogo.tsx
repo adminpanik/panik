@@ -225,13 +225,26 @@ export function ProtocolLogo({ protocol, size = "w-6 h-6", pad = TILE_PAD, label
  * 28px numeral, and at 32px they still read as a row of icons beside three
  * figures rather than as a figure themselves.
  */
-const ALL_PROTOCOLS = ["Aave V3", "Moonwell", "Morpho", "Compound V3"];
+export const ALL_PROTOCOLS = ["Aave V3", "Moonwell", "Morpho", "Compound V3"];
 
-export function ProtocolMarks({ protocols }: { protocols: string[] }) {
+export function ProtocolMarks({
+  protocols,
+  /**
+   * What was actually scanned. Defaults to all four, which is true on Base
+   * mainnet and was the only case when this row was written. On a chain that
+   * lists fewer, passing the real set is a correctness requirement: a dimmed
+   * mark's accessible name says "covered, no position", and saying that about
+   * a protocol nobody looked at is the product asserting a check it never ran.
+   */
+  covered = ALL_PROTOCOLS,
+}: {
+  protocols: string[];
+  covered?: string[];
+}) {
   const held = new Set(protocols.map((p) => p.toLowerCase()));
   return (
     <span className="flex items-center gap-1.5">
-      {ALL_PROTOCOLS.map((p) => {
+      {covered.map((p) => {
         const active = held.has(p.toLowerCase());
         return (
           // The dimming wrapper carries no `title`: ProtocolLogo sets one

@@ -95,6 +95,30 @@ export interface LiveWalletPosition {
   profileStatus: ProfileStatus;
 }
 
+/**
+ * Which chain the API actually read these positions from.
+ *
+ * Served WITH the positions rather than derived from a build-time env var,
+ * because those are two different facts and only one of them is true: the API
+ * chooses its chain from PANIK_SCORING_CHAIN at boot, so a browser bundle
+ * carrying a different opinion would put the wrong chain name on real money.
+ * Optional because a response cached before the field existed omits it, and a
+ * missing chain is rendered as no claim at all, never as "Base".
+ */
+export interface ScoringChainInfo {
+  mode: string;
+  chainId: number;
+  /** Chain name fit to render, e.g. "Base" or "Base Sepolia". */
+  label: string;
+  /**
+   * The protocols the API scanned on this chain. What "PANIK covers" means is
+   * a property of the chain, not of the product: on Base Sepolia only Aave V3
+   * has a market to read, and a coverage row fixed at four claims three
+   * protocols were checked when none of them were.
+   */
+  protocols: LiveProtocol[];
+}
+
 export interface CompassLiveScore {
   id: string;
   total: number;
@@ -169,7 +193,11 @@ export function useLiveScores() {
  * gracefully offline like the other hooks.
  */
 export function useWalletPositions(wallet: string | null, profile: string) {
-  const [data, setData] = useState<{ updatedAt: number; positions: LiveWalletPosition[] } | null>(null);
+  const [data, setData] = useState<{
+    updatedAt: number;
+    positions: LiveWalletPosition[];
+    chain?: ScoringChainInfo;
+  } | null>(null);
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
@@ -184,7 +212,11 @@ export function useWalletPositions(wallet: string | null, profile: string) {
     const url = `/api/positions?wallet=${wallet}&profile=${encodeURIComponent(profile)}`;
     const load = async () => {
       try {
-        const body = await getJson<{ updatedAt: number; positions: LiveWalletPosition[] }>(url);
+        const body = await getJson<{
+          updatedAt: number;
+          positions: LiveWalletPosition[];
+          chain?: ScoringChainInfo;
+        }>(url);
         if (!cancelled) {
           setData(body);
           setOffline(false);
@@ -201,7 +233,12 @@ export function useWalletPositions(wallet: string | null, profile: string) {
     };
   }, [wallet, profile]);
 
-  return { positions: data?.positions ?? null, updatedAt: data?.updatedAt ?? 0, offline };
+  return {
+    positions: data?.positions ?? null,
+    updatedAt: data?.updatedAt ?? 0,
+    chain: data?.chain ?? null,
+    offline,
+  };
 }
 
 /** Live prospective scores for the Compass presets, keyed by preset id. */

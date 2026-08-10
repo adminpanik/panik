@@ -4,6 +4,7 @@
  * as prospective mode supply everything else. Mode = adapter swap, no fork.
  */
 
+import type { MarketContextAvailability } from "../chains";
 import { computeScoreFromAvailable } from "../computeScore";
 import { PROTOCOL_DEFILLAMA_SLUG, SYMBOL_TO_COINGECKO } from "../markets";
 import type { AssetRiskProvider, SystemicRiskProvider } from "../providers/types";
@@ -80,7 +81,24 @@ export interface ActiveScore extends Omit<DegradedScoreResult, "subScores"> {
   assetRiskIsProxy: boolean;
 }
 
+export interface ActiveAdapterOptions {
+  /**
+   * Whether the configured chain's assets can be described by the market-context
+   * providers at all. See `MarketContextAvailability` in chains.ts.
+   *
+   * `unavailable` skips the lookups instead of firing them and letting them
+   * fail: a testnet faucet token has no CoinGecko listing, so a request for one
+   * is a guaranteed 404 that would log as an error and read as an outage. The
+   * outcome on the score is identical either way — both terms stay null and
+   * `marketContextUnavailable` is true — which is the point: "we did not
+   * measure this" is one state, not two.
+   */
+  marketContext?: MarketContextAvailability;
+}
+
 export class ActiveAdapter {
+  private readonly marketContextAvailability: MarketContextAvailability;
+
   constructor(
     private readonly readers: ActiveReader[],
     private readonly providers: {
@@ -93,7 +111,10 @@ export class ActiveAdapter {
      * only place the failure is visible — never let it stay silent.
      */
     private readonly onReaderError?: (error: unknown) => void,
-  ) {}
+    options: ActiveAdapterOptions = {},
+  ) {
+    this.marketContextAvailability = options.marketContext ?? "measured";
+  }
 
   /**
    * One leg's market context. Each provider is settled on its own: a bad
@@ -104,6 +125,13 @@ export class ActiveAdapter {
     coingeckoId: string,
     protocol: Protocol,
   ): Promise<{ assetRisk: AssetRiskInput | null; systemicRisk: SystemicRiskInput | null }> {
+    // Not an error path: there is nothing to look up, so nothing is reported
+    // failed. The nulls flow into computeScoreFromAvailable exactly as a real
+    // provider failure would, and the composite renormalises over what WAS
+    // measured rather than imputing a calm market.
+    if (this.marketContextAvailability === "unavailable") {
+      return { assetRisk: null, systemicRisk: null };
+    }
     const [asset, systemic] = await Promise.allSettled([
       this.providers.assetRisk.getAssetRiskInput(coingeckoId),
       this.providers.systemic.getSystemicRiskInput(PROTOCOL_DEFILLAMA_SLUG[protocol]),

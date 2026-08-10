@@ -25,13 +25,35 @@ const BUTTON_VARIANT = {
     "bg-transparent text-text-secondary border-border-subtle hover:text-text-primary hover:bg-white/[0.04]",
 } as const;
 
+/**
+ * Two sizes, and `md` is every button in the product. `lg` exists for a card
+ * whose single consequential action has to read as the point of the card rather
+ * than as a footer control: the Advisor's EXIT and REDUCE legs, where the thing
+ * being offered is closing a position or repaying debt to avoid liquidation.
+ *
+ * Size and weight are the only currency available for that. `primary` is a
+ * neutral fill on purpose and nothing here accepts a risk band, so emphasis
+ * cannot be bought with hue.
+ *
+ * A prop rather than a `className` override at the call site, because overriding
+ * `px-*` and `text-*` there puts two of each utility on one element and leaves
+ * which of them wins to Tailwind's emit order — the same failure the `outline`
+ * variant was added to fix.
+ */
+const BUTTON_SIZE = {
+  md: "px-3.5 py-2 text-xs",
+  lg: "px-4 py-2.5 text-sm",
+} as const;
+
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: keyof typeof BUTTON_VARIANT;
+  size?: keyof typeof BUTTON_SIZE;
   children: React.ReactNode;
 }
 
 export function Button({
   variant = "primary",
+  size = "md",
   className = "",
   type = "button",
   children,
@@ -40,7 +62,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-3.5 py-2 font-sans text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_VARIANT[variant]} ${className}`}
+      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border font-sans font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_SIZE[size]} ${BUTTON_VARIANT[variant]} ${className}`}
       {...rest}
     >
       {children}

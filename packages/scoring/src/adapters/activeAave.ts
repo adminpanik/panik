@@ -6,6 +6,7 @@
  * ranking costs no extra round trip and no HTTP call).
  */
 
+import type { AaveReserve } from "../chains";
 import type { PositionHealthInput, Protocol } from "../types";
 import {
   AAVE_ORACLE_BASE,
@@ -25,7 +26,8 @@ const UINT256_MAX = 2n ** 256n - 1n;
  * quantity is lifted to it in BigInt, so an 18-decimal whale balance keeps
  * every wei: `Number()` on a raw balance loses precision above 2^53 and this
  * is the comparison that picks the asset the whole advisor chain acts on.
- * Must be >= the largest `decimals` in KNOWN_AAVE_RESERVES (currently 18).
+ * Must be >= the largest `decimals` in any configured reserve set (currently 18
+ * on both Base mainnet and Base Sepolia — see chains.ts).
  */
 const RANK_DECIMALS = 18;
 
@@ -133,10 +135,18 @@ function dominantOf(legs: RankedLeg[]): { symbol: string | null; unpriced: boole
 }
 
 export class AaveActiveReader {
+  /**
+   * The pool, its oracle and the reserve list travel TOGETHER: they describe
+   * one market on one chain, and a mainnet reserve address read against a
+   * testnet pool returns nothing rather than failing loudly. Callers pass a
+   * whole `AaveMarketConfig` from `chains.ts` rather than three loose strings.
+   * Defaults are Base mainnet, so existing call sites are unchanged.
+   */
   constructor(
     private readonly client: PublicClientLike,
     private readonly pool: string = AAVE_POOL_BASE,
     private readonly oracle: string = AAVE_ORACLE_BASE,
+    private readonly reserves: readonly AaveReserve[] = KNOWN_AAVE_RESERVES,
   ) {}
 
   /** Returns null when the wallet has no Aave position at all. */
@@ -150,7 +160,7 @@ export class AaveActiveReader {
           functionName: "getUserAccountData",
           args: [wallet],
         },
-        ...KNOWN_AAVE_RESERVES.map((r) => ({
+        ...this.reserves.map((r) => ({
           address: this.pool,
           abi: aavePoolAbi,
           functionName: "getReserveData",
@@ -181,7 +191,7 @@ export class AaveActiveReader {
     const borrowValueUsd = Number(totalDebtBase) / 1e8;
 
     // Position discovery: aToken and debt-token balances on the known reserves.
-    const tokens = KNOWN_AAVE_RESERVES.map((reserve, i) => {
+    const tokens = this.reserves.map((reserve, i) => {
       const res = first[i + 1];
       if (!res || res.status !== "success") return null;
       const data = res.result as {
