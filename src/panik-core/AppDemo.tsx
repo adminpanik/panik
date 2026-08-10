@@ -917,6 +917,36 @@ export function AppDemo() {
   // AI Advisor (Phase 2): live report for the onboarded wallet. Null while
   // offline or pre-onboarding - the tab keeps its Coming-Soon fallback then.
   const advisorLive = useAdvisor(onboardedWallet, selectedRiskProfile, chainMode);
+
+  /**
+   * The Advisor's EXIT / REDUCE recommendations, keyed by protocol, for the
+   * Portfolio's position rows.
+   *
+   * Built HERE rather than in `LivePositions` because this is the one place that
+   * holds both the positions and the advice. A dashboard row showing a CRITICAL
+   * score with no way to act on it made the user go and find the Advisor tab;
+   * offering the action on the row is only honest if it is the SAME action, with
+   * the same sizing and the same words. So the label and the prefill both come
+   * from the engine's recommendation, and a protocol the engine said nothing
+   * about gets no button at all.
+   *
+   * `useMemo` because `LivePositions` takes it as a prop and the advisor object
+   * is stable between polls; a fresh object per render would be a new prop
+   * identity every time the Portfolio re-rendered for any other reason.
+   */
+  const portfolioExitActions = useMemo(() => {
+    const out: Record<string, { label: string; prefill: ExitPrefill }> = {};
+    for (const rec of advisorLive.report?.recommendations ?? []) {
+      if (rec.action !== "EXIT" && rec.action !== "REDUCE") continue;
+      out[rec.protocol] = {
+        // The Advisor card's own labels. Two vocabularies for one outcome is how
+        // a user ends up believing they are two different things.
+        label: rec.action === "EXIT" ? "Execute exit" : "Reduce position",
+        prefill: rec.exitPrefill ?? { protocol: rec.protocol, kind: "full" as const },
+      };
+    }
+    return out;
+  }, [advisorLive.report]);
   // Atomic Exit modal (Phase 2): opened from Advisor CTAs with a prefill.
   const [exitPrefill, setExitPrefill] = useState<ExitPrefill | null>(null);
   // In-app open flow (Phase 2): opened from Advisor opportunity CTAs.
@@ -2876,6 +2906,8 @@ export function AppDemo() {
                       highlightKey={highlightedPositionKey}
                       offline={portfolioFeedDown}
                       chain={ownLive.chain}
+                      exitActions={portfolioExitActions}
+                      onExit={(prefill) => setExitPrefill(prefill)}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
                         setSelectedLivePositionKey(`${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`);
