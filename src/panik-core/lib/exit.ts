@@ -1,10 +1,14 @@
 /**
  * Atomic Exit runtime config + helpers (Phase 2).
  *
- * Honesty gate: scores/positions are read on Base MAINNET, but execution runs
- * on Base SEPOLIA until the executor is audited. EXIT_ENV drives the TESTNET
- * badges and the demo-position banner; mainnet cutover = flip VITE_EXIT_ENV +
- * re-run sync:exit-config against a mainnet deployment. Zero component changes.
+ * Honesty gate: execution runs on Base SEPOLIA until the executor is audited.
+ * EXIT_ENV describes THE EXECUTOR's chain and nothing else. Mainnet cutover =
+ * flip VITE_EXIT_ENV + re-run sync:exit-config against a mainnet deployment.
+ *
+ * Which chain the app is LOOKING at is a separate question with a separate
+ * answer: `lib/chainMode.ts`, set by the user in Settings. The TESTNET badges
+ * follow that, not this. Whether an exit can be signed at all is the two
+ * agreeing, which is what `exitsExecutableOn` computes.
  */
 
 import { fallback, http, createConfig } from "wagmi";

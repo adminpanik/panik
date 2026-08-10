@@ -93,6 +93,8 @@ import {
 import { AdvisorPanel } from "./components/AdvisorPanel";
 import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
 import { DelegationManager } from "./components/DelegationManager";
+import { ChainModeBadge, ChainModeSwitch } from "./components/ChainModeSwitch";
+import { useChainMode } from "./lib/chainMode";
 import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
@@ -850,9 +852,14 @@ export function AppDemo() {
 
   // ── LIVE data (scoring API; every hook degrades gracefully offline) ──────
   // Declared FIRST — the memos below consume these (const = TDZ).
+  // Which chain the user is looking at (Settings > Network). A DISPLAY
+  // preference, persisted in localStorage; see lib/chainMode.ts for why that is
+  // legitimate here and is not for the wallet.
+  const chainMode = useChainMode();
+
   const { scores: compassLive } = useCompassScores();
   const { pools: poolYields } = useCompassYields();
-  const chainTel = useChainTelemetry();
+  const chainTel = useChainTelemetry(chainMode);
 
   // The dashboard follows ONE wallet: the one bound above. There is no second
   // source any more. It used to fall back to the ops registry (/api/scores +
@@ -862,7 +869,7 @@ export function AppDemo() {
   // no wallet got four skeleton cards and "Live feed unavailable" forever. That
   // dead end is what the first-run invitation replaces.
   const boundMode = Boolean(onboardedWallet);
-  const ownLive = useWalletPositions(onboardedWallet, selectedRiskProfile);
+  const ownLive = useWalletPositions(onboardedWallet, selectedRiskProfile, chainMode);
 
   /**
    * Coverage is a property of the chain being read, and the API is the only
@@ -909,7 +916,7 @@ export function AppDemo() {
 
   // AI Advisor (Phase 2): live report for the onboarded wallet. Null while
   // offline or pre-onboarding - the tab keeps its Coming-Soon fallback then.
-  const advisorLive = useAdvisor(onboardedWallet, selectedRiskProfile);
+  const advisorLive = useAdvisor(onboardedWallet, selectedRiskProfile, chainMode);
   // Atomic Exit modal (Phase 2): opened from Advisor CTAs with a prefill.
   const [exitPrefill, setExitPrefill] = useState<ExitPrefill | null>(null);
   // In-app open flow (Phase 2): opened from Advisor opportunity CTAs.
@@ -1691,6 +1698,13 @@ export function AppDemo() {
                 />
               </span>
             )}
+
+            {/* The network marker, present only while the test network is
+                selected. It sits in the shell rather than on a tab because the
+                mode changes what EVERY figure in the app refers to, and it is
+                the control that took you there: pressing it opens Settings,
+                where the switch is. */}
+            <ChainModeBadge onOpenSettings={() => setActiveTab("settings")} />
           </div>
 
           <div className="flex items-center gap-3 md:gap-6 min-w-0 text-2xs font-sans text-text-muted">
@@ -3122,6 +3136,11 @@ export function AppDemo() {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Main settings column */}
                   <div className="lg:col-span-8 space-y-6">
+
+                    {/* First, because it decides what the cards under it are
+                        even about: which chain the positions, scores and exits
+                        on every other tab belong to. */}
+                    <ChainModeSwitch />
 
                     {/* Telegram alerts dispatcher (the real Connect flow) */}
                     <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">

@@ -46,6 +46,7 @@ import {
   EXIT_CHAIN_ID,
 } from "../lib/exit.generated";
 import { asContractClient, EXIT_ENV, getExitChain } from "../lib/exit";
+import { exitAvailabilityLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
 import { PROTOCOL_ID } from "../lib/exitLegs";
 import type { LiveProtocol } from "../lib/live";
 import { liquidationOutlook, PROTOCOL_LABEL } from "../lib/utils";
@@ -125,9 +126,14 @@ function randomNonce(): bigint {
   return nonceFromBytes(bytes);
 }
 
-/** The neutral testnet marker. No risk hue: the environment is not a risk band. */
+/**
+ * The neutral testnet marker. No risk hue: the environment is not a risk band.
+ * Follows the Settings switch rather than the build, so it says which chain the
+ * reader chose to be on instead of which chain the bundle was cut for.
+ */
 function TestnetBadge() {
-  if (EXIT_ENV !== "testnet") return null;
+  const mode = useChainMode();
+  if (mode !== "testnet") return null;
   return (
     <span className="rounded-sm border border-border-strong px-2 py-0.5 text-2xs font-sans font-bold text-text-secondary">
       TESTNET
@@ -154,6 +160,7 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   const { signTypedDataAsync } = useSignTypedData();
   const { writeContractAsync } = useWriteContract();
 
+  const chainMode = useChainMode();
   const onChain = isConnected && chainId === EXIT_CHAIN_ID;
   const symbol = collateralSymbol ?? "your collateral";
 
@@ -373,6 +380,23 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
       it once, see exactly what it allows, and can revoke it in one click.
     </p>
   );
+
+  // The permission authorizes ONE thing: an exit. On a chain where no exit can
+  // be executed it authorizes nothing, so the card states that instead of
+  // walking a user through a signature whose only possible use is on the other
+  // chain. It is the same honesty gate the exit modal applies, one step earlier.
+  if (!exitsExecutableOn(chainMode)) {
+    return (
+      <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+        {header}
+        {intro}
+        <p className="text-xs text-text-secondary leading-relaxed font-sans">
+          {exitAvailabilityLine(chainMode)} A standing permission would have nothing to run, so
+          there is nothing to grant here yet. Switch the network above to try it end to end.
+        </p>
+      </div>
+    );
+  }
 
   if (!isConnected) {
     return (

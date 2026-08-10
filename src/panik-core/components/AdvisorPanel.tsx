@@ -71,7 +71,7 @@ import {
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial } from "../ui";
-import { EXIT_ENV } from "../lib/exit";
+import { exitAvailabilityLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
 /**
  * The engine's dollar formatter, not the panel's `formatUsd`.
  *
@@ -140,10 +140,18 @@ function ActionButton({
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
   onOpen?: (plan: AdvisorOpenPlan) => void;
 }) {
+  const chainMode = useChainMode();
   if (rec.action === "EXIT" || rec.action === "REDUCE") {
     const prefill = rec.exitPrefill ?? { protocol: rec.protocol, kind: "full" as const };
     const label = rec.action === "EXIT" ? "Execute exit" : "Reduce position";
-    const disabledHint = "Transaction flow ships with the Atomic Exit integration";
+    // Two reasons the control can be dead and the hover has to name the right
+    // one: the flow may not be wired in on this surface, or the chain the user
+    // is reading cannot execute an exit at all.
+    const exitable = exitsExecutableOn(chainMode);
+    const enabled = Boolean(onExit) && exitable;
+    const disabledHint = !exitable
+      ? exitAvailabilityLine(chainMode)
+      : "Transaction flow ships with the Atomic Exit integration";
     return (
       // A fragment, not a wrapper: the card's action row is the one flex-wrap
       // context, so the primary, the alternative and `Details` wrap as three
@@ -158,9 +166,9 @@ function ActionButton({
             in plain text at the other end of it. */}
         <Button
           size="lg"
-          onClick={onExit ? () => onExit(prefill) : undefined}
-          disabled={!onExit}
-          title={onExit ? undefined : disabledHint}
+          onClick={enabled ? () => onExit?.(prefill) : undefined}
+          disabled={!enabled}
+          title={enabled ? undefined : disabledHint}
         >
           {label} <ArrowRight className="h-4 w-4" />
         </Button>
@@ -175,10 +183,10 @@ function ActionButton({
           <Button
             variant="quiet"
             onClick={
-              onExit ? () => onExit({ protocol: rec.protocol, kind: "full_repay" }) : undefined
+              enabled ? () => onExit?.({ protocol: rec.protocol, kind: "full_repay" }) : undefined
             }
-            disabled={!onExit}
-            title={onExit ? undefined : disabledHint}
+            disabled={!enabled}
+            title={enabled ? undefined : disabledHint}
           >
             Repay everything instead
           </Button>
@@ -809,6 +817,7 @@ export interface AdvisorPanelProps {
 }
 
 export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
+  const chainMode = useChainMode();
   const { overall, recommendations, opportunities, walletInsights } = report;
 
   /* Provenance, on hover. "Based on your history: Levered ETH borrower · 17mo
@@ -857,16 +866,14 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
         <div className="space-y-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <h3 className="text-sm font-sans font-semibold text-text-primary">Your positions</h3>
-            {/* Once, for the section, instead of a TESTNET pill beside every
-                exit button on every card. The chain you are signing on is a
-                property of the release, not of a position, and the flow the
+            {/* Once, for the section, instead of a pill beside every exit
+                button on every card. The chain you are signing on is a property
+                of the selected network, not of a position, and the flow the
                 button opens states it again in its own header and banner before
-                anything can be signed. */}
-            {EXIT_ENV === "testnet" ? (
-              <p className="text-xs font-sans text-text-muted">
-                Exits run on Base Sepolia against a demo position.
-              </p>
-            ) : null}
+                anything can be signed.
+                It is stated in BOTH modes now, because the sentence a user most
+                needs is the one that says the button beside it will not work. */}
+            <p className="text-xs font-sans text-text-muted">{exitAvailabilityLine(chainMode)}</p>
           </div>
           {recommendations.map((rec) => (
             <RecommendationCard
