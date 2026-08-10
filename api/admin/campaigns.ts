@@ -11,11 +11,11 @@
 
 import { CampaignStore } from "../../server/campaignStore";
 import { buildCreateInput, type RawCreateBody } from "../../server/adminCampaigns";
-import { adminAuthGate } from "../../server/adminAuth";
+import { authorizeAdminRequest, type AdminReqHeaders } from "../../server/adminGate";
 
 interface Req {
   method?: string;
-  headers: Record<string, string | string[] | undefined>;
+  headers: AdminReqHeaders;
   query: Record<string, string | string[] | undefined>;
   body?: unknown;
 }
@@ -26,13 +26,8 @@ function pick(v: string | string[] | undefined): string | undefined {
 }
 
 export default async function handler(req: Req, res: Res): Promise<void> {
-  // Guessing brake keyed on the PRESENTED credential (server/adminAuth.ts), so
-  // no stranger can lock the real admin out. State is per-isolate here, which
-  // only ever makes the brake more lenient — never the admin less available.
-  const { auth, retryAfterSec } = adminAuthGate.authorize(pick(req.headers["x-admin-key"]));
-  if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return; }
-  if (auth === "locked") { res.status(429).json({ error: "too many failed admin auth attempts", retryAfterSec }); return; }
-  if (auth === "forbidden") { res.status(401).json({ error: "unauthorized" }); return; }
+  const verdict = await authorizeAdminRequest(req.headers);
+  if (!verdict.ok) { res.status(verdict.status).json(verdict.body); return; }
 
   let store: CampaignStore;
   try {

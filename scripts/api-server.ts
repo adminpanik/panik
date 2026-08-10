@@ -76,6 +76,7 @@ import { LruCache } from "../server/lruCache";
 import { logNarration, type NarrationLogRow, type NarrationStore } from "../server/narrationLog";
 import { buildCreateInput, type RawCreateBody } from "../server/adminCampaigns";
 import { adminAuthGate } from "../server/adminAuth";
+import { adminBearerGate } from "../server/adminGate";
 import { verifyWalletOwnership } from "../server/walletAuth";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
 import { SupabaseDelegationStore } from "../server/exitDelegationStore";
@@ -405,7 +406,7 @@ app.use((req, res, next) => {
   else if (origin) logDeniedOrigin(origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Bot-Api-Secret-Token, X-Admin-Key");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Telegram-Bot-Api-Secret-Token, X-Admin-Key");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
   next();
 });
@@ -568,6 +569,9 @@ app.get("/api/version", (_req, res) => {
  * server/adminAuth.ts.
  */
 function requireAdmin(req: express.Request, res: express.Response): boolean {
+  // Already established upstream by adminBearerGate (a signed-in Supabase
+  // operator). Nobody sets this but that middleware, on a verified identity.
+  if (res.locals.adminAuthed === true) return true;
   const { auth, retryAfterSec } = adminAuthGate.authorize(req.header("x-admin-key") ?? undefined);
   if (auth === "unconfigured") { res.status(503).json({ error: "admin unconfigured (ADMIN_ACCESS_KEY)" }); return false; }
   if (auth === "locked") {
@@ -1389,8 +1393,34 @@ async function adminCampaigns(req: express.Request, res: express.Response): Prom
     serverError(req, res, 502, err);
   }
 }
-app.get("/api/admin/campaigns", adminLimit, adminCampaigns);
-app.post("/api/admin/campaigns", adminLimit, adminCampaigns);
+/**
+ * Who redeemed ONE campaign, plus every attempt against it (failures included).
+ * Returns personal data (claim IP + user agent), so it sits behind the same
+ * admin gate as the rest and inherits adminLimit's 10/min ceiling. Nothing here
+ * is logged: the rows go to the operator's screen and no further.
+ */
+async function adminRedemptions(req: express.Request, res: express.Response): Promise<void> {
+  if (!requireAdmin(req, res)) return;
+  if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
+  // Same normalization the SQL applies (upper(btrim(...))), so a code copied
+  // from a printed card with stray case or spaces still resolves.
+  const code = String(req.query.code ?? "").trim().toUpperCase();
+  if (!code) { res.status(400).json({ error: "missing code" }); return; }
+  try {
+    const store = CampaignStore.fromEnv();
+    const [redemptions, attempts] = await Promise.all([
+      store.listRedemptions(code),
+      store.listAttempts(code),
+    ]);
+    res.json({ code, redemptions, attempts });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+}
+
+app.get("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
+app.post("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
+app.get("/api/admin/redemptions", adminLimit, adminBearerGate, adminRedemptions);
 
 app.get("/api/chain", publicLimit, async (req, res) => {
   try {
@@ -1411,7 +1441,7 @@ if (process.env.SERVE_STATIC === "true") {
     if (p === "/app") return "app.html";
     if (p === "/founding" || p === "/early-access") return "founding.html";
     if (p === "/try") return "try.html";
-    if (p === "/admin-neithan") return "admin.html";
+    if (p === "/admin" || p === "/admin-neithan") return "admin.html";
     return "index.html";
   };
   app.use(express.static(dist, { extensions: ["html"] }));
