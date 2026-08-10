@@ -57,6 +57,18 @@ import {
 } from "../server/profileDeps";
 import { TelegramStore } from "../server/telegramStore";
 import { sendMessage, setWebhook } from "../server/telegram";
+import { linkState } from "../server/telegramReach";
+import {
+  SupabaseHeartbeatStore,
+  heartbeatAlerts,
+  type HeartbeatStore,
+} from "../server/workerHeartbeat";
+import {
+  AlertDispatcher,
+  SupabaseAlertLedger,
+  operatorLogSink,
+  operatorWebhookSink,
+} from "../server/monitorAlerts";
 import { CampaignStore } from "../server/campaignStore";
 import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
@@ -458,6 +470,82 @@ const BOOT_AT = new Date().toISOString();
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, cachedAt: scoresCache.at, positions: scoresCache.positions.length });
 });
+
+// ── Worker liveness (Phase 4.B) ─────────────────────────────────────────────
+//
+// THE WORKER CANNOT PAGE FOR ITS OWN DEATH. Everything that watches coverage
+// runs inside scripts/watch-worker.ts, so a process that dies or hangs silences
+// every alert at once — and silence looks exactly like health. The worker
+// therefore asserts liveness into public.worker_heartbeats on every COMPLETED
+// loop, and this process, which is deployed separately on Railway and does not
+// share the worker's lifecycle, is the one that notices the assertion stop.
+//
+// Two ways to consume it, both live here on purpose:
+//   * GET /api/health/worker — 503 when any loop is overdue. This is the
+//     endpoint an external uptime check points at, and it is the delivery path
+//     that survives BOTH processes being wrong about themselves.
+//   * The interval below pages the operator channel directly, so the page does
+//     not depend on anyone having wired an uptime check yet.
+const WORKER_WATCHDOG_MS = 60_000;
+const workerHeartbeats: HeartbeatStore | null =
+  process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY
+    ? SupabaseHeartbeatStore.fromEnv()
+    : null;
+const watchdogAlerts = workerHeartbeats
+  ? new AlertDispatcher(
+      SupabaseAlertLedger.fromEnv(),
+      [
+        operatorLogSink,
+        ...(process.env.MONITOR_OPERATOR_WEBHOOK_URL?.trim()
+          ? [operatorWebhookSink(process.env.MONITOR_OPERATOR_WEBHOOK_URL.trim())]
+          : []),
+      ],
+    )
+  : null;
+
+/** Loops whose absence is a page. Mirrors EXPECTED_LOOPS in the worker. */
+const WORKER_LOOPS = ["watch", "dispatch", "monitor"] as const;
+
+app.get("/api/health/worker", publicLimit, async (req, res) => {
+  if (!workerHeartbeats) {
+    res.status(503).json({ ok: false, error: "heartbeat store unconfigured" });
+    return;
+  }
+  try {
+    const records = await workerHeartbeats.list();
+    // No bootedAt: this process's uptime says nothing about the WORKER's, and
+    // suppressing "never reported" on an API restart would hide a worker that
+    // has been dead the whole time.
+    const stale = heartbeatAlerts(records, WORKER_LOOPS, Date.now());
+    res.status(stale.length === 0 ? 200 : 503).json({
+      ok: stale.length === 0,
+      loops: records.map((r) => ({
+        loop: r.loop,
+        at: new Date(r.at).toISOString(),
+        expectedBy: new Date(r.expectedByMs).toISOString(),
+      })),
+      overdue: stale.map((a) => a.summary),
+    });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+if (workerHeartbeats && watchdogAlerts) {
+  setInterval(() => {
+    void (async () => {
+      try {
+        const stale = heartbeatAlerts(await workerHeartbeats.list(), WORKER_LOOPS, Date.now());
+        if (stale.length > 0) await watchdogAlerts.dispatch(stale);
+      } catch (err) {
+        console.error(`worker watchdog failed: ${(err as Error).message.slice(0, 160)}`);
+      }
+    })();
+  }, WORKER_WATCHDOG_MS);
+  console.log(`worker watchdog @${WORKER_WATCHDOG_MS / 1000}s over ${WORKER_LOOPS.join(", ")}`);
+} else {
+  console.warn("worker watchdog not started: SUPABASE_URL / SUPABASE_SECRET_KEY missing");
+}
 
 // Deploy marker - confirms WHICH commit is live (Railway injects the SHA).
 app.get("/api/version", (_req, res) => {
@@ -1090,17 +1178,35 @@ app.post("/api/telegram/link", strictLimit, async (req, res) => {
 // (and on load to show an existing link). Reads via the service key (table is
 // deny-all to the browser).
 //
-// Returns ONLY {linked}. It used to return the @username too, which made this
-// an unauthenticated wallet -> Telegram handle oracle: walk the wallet list and
-// you deanonymize the whole user base. The one bit that remains ("does this
-// address have alerts on") is what the card needs and is not identifying.
+// It used to return the @username too, which made this an unauthenticated
+// wallet -> Telegram handle oracle: walk the wallet list and you deanonymize
+// the whole user base. What remains says nothing about WHO the account is.
+//
+// Phase 4.B: LINKED, SUBSCRIBED and REACHABLE are three different facts and
+// `enabled` was reporting one number for all three, so a user who blocked the
+// bot read as fully alerted until the first alert failed — and the first alert
+// IS the emergency. The response now carries all three (see
+// server/telegramReach.ts), and the top-level `linked` field, which drove the
+// "you will be alerted" claim, now means `alertsDeliverable`: a link exists AND
+// there is no evidence the bot is blocked. Strictly stronger than the bit it
+// replaces, so no existing caller gets a weaker guarantee.
 app.get("/api/telegram/status", telegramStatusLimit, async (req, res) => {
   const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
   if (!isEvmAddress(wallet)) { res.status(400).json({ error: "invalid EVM wallet address" }); return; }
   if (!telegramConfigured) { res.status(503).json({ error: "telegram unconfigured" }); return; }
   try {
-    const link = await TelegramStore.fromEnv().getLink(wallet);
-    res.json({ linked: Boolean(link?.enabled) });
+    const state = linkState(await TelegramStore.fromEnv().getLinkState(wallet), Date.now());
+    res.json({
+      linked: state.alertsDeliverable,
+      link: {
+        linked: state.linked,
+        subscribed: state.subscribed,
+        reachability: state.reachability,
+        reachableAt: state.reachableAt,
+        unreachableSince: state.unreachableSince,
+        alertsDeliverable: state.alertsDeliverable,
+      },
+    });
   } catch (err) {
     serverError(req, res, 502, err);
   }
