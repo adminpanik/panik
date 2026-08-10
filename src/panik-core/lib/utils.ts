@@ -133,18 +133,6 @@ export function calculateDynamicPosition(
     ? Math.round(borrowValueUsd / (collateralQty * maxLTV)) 
     : 0;
 
-  // Generate recommendation plain language string
-  let recommendation = "Position optimal. Collateral buffer protects against severe asset volatility.";
-  if (status === "CRITICAL") {
-    const repayAmount = Math.round(borrowValueUsd - (collateralValueUsd * maxLTV * 0.6));
-    recommendation = `CRITICAL ALERT: Repay $${repayAmount} USDC immediately to prevent liquidator bids!`;
-  } else if (status === "HIGH") {
-    const repayAmount = Math.round(borrowValueUsd - (collateralValueUsd * maxLTV * 0.75));
-    recommendation = `ACTION REQUIRED: Repay $${Math.max(50, repayAmount)} USDC to return health factor to a secure 1.75.`;
-  } else if (status === "ELEVATED") {
-    recommendation = `RECOMMENDED: Supply $${Math.round(collateralValueUsd * 0.15)} more collateral to suppress minor market swings.`;
-  }
-
   // Breakdowns
   const baseSafety = protocol === "Aave V3" ? 12 : 35; // Aave is highly audited, Moonwell has brief local history
   const systemic = status === "CRITICAL" ? 88 : status === "HIGH" ? 72 : status === "ELEVATED" ? 48 : 22;
@@ -159,7 +147,6 @@ export function calculateDynamicPosition(
     healthFactor,
     liquidationPrice,
     currentPrice: collateralPrice,
-    recommendation,
     breakdown: {
       positionHealth: Math.min(100, Math.round(currentLTV * 100)),
       assetVolatility: protocol === "Aave V3" ? 28 : 42, // Ether has moderate volatility, wstETH is derivative pegged

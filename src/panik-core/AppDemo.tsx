@@ -1399,16 +1399,6 @@ export function AppDemo() {
   );
   const liveWatch = useProspective(prospectiveArgs);
 
-  const recommendationFor = (status: PositionState["status"]): string => {
-    if (status === "CRITICAL")
-      return `CRITICAL ALERT: Repay ${activeMarket.debtAsset} debt immediately to prevent liquidator bids!`;
-    if (status === "HIGH")
-      return `ACTION REQUIRED: Repay part of the ${activeMarket.debtAsset} debt to restore a secure buffer.`;
-    if (status === "ELEVATED")
-      return `RECOMMENDED: Supply more ${activeMarket.collateralAsset} to suppress minor market swings.`;
-    return "Position optimal. Collateral buffer protects against severe asset volatility.";
-  };
-
   const positionState: PositionState = liveWatch
     ? {
         protocol: activeMarket.protocol,
@@ -1426,7 +1416,6 @@ export function AppDemo() {
             ? Math.round(assetPrice * (1 - liveWatch.liquidationDrawdown))
             : 0,
         currentPrice: assetPrice,
-        recommendation: recommendationFor(liveWatch.band),
         breakdown: {
           positionHealth: Math.round(liveWatch.subScores.positionHealth),
           assetVolatility: Math.round(liveWatch.subScores.assetRisk),

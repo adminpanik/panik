@@ -37,7 +37,6 @@ export interface PositionState {
   healthFactor: number | null;
   liquidationPrice: number;
   currentPrice: number;
-  recommendation: string;
   breakdown: RiskBreakdown;
 }
 
