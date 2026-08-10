@@ -480,11 +480,26 @@ describe("PanikExecutor - multi-protocol atomic exit (Phase 2)", function () {
   });
 
   describe("reverts and guards", function () {
-    it("rejects contract callers (onlyEOA)", async function () {
+    // The inverse of the assertion that used to stand here. `atomicExit` carried
+    // `onlyEOA` (`msg.sender != tx.origin` reverts), which locked out every
+    // EIP-7702 delegated account — the default MetaMask configuration — and
+    // protected nothing: this path sets `user` to msg.sender and sweeps every
+    // proceed to msg.sender, so a contract caller exits its own position and
+    // receives its own money. `atomicExitFor`, where proceeds go to a named
+    // other user, never had the modifier at all.
+    //
+    // Asserted as "not that error" rather than as a full success: the proxy
+    // fixture holds no position of its own, so the call still fails further in.
+    // What matters is that it is no longer turned away at the door.
+    it("does not turn away contract callers", async function () {
       const f = await loadFixture(deployFixture);
-      await expect(
-        f.proxy.callAtomicExit(await f.executor.getAddress(), [f.legs.comet])
-      ).to.be.revertedWithCustomError(f.executor, "CallerNotEOA");
+      let reason = "";
+      try {
+        await f.proxy.callAtomicExit(await f.executor.getAddress(), [f.legs.comet]);
+      } catch (err) {
+        reason = (err as Error).message;
+      }
+      expect(reason).to.not.include("CallerNotEOA");
     });
 
     it("rejects an empty exit", async function () {
