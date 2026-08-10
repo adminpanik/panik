@@ -42,6 +42,7 @@ import type {
   ProfileStatus,
   ProspectiveLive,
   RegistryWallet,
+  ScoringChainInfo,
 } from "../src/panik-core/lib/live";
 
 /**
@@ -51,6 +52,20 @@ import type {
  * query param server-side, so the fixture must match in that form.
  */
 export const MOCK_WALLET = "0x4c9f2a1d7b3e8056af1c9d2e4b7a3f6081d5c2e9";
+
+/**
+ * The chain the mock claims to have read. Mainnet, because these fixtures are
+ * four mainnet-market positions: labelling them a testnet's would be the same
+ * lie in the other direction. The API serves this field with every position
+ * payload, so the mock has to as well or the header silently drops its
+ * provenance in mock mode only.
+ */
+export const MOCK_SCORING_CHAIN: ScoringChainInfo = {
+  mode: "mainnet",
+  chainId: 8453,
+  label: "Base",
+  protocols: ["aave_v3", "moonwell", "compound_v3", "morpho"],
+};
 
 /** Sub-score inputs shared across fixtures — see the header note on derivation. */
 const SYSTEMIC = 30; // calm-ish market, identical for every position at one instant
