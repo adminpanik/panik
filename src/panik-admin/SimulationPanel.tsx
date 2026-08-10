@@ -45,6 +45,7 @@ import {
   CUSTOM_SCENARIO_KEY,
   MARKET_SCENARIOS,
   SIMULATION_DEFAULT_MINUTES,
+  SIMULATION_CACHE_TTL_MS,
   SIMULATION_MAX_MINUTES,
   multiplierFromPct,
   pctFromMultiplier,
@@ -306,15 +307,14 @@ export function SimulationPanel({
               <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
               {busy ? "Arming..." : "Arm scenario"}
             </Button>
-            {/* The cache the scoring path reads sits behind a 10s TTL
-                (SIMULATION_CACHE_TTL_MS in server/simulationStore.ts) and the
-                refresh is fire-and-forget, so the first poll right after
-                arming can still show the old scores. Hardcoded rather than
-                imported: that module holds the Supabase service key and must
-                never enter a client bundle. Keep this number in sync by hand
-                if the TTL changes. */}
+            {/* The cache the scoring path reads sits behind this TTL and the
+                refresh is fire-and-forget, so the first poll right after arming
+                can still show the old scores. Read from the constant rather
+                than typed as a number, so the sentence cannot drift from the
+                behaviour it describes. */}
             <p className="mt-1.5 max-w-xs text-2xs font-sans text-text-muted">
-              Arming takes up to about 10 seconds to reach everyone watching.
+              Arming takes up to about {SIMULATION_CACHE_TTL_MS / 1000} seconds to reach everyone
+              watching.
             </p>
           </div>
         </div>
@@ -396,10 +396,10 @@ function ArmedView({
               <Square className="h-3.5 w-3.5" aria-hidden="true" />
               {busy ? "Stopping..." : "Stop now"}
             </Button>
-            {/* Same 10s cache TTL as the arm-form hint above; see the note
-                there for why the number is hardcoded rather than imported. */}
+            {/* Same cache TTL as the arm-form hint above. */}
             <p className="max-w-[10rem] text-right text-2xs font-sans text-text-muted">
-              Stopping takes up to about 10 seconds to reach everyone watching.
+              Stopping takes up to about {SIMULATION_CACHE_TTL_MS / 1000} seconds to reach
+              everyone watching.
             </p>
           </div>
         </div>
