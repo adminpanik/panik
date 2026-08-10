@@ -33,21 +33,38 @@ import {
 } from "./fixtures";
 
 /**
- * localStorage the dashboard reads before it will show anything (AppDemo.tsx
- * ~:347-372). Seeded from the page itself rather than by touching AppDemo, so
- * no production component knows mock mode exists.
+ * localStorage the dashboard reads. Seeded from the page itself rather than by
+ * touching AppDemo, so no production component knows mock mode exists.
  *
- * `panik_wallet` is the load-bearing one: it flips AppDemo into boundMode,
- * which is what fires the per-wallet /api/positions, /api/history and
- * /api/advisor requests this plugin answers.
+ * `panik_wallet` is NOT here any more, and that is the point of this comment.
+ * It used to hold the fixture address, AppDemo restored it as the dashboard's
+ * wallet on the next load, and a dev who had ever run `dev:mock` then saw a
+ * wallet nobody owned scored as if it were theirs — including in `npm run dev`
+ * against the real API, where their own position was invisible. AppDemo no
+ * longer restores a wallet from localStorage at all, so this plugin has no way
+ * to assert an identity and should not want one.
+ *
+ * What it CAN seed is the profile that address already answered for, keyed by
+ * wallet in the same store the app writes. Pasting the fixture address into the
+ * first-run invitation then completes instantly instead of walking the quiz.
  */
+const MOCK_PROFILE = {
+  riskScore: 50,
+  riskTier: "moderate",
+  riskTierLabel: "Moderate",
+  riskProfile3: "moderate",
+  segment: "risk_optimizer",
+  segmentLabel: "Risk Optimizer",
+};
+
 const SEED: Record<string, string> = {
   panik_onboarded: "true",
-  panik_wallet: MOCK_WALLET,
   panik_risk_profile: "moderate",
   panik_tour_seen: "true",
   panik_user_segment: "risk_optimizer",
   panik_risk_tier: "moderate",
+  // PROFILE_STORE_KEY in AppDemo.tsx.
+  panik_profiles_by_wallet: JSON.stringify({ [MOCK_WALLET]: MOCK_PROFILE }),
 };
 
 /**
@@ -122,7 +139,9 @@ export function mockApi(mode: string): Plugin[] {
       apply: "serve",
       configureServer(server) {
         server.config.logger.info(
-          `\n  \x1b[33m➜\x1b[0m  MOCK API: /api/* served from dev/fixtures.ts — wallet ${MOCK_WALLET}\n`,
+          `\n  \x1b[33m➜\x1b[0m  MOCK API: /api/* served from dev/fixtures.ts` +
+            `\n     Paste this into "Add your wallet" to populate the dashboard:` +
+            `\n     ${MOCK_WALLET}\n`,
         );
         server.middlewares.use((req, res, next) => {
           if (!req.url?.startsWith("/api/") || req.method !== "GET") return next();
