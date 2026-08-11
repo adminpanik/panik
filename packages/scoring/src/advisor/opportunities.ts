@@ -12,7 +12,7 @@ import { statusFor } from "../profile";
 import { scoreProtocolSafety } from "../subscores/protocolSafety";
 import type { Protocol, RiskProfile } from "../types";
 import { fallbackSections } from "./fallback";
-import { TARGET_HF } from "./repayMath";
+import { borrowForTargetHf, TARGET_HF } from "./repayMath";
 import type { AdvisorRecommendation, OpenPlan, WalletInsights } from "./types";
 
 /** Default sizing basis when the user has no stated budget (UI rescales). */
@@ -94,8 +94,7 @@ export async function findOpportunities(
       if (exitSymbols.has(symbol)) continue;
 
       const collateralUsd = budgetUsd;
-      const borrowUsd =
-        Math.round(((collateralUsd * params.liquidationThreshold) / targetHf) * 100) / 100;
+      const borrowUsd = borrowForTargetHf(collateralUsd, params.liquidationThreshold, targetHf);
 
       let scored: ProspectiveScore;
       try {
