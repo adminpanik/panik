@@ -30,7 +30,7 @@ import {
   Plus,
 } from "lucide-react";
 import {
-  bandOfHealthFactor,
+  assetLoanToValue,
   bandOfScore,
   calculateDynamicPosition,
   demoMaxLtv,
@@ -38,10 +38,12 @@ import {
   formatCurrency,
   formatUsd,
   liquidationOutlook,
+  type LiquidationOutlook,
+  LOAN_TO_VALUE_UNAVAILABLE_HINT,
   PROTOCOL_LABEL,
   RISK_CHIP,
-  RISK_FILL,
   RISK_TEXT,
+  sameAssetDepegNote,
 } from "./lib/utils";
 /**
  * The user's alert level, from the engine rather than a literal. A VALUE import
@@ -63,6 +65,15 @@ import { COMPOSITE_WEIGHTS } from "../../packages/scoring/src/params";
  * simulator arms these exact numbers against the live scoring path.
  */
 import { MARKET_SCENARIOS } from "../../packages/scoring/src/simulation";
+/**
+ * The liquidation-drawdown formula, from the engine on the same terms:
+ * `prospective.ts` has no imports at all. The breakdown panel needs the
+ * FRACTION (to place a liquidation price on the example's anchor price), which
+ * `liquidationOutlook` deliberately does not hand back - it returns the rounded
+ * prose. Both read this one function, so the price and the percentage beside it
+ * cannot come from two different drawdowns.
+ */
+import { drawdownToLiquidation } from "../../packages/scoring/src/prospective";
 // Advisor-parity sizing for a Compass-initiated real open - see requestOpenPosition.
 import { borrowForTargetHf, TARGET_HF } from "../../packages/scoring/src/advisor/repayMath";
 import { marketParams } from "../../packages/scoring/src/markets";
@@ -212,6 +223,44 @@ const RISK_DRIVERS: RiskDriver[] = [
  */
 function driverWeightPct(driver: RiskDriver): number {
   return Math.round(COMPOSITE_WEIGHTS[driver.key] * 100);
+}
+
+/**
+ * How the composite is weighted, in RiskDial's own words and from the engine's
+ * own numbers.
+ *
+ * The weights are a HOVER fact, never a visible label beside a sub-score.
+ * Printed on the surface they read as a promise about the arithmetic the score
+ * followed, and the engine renormalises over the terms it could read, so that
+ * promise is only kept when all four came back.
+ *
+ * This string matches `RiskDial`'s tooltip character for character so the two
+ * surfaces teach one sentence, and it is built from `COMPOSITE_WEIGHTS` so a
+ * re-weight moves both.
+ *
+ * The Compass path is the case where the published weights ARE the arithmetic:
+ * `CompassLiveScore.subScores` is non-nullable (lib/live.ts), and the offline
+ * fallback is constructed so its weighted sum reproduces the composite. Nothing
+ * this panel renders can be degraded, so it never needs RiskDial's other
+ * branch.
+ */
+const COMPOSITE_WEIGHT_SENTENCE = `Weighted ${RISK_DRIVERS.map(driverWeightPct).join("/")}.`;
+
+/**
+ * Collateral and debt are the SAME asset (the two USDC supply presets).
+ *
+ * An absolute price move then rescales both sides of the position at once, so
+ * the distance to liquidation is a ratio that does not move, and any figure
+ * quoted as a fall in the collateral's DOLLAR price is not a fact about this
+ * market. What moves it is the two legs pricing apart.
+ *
+ * One predicate for the two surfaces that have to know: the Watch simulator's
+ * price scenarios and the Compass risk-breakdown panel.
+ */
+function isSameAssetMarket(
+  market: Pick<VaultPreset, "collateralAsset" | "debtAsset">,
+): boolean {
+  return market.collateralAsset === market.debtAsset;
 }
 
 /** Tailwind's `md`. The nav swaps here, so the JS query and the CSS agree. */
@@ -724,6 +773,419 @@ function MarketCard({
   );
 }
 
+/**
+ * Everything the risk-breakdown panel renders, read once so no cell can derive
+ * a second version of a figure another cell already shows.
+ */
+interface BreakdownData {
+  /** False = the score came from the offline fallback, not the engine. */
+  isLive: boolean;
+  subs: Record<keyof typeof COMPOSITE_WEIGHTS, number>;
+  /** The health factor as a price move, worded and rounded by the engine. */
+  outlook: LiquidationOutlook;
+  /** The example's anchor price after the engine's drawdown. Null = no debt. */
+  liqPrice: number | null;
+  poolYield: PoolYield | null;
+}
+
+/**
+ * One labelled row of the risk-breakdown panel.
+ *
+ * The shape is the Portfolio position row's and the Compass card's: a
+ * hairline-separated list inside ONE panel, label left at 12px, figure right at
+ * 14px. A bordered, tinted well per figure inside a bordered, tinted panel is
+ * chrome wrapping chrome, and a dozen of them in a 500px column is what forces
+ * the content inside them down to 11px to fit.
+ */
+function BreakdownRow({
+  label,
+  hint,
+  value,
+  note,
+  children,
+}: {
+  label: React.ReactNode;
+  /** Methodology, provenance, or the exact ratio behind the figure. */
+  hint?: string;
+  /** Omitted by a row whose whole content is prose or a chart. */
+  value?: React.ReactNode;
+  /**
+   * One clause the label and the figure do not already state.
+   *
+   * It stacks UNDER the figure when there is one, so the qualifier reads as
+   * belonging to it; a row with no figure is prose and takes the full width.
+   * Both at body size: the thing most often qualified here is a dollar amount,
+   * and the money line is not the row's small print.
+   */
+  note?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5 py-3">
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="flex items-center gap-1 text-xs font-sans text-text-secondary">
+          {label}
+          {hint !== undefined && <InfoTip text={hint} />}
+        </span>
+        {value !== undefined && (
+          <span className="shrink-0 text-right">
+            <span className="block text-sm font-sans font-semibold tabular-nums text-text-primary">
+              {value}
+            </span>
+            {note !== undefined && (
+              <span className="mt-0.5 block text-sm font-sans tabular-nums text-text-secondary">
+                {note}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+      {value === undefined && note !== undefined && (
+        <p className="text-sm font-sans text-text-secondary">{note}</p>
+      )}
+      {children}
+    </div>
+  );
+}
+
+/** A run of `BreakdownRow`s under its heading. Hairlines, never nested wells. */
+function BreakdownSection({
+  heading,
+  hint,
+  children,
+}: {
+  heading: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-1">
+      <h4 className="flex items-center gap-1 text-xs font-sans font-semibold text-text-muted">
+        {heading}
+        {hint !== undefined && <InfoTip text={hint} />}
+      </h4>
+      <div className="divide-y divide-border-subtle border-t border-border-subtle">{children}</div>
+    </section>
+  );
+}
+
+/**
+ * The risk-breakdown panel's header, body and footer.
+ *
+ * Its own component because the panel is a self-contained reading surface with
+ * a dozen derived figures, and derivations written inline in the tab's JSX are
+ * how one quantity ends up computed twice in two cells.
+ *
+ * What it may claim is bounded by what this codebase measures: the engine's
+ * composite and its four sub-scores, DefiLlama's pool APY and TVL, and the
+ * example position `VAULT_PRESETS` states. Nothing here asserts a protocol's
+ * governance, its safety module, or what monitoring is watching a position -
+ * those are string literals keyed on a protocol name, and a static claim is
+ * still a claim the code cannot check. This is the panel whose entire job is
+ * explaining where a number came from, so it is the last place that may state
+ * one it did not read.
+ */
+function RiskBreakdownPanel({
+  preset,
+  data,
+  opensDemo,
+  onClose,
+  onSimulate,
+  onOpen,
+}: {
+  preset: VaultPreset;
+  data: BreakdownData;
+  /** This panel's open lands in the demo simulator, not a signed transaction. */
+  opensDemo: boolean;
+  onClose: () => void;
+  onSimulate: () => void;
+  onOpen: () => void;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  // The panel takes focus on open and Escape closes it: the dismissal contract
+  // a keyboard user expects from anything that covers the page behind a
+  // backdrop. Same shape as `AlertHistoryView`.
+  useEffect(() => {
+    panel.current?.focus();
+  }, []);
+
+  const sameAsset = isSameAssetMarket(preset);
+  const outlook = data.outlook;
+  /**
+   * The plain-drawdown case. `stripNote` is non-null exactly when a bare
+   * percentage would read as the opposite of the truth (no debt, liquidatable
+   * now), which are the two cases with no drop to reframe.
+   */
+  const statesADrop = outlook.stripNote === null;
+
+  const collateralValue = preset.defaultCollateral * preset.defaultPrice;
+  /**
+   * Guarded rather than trusted: every preset is a non-zero constant today, and
+   * `borrow / 0` is the "Infinity%" the design system forbids one edit away.
+   */
+  const ltvPct = collateralValue > 0
+    ? Math.round((preset.defaultBorrow / collateralValue) * 100)
+    : null;
+  // The protocol's real per-asset limits, from `MARKETS`, or the stated
+  // "we hold no parameters for this market" when it lists none.
+  const limits = assetLoanToValue(preset.protocol, preset.collateralSymbol);
+
+  /**
+   * The dollar value beside a token amount, and ONLY where it says something
+   * the token amount does not. At an anchor price of $1 the two are the same
+   * number, so "2000 USDC ($2,000)" is one quantity printed twice; at $1,667 a
+   * WETH the dollars are the fact most readers are actually after.
+   */
+  const collateralNote = preset.defaultPrice === 1 ? undefined : formatCurrency(collateralValue);
+
+  return (
+    <div
+      ref={panel}
+      tabIndex={-1}
+      role="dialog"
+      aria-labelledby="risk-breakdown-heading"
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.stopPropagation();
+        onClose();
+      }}
+      className="flex h-full flex-col overflow-hidden outline-hidden"
+    >
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle p-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
+          <div className="min-w-0">
+            <h3
+              id="risk-breakdown-heading"
+              className="truncate text-sm font-sans font-bold text-text-primary"
+            >
+              {preset.protocol} risk breakdown
+            </h3>
+            <span className="block truncate text-xs font-sans text-text-secondary">
+              {preset.assetPair}
+            </span>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          onClick={onClose}
+          aria-label="Close the risk breakdown"
+          title="Close the risk breakdown"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        {/* The headline, and the ONE place this panel spends a risk hue. The
+            figure is neutral ink at 18.1:1 and the chip beside it carries the
+            band, which is the whole of the "never colour a stat value" rule: a
+            band stated in three hued elements on one panel leaves nothing on it
+            reading as more important than anything else. */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1 text-xs font-sans text-text-secondary">
+              Panik risk score
+              <InfoTip
+                text={
+                  `0-100 composite of the four components below. ${COMPOSITE_WEIGHT_SENTENCE}` +
+                  ` LOW under 25, ELEVATED under 50, HIGH under 75, CRITICAL above.` +
+                  ` Higher means closer to liquidation.`
+                }
+              />
+            </span>
+            <div className="flex items-center gap-2">
+              {/* Live is the default and needs no badge. Only the fixture case
+                  is worth calling out, because it is the one the reader would
+                  otherwise get wrong. */}
+              {!data.isLive && (
+                <span
+                  title="This market's score came from the offline fallback, not a live engine read."
+                  className="rounded-sm border border-border-subtle bg-white/[0.04] px-2 py-0.5 text-2xs font-sans font-bold text-text-muted"
+                >
+                  Demo
+                </span>
+              )}
+              {/* Keyed on the band this preset ALREADY carries, not on a band
+                  re-derived from its number: the re-derived chain had no HIGH
+                  branch, so a preset labelled HIGH was painted CRITICAL red. */}
+              <RiskChip band={preset.riskStatus}>{preset.riskStatus}</RiskChip>
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-4xl font-sans font-bold tabular-nums text-text-primary">
+              {preset.baseRisk}
+            </span>
+            <span className="text-sm font-sans text-text-muted tabular-nums">/ 100</span>
+          </div>
+        </div>
+
+        {/* The engine's four weighted sub-scores, from the same RISK_DRIVERS
+            table Watch's breakdown reads, at the same neutral bar treatment.
+            These are the parts of ONE score, already banded once by the chip
+            above; four hues here would be four verdicts about one position. */}
+        <BreakdownSection heading="Score breakdown">
+          {RISK_DRIVERS.map((driver) => {
+            const value = data.subs[driver.key];
+            return (
+              <BreakdownRow
+                key={driver.key}
+                label={driver.label}
+                hint={`${driver.panelHint} ${driverWeightPct(driver)}% of the score.`}
+                value={value}
+              >
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.03]">
+                  <div
+                    className="h-full rounded-full bg-text-secondary"
+                    style={{ width: `${value}%` }}
+                  />
+                </div>
+              </BreakdownRow>
+            );
+          })}
+        </BreakdownSection>
+
+        {/* The example the score is ABOUT, said in words above its figures.
+            Every number here is the sample trade `VAULT_PRESETS` states plus
+            the engine's reading of it; the reader does not hold this position,
+            and the heading is where they find that out. */}
+        <BreakdownSection
+          heading="Example position this preview is scored on"
+          hint="PANIK previews each market against a sample position of a fixed size. These are that sample's figures, not a position you hold. Open the simulator to score your own numbers."
+        >
+          {/* A same-asset market still has a real distance to liquidation -
+              the engine's 1 - 1/HF is a ratio and holds - but it is a gap that
+              has to OPEN between the two legs, not a fall in a price they
+              share. "Drop to liquidation" would name the wrong move. */}
+          <BreakdownRow
+            label={sameAsset && statesADrop ? "Depeg to liquidation" : outlook.statLabel}
+            /* The caveat leads, because it changes how the percentage is read;
+               the engine's own hover, which opens with the exact health factor,
+               follows it unaltered. */
+            hint={
+              sameAsset && statesADrop
+                ? `${sameAssetDepegNote(preset.collateralAsset)} ${outlook.hover}`
+                : outlook.hover
+            }
+            value={outlook.statValue}
+          />
+
+          <BreakdownRow
+            label="Loan to value"
+            hint={
+              `Debt as a share of the collateral's value. ` +
+              (limits === null ? LOAN_TO_VALUE_UNAVAILABLE_HINT : limits.note)
+            }
+            /* Never a zero standing in for an unknown: a market with no
+               collateral value has no loan to value, and "0%" is the reading a
+               reader would act on. */
+            value={ltvPct === null ? "Unavailable" : `${ltvPct}%`}
+          />
+
+          {/* A dollar liquidation price is a fact about markets whose two legs
+              can price apart. On USDC collateral against USDC debt it is not
+              one: the drawdown on a $1 anchor lands at "$0.29", which says this
+              position liquidates when USDC reaches 29 cents, about a pair no
+              dollar move can separate. The market gets the move that does
+              change it instead, in the wording Watch uses for the same
+              reason. */}
+          {sameAsset ? (
+            <BreakdownRow
+              label="What moves this market"
+              note={sameAssetDepegNote(preset.collateralAsset)}
+            />
+          ) : (
+            <BreakdownRow
+              label="Liquidation price"
+              hint={`The ${preset.collateralAsset} price at which the example position becomes liquidatable. The drawdown is the engine's; the price it lands on is the example's anchor price.`}
+              value={data.liqPrice != null ? formatCurrency(data.liqPrice) : "None"}
+            />
+          )}
+
+          {/* Grouped, because these sit in a column with `formatCurrency`'s
+              output two rows up and "4500" beside "$8,000" reads as two
+              different kinds of number. No token formatter applies: these are
+              plain constants from `VAULT_PRESETS`, not wei, so
+              `formatTokenAmount` (which takes a bigint and a decimals) has
+              nothing to convert. */}
+          <BreakdownRow
+            label="Collateral"
+            value={`${preset.defaultCollateral.toLocaleString("en-US")} ${preset.collateralAsset}`}
+            note={collateralNote}
+          />
+          <BreakdownRow
+            label="Borrowed"
+            value={`${preset.defaultBorrow.toLocaleString("en-US")} ${preset.debtAsset}`}
+          />
+        </BreakdownSection>
+
+        {/* The two figures on this panel that are neither the engine's nor the
+            example's. Provenance is a question asked once, so it is on the
+            heading's hover rather than captioned on every glance. */}
+        <BreakdownSection
+          heading="Pool metrics"
+          hint="Read from DefiLlama, refreshed with the Compass cards. Each figure is drawn over the last 30 days."
+        >
+          <BreakdownRow
+            label="Supply APY"
+            /* One rounding rule per quantity: the Compass card this panel opens
+               from prints the same APY to one decimal, from the same fallback.
+
+               The fallback says where its number came from. The heading's tip
+               names DefiLlama, and a listed constant rendered under that claim
+               with nothing beside it is the panel asserting a live read it did
+               not get. */
+            value={`${(data.poolYield?.apy ?? preset.apy).toFixed(1)}%`}
+            note={
+              data.poolYield ? undefined : "This market's listed rate; the live pool read failed"
+            }
+          >
+            {data.poolYield && (
+              <Sparkline
+                data={data.poolYield.apySeries}
+                stroke="var(--color-chart-series)"
+                height={28}
+              />
+            )}
+          </BreakdownRow>
+
+          <BreakdownRow
+            label="Pool TVL"
+            hint="Total value locked. A falling TVL can signal capital leaving the market."
+            /* No listed constant exists for TVL, and inventing one would be the
+               "never render an unknown as a zero" rule failing. The word is the
+               honest answer, and it is not the same answer as a small pool. */
+            value={data.poolYield ? formatCompactUsd(data.poolYield.tvlUsd) : "Unavailable"}
+          >
+            {data.poolYield && (
+              <Sparkline
+                data={data.poolYield.tvlSeries}
+                stroke="var(--color-chart-series)"
+                height={28}
+              />
+            )}
+          </BreakdownRow>
+        </BreakdownSection>
+      </div>
+
+      {/* One primary action, and it is the only filled button in the panel. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-base p-4">
+        <Button variant="outline" onClick={onClose}>
+          Close
+        </Button>
+        <Button variant="outline" onClick={onSimulate}>
+          Open simulator
+        </Button>
+        <Button onClick={onOpen}>
+          <Plus className="h-3.5 w-3.5" />
+          Open position
+        </Button>
+        {opensDemo && <DemoChip />}
+      </div>
+    </div>
+  );
+}
+
 export function AppDemo() {
   // Navigation tabs exactly reflecting the Figma screenshot
   const [activeTab, setActiveTab] = useState<SidebarTab>("portfolio");
@@ -1160,7 +1622,7 @@ export function AppDemo() {
   // Position/Pool/Protocol sub-scores from baseRisk offsets, so its numbers
   // never reconciled with the headline score). Live engine values when
   // /api/compass is up; weighted-consistent demo estimates otherwise.
-  const breakdownData = useMemo(() => {
+  const breakdownData = useMemo<BreakdownData | null>(() => {
     const p = selectedRiskBreakdownPreset;
     if (!p) return null;
     const live = compassLive?.[p.id] ?? null;
@@ -1172,15 +1634,29 @@ export function AppDemo() {
           systemicRisk: Math.round(live.subScores.systemicRisk),
         }
       : demoSubScores(p.baseRisk);
-    // null HF = no debt (live); the demo fallback keeps the old derivation.
+    // null HF = no debt, which only the live path can report; the offline
+    // branch derives one from the score and so always has a number.
     const healthFactor = live ? live.healthFactor : Math.round((2.5 - p.baseRisk / 60) * 100) / 100;
-    const drawdown = live ? live.liquidationDrawdown : 0.28;
+    /**
+     * Every liquidation figure the panel shows hangs off THAT health factor,
+     * through the engine's one `1 - 1/HF`.
+     *
+     * The API serves `liquidationDrawdown` beside the health factor and the two
+     * are the same arithmetic on the same inputs (adapters/prospective.ts), so
+     * reading it would buy nothing and the offline branch has no drawdown to
+     * serve at all - it would need a literal, and a literal beside a derived
+     * health factor is two cells of one panel free to disagree.
+     */
+    const drawdown = drawdownToLiquidation(healthFactor);
     return {
       isLive: Boolean(live),
       subs,
-      healthFactor,
+      /**
+       * The health factor as the price move it means, worded and rounded by the
+       * engine. The exact ratio stays reachable on `outlook.hover`.
+       */
+      outlook: liquidationOutlook(healthFactor, p.collateralAsset),
       liqPrice: drawdown != null ? p.defaultPrice * (1 - drawdown) : null,
-      bufferPct: drawdown != null ? Math.round(drawdown * 100) : null,
       poolYield: poolYields?.[p.id] ?? null,
     };
   }, [selectedRiskBreakdownPreset, compassLive, poolYields]);
@@ -1508,14 +1984,11 @@ export function AppDemo() {
   // The single market object the whole simulator reads (real position or preset).
   const activeMarket = watchingOwnPosition ? selectedPositionMarket.preset : activePreset;
   /**
-   * Collateral and debt are the SAME asset (the two USDC supply presets).
-   * An absolute price move then rescales both sides of the position at once, so
-   * the distance to liquidation is a ratio that does not move, and the price
-   * scenarios below would be answering a question this market cannot be asked.
-   * What moves it here is the two legs pricing apart, which is the pair of price
-   * controls, not a scenario chip.
+   * Same asset on both legs, so the price scenarios below would be answering a
+   * question this market cannot be asked. What moves it here is the two legs
+   * pricing apart, which is the pair of price controls, not a scenario chip.
    */
-  const sameAssetMarket = activeMarket.collateralAsset === activeMarket.debtAsset;
+  const sameAssetMarket = isSameAssetMarket(activeMarket);
 
   // Simulator parameters (sliders + direct numeric inputs)
   const [collateralAmount, setCollateralAmount] = useState<number>(activePreset.defaultCollateral);
@@ -2393,13 +2866,16 @@ export function AppDemo() {
                         same asset. Stating why is the only version that is true;
                         deleting the panel would leave the market looking
                         unfinished, and re-labelling the chips would keep a
-                        magnitude nobody can act on. */}
+                        magnitude nobody can act on.
+
+                        The fact comes from `sameAssetDepegNote`, shared with the
+                        risk-breakdown panel, which has to withhold its dollar
+                        liquidation price for exactly this reason. Only the
+                        instruction after it is this screen's. */}
                     {sameAssetMarket ? (
                       <p className="text-xs font-sans text-text-secondary leading-relaxed">
-                        Collateral and debt are both {activeMarket.collateralAsset} here, so a move in
-                        its price rescales the two sides together and your distance to liquidation
-                        stays where it is. Set the two price controls below apart to simulate the
-                        move that does change it, a depeg between what you supplied and what you owe.
+                        {sameAssetDepegNote(activeMarket.collateralAsset)} Set the two price controls
+                        below apart to simulate it.
                       </p>
                     ) : (
                     <div className="grid grid-cols-2 gap-2">
@@ -3456,7 +3932,7 @@ export function AppDemo() {
 
         {/* 3. SLIDE-OUT PANEL FOR DETAILED RISK BREAKDOWN (Linear/Stripe style) */}
         <AnimatePresence>
-          {selectedRiskBreakdownPreset && (
+          {selectedRiskBreakdownPreset && breakdownData && (
             <>
               {/* Overlay backdrop */}
               <motion.div
@@ -3475,328 +3951,19 @@ export function AppDemo() {
                 transition={{ type: "spring", damping: 26, stiffness: 220 }}
                 className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
               >
-                {/* Panel Header */}
-                <div className="shrink-0 p-6 border-b border-border-subtle flex items-center justify-between bg-surface-raised/60 font-sans">
-                  <div className="flex items-center gap-3">
-                    <ProtocolLogo protocol={selectedRiskBreakdownPreset.protocol} size="w-8 h-8" />
-                    <div>
-                      <h3 className="font-sans font-bold text-text-primary text-sm">
-                        {selectedRiskBreakdownPreset.protocol} risk breakdown
-                      </h3>
-                      <span className="text-2xs font-sans text-text-secondary block">
-                        {selectedRiskBreakdownPreset.assetPair}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={() => setSelectedRiskBreakdownPreset(null)}
-                    className="p-1.5 rounded-md bg-white/5 hover:bg-white/10 text-text-secondary hover:text-text-primary border border-border-subtle cursor-pointer transition-colors"
-                    title="Close panel"
-                  >
-                    <X className="w-4.5 h-4.5" />
-                  </button>
-                </div>
-
-                {/* Panel Body */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                  
-                  {/* Scoreboard View */}
-                  <div className="bg-surface-raised/40 border border-border-subtle rounded-md p-4 space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="flex items-center gap-1.5 text-2xs font-sans text-text-muted">
-                        Panik risk score
-                        <InfoTip text="0-100 composite of the four weighted components below. LOW under 25, ELEVATED under 50, HIGH under 75, CRITICAL above." />
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        {/* Live is the default and needs no badge. Only the
-                            fixture case is worth calling out, because it is the
-                            one the reader would otherwise get wrong. */}
-                        {!breakdownData?.isLive && (
-                          <span className="text-2xs font-sans px-2 py-0.5 rounded-sm border bg-white/[0.04] text-text-muted border-border-subtle">
-                            DEMO
-                          </span>
-                        )}
-                        {/* Keyed on the band this preset ALREADY carries, not
-                            on a band re-derived from its number. The re-derived
-                            chain had no HIGH branch, so a preset labelled HIGH
-                            (50-74) was painted CRITICAL red while its own text
-                            said HIGH — the word and the colour contradicting
-                            each other inside one chip, in the panel whose whole
-                            job is explaining what the number means. */}
-                        <span className={`text-2xs font-sans font-bold px-2.5 py-0.5 rounded-sm border ${RISK_CHIP[selectedRiskBreakdownPreset.riskStatus]}`}>
-                          {selectedRiskBreakdownPreset.riskStatus}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-baseline justify-center gap-1.5">
-                      <span className="text-4xl font-sans font-bold text-text-primary tracking-tighter tabular-nums">
-                        {selectedRiskBreakdownPreset.baseRisk}
-                      </span>
-                      <span className="text-xs font-sans text-text-muted tabular-nums">/ 100</span>
-                    </div>
-
-                    <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${RISK_FILL[selectedRiskBreakdownPreset.riskStatus]}`}
-                        style={{ width: `${selectedRiskBreakdownPreset.baseRisk}%` }}
-                      ></div>
-                    </div>
-
-                    {/* Score components: the engine's real weighted sub-scores,
-                        from the same RISK_DRIVERS table Watch's breakdown reads.
-                        These four cells were hand-typed labels and hand-typed
-                        weights, so this panel and that one were two tables of
-                        the same four rows. */}
-                    {breakdownData && (
-                      <div className="grid grid-cols-4 gap-2 pt-2 text-center text-xs font-sans">
-                        {RISK_DRIVERS.map((driver) => (
-                          <div
-                            key={driver.key}
-                            className="bg-white/[0.02] border border-border-subtle p-2 rounded-md"
-                          >
-                            <span className="flex items-center justify-center gap-1 text-2xs text-text-muted mb-0.5">
-                              {driver.short} ×{driverWeightPct(driver)}%
-                              <InfoTip text={driver.panelHint} />
-                            </span>
-                            <strong className="text-text-primary tabular-nums">
-                              {breakdownData.subs[driver.key]}
-                            </strong>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* TWO groups, and the split is a data-honesty requirement,
-                      not a layout preference.
-
-                      This grid used to hold twelve numbered cells of identical
-                      shape: same well, same muted label, same InfoTip, same bold
-                      figure. Three of them were arithmetic on hand-written
-                      `VAULT_PRESETS` constants and one was arithmetic on the
-                      risk score itself, and nothing on screen told them apart
-                      from the engine's live readings sitting in the next cell.
-                      The `DEMO` badge above does not cover them either: it is
-                      keyed on whether the SCORE came back live, and a preset
-                      constant is a constant in both cases.
-
-                      So the live readings keep this heading, and the example
-                      position the preview is scored against gets its own,
-                      stated in words above the cells rather than left for the
-                      reader to infer.
-
-                      The 1-12 prefixes went with the split. They were the
-                      spec's numbering rather than anything a reader needed, and
-                      with two cells deleted and the rest regrouped there is no
-                      contiguous sequence left to preserve. */}
-                  <div className="space-y-3">
-                    <span className="block text-2xs font-sans text-text-muted">
-                      Liquidation & pool metrics
-                    </span>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      {/* Health factor (live engine value when available) */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          Health factor
-                          <InfoTip text="Below 1.00 the protocol can liquidate this position. No debt means no liquidation risk." />
-                        </span>
-                        {breakdownData?.healthFactor == null ? (
-                          <span className="text-base font-sans font-bold mt-1 text-risk-low">No debt</span>
-                        ) : (
-                          <span className={`text-base font-sans font-bold mt-1 tabular-nums ${RISK_TEXT[bandOfHealthFactor(breakdownData.healthFactor)]}`}>
-                            {breakdownData.healthFactor.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Buffer to liquidation (the engine's drawdown) */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          Buffer to liquidation
-                          <InfoTip text="How far the collateral price must fall before liquidation. Your real safety margin - the most decision-useful number here." />
-                        </span>
-                        <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
-                          {breakdownData?.bufferPct != null ? `${breakdownData.bufferPct}%` : "-"}
-                        </span>
-                      </div>
-
-                      {/* Supply APY with 30d trend (DefiLlama) */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          Supply APY (30d)
-                          <InfoTip text="What suppliers earn in this pool right now, with the last 30 days' trend." />
-                        </span>
-                        {breakdownData?.poolYield ? (
-                          <>
-                            {/* Yield is not a risk band. Green here told the
-                                reader a high APY was safe, which is close to
-                                the opposite of true — the same mistake the
-                                Compass card had already corrected. */}
-                            <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
-                              {breakdownData.poolYield.apy.toFixed(2)}%
-                            </span>
-                            <Sparkline data={breakdownData.poolYield.apySeries} stroke="var(--color-chart-series)" height={24} className="mt-1" />
-                          </>
-                        ) : (
-                          <span className="text-base font-sans font-bold text-text-muted mt-1 tabular-nums">
-                            {selectedRiskBreakdownPreset.apy.toFixed(1)}%
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Pool TVL with 30d trend (DefiLlama) */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          Pool TVL (30d)
-                          <InfoTip text="Total value locked in this pool. Falling TVL can signal capital flight." />
-                        </span>
-                        {breakdownData?.poolYield ? (
-                          <>
-                            <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
-                              {formatCompactUsd(breakdownData.poolYield.tvlUsd)}
-                            </span>
-                            <Sparkline data={breakdownData.poolYield.tvlSeries} stroke="var(--color-chart-series)" height={24} className="mt-1" />
-                          </>
-                        ) : (
-                          <span className="text-base font-sans font-bold text-text-muted mt-1">-</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* The example position, said in words. Every figure below is
-                      read from this market's entry in `VAULT_PRESETS`: it is the
-                      sample trade the preview is scored against, and the reader
-                      does not hold it. Kept rather than deleted because the four
-                      numbers are what make the score above legible - a risk
-                      figure with no position attached to it explains nothing -
-                      but kept UNDER a heading that says what they are. */}
-                  <div className="space-y-3">
-                    <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                      Example position this preview is scored on
-                      <InfoTip text="PANIK previews each market against a sample position of a fixed size. These are that sample's figures, not a position you hold. Open the simulator to score your own numbers." />
-                    </span>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          Loan to value
-                          <InfoTip text="Debt as a share of collateral value. Closer to the protocol's max means a smaller cushion." />
-                        </span>
-                        <span className="text-base font-sans font-bold text-text-primary mt-1 tabular-nums">
-                          {Math.round((selectedRiskBreakdownPreset.defaultBorrow / (selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)) * 100)}%
-                        </span>
-                      </div>
-
-                      {/* Liquidation price sits with the example, not with the
-                          live readings: the drawdown is the engine's, but it is
-                          applied to the example's anchor price, so the dollar
-                          figure that lands on screen is only as real as the
-                          sample it is multiplied against. */}
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="flex items-center gap-1 text-2xs font-sans text-text-muted">
-                          Liquidation price
-                          <InfoTip text="The collateral price at which the example position becomes liquidatable." />
-                        </span>
-                        <span className="text-sm font-sans font-bold text-text-primary mt-1 tabular-nums">
-                          {breakdownData?.liqPrice != null ? formatCurrency(breakdownData.liqPrice) : "-"}
-                        </span>
-                      </div>
-
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="text-2xs font-sans text-text-muted">Collateral value</span>
-                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
-                          {selectedRiskBreakdownPreset.defaultCollateral} {selectedRiskBreakdownPreset.collateralAsset} ({formatCurrency(selectedRiskBreakdownPreset.defaultCollateral * selectedRiskBreakdownPreset.defaultPrice)})
-                        </span>
-                      </div>
-
-                      <div className="bg-surface-sunken/65 border border-border-subtle p-3 rounded-md flex flex-col justify-between">
-                        <span className="text-2xs font-sans text-text-muted">Borrowed amount</span>
-                        <span className="text-xs font-sans font-bold text-text-primary mt-1 truncate tabular-nums">
-                          {selectedRiskBreakdownPreset.defaultBorrow} {selectedRiskBreakdownPreset.debtAsset}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Dimension 8, 9, 10: Risk Signals */}
-                  <div className="space-y-3.5">
-                    <span className="block text-2xs font-sans text-text-muted">
-                      Risk signals & drivers
-                    </span>
-
-                    <div className="space-y-2 text-xs font-sans">
-                      {/* Protocol signals */}
-                      <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">Protocol security signal</span>
-                        <p className="text-text-secondary">
-                          {selectedRiskBreakdownPreset.protocol === "Aave V3" && "Aave V3 safety module is funded and active. Dynamic interest-rate curves and isolation mode in place. Governance secured by multi-sig and timelock."}
-                          {selectedRiskBreakdownPreset.protocol === "Moonwell" && "Moonwell markets run on Base with a 48-hour governance timelock on system parameters. Collateral factors monitored continuously."}
-                          {selectedRiskBreakdownPreset.protocol === "Morpho" && "Morpho Blue markets are isolated and immutable. Oracle and LLTV are fixed at market creation, so live parameters cannot be changed by governance."}
-                          {selectedRiskBreakdownPreset.protocol === "Compound V3" && "Compound III (Comet) isolates a single borrowable asset against monitored collateral. Parameter changes pass a governance timelock."}
-                        </p>
-                      </div>
-
-                      {/* No "pool liquidity signal" here: depth and oracle
-                          drift are live market facts nothing in this codebase
-                          reads, so this panel may not assert them. Pool TVL
-                          above is the real depth reading, from DefiLlama. */}
-
-                      {/* Position signals */}
-                      <div className="bg-white/[0.01] border border-border-subtle p-3 rounded-md leading-relaxed">
-                        <span className="block text-2xs text-text-muted mb-1 font-bold">Position watch signal</span>
-                        <p className="text-text-secondary">
-                          {selectedRiskBreakdownPreset.baseRisk < 20 
-                            ? "Position health maintains normal volatility parameters. No automated hedges currently required."
-                            /* "before the health factor approaches 1.25" was
-                               the same ratio-nobody-reads problem as the
-                               position rows, and in prose rather than in a
-                               labelled cell where it at least had an InfoTip
-                               beside it. 1.25 IS a 20% cushion (1 - 1/1.25),
-                               so this is the same threshold said in the unit
-                               the user can check against a price chart. */
-                            : "Position health has entered an elevated stress range. Consider reducing leverage or adding collateral while the collateral can still fall 20% before liquidation."
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-
-
-                </div>
-
-                {/* Panel Footer */}
-                <div className="shrink-0 p-5 border-t border-border-subtle bg-surface-base flex gap-3 font-sans">
-                  <button
-                    onClick={() => setSelectedRiskBreakdownPreset(null)}
-                    className="flex-1 py-3 text-center text-xs font-sans text-text-secondary bg-white/5 hover:bg-white/10 rounded-md cursor-pointer transition-colors border border-border-subtle"
-                  >
-                    Close panel
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedPresetId(selectedRiskBreakdownPreset.id);
-                      setWatchSource("recommendations");
-                      setActiveTab("watch");
-                      setSelectedRiskBreakdownPreset(null);
-                    }}
-                    className="flex-1 py-3 text-center text-xs font-sans font-bold text-text-primary bg-white/[0.06] border border-border-subtle rounded-md cursor-pointer hover:bg-white/10 transition-all"
-                  >
-                    Open simulator
-                  </button>
-                  <button
-                    onClick={() => requestOpenPosition(selectedRiskBreakdownPreset)}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 text-center text-xs font-sans font-bold text-surface-base bg-text-primary rounded-md cursor-pointer hover:opacity-90 transition-all shadow-lg"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Open position
-                  </button>
-                  {!opensReal(selectedRiskBreakdownPreset) && <DemoChip />}
-                </div>
+                <RiskBreakdownPanel
+                  preset={selectedRiskBreakdownPreset}
+                  data={breakdownData}
+                  opensDemo={!opensReal(selectedRiskBreakdownPreset)}
+                  onClose={() => setSelectedRiskBreakdownPreset(null)}
+                  onSimulate={() => {
+                    setSelectedPresetId(selectedRiskBreakdownPreset.id);
+                    setWatchSource("recommendations");
+                    setActiveTab("watch");
+                    setSelectedRiskBreakdownPreset(null);
+                  }}
+                  onOpen={() => requestOpenPosition(selectedRiskBreakdownPreset)}
+                />
               </motion.div>
             </>
           )}
