@@ -16,7 +16,7 @@
 
 import type { LiveProtocol } from "./live";
 import type { ContractClient } from "./exit";
-import type { ChainMode } from "./chainMode";
+import { CHAIN_MODE_LABEL, type ChainMode, type ControlState } from "./chainMode";
 import { SCORING_CHAINS } from "../../../packages/scoring/src/chains";
 // The protocol naming table, imported here rather than re-typed: the sentences
 // below are rendered, and a raw `aave_v3` in one of them is the enum leak the
@@ -133,12 +133,6 @@ export const SEPOLIA_OPENABLE_SYMBOLS: Record<LiveProtocol, string[]> = {
  */
 export interface OpenChainConfig {
   chainId: number;
-  /**
-   * This chain in the product's own words, from the scoring table that already
-   * names it. Every sentence built below prints this and never the mode string:
-   * "testnet" is an internal value, not a chain name a user should read.
-   */
-  label: string;
   aavePool: `0x${string}`;
   /**
    * AaveOracle for this market, from the scoring table - the same oracle the
@@ -163,7 +157,6 @@ export interface OpenChainConfig {
 const OPEN_CONFIGS: Record<ChainMode, OpenChainConfig> = {
   mainnet: {
     chainId: OPEN_CHAIN_ID,
-    label: SCORING_CHAINS.mainnet.label,
     aavePool: AAVE_POOL,
     aaveOracle: SCORING_CHAINS.mainnet.aave.oracle as `0x${string}`,
     faucet: null,
@@ -173,7 +166,6 @@ const OPEN_CONFIGS: Record<ChainMode, OpenChainConfig> = {
   },
   testnet: {
     chainId: OPEN_CHAIN_ID_SEPOLIA,
-    label: SCORING_CHAINS.testnet.label,
     aavePool: AAVE_POOL_SEPOLIA,
     aaveOracle: SCORING_CHAINS.testnet.aave.oracle as `0x${string}`,
     faucet: FAUCET_SEPOLIA,
@@ -214,15 +206,14 @@ export function openAvailabilityLine(
   protocol: LiveProtocol,
   symbol: string,
 ): string {
-  const config = openChainConfig(mode);
   const protocolLabel = PROTOCOL_LABEL[protocol] ?? protocol;
   if (mode === "testnet") {
-    const list = (Object.keys(config.openable) as LiveProtocol[])
-      .filter((p) => (config.openable[p] ?? []).length > 0)
-      .map((p) => `${(config.openable[p] ?? []).join(", ")} on ${PROTOCOL_LABEL[p] ?? p}`)
+    const list = Object.entries(openChainConfig(mode).openable)
+      .filter(([, symbols]) => symbols.length > 0)
+      .map(([p, symbols]) => `${symbols.join(", ")} on ${PROTOCOL_LABEL[p as LiveProtocol] ?? p}`)
       .join("; ");
     return (
-      `In-app opening on ${config.label} is limited to ${list}.` +
+      `In-app opening on ${CHAIN_MODE_LABEL[mode]} is limited to ${list}.` +
       ` Use the protocol's own app for ${symbol} on ${protocolLabel}.`
     );
   }
@@ -253,7 +244,7 @@ export function openControlState(
   mode: ChainMode,
   protocol: LiveProtocol,
   symbol: string,
-): { enabled: boolean; hint: string | undefined } {
+): ControlState {
   if (!isOpenSupported(openChainConfig(mode), protocol, symbol)) {
     return { enabled: false, hint: openAvailabilityLine(mode, protocol, symbol) };
   }

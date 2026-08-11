@@ -145,17 +145,18 @@ describe("openControlState", () => {
     });
   });
 
+  // The hint is pinned to the helper, not to copy fragments: which sentence
+  // the policy picks is this block's fact; the wording is openAvailabilityLine's.
   it("disables a testnet market the flow does not carry, naming what it does", () => {
     const state = openControlState(handler, "testnet", "moonwell", "WETH");
     expect(state.enabled).toBe(false);
-    expect(state.hint).toContain("is limited to");
-    expect(state.hint).toContain("USDC on Aave V3");
+    expect(state.hint).toBe(openAvailabilityLine("testnet", "moonwell", "WETH"));
   });
 
   it("disables an unverified mainnet market with the address-verified reason", () => {
     const state = openControlState(handler, "mainnet", "aave_v3", "LINK");
     expect(state.enabled).toBe(false);
-    expect(state.hint).toContain("not yet address-verified");
+    expect(state.hint).toBe(openAvailabilityLine("mainnet", "aave_v3", "LINK"));
   });
 
   // The chain-support check comes FIRST: an unsupported market is unsupported
@@ -166,7 +167,9 @@ describe("openControlState", () => {
       enabled: false,
       hint: "In-app opening ships with the position flows",
     });
-    expect(openControlState(null, "testnet", "moonwell", "WETH").hint).toContain("is limited to");
+    expect(openControlState(null, "testnet", "moonwell", "WETH").hint).toBe(
+      openAvailabilityLine("testnet", "moonwell", "WETH"),
+    );
   });
 });
 
@@ -179,8 +182,8 @@ describe("openAvailabilityLine", () => {
   });
 
   // The repo's enum-leak grep, as a test: no rendered sentence may carry an
-  // engine id or an internal mode string.
-  it("leaks no raw enum value into the rendered sentence", () => {
+  // engine id, an internal mode string, or an em dash (both founder rules).
+  it("leaks no raw enum value or em dash into the rendered sentence", () => {
     const lines = [
       openAvailabilityLine("testnet", "moonwell", "WETH"),
       openAvailabilityLine("testnet", "aave_v3", "WETH"),
@@ -190,6 +193,7 @@ describe("openAvailabilityLine", () => {
       for (const leak of ["aave_v3", "moonwell", "compound_v3", "morpho", "testnet", "mainnet"]) {
         expect(line).not.toContain(leak);
       }
+      expect(line).not.toMatch(/[–—]/);
     }
   });
 });

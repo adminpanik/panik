@@ -195,10 +195,8 @@ function ActionButton({
   }
   if (rec.action === "OPEN" && rec.openPlan) {
     const plan = rec.openPlan;
-    // Mirrors the exit above, with a third reason the exit does not have: the
-    // selected chain may not carry this market at all. Gating on the handler
-    // alone left a live button on, say, a testnet Moonwell opportunity, which
-    // dead-ended in the modal instead of saying so on the control.
+    // Mirrors the exit gating above; the policy and its reasons live in
+    // `openControlState`, shared with the popup.
     const { enabled, hint } = openControlState(
       onOpen,
       chainMode,

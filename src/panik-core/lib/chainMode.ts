@@ -174,10 +174,18 @@ export function useChainMode(): ChainMode {
  * wired in on that surface at all, which is a different reason from the chain
  * being unable to execute, and the hint has to name the right one.
  */
-export function exitControlState(
-  handler: unknown,
-  mode: ChainMode,
-): { enabled: boolean; hint: string | undefined } {
+/**
+ * What a gated action control renders: pressable or not, and the hover hint
+ * when not. Shared by `exitControlState` here and `openControlState` in
+ * `openProtocols.ts` (which cannot live here without an import cycle), so the
+ * two policies cannot drift into different shapes under the same buttons.
+ */
+export interface ControlState {
+  enabled: boolean;
+  hint: string | undefined;
+}
+
+export function exitControlState(handler: unknown, mode: ChainMode): ControlState {
   const executable = exitsExecutableOn(mode);
   if (!executable) return { enabled: false, hint: exitAvailabilityLine(mode) };
   if (!handler) {
