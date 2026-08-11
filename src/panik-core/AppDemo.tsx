@@ -100,7 +100,7 @@ import { AdvisorPanel } from "./components/AdvisorPanel";
 import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
 import { DelegationManager } from "./components/DelegationManager";
 import { ChainModeBadge, ChainModeSwitch } from "./components/ChainModeSwitch";
-import { useChainMode } from "./lib/chainMode";
+import { CHAIN_MODE_LABEL, useChainMode } from "./lib/chainMode";
 import { openControlState } from "./lib/openProtocols";
 import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
@@ -1699,23 +1699,31 @@ export function AppDemo() {
 
   // Profile-based filtering for Compass — runs on LIVE engine scores when
   // the API is up (presetsWithLive), static fallbacks otherwise.
+  //
+  // On testnet the catalog is first cut to markets that can really open there
+  // (founder decision): a grid of seven cards whose button lands in the demo
+  // simulator reads as broken next to the one that transacts. Mainnet shows
+  // the full catalog. The cut uses the SAME `opensReal` predicate the click
+  // routes on, so a card shown is a card that works.
+  const compassCatalog =
+    chainMode === "testnet" ? presetsWithLive.filter(opensReal) : presetsWithLive;
   const getProfileThresholds = () => {
     switch (selectedRiskProfile) {
       case "conservative":
         return {
-          recommended: presetsWithLive.filter(p => p.baseRisk < 20),
-          outside: presetsWithLive.filter(p => p.baseRisk >= 20)
+          recommended: compassCatalog.filter(p => p.baseRisk < 20),
+          outside: compassCatalog.filter(p => p.baseRisk >= 20)
         };
       case "aggressive":
         return {
-          recommended: presetsWithLive.filter(p => p.baseRisk >= 50),
-          outside: presetsWithLive.filter(p => p.baseRisk < 50)
+          recommended: compassCatalog.filter(p => p.baseRisk >= 50),
+          outside: compassCatalog.filter(p => p.baseRisk < 50)
         };
       case "moderate":
       default:
         return {
-          recommended: presetsWithLive.filter(p => p.baseRisk >= 20 && p.baseRisk < 50),
-          outside: presetsWithLive.filter(p => p.baseRisk < 20 || p.baseRisk >= 50)
+          recommended: compassCatalog.filter(p => p.baseRisk >= 20 && p.baseRisk < 50),
+          outside: compassCatalog.filter(p => p.baseRisk < 20 || p.baseRisk >= 50)
         };
     }
   };
@@ -1930,6 +1938,17 @@ export function AppDemo() {
                     ))}
                   </div>
                 </div>
+
+                {/* Why the testnet catalog is short. Without this line, one
+                    card standing where eight were reads as a loading failure
+                    rather than a choice; and the sentence changes what the
+                    user does next (switch chains), so it stays inline. */}
+                {chainMode === "testnet" && (
+                  <p className="text-xs font-sans text-text-secondary">
+                    {CHAIN_MODE_LABEL.testnet} shows only the markets that can be opened there.
+                    The full catalog is on {CHAIN_MODE_LABEL.mainnet}; switch chains in Settings.
+                  </p>
+                )}
 
                 {/* Three across at `xl`. Two columns left a permanent orphan:
                     an odd count is the normal case here (three recommended and
