@@ -20,7 +20,7 @@ import type {
   AdvisorUrgency,
 } from "../lib/live";
 import { formatUsd, PROTOCOL_LABEL } from "../lib/utils";
-import { useChainMode } from "../lib/chainMode";
+import { exitControlState, useChainMode, type ControlState } from "../lib/chainMode";
 import { openControlState } from "../lib/openProtocols";
 
 const STORE_KEY = "panik_advisor_popup_v1";
@@ -189,14 +189,14 @@ export function AdvisorPopup({
   };
 
   /**
-   * An OPEN notification the selected chain cannot execute. The notification
-   * still shows - the opportunity is real information, and the same card is
-   * readable in Compass either way - but its CTA would dead-end in the open
-   * modal's unsupported screen, so it is gated by the one policy the Advisor
-   * cards use. Only the open kind is gated: an exit CTA here is live wherever
-   * the exit flow is, and nothing about that changes.
+   * Whether the CTA may be pressed on the selected chain, by the same policy
+   * the Advisor cards and the Portfolio row apply to the same actions. The
+   * notification itself still shows either way - the reading is real
+   * information - but a button whose flow would dead-end renders disabled with
+   * the reason on hover, instead of this surface being the one place in the
+   * product where the same action answers differently.
    */
-  const openState =
+  const actionState: ControlState =
     notification?.kind === "open" && notification.rec.openPlan
       ? openControlState(
           onOpen,
@@ -204,8 +204,9 @@ export function AdvisorPopup({
           notification.rec.protocol,
           notification.rec.openPlan.collateralSymbol,
         )
-      : null;
-  const actionEnabled = openState === null || openState.enabled;
+      : notification?.kind === "exit" || notification?.kind === "reduce"
+        ? exitControlState(onExit, chainMode)
+        : { enabled: true, hint: undefined };
 
   return (
     <AnimatePresence>
@@ -240,18 +241,18 @@ export function AdvisorPopup({
               <div className="flex items-center gap-2 mt-3">
                 {notification.actionLabel ? (
                   <button
-                    onClick={actionEnabled ? act : undefined}
-                    disabled={!actionEnabled}
-                    title={actionEnabled ? undefined : openState?.hint}
+                    onClick={actionState.enabled ? act : undefined}
+                    disabled={!actionState.enabled}
+                    title={actionState.enabled ? undefined : actionState.hint}
+                    // `disabled:hover:` on every branch because a disabled
+                    // button still takes :hover in the browser, and a control
+                    // that lights up under the cursor reads as pressable.
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-2xs font-sans font-bold tracking-wide transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                       notification.kind === "exit"
-                        ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25"
+                        ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25 disabled:hover:bg-risk-critical/15"
                         : notification.kind === "reduce"
-                          ? "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25"
-                          : // `disabled:hover:` because a disabled button still
-                            // takes :hover in the browser, and a control that
-                            // lights up under the cursor reads as pressable.
-                            "bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 disabled:hover:bg-white/10"
+                          ? "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25 disabled:hover:bg-risk-elevated/15"
+                          : "bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 disabled:hover:bg-white/10"
                     }`}
                   >
                     {notification.actionLabel} <ArrowRight className="w-3 h-3" />
