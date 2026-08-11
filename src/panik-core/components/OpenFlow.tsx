@@ -91,6 +91,25 @@ function saveProgress(key: string, progress: OpenProgress): void {
   }
 }
 
+/**
+ * Gas limit to send with a write: the node's estimate plus half again.
+ *
+ * `simulateContract` is an eth_call and carries no gas figure, so without this
+ * the wallet sends the bare eth_estimateGas result - a limit Aave's nested
+ * library delegatecalls can run out of gas under (the 63/64 rule starves the
+ * inner frame while the outer one survives). The transaction then mines as a
+ * reasonless revert whose gas-used sits BELOW the limit, which hides the OOG.
+ * Reproduced on a Base Sepolia fork: the borrow leg failed 1 run in 3 with the
+ * bare estimate and 0 in 3 with this buffer. Unused gas is refunded.
+ */
+async function bufferedGas(
+  client: { estimateContractGas(params: unknown): Promise<bigint> },
+  call: unknown,
+): Promise<bigint> {
+  const estimate = await client.estimateContractGas(call);
+  return (estimate * 3n) / 2n;
+}
+
 export function OpenFlow({
   plan,
   riskProfile,
@@ -310,14 +329,16 @@ export function OpenFlow({
           // a reverted borrow mints nothing instead of minting blindly.
           const faucet = config.faucet;
           const mintLabel = `Mint test ${plan.collateralSymbol}`;
-          say(`${mintLabel} - simulating...`);
-          const { request } = await client.simulateContract({
+          const mintCall = {
             account: address,
             address: faucet,
             abi: OPEN_FAUCET_ABI,
             functionName: "mint",
             args: [token.address, address, deficit],
-          });
+          };
+          say(`${mintLabel} - simulating...`);
+          const { request } = await client.simulateContract(mintCall);
+          (request as { gas?: bigint }).gas = await bufferedGas(client, mintCall);
           say(`${mintLabel} - confirm in wallet...`);
           const mintHash = await writeContractAsync(request as never);
           say(`${mintLabel} - waiting for confirmation...`);
@@ -338,14 +359,16 @@ export function OpenFlow({
       let committed = started.collateralAmount;
       for (let i = start; i < steps.length; i += 1) {
         const s = steps[i]!;
-        say(`${s.label} - simulating...`);
-        const { request } = await client.simulateContract({
+        const call = {
           account: address,
           address: s.address,
           abi: s.abi,
           functionName: s.functionName,
           args: s.args,
-        });
+        };
+        say(`${s.label} - simulating...`);
+        const { request } = await client.simulateContract(call);
+        (request as { gas?: bigint }).gas = await bufferedGas(client, call);
         say(`${s.label} - confirm in wallet...`);
         const hash = await writeContractAsync(request as never);
         say(`${s.label} - waiting for confirmation...`);
