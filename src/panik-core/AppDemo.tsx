@@ -108,7 +108,7 @@ import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
 import { ALL_PROTOCOLS, ProtocolLogo, ProtocolMarks } from "./components/ProtocolLogo";
-import { Onboarding } from "./components/Onboarding";
+import { Onboarding, type OnboardingMode } from "./components/Onboarding";
 import { FirstRunInvite } from "./components/FirstRunInvite";
 import {
   forgetRegistration,
@@ -771,11 +771,13 @@ export function AppDemo() {
   const watchDropRef = useRef<HTMLDivElement>(null);
 
   // ── First-time onboarding (no backend — localStorage-persisted) ──────────
-  // Read ONCE, at mount. The overlay is mandatory on a genuinely first run and
-  // cancellable every time after; reading the flag live would make it
-  // cancellable mid-flow the moment `handleOnboardingComplete` writes it.
-  const [firstRun] = useState<boolean>(() => localStorage.getItem("panik_onboarded") !== "true");
-  const [showOnboarding, setShowOnboarding] = useState<boolean>(firstRun);
+  // Null means closed; the value is WHY it is open, because the three entry
+  // points want different things and only the first run is a first run. Read
+  // ONCE, at mount: reading the flag live would make the mandatory pass
+  // cancellable the moment `handleOnboardingComplete` writes it.
+  const [onboardingIntent, setOnboardingIntent] = useState<OnboardingMode | null>(
+    () => (localStorage.getItem("panik_onboarded") !== "true" ? "first-run" : null)
+  );
   /**
    * The wallet this dashboard is bound to, and it is deliberately NOT seeded
    * from localStorage.
@@ -830,7 +832,7 @@ export function AppDemo() {
     setSelectedRiskProfile(result.riskProfile3);
     setRiskTier(result.riskTier);
     setOnboardedWallet(wallet);
-    setShowOnboarding(false);
+    setOnboardingIntent(null);
     
     // Start the tutorial tour if they haven't seen it yet
     if (localStorage.getItem("panik_tour_seen") !== "true") {
@@ -874,7 +876,7 @@ export function AppDemo() {
   const savedProfiles = useMemo(
     () => loadProfileStore(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [onboardedWallet, showOnboarding],
+    [onboardedWallet, onboardingIntent],
   );
 
   // Live gas price for the header strip. This is the ONLY piece of chain
@@ -1720,18 +1722,25 @@ export function AppDemo() {
   return (
     <>
     {/* Onboarding overlay. First run: mandatory (no cancel). Every other way in
-        — the header chip, the Portfolio invitation — is cancellable, and a
-        wallet with a saved profile skips the quiz entirely.
+        — the header chip, the Portfolio invitation, the risk-tier chip — is
+        cancellable and says which job it is doing, and a wallet with a saved
+        profile skips the quiz entirely.
 
-        The cancel is keyed on `firstRun`, not on whether a wallet is bound. A
+        The cancel is keyed on the intent, not on whether a wallet is bound. A
         returning visitor has no bound wallet (nothing is restored from
         localStorage any more), so the old rule shut them into a modal they
         opened themselves and could not leave. */}
-    {showOnboarding && (
+    {onboardingIntent && (
       <Onboarding
+        mode={onboardingIntent}
+        initialWallet={onboardedWallet ?? undefined}
         onComplete={handleOnboardingComplete}
         savedProfiles={savedProfiles}
-        onCancel={firstRun && !onboardedWallet ? undefined : () => setShowOnboarding(false)}
+        onCancel={
+          onboardingIntent === "first-run" && !onboardedWallet
+            ? undefined
+            : () => setOnboardingIntent(null)
+        }
       />
     )}
 
@@ -1826,7 +1835,7 @@ export function AppDemo() {
               <span className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}>
                 <button
                   type="button"
-                  onClick={() => setShowOnboarding(true)}
+                  onClick={() => setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")}
                   title="Change your risk profile"
                   className="cursor-pointer hover:text-text-primary transition-colors"
                 >
@@ -1857,7 +1866,7 @@ export function AppDemo() {
             <div className="h-4 w-px bg-white/10 hidden md:block"></div>
             <button
               type="button"
-              onClick={() => setShowOnboarding(true)}
+              onClick={() => setOnboardingIntent("switch-wallet")}
               title={
                 onboardedWallet
                   ? "Change wallet - an address with a saved profile skips the questions"
@@ -2696,7 +2705,7 @@ export function AppDemo() {
                     and worse screen. */}
                 {!boundMode ? (
                   <FirstRunInvite
-                    onAddWallet={() => setShowOnboarding(true)}
+                    onAddWallet={() => setOnboardingIntent("switch-wallet")}
                     chainLabel={coveredChainLabel}
                     protocolSentence={coveredProtocolSentence}
                   />
