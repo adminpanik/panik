@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   buildOpenSteps,
   collateralStepCount,
+  faucetDeficit,
+  isOpenSupported,
+  openChainConfig,
   openProgressKey,
   resumeIndex,
+  AAVE_POOL,
+  AAVE_POOL_SEPOLIA,
+  SEPOLIA_OPEN_ASSETS,
   type OpenPlanInput,
 } from "./openProtocols";
 
@@ -11,12 +17,30 @@ const USER = "0x1111111111111111111111111111111111111111" as const;
 const COLLATERAL = 2_000_000_000_000_000_000n; // 2 WETH
 const BORROW = 3_000_000_000n; // 3000 USDC
 
+const MAINNET = openChainConfig("mainnet");
+const SEPOLIA = openChainConfig("testnet");
+
+const lower = (a: string) => a.toLowerCase();
+
 function aavePlan(overrides: Partial<OpenPlanInput> = {}): OpenPlanInput {
   return {
+    config: MAINNET,
     protocol: "aave_v3",
     collateralSymbol: "WETH",
     collateralAmount: COLLATERAL,
     borrowAmount: BORROW,
+    user: USER,
+    ...overrides,
+  };
+}
+
+function sepoliaPlan(overrides: Partial<OpenPlanInput> = {}): OpenPlanInput {
+  return {
+    config: SEPOLIA,
+    protocol: "aave_v3",
+    collateralSymbol: "USDC",
+    collateralAmount: 1_000_000n, // 1 test USDC (6 decimals)
+    borrowAmount: 500_000n, // 0.5 test USDT (6 decimals)
     user: USER,
     ...overrides,
   };
@@ -38,6 +62,125 @@ describe("buildOpenSteps step kinds", () => {
     const steps = buildOpenSteps(aavePlan({ borrowAmount: 0n }));
     expect(steps.map((s) => s.kind)).toEqual(["approve", "supply"]);
     expect(collateralStepCount(steps)).toBe(2);
+  });
+});
+
+describe("openChainConfig", () => {
+  it("resolves Base mainnet from the existing constants", () => {
+    expect(MAINNET.chainId).toBe(8453);
+    expect(lower(MAINNET.aavePool)).toBe(lower(AAVE_POOL));
+    expect(lower(MAINNET.aaveOracle)).toBe(lower("0x2Cc0Fc26eD4563A5ce5e8bdcfe1A2878676Ae156"));
+    // Mainnet assets are real, so there is nothing to mint.
+    expect(MAINNET.faucet).toBeNull();
+    expect(MAINNET.borrowSymbol).toBe("USDC");
+  });
+
+  // Literal addresses on purpose: the Sepolia config derives from the scoring
+  // table (SCORING_CHAINS.testnet), so these pin the DEPLOYMENT itself - a
+  // drift in that table fails here instead of being inherited silently.
+  it("resolves Base Sepolia to its own pool, oracle, faucet and reserves", () => {
+    expect(SEPOLIA.chainId).toBe(84532);
+    expect(lower(SEPOLIA.aavePool)).toBe(lower("0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27"));
+    expect(lower(SEPOLIA.aaveOracle)).toBe(lower("0x943b0dE18d4abf4eF02A85912F8fc07684C141dF"));
+    expect(lower(SEPOLIA.faucet!)).toBe(lower("0xD9145b5F45Ad4519c7ACcD6E0A4A82e83bB8A6Dc"));
+    expect(SEPOLIA.borrowSymbol).toBe("USDT");
+
+    expect(Object.keys(SEPOLIA.tokens).sort()).toEqual(["USDC", "USDT"]);
+    expect(lower(SEPOLIA.tokens.USDC!.address)).toBe(
+      lower("0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f"),
+    );
+    expect(SEPOLIA.tokens.USDC!.decimals).toBe(6);
+    expect(lower(SEPOLIA.tokens.USDT!.address)).toBe(
+      lower("0x0a215D8ba66387DCA84B284D18c3B4ec3de6E54a"),
+    );
+    expect(SEPOLIA.tokens.USDT!.decimals).toBe(6);
+  });
+
+  it("keeps the two chains' assets distinct by ADDRESS, not by symbol", () => {
+    // Both chains have a "USDC" and they are different contracts. Anything
+    // that matched on the symbol would have silently agreed here.
+    expect(lower(SEPOLIA.tokens.USDC!.address)).not.toBe(lower(MAINNET.tokens.USDC!.address));
+    expect(SEPOLIA.aavePool).not.toBe(MAINNET.aavePool);
+  });
+
+  it("does not offer WETH on Sepolia (the OP-stack predeploy is unmintable)", () => {
+    expect(SEPOLIA.tokens.WETH).toBeUndefined();
+    expect(isOpenSupported(SEPOLIA, "aave_v3", "WETH")).toBe(false);
+  });
+});
+
+describe("isOpenSupported per chain", () => {
+  it("carries all four protocols on mainnet", () => {
+    expect(isOpenSupported(MAINNET, "aave_v3", "WETH")).toBe(true);
+    expect(isOpenSupported(MAINNET, "moonwell", "USDC")).toBe(true);
+    expect(isOpenSupported(MAINNET, "compound_v3", "cbBTC")).toBe(true);
+    expect(isOpenSupported(MAINNET, "morpho", "wstETH")).toBe(true);
+    expect(isOpenSupported(MAINNET, "aave_v3", "USDT")).toBe(false);
+  });
+
+  it("carries USDC on Aave V3 only on Sepolia", () => {
+    expect(isOpenSupported(SEPOLIA, "aave_v3", "USDC")).toBe(true);
+    // USDT is a reserve so the borrow leg can reach it, but it is not offered
+    // as collateral.
+    expect(isOpenSupported(SEPOLIA, "aave_v3", "USDT")).toBe(false);
+    for (const protocol of ["moonwell", "compound_v3", "morpho"] as const) {
+      expect(isOpenSupported(SEPOLIA, protocol, "USDC")).toBe(false);
+    }
+  });
+});
+
+describe("buildOpenSteps on Base Sepolia", () => {
+  const steps = buildOpenSteps(sepoliaPlan());
+
+  it("targets the Sepolia pool on every leg, never the mainnet one", () => {
+    expect(steps.map((s) => s.kind)).toEqual(["approve", "supply", "borrow"]);
+    const supply = steps.find((s) => s.kind === "supply")!;
+    const borrow = steps.find((s) => s.kind === "borrow")!;
+    const approve = steps.find((s) => s.kind === "approve")!;
+    expect(lower(supply.address)).toBe(lower(AAVE_POOL_SEPOLIA));
+    expect(lower(borrow.address)).toBe(lower(AAVE_POOL_SEPOLIA));
+    expect(lower(approve.spender!)).toBe(lower(AAVE_POOL_SEPOLIA));
+    for (const s of steps) expect(lower(s.address)).not.toBe(lower(AAVE_POOL));
+  });
+
+  it("approves and supplies the Sepolia USDC contract", () => {
+    const approve = steps.find((s) => s.kind === "approve")!;
+    const supply = steps.find((s) => s.kind === "supply")!;
+    expect(lower(approve.address)).toBe(lower(SEPOLIA_OPEN_ASSETS.USDC!.address));
+    expect(lower(String(supply.args[0]))).toBe(lower(SEPOLIA_OPEN_ASSETS.USDC!.address));
+    // The mainnet USDC contract must never appear on a Sepolia plan.
+    expect(lower(approve.address)).not.toBe(lower(MAINNET.tokens.USDC!.address));
+  });
+
+  it("borrows the Sepolia USDT contract and labels it USDT", () => {
+    const borrow = steps.find((s) => s.kind === "borrow")!;
+    expect(borrow.label).toBe("Borrow USDT");
+    expect(lower(String(borrow.args[0]))).toBe(lower(SEPOLIA_OPEN_ASSETS.USDT!.address));
+    expect(borrow.args[1]).toBe(500_000n);
+  });
+
+  it("omits the borrow leg when nothing is borrowed", () => {
+    const collateralOnly = buildOpenSteps(sepoliaPlan({ borrowAmount: 0n }));
+    expect(collateralOnly.map((s) => s.kind)).toEqual(["approve", "supply"]);
+  });
+
+  it("refuses a protocol whose addresses are mainnet-only", () => {
+    for (const protocol of ["moonwell", "compound_v3", "morpho"] as const) {
+      expect(() => buildOpenSteps(sepoliaPlan({ protocol }))).toThrow(/not configured on chain/);
+    }
+  });
+
+  it("refuses a collateral the chain does not carry", () => {
+    expect(() => buildOpenSteps(sepoliaPlan({ collateralSymbol: "WETH" }))).toThrow(
+      /unknown collateral/,
+    );
+  });
+});
+
+describe("faucetDeficit", () => {
+  it("is zero when covered, the exact shortfall otherwise", () => {
+    expect(faucetDeficit(10n, 10n)).toBe(0n);
+    expect(faucetDeficit(9n, 10n)).toBe(1n);
   });
 });
 
@@ -131,5 +274,12 @@ describe("openProgressKey", () => {
       openProgressKey(base),
     );
     expect(openProgressKey({ ...base, chainId: 84532 })).not.toBe(openProgressKey(base));
+  });
+
+  it("separates the same open on the two chains", () => {
+    const base = { protocol: "aave_v3", collateralSymbol: "USDC", user: USER };
+    expect(openProgressKey({ ...base, chainId: MAINNET.chainId })).not.toBe(
+      openProgressKey({ ...base, chainId: SEPOLIA.chainId }),
+    );
   });
 });

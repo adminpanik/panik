@@ -34,9 +34,14 @@ export function getExitChain() {
 /** The chain's name, for the sentences a user reads when a call fails. */
 export const EXIT_NETWORK_LABEL = getExitChain().name;
 
-export function exitExplorerTxUrl(hash: string): string {
-  const host = EXIT_CHAIN === 8453 ? "basescan.org" : "sepolia.basescan.org";
+/** Basescan host by chain id - panik-core's one copy of the mapping. */
+export function explorerTxUrl(chainId: number, hash: string): string {
+  const host = chainId === 8453 ? "basescan.org" : "sepolia.basescan.org";
   return `https://${host}/tx/${hash}`;
+}
+
+export function exitExplorerTxUrl(hash: string): string {
+  return explorerTxUrl(EXIT_CHAIN, hash);
 }
 
 /**
@@ -48,6 +53,7 @@ export function exitExplorerTxUrl(hash: string): string {
 export interface ContractClient {
   readContract(params: unknown): Promise<unknown>;
   simulateContract(params: unknown): Promise<{ request: unknown }>;
+  estimateContractGas(params: unknown): Promise<bigint>;
   waitForTransactionReceipt(params: {
     hash: `0x${string}`;
   }): Promise<{ logs: unknown[]; status: "success" | "reverted" }>;
@@ -55,6 +61,26 @@ export interface ContractClient {
 
 export function asContractClient(client: unknown): ContractClient {
   return client as ContractClient;
+}
+
+/**
+ * Gas limit to send with a write: the node's estimate plus half again.
+ *
+ * `simulateContract` is an eth_call and carries no gas figure, so a wallet
+ * left to estimate for itself sends the bare eth_estimateGas result - a limit
+ * Aave's nested library delegatecalls can run out of gas under (the 63/64 rule
+ * starves the inner frame while the outer one survives). The transaction then
+ * mines as a reasonless revert whose gas-used sits BELOW the limit, which
+ * hides the OOG. Reproduced on a Base Sepolia fork: the open flow's borrow leg
+ * failed 1 run in 3 with the bare estimate and 0 in 3 with this buffer.
+ * Unused gas is refunded, so the headroom costs nothing.
+ *
+ * Server-side counterpart: GAS_BUFFER_PCT in server/relayerChain.ts (25%),
+ * which cannot share this constant - server code must not import a module that
+ * reads import.meta.env. If one buffer proves wrong, re-check the other.
+ */
+export async function bufferedGas(client: ContractClient, call: unknown): Promise<bigint> {
+  return ((await client.estimateContractGas(call)) * 3n) / 2n;
 }
 
 /**
