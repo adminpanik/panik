@@ -34,10 +34,23 @@ const STROKE = 3;
 const R = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * R;
 
+/**
+ * The score's accessible name, leading with the answer. The ONE place this
+ * wording exists: the dial's own tooltip opens with it, and any control that
+ * wraps a `plain` dial must open its `aria-label` with it too, so every
+ * surface announces the score in the same vocabulary. Nothing but a shared
+ * builder holds those copies together - an aria string is invisible to
+ * screenshots, tsc, and the design checklist's computed-style scan.
+ */
+export function riskScoreLabel(score: number, band: Band): string {
+  return `PANIK risk score ${score} of 100, ${band}.`;
+}
+
 export function RiskDial({
   score,
   band,
   subScores,
+  plain = false,
 }: {
   score: number;
   band: Band;
@@ -48,9 +61,56 @@ export function RiskDial({
    * reading either term has, so an unread feed would announce a calm market.
    */
   subScores?: DegradableSubScores;
+  /**
+   * Render the dial alone, without the `InfoTip` wrapper.
+   *
+   * For callers that put the dial INSIDE a control of their own: `InfoTip`'s
+   * anchor is itself focusable, so the default shape would nest a tab stop
+   * inside a button. The owning control then carries the accessible name, and
+   * it must OPEN with `riskScoreLabel(score, band)` - the exported builder,
+   * not a re-typed copy - so a screen reader gets the same answer first that
+   * the wrapper gives here.
+   */
+  plain?: boolean;
 }) {
   const pct = Math.max(0, Math.min(100, score)) / 100;
 
+  const dial = (
+    <span className={`relative inline-flex shrink-0 ${RISK_TEXT[band]}`} style={{ width: SIZE, height: SIZE }}>
+      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
+        {/* Track. Recessive on purpose - it is the axis, not the datum. */}
+        <circle
+          cx={SIZE / 2}
+          cy={SIZE / 2}
+          r={R}
+          fill="none"
+          stroke="var(--color-border-subtle)"
+          strokeWidth={STROKE}
+        />
+        {/* Arc. Rotated to start at twelve o'clock, because a gauge that
+            starts anywhere else is read as starting at zero anyway. */}
+        <circle
+          cx={SIZE / 2}
+          cy={SIZE / 2}
+          r={R}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={STROKE}
+          strokeLinecap="round"
+          strokeDasharray={CIRCUMFERENCE}
+          strokeDashoffset={CIRCUMFERENCE * (1 - pct)}
+          transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-sm font-sans font-bold tabular-nums text-text-primary">
+        {score}
+      </span>
+    </span>
+  );
+
+  if (plain) return dial;
+
+  // Everything below is the tooltip's, and only the wrapped path pays for it.
   const term = (v: number | null) => (v === null ? "not measured" : String(Math.round(v)));
   // The published weights only describe the score when all four terms were
   // read. With one dropped the composite is renormalised over the rest, so
@@ -62,7 +122,7 @@ export function RiskDial({
   // reader rather than adding to them — starting it with the explanation would
   // bury the score behind a sentence about scores.
   const explanation =
-    `PANIK risk score ${score} of 100, ${band}. ` +
+    `${riskScoreLabel(score, band)} ` +
     (subScores
       ? `Position health ${term(subScores.positionHealth)}, asset risk ${term(subScores.assetRisk)}, ` +
         `protocol safety ${term(subScores.protocolSafety)}, systemic risk ${term(subScores.systemicRisk)}. `
@@ -72,36 +132,7 @@ export function RiskDial({
 
   return (
     <InfoTip text={explanation} className="cursor-help rounded-full">
-      <span className={`relative inline-flex shrink-0 ${RISK_TEXT[band]}`} style={{ width: SIZE, height: SIZE }}>
-          <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
-            {/* Track. Recessive on purpose - it is the axis, not the datum. */}
-            <circle
-              cx={SIZE / 2}
-              cy={SIZE / 2}
-              r={R}
-              fill="none"
-              stroke="var(--color-border-subtle)"
-              strokeWidth={STROKE}
-            />
-            {/* Arc. Rotated to start at twelve o'clock, because a gauge that
-                starts anywhere else is read as starting at zero anyway. */}
-            <circle
-              cx={SIZE / 2}
-              cy={SIZE / 2}
-              r={R}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={STROKE}
-              strokeLinecap="round"
-              strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={CIRCUMFERENCE * (1 - pct)}
-              transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
-            />
-          </svg>
-        <span className="absolute inset-0 flex items-center justify-center text-sm font-sans font-bold tabular-nums text-text-primary">
-          {score}
-        </span>
-      </span>
+      {dial}
     </InfoTip>
   );
 }

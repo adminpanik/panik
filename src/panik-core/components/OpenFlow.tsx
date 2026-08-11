@@ -21,6 +21,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Loader2, X } fro
 import { useAccount, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { asContractClient, bufferedGas, explorerTxUrl } from "../lib/exit";
+import { formatTokenAmount } from "../lib/exitLegs";
 import type { AdvisorOpenPlan } from "../lib/live";
 import { useProspective } from "../lib/live";
 import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
@@ -64,9 +65,31 @@ interface OpenProgress {
    * retry must not desync the approve amount from the supplied amount.
    */
   collateralAmount: string | null;
+  /**
+   * Borrow amount (token units, decimal string) the LANDED borrow leg carried,
+   * recorded when its receipt confirms. The done screen states this figure and
+   * never the input box: the input is USD while this is token units, and in
+   * the crash window between the borrow landing and the done screen rendering
+   * the input can be edited to a number no transaction ever carried.
+   */
+  borrowAmount: string | null;
 }
 
-const EMPTY_PROGRESS: OpenProgress = { completedSteps: 0, txHashes: [], collateralAmount: null };
+const EMPTY_PROGRESS: OpenProgress = {
+  completedSteps: 0,
+  txHashes: [],
+  collateralAmount: null,
+  borrowAmount: null,
+};
+
+/**
+ * A stored amount is only an amount if it parses as bare token units. Checked
+ * HERE so no consumer can feed a hand-edited record to `BigInt()` and throw
+ * from inside a success path.
+ */
+function unitString(v: unknown): string | null {
+  return typeof v === "string" && /^\d+$/.test(v) ? v : null;
+}
 
 function loadProgress(key: string): OpenProgress {
   try {
@@ -76,8 +99,8 @@ function loadProgress(key: string): OpenProgress {
     return {
       completedSteps: Number(parsed.completedSteps) || 0,
       txHashes: Array.isArray(parsed.txHashes) ? parsed.txHashes.map(String) : [],
-      collateralAmount:
-        typeof parsed.collateralAmount === "string" ? parsed.collateralAmount : null,
+      collateralAmount: unitString(parsed.collateralAmount),
+      borrowAmount: unitString(parsed.borrowAmount),
     };
   } catch {
     return EMPTY_PROGRESS;
@@ -139,6 +162,8 @@ export function OpenFlow({
   const [error, setError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
   const [doneHash, setDoneHash] = useState<string | null>(null);
+  /** What actually landed on-chain, phrased for the done screen. See execute(). */
+  const [doneSummary, setDoneSummary] = useState<string | null>(null);
 
   /**
    * Which steps already landed. Keyed by plan IDENTITY (protocol / collateral
@@ -348,6 +373,7 @@ export function OpenFlow({
 
       const hashes: string[] = [...started.txHashes];
       let committed = started.collateralAmount;
+      let borrowed = started.borrowAmount;
       for (let i = start; i < steps.length; i += 1) {
         const s = steps[i]!;
         const hash = await runCall(s.label, {
@@ -361,10 +387,12 @@ export function OpenFlow({
         // Freeze the collateral size on the first landed step, and persist
         // BEFORE the next iteration so a crash here still resumes correctly.
         committed = committed ?? collateralAmount.toString();
+        if (s.kind === "borrow") borrowed = borrowAmount.toString();
         commitProgress(progressKey, {
           completedSteps: i + 1,
           txHashes: [...hashes],
           collateralAmount: committed,
+          borrowAmount: borrowed,
         });
       }
 
@@ -380,7 +408,18 @@ export function OpenFlow({
       );
       // The open is finished; the resume record has nothing left to protect.
       saveProgress(progressKey, EMPTY_PROGRESS);
-      if (mountedRef.current) setDoneHash(hashes[hashes.length - 1] ?? null);
+      // The RECORDED figures, never the input boxes (see OpenProgress). A
+      // record predating the borrow field omits that clause rather than guess.
+      const borrowedClause = borrowed
+        ? ` and borrowed ${formatTokenAmount(BigInt(borrowed), borrow.decimals)} ${config.borrowSymbol}`
+        : "";
+      if (mountedRef.current) {
+        setDoneSummary(
+          `Supplied ${formatTokenAmount(BigInt(committed ?? collateralAmount.toString()), token.decimals)} ` +
+            `${plan.collateralSymbol}${borrowedClause} on ${PROTOCOL_LABEL[plan.protocol] ?? plan.protocol}.`,
+        );
+        setDoneHash(hashes[hashes.length - 1] ?? null);
+      }
     } catch (err) {
       const message = (err as Error).message ?? String(err);
       if (mountedRef.current) {
@@ -582,6 +621,11 @@ export function OpenFlow({
             <CheckCircle2 className="w-10 h-10 text-risk-low mx-auto" />
             <div>
               <p className="text-text-primary font-sans font-bold">Position opened</p>
+              {doneSummary ? (
+                <p className="text-sm text-text-secondary font-sans mt-1 tabular-nums">
+                  {doneSummary}
+                </p>
+              ) : null}
               <p className="text-sm text-text-secondary font-sans mt-1">
                 Your wallet is now watched - scoring picks the position up within a minute.
               </p>
