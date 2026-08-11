@@ -17,6 +17,7 @@
 import type { LiveProtocol } from "./live";
 import type { ContractClient } from "./exit";
 import type { ChainMode } from "./chainMode";
+import { SCORING_CHAINS } from "../../../packages/scoring/src/chains";
 
 export const OPEN_CHAIN_ID = 8453; // Base mainnet
 
@@ -58,18 +59,31 @@ export const OPENABLE_SYMBOLS: Record<LiveProtocol, string[]> = {
 
 // ── Base Sepolia ───────────────────────────────────────────────────────────
 
-export const OPEN_CHAIN_ID_SEPOLIA = 84532; // Base Sepolia
+// The Sepolia market addresses are NOT written down here: the scoring package
+// already carries them, verified live and dated (`SCORING_CHAINS.testnet`),
+// and two copies of one deployment is how the open flow ends up signing at a
+// pool the scores no longer read. The tests still pin the literal addresses,
+// so a drift in the scoring table is caught rather than inherited silently.
+export const OPEN_CHAIN_ID_SEPOLIA: number = SCORING_CHAINS.testnet.chainId; // 84532
 
-export const AAVE_POOL_SEPOLIA: `0x${string}` = "0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27";
+export const AAVE_POOL_SEPOLIA = SCORING_CHAINS.testnet.aave.pool as `0x${string}`;
 
 /**
  * Aave's Base Sepolia test-asset faucet. `isPermissioned()` is false, so anyone
- * may call `mint(asset, to, amount)`.
+ * may call `mint(asset, to, amount)`. Not part of the scoring table - scoring
+ * never mints - so this is the one Sepolia address written down here.
  *
  * Minting always goes through the faucet, never the asset: the Sepolia reserve
  * contracts are Ownable BY the faucet, so a direct `mint` on the asset reverts.
  */
 export const FAUCET_SEPOLIA: `0x${string}` = "0xD9145b5F45Ad4519c7ACcD6E0A4A82e83bB8A6Dc";
+
+/** A reserve from the scoring table's Sepolia market, by its own symbol key. */
+function testnetReserve(symbol: string): { address: `0x${string}`; decimals: number } {
+  const r = SCORING_CHAINS.testnet.aave.reserves.find((x) => x.symbol === symbol);
+  if (!r) throw new Error(`scoring testnet reserves missing ${symbol}`);
+  return { address: r.address as `0x${string}`, decimals: r.decimals };
+}
 
 /**
  * The only two Sepolia reserves the open flow touches: it supplies USDC and
@@ -84,8 +98,8 @@ export const FAUCET_SEPOLIA: `0x${string}` = "0xD9145b5F45Ad4519c7ACcD6E0A4A82e8
  * lowercased. A symbol does not identify an asset across chains.
  */
 export const SEPOLIA_OPEN_ASSETS: Record<string, { address: `0x${string}`; decimals: number }> = {
-  USDC: { address: "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f", decimals: 6 },
-  USDT: { address: "0x0a215D8ba66387DCA84B284D18c3B4ec3de6E54a", decimals: 6 },
+  USDC: testnetReserve("USDC"),
+  USDT: testnetReserve("USDT"),
 };
 
 /**
@@ -114,6 +128,13 @@ export const SEPOLIA_OPENABLE_SYMBOLS: Record<LiveProtocol, string[]> = {
 export interface OpenChainConfig {
   chainId: number;
   aavePool: `0x${string}`;
+  /**
+   * AaveOracle for this market, from the scoring table - the same oracle the
+   * scores are priced from, so an open is sized by the numbers the user has
+   * been shown. `chains.ts` documents the on-chain re-derivation for the day
+   * either market is redeployed.
+   */
+  aaveOracle: `0x${string}`;
   /** Test-asset faucet, or null on a chain where assets have real value. */
   faucet: `0x${string}` | null;
   /** Symbol of the asset the borrow leg draws, keyed into `tokens`. */
@@ -122,27 +143,35 @@ export interface OpenChainConfig {
   openable: Record<LiveProtocol, string[]>;
 }
 
-const OPEN_CONFIG_MAINNET: OpenChainConfig = {
-  chainId: OPEN_CHAIN_ID,
-  aavePool: AAVE_POOL,
-  faucet: null,
-  borrowSymbol: "USDC",
-  tokens: OPEN_TOKENS,
-  openable: OPENABLE_SYMBOLS,
-};
-
-const OPEN_CONFIG_SEPOLIA: OpenChainConfig = {
-  chainId: OPEN_CHAIN_ID_SEPOLIA,
-  aavePool: AAVE_POOL_SEPOLIA,
-  faucet: FAUCET_SEPOLIA,
-  borrowSymbol: "USDT",
-  tokens: SEPOLIA_OPEN_ASSETS,
-  openable: SEPOLIA_OPENABLE_SYMBOLS,
+/**
+ * A `Record` over `ChainMode` rather than a ternary so a third mode is a
+ * compile error here, not a silent fall-through to the config holding real
+ * funds.
+ */
+const OPEN_CONFIGS: Record<ChainMode, OpenChainConfig> = {
+  mainnet: {
+    chainId: OPEN_CHAIN_ID,
+    aavePool: AAVE_POOL,
+    aaveOracle: SCORING_CHAINS.mainnet.aave.oracle as `0x${string}`,
+    faucet: null,
+    borrowSymbol: "USDC",
+    tokens: OPEN_TOKENS,
+    openable: OPENABLE_SYMBOLS,
+  },
+  testnet: {
+    chainId: OPEN_CHAIN_ID_SEPOLIA,
+    aavePool: AAVE_POOL_SEPOLIA,
+    aaveOracle: SCORING_CHAINS.testnet.aave.oracle as `0x${string}`,
+    faucet: FAUCET_SEPOLIA,
+    borrowSymbol: "USDT",
+    tokens: SEPOLIA_OPEN_ASSETS,
+    openable: SEPOLIA_OPENABLE_SYMBOLS,
+  },
 };
 
 /** The open configuration for the chain the app is currently looking at. */
 export function openChainConfig(mode: ChainMode): OpenChainConfig {
-  return mode === "testnet" ? OPEN_CONFIG_SEPOLIA : OPEN_CONFIG_MAINNET;
+  return OPEN_CONFIGS[mode];
 }
 
 export function isOpenSupported(
@@ -180,23 +209,6 @@ export const OPEN_AAVE_POOL_ABI = [
     ],
     outputs: [],
     stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "ADDRESSES_PROVIDER",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-    stateMutability: "view",
-  },
-] as const;
-
-export const OPEN_ADDRESSES_PROVIDER_ABI = [
-  {
-    type: "function",
-    name: "getPriceOracle",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-    stateMutability: "view",
   },
 ] as const;
 
@@ -426,7 +438,7 @@ export interface OpenPlanInput {
 }
 
 /** The asset the borrow leg draws, resolved from the chain's own table. */
-function borrowAsset(config: OpenChainConfig): { address: `0x${string}`; decimals: number } {
+export function borrowAsset(config: OpenChainConfig): { address: `0x${string}`; decimals: number } {
   const asset = config.tokens[config.borrowSymbol];
   if (!asset) throw new Error(`unknown borrow asset ${config.borrowSymbol}`);
   return asset;
@@ -447,6 +459,12 @@ function assertMainnetOnly(config: OpenChainConfig, protocol: LiveProtocol): voi
 /**
  * Read the collateral asset's USD price (8 decimals) from the Aave oracle -
  * one canonical price source for USD -> token-unit conversion in the UI.
+ *
+ * The oracle address comes from the config (the scoring table's verified
+ * entry) rather than being re-discovered through ADDRESSES_PROVIDER on every
+ * open: two RPC round trips per attempt bought nothing the table does not
+ * already guarantee, and the price now provably comes from the same oracle
+ * that priced the scores on screen.
  */
 export async function readCollateralPriceUsd8(
   client: ContractClient,
@@ -455,18 +473,8 @@ export async function readCollateralPriceUsd8(
 ): Promise<bigint> {
   const token = config.tokens[symbol];
   if (!token) throw new Error(`unknown token ${symbol}`);
-  const addressesProvider = (await client.readContract({
-    address: config.aavePool,
-    abi: OPEN_AAVE_POOL_ABI,
-    functionName: "ADDRESSES_PROVIDER",
-  })) as `0x${string}`;
-  const oracle = (await client.readContract({
-    address: addressesProvider,
-    abi: OPEN_ADDRESSES_PROVIDER_ABI,
-    functionName: "getPriceOracle",
-  })) as `0x${string}`;
   return (await client.readContract({
-    address: oracle,
+    address: config.aaveOracle,
     abi: OPEN_ORACLE_ABI,
     functionName: "getAssetPrice",
     args: [token.address],

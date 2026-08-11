@@ -20,11 +20,12 @@ import { motion } from "motion/react";
 import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
 import { useAccount, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { injected } from "wagmi/connectors";
-import { asContractClient } from "../lib/exit";
-import type { AdvisorOpenPlan, LiveProtocol } from "../lib/live";
+import { asContractClient, bufferedGas, explorerTxUrl } from "../lib/exit";
+import type { AdvisorOpenPlan } from "../lib/live";
 import { useProspective } from "../lib/live";
 import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
 import {
+  borrowAsset,
   buildOpenSteps,
   collateralStepCount,
   faucetDeficit,
@@ -91,25 +92,6 @@ function saveProgress(key: string, progress: OpenProgress): void {
   }
 }
 
-/**
- * Gas limit to send with a write: the node's estimate plus half again.
- *
- * `simulateContract` is an eth_call and carries no gas figure, so without this
- * the wallet sends the bare eth_estimateGas result - a limit Aave's nested
- * library delegatecalls can run out of gas under (the 63/64 rule starves the
- * inner frame while the outer one survives). The transaction then mines as a
- * reasonless revert whose gas-used sits BELOW the limit, which hides the OOG.
- * Reproduced on a Base Sepolia fork: the borrow leg failed 1 run in 3 with the
- * bare estimate and 0 in 3 with this buffer. Unused gas is refunded.
- */
-async function bufferedGas(
-  client: { estimateContractGas(params: unknown): Promise<bigint> },
-  call: unknown,
-): Promise<bigint> {
-  const estimate = await client.estimateContractGas(call);
-  return (estimate * 3n) / 2n;
-}
-
 export function OpenFlow({
   plan,
   riskProfile,
@@ -142,14 +124,19 @@ export function OpenFlow({
   const supported = isOpenSupported(config, plan.protocol, plan.collateralSymbol);
   const protocolLabel = PROTOCOL_LABEL[plan.protocol] ?? plan.protocol;
 
-  /** What this chain can actually open, phrased for the dead-end message. */
-  const openableHere = useMemo(
-    () =>
-      (Object.entries(config.openable) as [LiveProtocol, string[]][])
-        .filter(([, symbols]) => symbols.length > 0)
-        .map(([protocol, symbols]) => `${symbols.join(", ")} on ${PROTOCOL_LABEL[protocol] ?? protocol}`),
-    [config],
-  );
+  // The dead-end sentence when this chain cannot open the plan's market. On
+  // testnet it is derived from the config's own table, so it cannot drift from
+  // what the flow actually supports.
+  const openableHere = Object.entries(config.openable)
+    .filter(([, symbols]) => symbols.length > 0)
+    .map(
+      ([protocol, symbols]) =>
+        `${symbols.join(", ")} on ${(PROTOCOL_LABEL as Record<string, string>)[protocol] ?? protocol}`,
+    )
+    .join("; ");
+  const unsupportedLine = isTestnet
+    ? `In-app opening on ${CHAIN_MODE_LABEL.testnet} is limited to ${openableHere}. Use the protocol's own app for ${plan.collateralSymbol} on ${protocolLabel}.`
+    : `In-app opening for ${plan.collateralSymbol} on ${protocolLabel} is not yet address-verified. Use the protocol's own app for now.`;
   const [collateralUsd, setCollateralUsd] = useState<number>(Math.round(plan.collateralUsd));
   const [borrowUsd, setBorrowUsd] = useState<number>(Math.round(plan.borrowUsd));
   const [status, setStatus] = useState("");
@@ -240,6 +227,27 @@ export function OpenFlow({
     setError(null);
     // Snapshot: the persisted record is the source of truth for this attempt.
     const started = loadProgress(progressKey);
+    /**
+     * One transaction, start to finish: simulate + buffered gas estimate (same
+     * params, so they run as one round trip), sign, then require the receipt
+     * to land `success` - viem does not throw on revert. Every transaction the
+     * flow sends goes through here, so the gas buffer and the receipt check
+     * cannot be fixed in one copy and not another.
+     */
+    const runCall = async (label: string, call: unknown): Promise<`0x${string}`> => {
+      say(`${label} - simulating...`);
+      const [{ request }, gas] = await Promise.all([
+        client.simulateContract(call),
+        bufferedGas(client, call),
+      ]);
+      (request as { gas?: bigint }).gas = gas;
+      say(`${label} - confirm in wallet...`);
+      const hash = await writeContractAsync(request as never);
+      say(`${label} - waiting for confirmation...`);
+      const receipt = await client.waitForTransactionReceipt({ hash });
+      if (receipt.status !== "success") throw new Error(`${label} reverted on-chain`);
+      return hash;
+    };
     try {
       const token = config.tokens[plan.collateralSymbol];
       if (!token) throw new Error(`unknown token ${plan.collateralSymbol}`);
@@ -259,11 +267,10 @@ export function OpenFlow({
       }
       // Scale by the borrow asset's DECLARED decimals, never a hardcoded 1e6:
       // the borrow asset differs per chain (USDC on Base, USDT on Sepolia).
-      const borrowToken = config.tokens[config.borrowSymbol];
-      if (!borrowToken) throw new Error(`unknown borrow asset ${config.borrowSymbol}`);
+      const borrow = borrowAsset(config);
       const borrowAmount =
         (BigInt(Math.round(Math.min(borrowUsd, borrowCap) * 1e8)) *
-          10n ** BigInt(borrowToken.decimals)) /
+          10n ** BigInt(borrow.decimals)) /
         10n ** 8n;
 
       let morphoMarket: MorphoMarketParams | undefined;
@@ -322,36 +329,24 @@ export function OpenFlow({
           args: [address],
         })) as bigint;
         const deficit = faucetDeficit(balance, collateralAmount);
-        if (deficit > 0n && config.faucet) {
+        if (deficit > 0n) {
+          if (!config.faucet) {
+            throw new Error(
+              `Insufficient ${plan.collateralSymbol}: need ~${(Number(collateralAmount) / 10 ** token.decimals).toFixed(5)}, ` +
+                `have ${(Number(balance) / 10 ** token.decimals).toFixed(5)}`,
+            );
+          }
           // Test assets: mint the shortfall rather than dead-ending the demo on
           // an empty wallet. Deliberately NOT recorded in the resume cursor -
           // it re-derives from the live balance every attempt, so a retry after
           // a reverted borrow mints nothing instead of minting blindly.
-          const faucet = config.faucet;
-          const mintLabel = `Mint test ${plan.collateralSymbol}`;
-          const mintCall = {
+          await runCall(`Mint test ${plan.collateralSymbol}`, {
             account: address,
-            address: faucet,
+            address: config.faucet,
             abi: OPEN_FAUCET_ABI,
             functionName: "mint",
             args: [token.address, address, deficit],
-          };
-          say(`${mintLabel} - simulating...`);
-          const { request } = await client.simulateContract(mintCall);
-          (request as { gas?: bigint }).gas = await bufferedGas(client, mintCall);
-          say(`${mintLabel} - confirm in wallet...`);
-          const mintHash = await writeContractAsync(request as never);
-          say(`${mintLabel} - waiting for confirmation...`);
-          // viem does not throw on revert; the receipt status is the check.
-          const mintReceipt = await client.waitForTransactionReceipt({ hash: mintHash });
-          if (mintReceipt.status !== "success") {
-            throw new Error(`${mintLabel} reverted on-chain`);
-          }
-        } else if (deficit > 0n) {
-          throw new Error(
-            `Insufficient ${plan.collateralSymbol}: need ~${(Number(collateralAmount) / 10 ** token.decimals).toFixed(5)}, ` +
-              `have ${(Number(balance) / 10 ** token.decimals).toFixed(5)}`,
-          );
+          });
         }
       }
 
@@ -359,23 +354,13 @@ export function OpenFlow({
       let committed = started.collateralAmount;
       for (let i = start; i < steps.length; i += 1) {
         const s = steps[i]!;
-        const call = {
+        const hash = await runCall(s.label, {
           account: address,
           address: s.address,
           abi: s.abi,
           functionName: s.functionName,
           args: s.args,
-        };
-        say(`${s.label} - simulating...`);
-        const { request } = await client.simulateContract(call);
-        (request as { gas?: bigint }).gas = await bufferedGas(client, call);
-        say(`${s.label} - confirm in wallet...`);
-        const hash = await writeContractAsync(request as never);
-        say(`${s.label} - waiting for confirmation...`);
-        const receipt = await client.waitForTransactionReceipt({ hash });
-        if (receipt.status !== "success") {
-          throw new Error(`${s.label} reverted on-chain`);
-        }
+        });
         hashes.push(hash);
         // Freeze the collateral size on the first landed step, and persist
         // BEFORE the next iteration so a crash here still resumes correctly.
@@ -469,30 +454,16 @@ export function OpenFlow({
         </div>
 
         <div className="rounded-md border border-border-subtle bg-white/[0.02] p-3 text-xs text-text-secondary font-sans leading-relaxed">
-          {isTestnet ? (
-            <>
-              Executes on <b className="text-text-primary">{CHAIN_MODE_LABEL.testnet}</b> with test
-              assets that have no value. Non-custodial: every step is a standard protocol
-              transaction signed by your own wallet - PANIK never holds your assets.
-            </>
-          ) : (
-            <>
-              Executes on <b className="text-text-primary">Base mainnet</b> with real funds.
-              Non-custodial: every step is a standard protocol transaction signed by your own
-              wallet - PANIK never holds your assets.
-            </>
-          )}
+          Executes on{" "}
+          <b className="text-text-primary">{isTestnet ? CHAIN_MODE_LABEL.testnet : "Base mainnet"}</b>{" "}
+          with {config.faucet ? "test assets that have no value" : "real funds"}. Non-custodial:
+          every step is a standard protocol transaction signed by your own wallet - PANIK never
+          holds your assets.
         </div>
 
         {step === "unsupported" ? (
           <div className="space-y-4">
-            <p className="text-sm text-text-secondary font-sans">
-              {isTestnet
-                ? openableHere.length > 0
-                  ? `In-app opening on ${CHAIN_MODE_LABEL.testnet} is limited to ${openableHere.join("; ")}. Use the protocol's own app for ${plan.collateralSymbol} on ${protocolLabel}.`
-                  : `In-app opening is not available on ${CHAIN_MODE_LABEL.testnet} yet. Use the protocol's own app for ${plan.collateralSymbol} on ${protocolLabel}.`
-                : `In-app opening for ${plan.collateralSymbol} on ${protocolLabel} is not yet address-verified. Use the protocol's own app for now.`}
-            </p>
+            <p className="text-sm text-text-secondary font-sans">{unsupportedLine}</p>
             <button
               onClick={onClose}
               className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
@@ -623,7 +594,7 @@ export function OpenFlow({
               </p>
             </div>
             <a
-              href={`https://${isTestnet ? "sepolia.basescan.org" : "basescan.org"}/tx/${doneHash}`}
+              href={explorerTxUrl(config.chainId, doneHash)}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 text-xs font-sans text-text-primary hover:underline"
@@ -641,8 +612,8 @@ export function OpenFlow({
 
         {step !== "unsupported" && step !== "done" && !executing && error === null ? (
           <p className="text-2xs font-sans text-text-muted text-center flex items-center justify-center gap-1">
-            <AlertTriangle className="w-3 h-3" /> {isTestnet ? "Test assets." : "Real funds."} Review
-            every wallet prompt before signing.
+            <AlertTriangle className="w-3 h-3" /> {config.faucet ? "Test assets." : "Real funds."}{" "}
+            Review every wallet prompt before signing.
           </p>
         ) : null}
       </motion.div>

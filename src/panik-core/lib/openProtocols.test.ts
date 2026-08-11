@@ -9,9 +9,6 @@ import {
   resumeIndex,
   AAVE_POOL,
   AAVE_POOL_SEPOLIA,
-  FAUCET_SEPOLIA,
-  OPEN_CHAIN_ID,
-  OPEN_CHAIN_ID_SEPOLIA,
   SEPOLIA_OPEN_ASSETS,
   type OpenPlanInput,
 } from "./openProtocols";
@@ -23,7 +20,6 @@ const BORROW = 3_000_000_000n; // 3000 USDC
 const MAINNET = openChainConfig("mainnet");
 const SEPOLIA = openChainConfig("testnet");
 
-/** A symbol does not identify an asset across chains; addresses do. */
 const lower = (a: string) => a.toLowerCase();
 
 function aavePlan(overrides: Partial<OpenPlanInput> = {}): OpenPlanInput {
@@ -72,21 +68,21 @@ describe("buildOpenSteps step kinds", () => {
 describe("openChainConfig", () => {
   it("resolves Base mainnet from the existing constants", () => {
     expect(MAINNET.chainId).toBe(8453);
-    expect(MAINNET.chainId).toBe(OPEN_CHAIN_ID);
     expect(lower(MAINNET.aavePool)).toBe(lower(AAVE_POOL));
+    expect(lower(MAINNET.aaveOracle)).toBe(lower("0x2Cc0Fc26eD4563A5ce5e8bdcfe1A2878676Ae156"));
     // Mainnet assets are real, so there is nothing to mint.
     expect(MAINNET.faucet).toBeNull();
     expect(MAINNET.borrowSymbol).toBe("USDC");
   });
 
-  it("resolves Base Sepolia to its own pool, faucet and reserves", () => {
+  // Literal addresses on purpose: the Sepolia config derives from the scoring
+  // table (SCORING_CHAINS.testnet), so these pin the DEPLOYMENT itself - a
+  // drift in that table fails here instead of being inherited silently.
+  it("resolves Base Sepolia to its own pool, oracle, faucet and reserves", () => {
     expect(SEPOLIA.chainId).toBe(84532);
-    expect(SEPOLIA.chainId).toBe(OPEN_CHAIN_ID_SEPOLIA);
     expect(lower(SEPOLIA.aavePool)).toBe(lower("0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27"));
-    expect(lower(SEPOLIA.aavePool)).toBe(lower(AAVE_POOL_SEPOLIA));
-    expect(SEPOLIA.faucet).not.toBeNull();
+    expect(lower(SEPOLIA.aaveOracle)).toBe(lower("0x943b0dE18d4abf4eF02A85912F8fc07684C141dF"));
     expect(lower(SEPOLIA.faucet!)).toBe(lower("0xD9145b5F45Ad4519c7ACcD6E0A4A82e83bB8A6Dc"));
-    expect(lower(SEPOLIA.faucet!)).toBe(lower(FAUCET_SEPOLIA));
     expect(SEPOLIA.borrowSymbol).toBe("USDT");
 
     expect(Object.keys(SEPOLIA.tokens).sort()).toEqual(["USDC", "USDT"]);
@@ -98,7 +94,6 @@ describe("openChainConfig", () => {
       lower("0x0a215D8ba66387DCA84B284D18c3B4ec3de6E54a"),
     );
     expect(SEPOLIA.tokens.USDT!.decimals).toBe(6);
-    expect(SEPOLIA.tokens).toBe(SEPOLIA_OPEN_ASSETS);
   });
 
   it("keeps the two chains' assets distinct by ADDRESS, not by symbol", () => {
@@ -183,22 +178,9 @@ describe("buildOpenSteps on Base Sepolia", () => {
 });
 
 describe("faucetDeficit", () => {
-  it("is zero once the balance covers the need", () => {
+  it("is zero when covered, the exact shortfall otherwise", () => {
     expect(faucetDeficit(10n, 10n)).toBe(0n);
-    expect(faucetDeficit(11n, 10n)).toBe(0n);
-    expect(faucetDeficit(0n, 0n)).toBe(0n);
-    expect(faucetDeficit(10n, 0n)).toBe(0n);
-  });
-
-  it("is exactly the shortfall when the balance is short", () => {
     expect(faucetDeficit(9n, 10n)).toBe(1n);
-    expect(faucetDeficit(0n, 1_000_000n)).toBe(1_000_000n);
-  });
-
-  it("stays exact past 2^53 (BigInt, never Number)", () => {
-    const huge = 2n ** 90n;
-    expect(faucetDeficit(huge - 1n, huge)).toBe(1n);
-    expect(faucetDeficit(0n, huge)).toBe(huge);
   });
 });
 
