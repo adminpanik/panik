@@ -30,6 +30,7 @@ import {
   collateralStepCount,
   faucetDeficit,
   isOpenSupported,
+  openAvailabilityLine,
   openChainConfig,
   openProgressKey,
   OPEN_ERC20_ABI,
@@ -122,21 +123,15 @@ export function OpenFlow({
   const publicClient = usePublicClient({ chainId: openChainId });
 
   const supported = isOpenSupported(config, plan.protocol, plan.collateralSymbol);
-  const protocolLabel = PROTOCOL_LABEL[plan.protocol] ?? plan.protocol;
 
-  // The dead-end sentence when this chain cannot open the plan's market. On
-  // testnet it is derived from the config's own table, so it cannot drift from
-  // what the flow actually supports.
-  const openableHere = Object.entries(config.openable)
-    .filter(([, symbols]) => symbols.length > 0)
-    .map(
-      ([protocol, symbols]) =>
-        `${symbols.join(", ")} on ${(PROTOCOL_LABEL as Record<string, string>)[protocol] ?? protocol}`,
-    )
-    .join("; ");
-  const unsupportedLine = isTestnet
-    ? `In-app opening on ${CHAIN_MODE_LABEL.testnet} is limited to ${openableHere}. Use the protocol's own app for ${plan.collateralSymbol} on ${protocolLabel}.`
-    : `In-app opening for ${plan.collateralSymbol} on ${protocolLabel} is not yet address-verified. Use the protocol's own app for now.`;
+  // The dead-end sentence, from the same helper the gated buttons hover with:
+  // this screen is the safety net for a path that bypassed one of them, and the
+  // net must not word the reason differently from the control that stopped it.
+  const unsupportedLine = openAvailabilityLine(
+    chainMode,
+    plan.protocol,
+    plan.collateralSymbol,
+  );
   const [collateralUsd, setCollateralUsd] = useState<number>(Math.round(plan.collateralUsd));
   const [borrowUsd, setBorrowUsd] = useState<number>(Math.round(plan.borrowUsd));
   const [status, setStatus] = useState("");

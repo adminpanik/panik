@@ -73,6 +73,7 @@ import {
 } from "../lib/utils";
 import { Button, Card, EmptyState, RiskDial } from "../ui";
 import { exitAvailabilityLine, exitControlState, useChainMode } from "../lib/chainMode";
+import { openControlState } from "../lib/openProtocols";
 /**
  * The engine's dollar formatter, not the panel's `formatUsd`.
  *
@@ -194,9 +195,17 @@ function ActionButton({
   }
   if (rec.action === "OPEN" && rec.openPlan) {
     const plan = rec.openPlan;
+    // Mirrors the exit gating above; the policy and its reasons live in
+    // `openControlState`, shared with the popup.
+    const { enabled, hint } = openControlState(
+      onOpen,
+      chainMode,
+      rec.protocol,
+      plan.collateralSymbol,
+    );
     return (
-      <Button onClick={onOpen ? () => onOpen(plan) : undefined} disabled={!onOpen}
-        title={onOpen ? undefined : "In-app opening ships with the position flows"}>
+      <Button onClick={enabled ? () => onOpen?.(plan) : undefined} disabled={!enabled}
+        title={enabled ? undefined : hint}>
         Open position <ArrowRight className="h-3.5 w-3.5" />
       </Button>
     );
