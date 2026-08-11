@@ -20,6 +20,8 @@ import type {
   AdvisorUrgency,
 } from "../lib/live";
 import { formatUsd, PROTOCOL_LABEL } from "../lib/utils";
+import { useChainMode } from "../lib/chainMode";
+import { openControlState } from "../lib/openProtocols";
 
 const STORE_KEY = "panik_advisor_popup_v1";
 const COOLDOWN_MS = 30 * 60 * 1000;
@@ -132,6 +134,7 @@ export function AdvisorPopup({
   onView: () => void;
 }) {
   const [notification, setNotification] = useState<Notification | null>(null);
+  const chainMode = useChainMode();
 
   useEffect(() => {
     if (!report) return;
@@ -185,6 +188,25 @@ export function AdvisorPopup({
     setNotification(null);
   };
 
+  /**
+   * An OPEN notification the selected chain cannot execute. The notification
+   * still shows - the opportunity is real information, and the same card is
+   * readable in Compass either way - but its CTA would dead-end in the open
+   * modal's unsupported screen, so it is gated by the one policy the Advisor
+   * cards use. Only the open kind is gated: an exit CTA here is live wherever
+   * the exit flow is, and nothing about that changes.
+   */
+  const openState =
+    notification?.kind === "open" && notification.rec.openPlan
+      ? openControlState(
+          onOpen,
+          chainMode,
+          notification.rec.protocol,
+          notification.rec.openPlan.collateralSymbol,
+        )
+      : null;
+  const actionEnabled = openState === null || openState.enabled;
+
   return (
     <AnimatePresence>
       {notification ? (
@@ -218,13 +240,18 @@ export function AdvisorPopup({
               <div className="flex items-center gap-2 mt-3">
                 {notification.actionLabel ? (
                   <button
-                    onClick={act}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-2xs font-sans font-bold tracking-wide transition-colors ${
+                    onClick={actionEnabled ? act : undefined}
+                    disabled={!actionEnabled}
+                    title={actionEnabled ? undefined : openState?.hint}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-2xs font-sans font-bold tracking-wide transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                       notification.kind === "exit"
                         ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25"
                         : notification.kind === "reduce"
                           ? "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25"
-                          : "bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15"
+                          : // `disabled:hover:` because a disabled button still
+                            // takes :hover in the browser, and a control that
+                            // lights up under the cursor reads as pressable.
+                            "bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 disabled:hover:bg-white/10"
                     }`}
                   >
                     {notification.actionLabel} <ArrowRight className="w-3 h-3" />

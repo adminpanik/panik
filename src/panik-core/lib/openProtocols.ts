@@ -18,6 +18,12 @@ import type { LiveProtocol } from "./live";
 import type { ContractClient } from "./exit";
 import type { ChainMode } from "./chainMode";
 import { SCORING_CHAINS } from "../../../packages/scoring/src/chains";
+// The protocol naming table, imported here rather than re-typed: the sentences
+// below are rendered, and a raw `aave_v3` in one of them is the enum leak the
+// table exists to stop. It imports only leaf modules, so this direction adds no
+// cycle (`chainMode.ts` -> `openProtocols.ts` would have added one, which is
+// why the open policy lives here beside the config it reads).
+import { PROTOCOL_LABEL } from "./utils";
 
 export const OPEN_CHAIN_ID = 8453; // Base mainnet
 
@@ -127,6 +133,12 @@ export const SEPOLIA_OPENABLE_SYMBOLS: Record<LiveProtocol, string[]> = {
  */
 export interface OpenChainConfig {
   chainId: number;
+  /**
+   * This chain in the product's own words, from the scoring table that already
+   * names it. Every sentence built below prints this and never the mode string:
+   * "testnet" is an internal value, not a chain name a user should read.
+   */
+  label: string;
   aavePool: `0x${string}`;
   /**
    * AaveOracle for this market, from the scoring table - the same oracle the
@@ -151,6 +163,7 @@ export interface OpenChainConfig {
 const OPEN_CONFIGS: Record<ChainMode, OpenChainConfig> = {
   mainnet: {
     chainId: OPEN_CHAIN_ID,
+    label: SCORING_CHAINS.mainnet.label,
     aavePool: AAVE_POOL,
     aaveOracle: SCORING_CHAINS.mainnet.aave.oracle as `0x${string}`,
     faucet: null,
@@ -160,6 +173,7 @@ const OPEN_CONFIGS: Record<ChainMode, OpenChainConfig> = {
   },
   testnet: {
     chainId: OPEN_CHAIN_ID_SEPOLIA,
+    label: SCORING_CHAINS.testnet.label,
     aavePool: AAVE_POOL_SEPOLIA,
     aaveOracle: SCORING_CHAINS.testnet.aave.oracle as `0x${string}`,
     faucet: FAUCET_SEPOLIA,
@@ -180,6 +194,73 @@ export function isOpenSupported(
   symbol: string,
 ): boolean {
   return (config.openable[protocol] ?? []).includes(symbol) && symbol in config.tokens;
+}
+
+/**
+ * Why this chain cannot open this market, in one sentence, at the point of
+ * action.
+ *
+ * Three surfaces need it and none of them may word it themselves: the disabled
+ * button's hover on an Advisor opportunity card, the same button in the popup,
+ * and the open modal's dead-end step.
+ *
+ * The testnet list is READ from `config.openable`, the same table
+ * `isOpenSupported` gates on, so the sentence cannot promise a market the flow
+ * would then refuse. Chain and protocol names come from the tables that own
+ * them, never from the raw ids.
+ */
+export function openAvailabilityLine(
+  mode: ChainMode,
+  protocol: LiveProtocol,
+  symbol: string,
+): string {
+  const config = openChainConfig(mode);
+  const protocolLabel = PROTOCOL_LABEL[protocol] ?? protocol;
+  if (mode === "testnet") {
+    const list = (Object.keys(config.openable) as LiveProtocol[])
+      .filter((p) => (config.openable[p] ?? []).length > 0)
+      .map((p) => `${(config.openable[p] ?? []).join(", ")} on ${PROTOCOL_LABEL[p] ?? p}`)
+      .join("; ");
+    return (
+      `In-app opening on ${config.label} is limited to ${list}.` +
+      ` Use the protocol's own app for ${symbol} on ${protocolLabel}.`
+    );
+  }
+  return (
+    `In-app opening for ${symbol} on ${protocolLabel} is not yet address-verified.` +
+    ` Use the protocol's own app for now.`
+  );
+}
+
+/**
+ * Whether an open control may be pressed, and what to say on hover when it may
+ * not.
+ *
+ * The same composition `exitControlState` is for exits, and it exists for the
+ * same reason: one policy decision ("is this control live, and why not") that N
+ * surfaces offer as the same button. The Advisor panel and the Advisor popup
+ * both offer this open, and until this existed they gated it on `onOpen` alone,
+ * so a market the chain cannot open rendered a live button that dead-ended in
+ * the modal's unsupported screen.
+ *
+ * Check order matters. The chain not carrying the market is the reason the user
+ * can act on (switch chain, or use the protocol's app); an absent handler means
+ * the flow is not wired into that surface at all, which is a different sentence
+ * and never the one to show when the market is unsupported anyway.
+ */
+export function openControlState(
+  handler: unknown,
+  mode: ChainMode,
+  protocol: LiveProtocol,
+  symbol: string,
+): { enabled: boolean; hint: string | undefined } {
+  if (!isOpenSupported(openChainConfig(mode), protocol, symbol)) {
+    return { enabled: false, hint: openAvailabilityLine(mode, protocol, symbol) };
+  }
+  if (!handler) {
+    return { enabled: false, hint: "In-app opening ships with the position flows" };
+  }
+  return { enabled: true, hint: undefined };
 }
 
 // ── Minimal ABIs ───────────────────────────────────────────────────────────

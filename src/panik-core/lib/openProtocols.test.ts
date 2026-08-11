@@ -4,7 +4,9 @@ import {
   collateralStepCount,
   faucetDeficit,
   isOpenSupported,
+  openAvailabilityLine,
   openChainConfig,
+  openControlState,
   openProgressKey,
   resumeIndex,
   AAVE_POOL,
@@ -125,6 +127,69 @@ describe("isOpenSupported per chain", () => {
     expect(isOpenSupported(SEPOLIA, "aave_v3", "USDT")).toBe(false);
     for (const protocol of ["moonwell", "compound_v3", "morpho"] as const) {
       expect(isOpenSupported(SEPOLIA, protocol, "USDC")).toBe(false);
+    }
+  });
+});
+
+describe("openControlState", () => {
+  const handler = () => {};
+
+  it("enables the control for a market this chain opens", () => {
+    expect(openControlState(handler, "testnet", "aave_v3", "USDC")).toEqual({
+      enabled: true,
+      hint: undefined,
+    });
+    expect(openControlState(handler, "mainnet", "aave_v3", "WETH")).toEqual({
+      enabled: true,
+      hint: undefined,
+    });
+  });
+
+  it("disables a testnet market the flow does not carry, naming what it does", () => {
+    const state = openControlState(handler, "testnet", "moonwell", "WETH");
+    expect(state.enabled).toBe(false);
+    expect(state.hint).toContain("is limited to");
+    expect(state.hint).toContain("USDC on Aave V3");
+  });
+
+  it("disables an unverified mainnet market with the address-verified reason", () => {
+    const state = openControlState(handler, "mainnet", "aave_v3", "LINK");
+    expect(state.enabled).toBe(false);
+    expect(state.hint).toContain("not yet address-verified");
+  });
+
+  // The chain-support check comes FIRST: an unsupported market is unsupported
+  // whether or not the surface wired the flow in, and the hover has to name the
+  // reason the user can act on.
+  it("falls back to the unwired-flow reason only on a supported market", () => {
+    expect(openControlState(null, "testnet", "aave_v3", "USDC")).toEqual({
+      enabled: false,
+      hint: "In-app opening ships with the position flows",
+    });
+    expect(openControlState(null, "testnet", "moonwell", "WETH").hint).toContain("is limited to");
+  });
+});
+
+describe("openAvailabilityLine", () => {
+  it("names the chain and the markets from the tables that own them", () => {
+    const line = openAvailabilityLine("testnet", "moonwell", "WETH");
+    expect(line).toContain("Base Sepolia");
+    expect(line).toContain("USDC on Aave V3");
+    expect(line).toContain("Use the protocol's own app for WETH on Moonwell.");
+  });
+
+  // The repo's enum-leak grep, as a test: no rendered sentence may carry an
+  // engine id or an internal mode string.
+  it("leaks no raw enum value into the rendered sentence", () => {
+    const lines = [
+      openAvailabilityLine("testnet", "moonwell", "WETH"),
+      openAvailabilityLine("testnet", "aave_v3", "WETH"),
+      openAvailabilityLine("mainnet", "compound_v3", "LINK"),
+    ];
+    for (const line of lines) {
+      for (const leak of ["aave_v3", "moonwell", "compound_v3", "morpho", "testnet", "mainnet"]) {
+        expect(line).not.toContain(leak);
+      }
     }
   });
 });
