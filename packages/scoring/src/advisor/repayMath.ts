@@ -30,6 +30,23 @@ export const TARGET_HF: Record<RiskProfile, number> = {
 };
 
 /**
+ * Borrow that puts a FRESH position exactly at a target HF: HF = C*LT / B, so
+ * B = C*LT / T, rounded to cents.
+ *
+ * The one copy of this sizing. The advisor's opportunity scan and the app's
+ * Compass-initiated opens both call it; a second inline copy shipped once with
+ * different rounding (whole dollars), which is exactly the drift this export
+ * exists to end. The rounding policy lives here beside the formula on purpose.
+ */
+export function borrowForTargetHf(
+  collateralUsd: number,
+  liquidationThreshold: number,
+  targetHf: number,
+): number {
+  return Math.round(((collateralUsd * liquidationThreshold) / targetHf) * 100) / 100;
+}
+
+/**
  * Above this fraction of total debt, a REDUCE is promoted to a full EXIT.
  *
  * MEASURED UNREACHABLE, under BOTH funding modes. Do not re-derive this; the

@@ -100,7 +100,8 @@ export function OpenFlow({
   onMonitoring,
 }: {
   plan: AdvisorOpenPlan;
-  riskProfile: string;
+  /** Already validated at the localStorage boundary in AppDemo - no re-narrowing here. */
+  riskProfile: WatchRiskProfile;
   onClose: () => void;
   /** Result of watch-registering the freshly opened position (see below). */
   onMonitoring?: (wallet: string, profile: WatchRiskProfile, result: RegisterResult) => void;
@@ -374,11 +375,8 @@ export function OpenFlow({
       // which is what stops a second popup landing on the user the instant
       // they finish confirming an on-chain open. A failure is reported up so
       // it raises the "Alerts inactive" banner rather than vanishing.
-      const profile3: WatchRiskProfile = ["conservative", "moderate", "aggressive"].includes(riskProfile)
-        ? (riskProfile as WatchRiskProfile)
-        : "moderate";
-      void registerWatchedWallet(address, profile3, getProof).then((result) =>
-        onMonitoring?.(address.toLowerCase(), profile3, result),
+      void registerWatchedWallet(address, riskProfile, getProof).then((result) =>
+        onMonitoring?.(address.toLowerCase(), riskProfile, result),
       );
       // The open is finished; the resume record has nothing left to protect.
       saveProgress(progressKey, EMPTY_PROGRESS);
