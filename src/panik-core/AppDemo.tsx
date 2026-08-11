@@ -3790,7 +3790,7 @@ export function AppDemo() {
         <ExitFlow prefill={exitPrefill} onClose={() => setExitPrefill(null)} />
       )}
 
-      {/* In-app open flow (Phase 2) - Base mainnet, user-signed */}
+      {/* In-app open flow (Phase 2) - the selected chain, user-signed */}
       {openFlowPlan && (
         <OpenFlow
           plan={openFlowPlan}

@@ -1,11 +1,18 @@
 /**
  * OpenFlow - in-app position opening (Phase 2).
  *
- * connect -> switch to Base MAINNET -> review (editable sizing, live
- * projected PANIK score) -> execute step-by-step -> receipt. Opens are plain
- * protocol transactions signed by the user's own wallet - no PANIK contracts
- * in the path. Every step is simulated before it is signed; builder targets
- * are sanity-checked on-chain before any funds move.
+ * connect -> switch to the chain the app is looking at -> review (editable
+ * sizing, live projected PANIK score) -> execute step-by-step -> receipt. Opens
+ * are plain protocol transactions signed by the user's own wallet - no PANIK
+ * contracts in the path. Every step is simulated before it is signed; builder
+ * targets are sanity-checked on-chain before any funds move.
+ *
+ * The chain is whichever one the app's chain mode selects, and it is FROZEN at
+ * mount: flipping the mode while a sequence is executing must not re-target the
+ * remaining steps or the resume cursor. Base mainnet moves real funds across
+ * four protocols; Base Sepolia moves faucet assets on Aave V3 only, and tops the
+ * wallet up from the faucet when the collateral balance is short. No sentence
+ * on this screen may be true on one of those chains and false on the other.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,16 +21,18 @@ import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Loader2, X } fro
 import { useAccount, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { asContractClient } from "../lib/exit";
-import type { AdvisorOpenPlan } from "../lib/live";
+import type { AdvisorOpenPlan, LiveProtocol } from "../lib/live";
 import { useProspective } from "../lib/live";
+import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
 import {
   buildOpenSteps,
   collateralStepCount,
+  faucetDeficit,
   isOpenSupported,
+  openChainConfig,
   openProgressKey,
-  OPEN_CHAIN_ID,
   OPEN_ERC20_ABI,
-  OPEN_TOKENS,
+  OPEN_FAUCET_ABI,
   readCollateralPriceUsd8,
   resumeIndex,
   verifyOpenTargets,
@@ -97,11 +106,31 @@ export function OpenFlow({
   const { address, isConnected, chainId } = useAccount();
   const { connect } = useConnect();
   const { switchChainAsync } = useSwitchChain();
-  const publicClient = usePublicClient({ chainId: OPEN_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
   const { getProof } = useWalletOwnership();
 
-  const supported = isOpenSupported(plan.protocol, plan.collateralSymbol);
+  // Frozen at mount, deliberately not `useChainMode()`. A mode flip in another
+  // tab (or in Settings behind this modal) must not re-point a half-executed
+  // sequence at another chain, nor move the resume cursor out from under the
+  // collateral that is already supplied.
+  const [chainMode] = useState(getChainMode);
+  const config = useMemo(() => openChainConfig(chainMode), [chainMode]);
+  const openChainId = config.chainId;
+  const isTestnet = chainMode === "testnet";
+
+  const publicClient = usePublicClient({ chainId: openChainId });
+
+  const supported = isOpenSupported(config, plan.protocol, plan.collateralSymbol);
+  const protocolLabel = PROTOCOL_LABEL[plan.protocol] ?? plan.protocol;
+
+  /** What this chain can actually open, phrased for the dead-end message. */
+  const openableHere = useMemo(
+    () =>
+      (Object.entries(config.openable) as [LiveProtocol, string[]][])
+        .filter(([, symbols]) => symbols.length > 0)
+        .map(([protocol, symbols]) => `${symbols.join(", ")} on ${PROTOCOL_LABEL[protocol] ?? protocol}`),
+    [config],
+  );
   const [collateralUsd, setCollateralUsd] = useState<number>(Math.round(plan.collateralUsd));
   const [borrowUsd, setBorrowUsd] = useState<number>(Math.round(plan.borrowUsd));
   const [status, setStatus] = useState("");
@@ -122,10 +151,10 @@ export function OpenFlow({
             protocol: plan.protocol,
             collateralSymbol: plan.collateralSymbol,
             user: address,
-            chainId: OPEN_CHAIN_ID,
+            chainId: openChainId,
           })
         : null,
-    [address, plan.protocol, plan.collateralSymbol],
+    [address, plan.protocol, plan.collateralSymbol, openChainId],
   );
   const [progress, setProgress] = useState<OpenProgress>(EMPTY_PROGRESS);
   const { completedSteps, txHashes } = progress;
@@ -176,7 +205,7 @@ export function OpenFlow({
       ? "done"
       : !isConnected
         ? "connect"
-        : chainId !== OPEN_CHAIN_ID
+        : chainId !== openChainId
           ? "chain"
           : executing
             ? "executing"
@@ -193,7 +222,7 @@ export function OpenFlow({
     // Snapshot: the persisted record is the source of truth for this attempt.
     const started = loadProgress(progressKey);
     try {
-      const token = OPEN_TOKENS[plan.collateralSymbol];
+      const token = config.tokens[plan.collateralSymbol];
       if (!token) throw new Error(`unknown token ${plan.collateralSymbol}`);
 
       // Once a step has landed, the collateral size is settled on-chain and
@@ -204,16 +233,18 @@ export function OpenFlow({
         collateralAmount = BigInt(started.collateralAmount);
       } else {
         say("Reading oracle price...");
-        const price8 = await readCollateralPriceUsd8(client, plan.collateralSymbol);
+        const price8 = await readCollateralPriceUsd8(client, config, plan.collateralSymbol);
         if (price8 === 0n) throw new Error("oracle price unavailable");
         const usd8 = BigInt(Math.round(collateralUsd * 1e8));
         collateralAmount = (usd8 * 10n ** BigInt(token.decimals)) / price8;
       }
-      // Scale by USDC's declared decimals, never a hardcoded 1e6.
-      const usdc = OPEN_TOKENS.USDC!;
+      // Scale by the borrow asset's DECLARED decimals, never a hardcoded 1e6:
+      // the borrow asset differs per chain (USDC on Base, USDT on Sepolia).
+      const borrowToken = config.tokens[config.borrowSymbol];
+      if (!borrowToken) throw new Error(`unknown borrow asset ${config.borrowSymbol}`);
       const borrowAmount =
         (BigInt(Math.round(Math.min(borrowUsd, borrowCap) * 1e8)) *
-          10n ** BigInt(usdc.decimals)) /
+          10n ** BigInt(borrowToken.decimals)) /
         10n ** 8n;
 
       let morphoMarket: MorphoMarketParams | undefined;
@@ -228,6 +259,7 @@ export function OpenFlow({
       }
 
       const input = {
+        config,
         protocol: plan.protocol,
         collateralSymbol: plan.collateralSymbol,
         collateralAmount,
@@ -270,7 +302,31 @@ export function OpenFlow({
           functionName: "balanceOf",
           args: [address],
         })) as bigint;
-        if (balance < collateralAmount) {
+        const deficit = faucetDeficit(balance, collateralAmount);
+        if (deficit > 0n && config.faucet) {
+          // Test assets: mint the shortfall rather than dead-ending the demo on
+          // an empty wallet. Deliberately NOT recorded in the resume cursor -
+          // it re-derives from the live balance every attempt, so a retry after
+          // a reverted borrow mints nothing instead of minting blindly.
+          const faucet = config.faucet;
+          const mintLabel = `Mint test ${plan.collateralSymbol}`;
+          say(`${mintLabel} - simulating...`);
+          const { request } = await client.simulateContract({
+            account: address,
+            address: faucet,
+            abi: OPEN_FAUCET_ABI,
+            functionName: "mint",
+            args: [token.address, address, deficit],
+          });
+          say(`${mintLabel} - confirm in wallet...`);
+          const mintHash = await writeContractAsync(request as never);
+          say(`${mintLabel} - waiting for confirmation...`);
+          // viem does not throw on revert; the receipt status is the check.
+          const mintReceipt = await client.waitForTransactionReceipt({ hash: mintHash });
+          if (mintReceipt.status !== "success") {
+            throw new Error(`${mintLabel} reverted on-chain`);
+          }
+        } else if (deficit > 0n) {
           throw new Error(
             `Insufficient ${plan.collateralSymbol}: need ~${(Number(collateralAmount) / 10 ** token.decimals).toFixed(5)}, ` +
               `have ${(Number(balance) / 10 ** token.decimals).toFixed(5)}`,
@@ -336,6 +392,7 @@ export function OpenFlow({
     publicClient,
     address,
     progressKey,
+    config,
     commitProgress,
     say,
     plan,
@@ -389,17 +446,29 @@ export function OpenFlow({
         </div>
 
         <div className="rounded-md border border-border-subtle bg-white/[0.02] p-3 text-xs text-text-secondary font-sans leading-relaxed">
-          Executes on <b className="text-text-primary">Base mainnet</b> with real funds. Non-custodial:
-          every step is a standard protocol transaction signed by your own wallet - PANIK never
-          holds your assets.
+          {isTestnet ? (
+            <>
+              Executes on <b className="text-text-primary">{CHAIN_MODE_LABEL.testnet}</b> with test
+              assets that have no value. Non-custodial: every step is a standard protocol
+              transaction signed by your own wallet - PANIK never holds your assets.
+            </>
+          ) : (
+            <>
+              Executes on <b className="text-text-primary">Base mainnet</b> with real funds.
+              Non-custodial: every step is a standard protocol transaction signed by your own
+              wallet - PANIK never holds your assets.
+            </>
+          )}
         </div>
 
         {step === "unsupported" ? (
           <div className="space-y-4">
             <p className="text-sm text-text-secondary font-sans">
-              In-app opening for {plan.collateralSymbol} on{" "}
-              {PROTOCOL_LABEL[plan.protocol] ?? plan.protocol} is not yet address-verified. Use the
-              protocol's own app for now.
+              {isTestnet
+                ? openableHere.length > 0
+                  ? `In-app opening on ${CHAIN_MODE_LABEL.testnet} is limited to ${openableHere.join("; ")}. Use the protocol's own app for ${plan.collateralSymbol} on ${protocolLabel}.`
+                  : `In-app opening is not available on ${CHAIN_MODE_LABEL.testnet} yet. Use the protocol's own app for ${plan.collateralSymbol} on ${protocolLabel}.`
+                : `In-app opening for ${plan.collateralSymbol} on ${protocolLabel} is not yet address-verified. Use the protocol's own app for now.`}
             </p>
             <button
               onClick={onClose}
@@ -421,10 +490,10 @@ export function OpenFlow({
 
         {step === "chain" ? (
           <button
-            onClick={() => void switchChainAsync({ chainId: OPEN_CHAIN_ID })}
+            onClick={() => void switchChainAsync({ chainId: openChainId })}
             className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-sans font-bold text-sm hover:bg-white/15 transition-colors"
           >
-            Switch to Base
+            Switch to {CHAIN_MODE_LABEL[chainMode]}
           </button>
         ) : null}
 
@@ -461,7 +530,7 @@ export function OpenFlow({
               </label>
               <label className="space-y-1">
                 <span className="text-2xs font-sans text-text-muted">
-                  Borrow USDC (max {borrowCap})
+                  Borrow {config.borrowSymbol} (max {borrowCap})
                 </span>
                 <input
                   type="number"
@@ -531,7 +600,7 @@ export function OpenFlow({
               </p>
             </div>
             <a
-              href={`https://basescan.org/tx/${doneHash}`}
+              href={`https://${isTestnet ? "sepolia.basescan.org" : "basescan.org"}/tx/${doneHash}`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 text-xs font-sans text-text-primary hover:underline"
@@ -549,8 +618,8 @@ export function OpenFlow({
 
         {step !== "unsupported" && step !== "done" && !executing && error === null ? (
           <p className="text-2xs font-sans text-text-muted text-center flex items-center justify-center gap-1">
-            <AlertTriangle className="w-3 h-3" /> Real funds. Review every wallet prompt before
-            signing.
+            <AlertTriangle className="w-3 h-3" /> {isTestnet ? "Test assets." : "Real funds."} Review
+            every wallet prompt before signing.
           </p>
         ) : null}
       </motion.div>

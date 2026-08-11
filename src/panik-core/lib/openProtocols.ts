@@ -1,15 +1,22 @@
 /**
  * In-app position OPENING (Phase 2) - per-protocol transaction builders.
  *
- * Opens are standard protocol interactions signed by the user's OWN wallet on
- * Base MAINNET - no PANIK contracts sit in the path, so this is the same
- * trust model as using the protocol's own app. Every step is simulated
- * before signing, and builders sanity-check addresses on-chain (e.g.
- * comet.baseToken(), mToken.underlying()) before any funds move.
+ * Opens are standard protocol interactions signed by the user's OWN wallet -
+ * no PANIK contracts sit in the path, so this is the same trust model as using
+ * the protocol's own app. Every step is simulated before signing, and builders
+ * sanity-check addresses on-chain (e.g. comet.baseToken(), mToken.underlying())
+ * before any funds move.
+ *
+ * Two chains, and they are NOT symmetric. Base mainnet carries all four
+ * protocols and real assets; Base Sepolia carries Aave V3 only, with faucet
+ * assets that have no value. Which one a caller is on arrives as an explicit
+ * `OpenChainConfig` (see `openChainConfig`) rather than module state, so a
+ * mid-flight chain switch cannot re-target an executing sequence.
  */
 
 import type { LiveProtocol } from "./live";
 import type { ContractClient } from "./exit";
+import type { ChainMode } from "./chainMode";
 
 export const OPEN_CHAIN_ID = 8453; // Base mainnet
 
@@ -49,8 +56,101 @@ export const OPENABLE_SYMBOLS: Record<LiveProtocol, string[]> = {
   morpho: ["WETH", "wstETH", "cbBTC"],
 };
 
-export function isOpenSupported(protocol: LiveProtocol, symbol: string): boolean {
-  return (OPENABLE_SYMBOLS[protocol] ?? []).includes(symbol) && symbol in OPEN_TOKENS;
+// ── Base Sepolia ───────────────────────────────────────────────────────────
+
+export const OPEN_CHAIN_ID_SEPOLIA = 84532; // Base Sepolia
+
+export const AAVE_POOL_SEPOLIA: `0x${string}` = "0x8bAB6d1b75f19e9eD9fCe8b9BD338844fF79aE27";
+
+/**
+ * Aave's Base Sepolia test-asset faucet. `isPermissioned()` is false, so anyone
+ * may call `mint(asset, to, amount)`.
+ *
+ * Minting always goes through the faucet, never the asset: the Sepolia reserve
+ * contracts are Ownable BY the faucet, so a direct `mint` on the asset reverts.
+ */
+export const FAUCET_SEPOLIA: `0x${string}` = "0xD9145b5F45Ad4519c7ACcD6E0A4A82e83bB8A6Dc";
+
+/**
+ * The only two Sepolia reserves the open flow touches: it supplies USDC and
+ * borrows USDT.
+ *
+ * WETH is deliberately absent. Base Sepolia's WETH is the OP-stack predeploy at
+ * 0x4200000000000000000000000000000000000006, which the faucet does not own and
+ * therefore cannot mint - offering it would dead-end every testnet user without
+ * a pre-funded balance.
+ *
+ * Note the two "USDC" contracts on Base Sepolia: match assets by ADDRESS,
+ * lowercased. A symbol does not identify an asset across chains.
+ */
+export const SEPOLIA_OPEN_ASSETS: Record<string, { address: `0x${string}`; decimals: number }> = {
+  USDC: { address: "0xba50Cd2A20f6DA35D788639E581bca8d0B5d4D5f", decimals: 6 },
+  USDT: { address: "0x0a215D8ba66387DCA84B284D18c3B4ec3de6E54a", decimals: 6 },
+};
+
+/**
+ * Collateral symbols openable in-app per protocol on Base Sepolia. Only Aave V3
+ * has a deployment worth opening against: Morpho Blue's contract exists on
+ * Sepolia but carries no markets, and Moonwell and Compound V3 are not
+ * configured there at all. The other three are proven by the mainnet fork suite
+ * and stay mainnet-only - the same asymmetry `EXECUTABLE_PROTOCOLS` in
+ * `lib/exit.ts` records for exits.
+ */
+export const SEPOLIA_OPENABLE_SYMBOLS: Record<LiveProtocol, string[]> = {
+  aave_v3: ["USDC"],
+  moonwell: [],
+  compound_v3: [],
+  morpho: [],
+};
+
+// ── Per-chain configuration ────────────────────────────────────────────────
+
+/**
+ * Everything the open builders need that differs between chains. Passed
+ * explicitly into every builder and reader: there is no module-level "current
+ * chain", because a user flipping the app's chain mode while a sequence is
+ * mid-flight must not re-point the remaining steps at another chain.
+ */
+export interface OpenChainConfig {
+  chainId: number;
+  aavePool: `0x${string}`;
+  /** Test-asset faucet, or null on a chain where assets have real value. */
+  faucet: `0x${string}` | null;
+  /** Symbol of the asset the borrow leg draws, keyed into `tokens`. */
+  borrowSymbol: string;
+  tokens: Record<string, { address: `0x${string}`; decimals: number }>;
+  openable: Record<LiveProtocol, string[]>;
+}
+
+const OPEN_CONFIG_MAINNET: OpenChainConfig = {
+  chainId: OPEN_CHAIN_ID,
+  aavePool: AAVE_POOL,
+  faucet: null,
+  borrowSymbol: "USDC",
+  tokens: OPEN_TOKENS,
+  openable: OPENABLE_SYMBOLS,
+};
+
+const OPEN_CONFIG_SEPOLIA: OpenChainConfig = {
+  chainId: OPEN_CHAIN_ID_SEPOLIA,
+  aavePool: AAVE_POOL_SEPOLIA,
+  faucet: FAUCET_SEPOLIA,
+  borrowSymbol: "USDT",
+  tokens: SEPOLIA_OPEN_ASSETS,
+  openable: SEPOLIA_OPENABLE_SYMBOLS,
+};
+
+/** The open configuration for the chain the app is currently looking at. */
+export function openChainConfig(mode: ChainMode): OpenChainConfig {
+  return mode === "testnet" ? OPEN_CONFIG_SEPOLIA : OPEN_CONFIG_MAINNET;
+}
+
+export function isOpenSupported(
+  config: OpenChainConfig,
+  protocol: LiveProtocol,
+  symbol: string,
+): boolean {
+  return (config.openable[protocol] ?? []).includes(symbol) && symbol in config.tokens;
 }
 
 // ── Minimal ABIs ───────────────────────────────────────────────────────────
@@ -255,6 +355,39 @@ export const OPEN_ERC20_ABI = [
   },
 ] as const;
 
+/** Aave's test-asset faucet. Test chains only - `config.faucet` is null otherwise. */
+export const OPEN_FAUCET_ABI = [
+  {
+    type: "function",
+    name: "mint",
+    inputs: [
+      { name: "asset", type: "address" },
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "isPermissioned",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+] as const;
+
+/**
+ * How much has to be minted to cover `needed`, in the asset's own units.
+ *
+ * Zero when the balance already covers it, so a retry after a reverted borrow
+ * mints nothing: the caller re-reads the live balance every attempt rather than
+ * recording the mint in the resume cursor.
+ */
+export function faucetDeficit(balance: bigint, needed: bigint): bigint {
+  return balance >= needed ? 0n : needed - balance;
+}
+
 // ── Step building ──────────────────────────────────────────────────────────
 
 /**
@@ -276,15 +409,39 @@ export interface OpenTxStep {
 }
 
 export interface OpenPlanInput {
+  /** The chain this plan executes on. Explicit: see `OpenChainConfig`. */
+  config: OpenChainConfig;
   protocol: LiveProtocol;
   collateralSymbol: string;
   /** Collateral amount in token units. */
   collateralAmount: bigint;
-  /** USDC borrow amount in OPEN_TOKENS.USDC units; 0n = collateral-only open. */
+  /**
+   * Borrow amount in the units of `config.borrowSymbol` (USDC on mainnet, USDT
+   * on Base Sepolia); 0n = collateral-only open.
+   */
   borrowAmount: bigint;
   user: `0x${string}`;
   /** Required for morpho only (from /api/morpho/market). */
   morphoMarket?: MorphoMarketParams;
+}
+
+/** The asset the borrow leg draws, resolved from the chain's own table. */
+function borrowAsset(config: OpenChainConfig): { address: `0x${string}`; decimals: number } {
+  const asset = config.tokens[config.borrowSymbol];
+  if (!asset) throw new Error(`unknown borrow asset ${config.borrowSymbol}`);
+  return asset;
+}
+
+/**
+ * The non-Aave builders carry hardcoded Base mainnet addresses (Comet, the
+ * Moonwell mTokens, Morpho Blue). Building them against another chain's config
+ * would send funds to whatever happens to sit at those addresses there, so it
+ * is an error rather than a silent mainnet fallback.
+ */
+function assertMainnetOnly(config: OpenChainConfig, protocol: LiveProtocol): void {
+  if (config.chainId !== OPEN_CHAIN_ID) {
+    throw new Error(`${protocol} opens are not configured on chain ${config.chainId}`);
+  }
 }
 
 /**
@@ -293,12 +450,13 @@ export interface OpenPlanInput {
  */
 export async function readCollateralPriceUsd8(
   client: ContractClient,
+  config: OpenChainConfig,
   symbol: string,
 ): Promise<bigint> {
-  const token = OPEN_TOKENS[symbol];
+  const token = config.tokens[symbol];
   if (!token) throw new Error(`unknown token ${symbol}`);
   const addressesProvider = (await client.readContract({
-    address: AAVE_POOL,
+    address: config.aavePool,
     abi: OPEN_AAVE_POOL_ABI,
     functionName: "ADDRESSES_PROVIDER",
   })) as `0x${string}`;
@@ -320,13 +478,16 @@ export async function verifyOpenTargets(
   client: ContractClient,
   input: OpenPlanInput,
 ): Promise<void> {
+  const { config } = input;
+  if (input.protocol !== "aave_v3") assertMainnetOnly(config, input.protocol);
+  const borrow = borrowAsset(config);
   if (input.protocol === "compound_v3") {
     const base = (await client.readContract({
       address: COMET_USDC,
       abi: OPEN_COMET_ABI,
       functionName: "baseToken",
     })) as string;
-    if (base.toLowerCase() !== OPEN_TOKENS.USDC!.address.toLowerCase()) {
+    if (base.toLowerCase() !== borrow.address.toLowerCase()) {
       throw new Error("Comet baseToken mismatch - aborting");
     }
   }
@@ -338,21 +499,22 @@ export async function verifyOpenTargets(
       abi: OPEN_MTOKEN_ABI,
       functionName: "underlying",
     })) as string;
-    if (underlying.toLowerCase() !== OPEN_TOKENS[input.collateralSymbol]!.address.toLowerCase()) {
+    if (underlying.toLowerCase() !== config.tokens[input.collateralSymbol]!.address.toLowerCase()) {
       throw new Error("Moonwell mToken underlying mismatch - aborting");
     }
     // The borrow leg targets a DIFFERENT mToken than the collateral leg. The
-    // UI borrows "USDC" and scales by USDC's decimals, so an mToken whose
-    // underlying is anything else would borrow the wrong asset and amount.
-    const mUsdc = MOONWELL_MTOKENS.USDC;
-    if (!mUsdc) throw new Error("no verified Moonwell USDC market");
+    // UI borrows the config's borrow asset and scales by ITS decimals, so an
+    // mToken whose underlying is anything else would borrow the wrong asset
+    // and the wrong amount.
+    const mBorrow = MOONWELL_MTOKENS[config.borrowSymbol];
+    if (!mBorrow) throw new Error(`no verified Moonwell ${config.borrowSymbol} market`);
     const borrowUnderlying = (await client.readContract({
-      address: mUsdc,
+      address: mBorrow,
       abi: OPEN_MTOKEN_ABI,
       functionName: "underlying",
     })) as string;
-    if (borrowUnderlying.toLowerCase() !== OPEN_TOKENS.USDC!.address.toLowerCase()) {
-      throw new Error("Moonwell USDC mToken underlying mismatch - aborting");
+    if (borrowUnderlying.toLowerCase() !== borrow.address.toLowerCase()) {
+      throw new Error(`Moonwell ${config.borrowSymbol} mToken underlying mismatch - aborting`);
     }
   }
   if (input.protocol === "morpho") {
@@ -360,13 +522,13 @@ export async function verifyOpenTargets(
     if (!mp) throw new Error("Morpho market params missing");
     if (
       mp.collateralToken.toLowerCase() !==
-      OPEN_TOKENS[input.collateralSymbol]!.address.toLowerCase()
+      config.tokens[input.collateralSymbol]!.address.toLowerCase()
     ) {
       throw new Error("Morpho market collateral mismatch - aborting");
     }
-    // The UI borrows "USDC" and scales by USDC's decimals - a market whose
-    // loan token is anything else would borrow the wrong asset and amount.
-    if (mp.loanToken.toLowerCase() !== OPEN_TOKENS.USDC!.address.toLowerCase()) {
+    // Same reasoning as Moonwell's borrow mToken: a market whose loan token is
+    // anything but the config's borrow asset would borrow the wrong asset.
+    if (mp.loanToken.toLowerCase() !== borrow.address.toLowerCase()) {
       throw new Error("Morpho market loan token mismatch - aborting");
     }
   }
@@ -374,10 +536,10 @@ export async function verifyOpenTargets(
 
 /** Build the ordered transaction steps for an in-app open. */
 export function buildOpenSteps(input: OpenPlanInput): OpenTxStep[] {
-  const { protocol, collateralSymbol, collateralAmount, borrowAmount, user } = input;
-  const collateral = OPEN_TOKENS[collateralSymbol];
-  const usdc = OPEN_TOKENS.USDC!;
+  const { config, protocol, collateralSymbol, collateralAmount, borrowAmount, user } = input;
+  const collateral = config.tokens[collateralSymbol];
   if (!collateral) throw new Error(`unknown collateral ${collateralSymbol}`);
+  const borrow = borrowAsset(config);
   const steps: OpenTxStep[] = [];
 
   if (protocol === "aave_v3") {
@@ -386,13 +548,13 @@ export function buildOpenSteps(input: OpenPlanInput): OpenTxStep[] {
       address: collateral.address,
       abi: OPEN_ERC20_ABI,
       functionName: "approve",
-      args: [AAVE_POOL, collateralAmount],
+      args: [config.aavePool, collateralAmount],
       kind: "approve",
-      spender: AAVE_POOL,
+      spender: config.aavePool,
     });
     steps.push({
       label: `Supply ${collateralSymbol} to Aave V3`,
-      address: AAVE_POOL,
+      address: config.aavePool,
       abi: OPEN_AAVE_POOL_ABI,
       functionName: "supply",
       args: [collateral.address, collateralAmount, user, 0],
@@ -400,21 +562,23 @@ export function buildOpenSteps(input: OpenPlanInput): OpenTxStep[] {
     });
     if (borrowAmount > 0n) {
       steps.push({
-        label: "Borrow USDC",
-        address: AAVE_POOL,
+        label: `Borrow ${config.borrowSymbol}`,
+        address: config.aavePool,
         abi: OPEN_AAVE_POOL_ABI,
         functionName: "borrow",
-        args: [usdc.address, borrowAmount, 2n, 0, user],
+        args: [borrow.address, borrowAmount, 2n, 0, user],
         kind: "borrow",
       });
     }
     return steps;
   }
 
+  assertMainnetOnly(config, protocol);
+
   if (protocol === "moonwell") {
     const mToken = MOONWELL_MTOKENS[collateralSymbol];
-    const mUsdc = MOONWELL_MTOKENS.USDC;
-    if (!mToken || !mUsdc) throw new Error(`no verified Moonwell market for ${collateralSymbol}`);
+    const mBorrow = MOONWELL_MTOKENS[config.borrowSymbol];
+    if (!mToken || !mBorrow) throw new Error(`no verified Moonwell market for ${collateralSymbol}`);
     steps.push({
       label: `Approve ${collateralSymbol}`,
       address: collateral.address,
@@ -442,8 +606,8 @@ export function buildOpenSteps(input: OpenPlanInput): OpenTxStep[] {
     });
     if (borrowAmount > 0n) {
       steps.push({
-        label: "Borrow USDC",
-        address: mUsdc,
+        label: `Borrow ${config.borrowSymbol}`,
+        address: mBorrow,
         abi: OPEN_MTOKEN_ABI,
         functionName: "borrow",
         args: [borrowAmount],
@@ -473,11 +637,11 @@ export function buildOpenSteps(input: OpenPlanInput): OpenTxStep[] {
     });
     if (borrowAmount > 0n) {
       steps.push({
-        label: "Borrow USDC (withdraw base)",
+        label: `Borrow ${config.borrowSymbol} (withdraw base)`,
         address: COMET_USDC,
         abi: OPEN_COMET_ABI,
         functionName: "withdraw",
-        args: [usdc.address, borrowAmount],
+        args: [borrow.address, borrowAmount],
         kind: "borrow",
       });
     }
@@ -513,7 +677,7 @@ export function buildOpenSteps(input: OpenPlanInput): OpenTxStep[] {
   });
   if (borrowAmount > 0n) {
     steps.push({
-      label: "Borrow USDC",
+      label: `Borrow ${config.borrowSymbol}`,
       address: MORPHO_BLUE,
       abi: OPEN_MORPHO_ABI,
       functionName: "borrow",
