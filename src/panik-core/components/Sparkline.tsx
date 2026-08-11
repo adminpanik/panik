@@ -4,6 +4,7 @@
  */
 
 import React, { useId } from "react";
+import { Skeleton } from "../ui/Skeleton";
 
 /**
  * Dependency-free inline sparkline: an SVG polyline with a soft area fill,
@@ -41,6 +42,36 @@ export interface SparklineReference {
  * mismatch shows up as x labels drifting out from under the plot.
  */
 const REF_GUTTER = "w-14";
+
+/**
+ * The chart's frame with no series in it: same left gutter, same plot width,
+ * same reference gutter, same x-label row underneath. A card that draws a bare
+ * sentence where a chart will go has to re-lay itself out the moment the series
+ * arrives, and the reader loses their place in whatever sits below.
+ *
+ * It lives beside `Sparkline` because it borrows that layout's gutter widths.
+ * A placeholder built from a second copy of those numbers is one that stops
+ * matching the chart it stands in for, with nothing failing to say so.
+ */
+export function SparklinePlaceholder({ height = 36 }: { height?: number }) {
+  return (
+    <div aria-hidden="true">
+      <div className="flex items-stretch gap-1.5">
+        <div className="shrink-0 min-w-8" />
+        <div className="flex-1 min-w-0" style={{ height }}>
+          <Skeleton className="h-full w-full" />
+        </div>
+        <div className={`shrink-0 ${REF_GUTTER}`} />
+      </div>
+      <div className="flex gap-1.5 mt-0.5">
+        <div className="shrink-0 min-w-8" />
+        {/* The x-label row's own height, held open rather than measured: the
+            labels are `text-2xs`, whose line box is 16px. */}
+        <div className="h-4 flex-1" />
+      </div>
+    </div>
+  );
+}
 
 export function Sparkline(props: {
   data: number[];

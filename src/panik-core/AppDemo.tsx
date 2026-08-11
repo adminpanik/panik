@@ -69,8 +69,8 @@ import { marketParams } from "../../packages/scoring/src/markets";
 import type { RiskProfile } from "../../packages/scoring/src/types";
 import { PositionState } from "./lib/types";
 import { LivePositions, positionKey } from "./components/LivePositions";
-import { AlertFeed, AlertHistoryView, ALERT_PREVIEW_COUNT } from "./components/AlertHistory";
-import { Sparkline } from "./components/Sparkline";
+import { AlertFeed, AlertFeedSkeleton, AlertHistoryView, ALERT_PREVIEW_COUNT } from "./components/AlertHistory";
+import { Sparkline, SparklinePlaceholder } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
 import {
@@ -1187,7 +1187,13 @@ export function AppDemo() {
 
   // Portfolio history: alert feed + score series for the bound wallet.
   const historyWallet = onboardedWallet;
-  const walletHistory = useWalletHistory(historyWallet);
+  const { history: walletHistory, offline: historyFeedDown } = useWalletHistory(historyWallet);
+  /**
+   * The same three-way split the position feed gets, for the same reason. An
+   * alert log we have not read yet and an alert log we could not read are both
+   * "no alerts" to an array length, and only one of them is good news.
+   */
+  const historyLoading = walletHistory === null && !historyFeedDown;
 
   /**
    * Alert row -> the position it is about.
@@ -1320,6 +1326,18 @@ export function AppDemo() {
       Math.min(100, Math.ceil((hi + pad) / snap) * snap),
     ];
   }, [riskHistory, selectedRiskProfile]);
+
+  /**
+   * Height of the risk-index chart, and of the block that stands in for it
+   * before there is a series to draw. One expression, because a placeholder
+   * sized independently of the chart is a placeholder that reserves the wrong
+   * amount of room.
+   *
+   * At 220 the crossings of the alert line are legible, which is the one event
+   * the chart exists to show. 150 below `lg`, where the whole page is a single
+   * narrow column and 220px of chart pushes the tab's other cards off screen.
+   */
+  const riskChartHeight = isWide ? 220 : 150;
 
   /**
    * Which Portfolio cards have anything to hold.
@@ -2760,6 +2778,14 @@ export function AppDemo() {
                       <Card key={slot} tone="raised">
                         <Skeleton className="h-4 w-28" />
                         <Skeleton className="mt-2 h-8 w-32" />
+                        {/* Liabilities and the aggregate always land with a
+                            subline under the figure, and capital gains one when
+                            a leg could not be priced. Reserving two lines for a
+                            row that arrives three lines tall is a 98px card
+                            becoming a 124px one under the reader; with the third
+                            line held open it measures 122, which is the jump
+                            this skeleton exists to prevent. */}
+                        <Skeleton className="mt-2 h-4 w-24" />
                       </Card>
                     ))}
                   </div>
@@ -3130,16 +3156,24 @@ export function AppDemo() {
 
                     {/* Alert history (watch_transitions IS the alert log).
 
-                        `lg:flex-1` and nothing else. The card is the stretchy
-                        child of the right-hand column, so the position list
-                        beside it sets the height and the two columns end level by
-                        construction, at any position count and with no magic
-                        number to go stale. No `min-h-0` and no scroller: a flex
-                        child allowed to shrink below its content is a card that
-                        clips it, and the preview is a fixed four rows precisely
-                        so it never has to. Everything older lives on the history
-                        page, which is a page rather than a 194px window into
-                        one.
+                        `lg:flex-1` when there are rows to hold, and only then.
+                        The card is the stretchy child of the right-hand column,
+                        so the position list beside it sets the height and the
+                        two columns end level by construction, at any position
+                        count and with no magic number to go stale. No `min-h-0`
+                        and no scroller: a flex child allowed to shrink below its
+                        content is a card that clips it, and the preview is a
+                        fixed four rows precisely so it never has to. Everything
+                        older lives on the history page, which is a page rather
+                        than a 194px window into one.
+
+                        Stretching is for a LIST. Absorbing the column's slack
+                        around a single notice is what put one sentence adrift in
+                        the middle of a 349px card holding 123px of content
+                        (measured at 1440 beside four positions), so the states
+                        that hold a notice take their own height and let the
+                        slack fall outside the card, where empty space is just
+                        empty space.
 
                         Rendered when there are alerts, or when there are
                         positions for a future alert to be about. "No alerts yet"
@@ -3147,7 +3181,11 @@ export function AppDemo() {
                         a wallet it could not read, it is a fourth empty box
                         agreeing that the screen knows nothing. */}
                     {showAlertHistory && (
-                    <Card className="lg:flex-1 lg:flex lg:flex-col">
+                    <Card
+                      className={
+                        alertsNewestFirst.length || historyLoading ? "lg:flex-1 lg:flex lg:flex-col" : ""
+                      }
+                    >
                       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4 shrink-0">
                         Alert history
                         <InfoTip text="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet." />
@@ -3188,11 +3226,29 @@ export function AppDemo() {
                             </Button>
                           )}
                         </>
+                      ) : historyLoading ? (
+                        /* Before the log has been read, the card cannot say
+                           whether it is empty. The rows it is about to have,
+                           held open at the height they will be. */
+                        <AlertFeedSkeleton />
+                      ) : historyFeedDown ? (
+                        /* `problem`, and it must not resemble the state above
+                           it: an unreachable log rendering as "no alerts yet"
+                           is this product promising it is watching at the one
+                           moment it cannot see. */
+                        <EmptyState
+                          tone="problem"
+                          title="Alert history unavailable"
+                          hint="We could not reach the alert log, so whether this wallet has raised any alert is unknown right now. That is not the same as having raised none."
+                        />
                       ) : (
-                        <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
-                          No alerts yet - PANIK messages you the moment a position
-                          <br />crosses your profile's risk limit.
-                        </div>
+                        /* Same words and same treatment as the full history
+                           page's empty log, because it is the same fact. */
+                        <EmptyState
+                          tone="clear"
+                          title="No alerts yet"
+                          hint="PANIK messages you the moment a position crosses your profile's risk limit."
+                        />
                       )}
                     </Card>
                     )}
@@ -3257,17 +3313,7 @@ export function AppDemo() {
                       // annotation — not a fifth band colour.
                       <Sparkline
                         data={riskHistory.series}
-                        /* At 220 the crossings of the alert line are legible,
-                           which is the one event this chart exists to show;
-                           110px was a sparkline height on a card carrying a
-                           y-axis, a threshold and a caption.
-
-                           The card is full width at every size now, so the
-                           height tracks how much of it the chart can afford
-                           rather than how wide the card is: 150 below `lg`,
-                           where the whole page is one narrow column and 220px of
-                           chart would push the tab's other cards off screen. */
-                        height={isWide ? 220 : 150}
+                        height={riskChartHeight}
                         stroke="var(--color-chart-series)"
                         domain={riskDomain}
                         reference={{
@@ -3276,12 +3322,36 @@ export function AppDemo() {
                         }}
                         axes={{ yFormat: (v) => String(Math.round(v)), xStart: riskHistory.xStart, xEnd: "today" }}
                       />
+                    ) : historyFeedDown ? (
+                      /* Nothing is on its way, so nothing gets reserved. A
+                         placeholder standing where a chart will never arrive is
+                         the permanent-loading failure the position feed already
+                         had once: it says "any second now" for as long as the
+                         endpoint is down. */
+                      <EmptyState
+                        tone="problem"
+                        title="Risk index history unavailable"
+                        hint="We could not reach the stored score history for this wallet, so there is no series to draw. The scores above come from the live feed and are unaffected."
+                      />
                     ) : (
-                      /* "watch worker" was an internal service name on a user's
-                         dashboard. The cadence is the same fact stated in words
-                         a user has a reason to know. */
-                      <div className="py-8 text-center text-xs font-sans text-text-secondary leading-relaxed">
-                        This fills in as PANIK rescores your wallet, about once a minute.
+                      /* Two states, one shape, because a reader is owed the same
+                         thing in both: the chart is genuinely coming. A wallet
+                         PANIK has just started scoring has fewer than two daily
+                         points, which is not an error and not an empty result.
+
+                         The frame is reserved rather than filled with prose, so
+                         the first series to land does not shove the page.
+                         "watch worker" was an internal service name on a user's
+                         dashboard; the cadence is the same fact in words someone
+                         has a reason to know, and it is only stated once the
+                         history has actually been read. */
+                      <div>
+                        <SparklinePlaceholder height={riskChartHeight} />
+                        {walletHistory !== null && (
+                          <p className="mt-4 text-sm font-sans leading-relaxed text-text-secondary">
+                            This fills in as PANIK rescores your wallet, about once a minute.
+                          </p>
+                        )}
                       </div>
                     )}
                   </Card>

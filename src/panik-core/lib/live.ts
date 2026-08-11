@@ -367,12 +367,27 @@ export interface HistorySnapshot {
   created_at: string;
 }
 
-/** Alert feed + 30d score series for ONE wallet (Portfolio history). */
+/**
+ * Alert feed + 30d score series for ONE wallet (Portfolio history).
+ *
+ * `offline` is separate from a null payload for the same reason
+ * `useWalletPositions` splits them: null alone covers both "the first fetch is
+ * still in flight" and "we could not reach the log", and an empty alert list
+ * drawn for the second case is the screen telling someone nothing has crossed
+ * their risk limit at the moment it cannot know. A rate-limited poll is a
+ * retry, not an outage, so it leaves the last good payload standing.
+ *
+ * Returned as a fresh object each render, so consumers destructure and depend
+ * on `history` rather than on this wrapper: the payload identity only changes
+ * when a poll actually brings something new.
+ */
 export function useWalletHistory(wallet: string | null) {
   const [data, setData] = useState<{ alerts: HistoryAlert[]; snapshots: HistorySnapshot[] } | null>(null);
+  const [offline, setOffline] = useState(false);
 
   useEffect(() => {
     setData(null); // never show the previous wallet's history mid-switch
+    setOffline(false);
     if (!wallet) return;
     let cancelled = false;
     const load = async () => {
@@ -380,9 +395,12 @@ export function useWalletHistory(wallet: string | null) {
         const body = await getJson<{ alerts: HistoryAlert[]; snapshots: HistorySnapshot[] }>(
           `/api/history?wallet=${wallet.toLowerCase()}`,
         );
-        if (!cancelled) setData(body);
-      } catch {
-        /* offline: the Portfolio blocks render their empty states */
+        if (!cancelled) {
+          setData(body);
+          setOffline(false);
+        }
+      } catch (err) {
+        if (!cancelled && !isRateLimited(err)) setOffline(true);
       }
     };
     void load();
@@ -393,7 +411,7 @@ export function useWalletHistory(wallet: string | null) {
     };
   }, [wallet]);
 
-  return data;
+  return { history: data, offline };
 }
 
 export interface PoolYield {
