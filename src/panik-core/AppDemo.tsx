@@ -78,6 +78,7 @@ import {
   Card,
   EmptyState,
   RiskChip,
+  RiskDial,
   SimulationBanner,
   Skeleton,
   Stat,
@@ -597,15 +598,16 @@ function apyTrendCopy(apy: number, apySeries: number[]): string | null {
  * foot. Nine stacked elements became five.
  *
  * `muted` is the "outside your profile" rendering. It dims the SURFACE only.
- * The old version also dimmed the logo, the title and the risk chip, which put
+ * The old version also dimmed the logo, the title and the risk dial, which put
  * a CRITICAL market's band at 60% opacity — the one card on the page most worth
  * reading clearly was the faintest. Which section it is in already says it is
- * out of profile; the chip's job is to say how far.
+ * out of profile; the dial's job is to say how far.
  */
 function MarketCard({
   preset,
   poolYield,
   muted = false,
+  opensDemo,
   onBreakdown,
   onSimulate,
   onOpen,
@@ -613,10 +615,15 @@ function MarketCard({
   preset: VaultPreset;
   poolYield: PoolYield | null;
   muted?: boolean;
+  /**
+   * This card's open would land in the DEMO simulator rather than a real
+   * transaction. Comes from the same predicate the click routes on, so the
+   * label on the card and the screen the click reaches cannot disagree.
+   */
+  opensDemo: boolean;
   onBreakdown: () => void;
   onSimulate: () => void;
-  /** Absent on an out-of-profile card: nothing there is a recommended step. */
-  onOpen?: () => void;
+  onOpen: () => void;
 }) {
   const apy = poolYield?.apy ?? preset.apy;
   const trend = poolYield ? apyTrendCopy(apy, poolYield.apySeries) : null;
@@ -641,22 +648,31 @@ function MarketCard({
             </span>
           </div>
         </div>
-        {/* The chip is the keyboard route into the breakdown; the card body is
+        {/* The dial is the keyboard route into the breakdown; the card body is
             the mouse route. It no longer opens the panel on MOUSEENTER — a
             500px slide-out with a full-page backdrop was firing on an
             accidental pass of the cursor, so the page moved out from under
-            anyone scanning the grid. */}
+            anyone scanning the grid.
+
+            The same dial the Portfolio rows carry, for the same reason: the
+            score is a proportion of a fixed range and the arc is that
+            denominator drawn. `plain` drops the dial's own InfoTip, whose
+            anchor is focusable — a tab stop inside this button would be one
+            control containing another. The button carries the name instead,
+            and leads with the answer. */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             onBreakdown();
           }}
+          aria-label={
+            `PANIK risk score ${preset.baseRisk} of 100, ${preset.riskStatus}. ` +
+            `Open the ${preset.protocol} risk breakdown.`
+          }
           title={`Open the ${preset.protocol} risk breakdown`}
-          className="shrink-0 cursor-pointer rounded-sm"
+          className="shrink-0 cursor-pointer rounded-full"
         >
-          <RiskChip band={preset.riskStatus}>
-            {preset.baseRisk} {preset.riskStatus}
-          </RiskChip>
+          <RiskDial score={preset.baseRisk} band={preset.riskStatus} plain />
         </button>
       </div>
 
@@ -681,19 +697,33 @@ function MarketCard({
       </p>
 
       <div
-        className={`mt-1 flex items-center gap-3 border-t border-border-subtle pt-3 ${
-          onOpen ? "justify-between" : "justify-end"
-        }`}
+        className="mt-1 flex items-center justify-between gap-3 border-t border-border-subtle pt-3"
         onClick={(e) => e.stopPropagation()}
       >
-        {onOpen && (
+        <div className="flex items-center gap-2">
           <Button onClick={onOpen}>
             <Plus className="h-3.5 w-3.5" />
             Open position
           </Button>
-        )}
-        <Button variant="quiet" onClick={onSimulate}>
-          Stress-test →
+          {/* The Watch simulator's chip, verbatim: one badge means one thing
+              across the two surfaces that offer this open. */}
+          {opensDemo && (
+            <span className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
+              Demo
+            </span>
+          )}
+        </div>
+        {/* Icon-only, so the primary action is the only labelled button on the
+            card. The name lives in `aria-label` and `title` rather than beside
+            the glyph; the quiet variant's own padding takes the target to
+            44x32, clear of the 24px floor. */}
+        <Button
+          variant="quiet"
+          onClick={onSimulate}
+          aria-label="Stress-test this market in the simulator"
+          title="Stress-test this market in the simulator"
+        >
+          <Eye className="h-4 w-4" />
         </Button>
       </div>
     </div>
@@ -980,15 +1010,32 @@ export function AppDemo() {
    * carry over: a slider value above the profile cap must not become a
    * pressable plan.
    */
-  const requestOpenPosition = (preset: VaultPreset, collateralUsdOverride?: number) => {
-    const params = marketParams(preset.engineProtocol, preset.collateralSymbol);
-    const { enabled } = openControlState(
+  /**
+   * Whether this market's "Open position" reaches a real transaction, or falls
+   * back to the DEMO simulator.
+   *
+   * One predicate, read by the click AND by the render. The Compass card and
+   * the Watch header both label the fallback before it is taken, and a label
+   * derived from anything else (data freshness, a wallet flag, a hardcoded
+   * list) is a claim about the click that the click does not have to honor.
+   * `requestOpenPosition` routes on this same function, so the badge and the
+   * screen it predicts cannot disagree.
+   */
+  const opensReal = (preset: VaultPreset) =>
+    marketParams(preset.engineProtocol, preset.collateralSymbol) !== null &&
+    openControlState(
       setOpenFlowPlan,
       chainMode,
       preset.engineProtocol,
       preset.collateralSymbol,
-    );
-    if (!enabled || !params) {
+    ).enabled;
+
+  const requestOpenPosition = (preset: VaultPreset, collateralUsdOverride?: number) => {
+    const params = marketParams(preset.engineProtocol, preset.collateralSymbol);
+    // `!params` repeats a term of `opensReal` for the type narrowing only:
+    // `params.liquidationThreshold` is read below. The routing decision is the
+    // predicate's, and stays in one place.
+    if (!opensReal(preset) || !params) {
       setOpenPositionPreset(preset);
       return;
     }
@@ -1905,6 +1952,7 @@ export function AppDemo() {
                           key={preset.id}
                           preset={preset}
                           poolYield={poolYields?.[preset.id] ?? null}
+                          opensDemo={!opensReal(preset)}
                           onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
                           onOpen={() => requestOpenPosition(preset)}
                           onSimulate={() => {
@@ -1921,8 +1969,16 @@ export function AppDemo() {
                 {/* Outside the profile's limits. The per-card "Outside safety
                     triggers" caption is gone: it restated this heading eight
                     words later, once per card, and no card without it is any
-                    less clearly filed under it. No primary action here either,
-                    which is the part that actually says "not recommended". */}
+                    less clearly filed under it.
+
+                    These cards carry the same "Open position" as the
+                    recommended ones. Withholding it did not stop the open, it
+                    only made the user leave for the protocol's own app, where
+                    nothing sizes the borrow; `requestOpenPosition` sizes every
+                    open to the profile's target health factor whichever
+                    section it was pressed in, so the position that comes out
+                    of an out-of-profile card is still within target. This
+                    heading is what says "not recommended". */}
                 {outside.length > 0 && (
                   <div className="space-y-4 pt-4">
                     <h2 className="text-base font-sans font-bold text-text-secondary tracking-wide">
@@ -1935,7 +1991,9 @@ export function AppDemo() {
                           preset={preset}
                           poolYield={poolYields?.[preset.id] ?? null}
                           muted
+                          opensDemo={!opensReal(preset)}
                           onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
+                          onOpen={() => requestOpenPosition(preset)}
                           onSimulate={() => {
                             setSelectedPresetId(preset.id);
                             setWatchSource("recommendations");
@@ -2135,7 +2193,12 @@ export function AppDemo() {
                           <Plus className="h-3.5 w-3.5" />
                           Open position
                         </Button>
-                        {!liveWatch && (
+                        {/* What the button beside it would do, not how fresh
+                            the numbers are: this badge sits against "Open
+                            position", so the fact it has to carry is whether
+                            that press signs a transaction or opens the demo
+                            simulator. Same predicate the press routes on. */}
+                        {!opensReal(activeMarket) && (
                           <span className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
                             Demo
                           </span>
@@ -3741,6 +3804,13 @@ export function AppDemo() {
                     <Plus className="h-3.5 w-3.5" />
                     Open position
                   </button>
+                  {/* Third and last surface offering this open: same badge,
+                      same predicate as the card and the Watch header. */}
+                  {!opensReal(selectedRiskBreakdownPreset) && (
+                    <span className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
+                      Demo
+                    </span>
+                  )}
                 </div>
               </motion.div>
             </>
