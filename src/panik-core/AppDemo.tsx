@@ -76,9 +76,11 @@ import { InfoTip } from "./components/InfoTip";
 import {
   Button,
   Card,
+  DemoChip,
   EmptyState,
   RiskChip,
   RiskDial,
+  riskScoreLabel,
   SimulationBanner,
   Skeleton,
   Stat,
@@ -101,7 +103,7 @@ import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
 import { DelegationManager } from "./components/DelegationManager";
 import { ChainModeBadge, ChainModeSwitch } from "./components/ChainModeSwitch";
 import { CHAIN_MODE_LABEL, useChainMode } from "./lib/chainMode";
-import { openControlState } from "./lib/openProtocols";
+import { canOpenInApp } from "./lib/openProtocols";
 import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
@@ -656,17 +658,15 @@ function MarketCard({
 
             The same dial the Portfolio rows carry, for the same reason: the
             score is a proportion of a fixed range and the arc is that
-            denominator drawn. `plain` drops the dial's own InfoTip, whose
-            anchor is focusable — a tab stop inside this button would be one
-            control containing another. The button carries the name instead,
-            and leads with the answer. */}
+            denominator drawn. `plain` because this button owns the name (see
+            the prop's docblock). */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             onBreakdown();
           }}
           aria-label={
-            `PANIK risk score ${preset.baseRisk} of 100, ${preset.riskStatus}. ` +
+            `${riskScoreLabel(preset.baseRisk, preset.riskStatus)} ` +
             `Open the ${preset.protocol} risk breakdown.`
           }
           title={`Open the ${preset.protocol} risk breakdown`}
@@ -705,13 +705,7 @@ function MarketCard({
             <Plus className="h-3.5 w-3.5" />
             Open position
           </Button>
-          {/* The Watch simulator's chip, verbatim: one badge means one thing
-              across the two surfaces that offer this open. */}
-          {opensDemo && (
-            <span className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
-              Demo
-            </span>
-          )}
+          {opensDemo && <DemoChip />}
         </div>
         {/* Icon-only, so the primary action is the only labelled button on the
             card. The name lives in `aria-label` and `title` rather than beside
@@ -1022,13 +1016,7 @@ export function AppDemo() {
    * screen it predicts cannot disagree.
    */
   const opensReal = (preset: VaultPreset) =>
-    marketParams(preset.engineProtocol, preset.collateralSymbol) !== null &&
-    openControlState(
-      setOpenFlowPlan,
-      chainMode,
-      preset.engineProtocol,
-      preset.collateralSymbol,
-    ).enabled;
+    canOpenInApp(chainMode, preset.engineProtocol, preset.collateralSymbol);
 
   const requestOpenPosition = (preset: VaultPreset, collateralUsdOverride?: number) => {
     const params = marketParams(preset.engineProtocol, preset.collateralSymbol);
@@ -1707,28 +1695,16 @@ export function AppDemo() {
   // routes on, so a card shown is a card that works.
   const compassCatalog =
     chainMode === "testnet" ? presetsWithLive.filter(opensReal) : presetsWithLive;
-  const getProfileThresholds = () => {
-    switch (selectedRiskProfile) {
-      case "conservative":
-        return {
-          recommended: compassCatalog.filter(p => p.baseRisk < 20),
-          outside: compassCatalog.filter(p => p.baseRisk >= 20)
-        };
-      case "aggressive":
-        return {
-          recommended: compassCatalog.filter(p => p.baseRisk >= 50),
-          outside: compassCatalog.filter(p => p.baseRisk < 50)
-        };
-      case "moderate":
-      default:
-        return {
-          recommended: compassCatalog.filter(p => p.baseRisk >= 20 && p.baseRisk < 50),
-          outside: compassCatalog.filter(p => p.baseRisk < 20 || p.baseRisk >= 50)
-        };
-    }
-  };
-
-  const { recommended, outside } = getProfileThresholds();
+  // One predicate per profile; `outside` is its negation by construction
+  // rather than a hand-maintained De Morgan of it.
+  const inProfile = (r: number) =>
+    selectedRiskProfile === "conservative"
+      ? r < 20
+      : selectedRiskProfile === "aggressive"
+        ? r >= 50
+        : r >= 20 && r < 50;
+  const recommended = compassCatalog.filter((p) => inProfile(p.baseRisk));
+  const outside = compassCatalog.filter((p) => !inProfile(p.baseRisk));
 
   const TOUR_STEPS = [
     { step: 1, label: "Start here", body: "This is your Panik dashboard. Use the sidebar to navigate between tools." },
@@ -2217,11 +2193,7 @@ export function AppDemo() {
                             position", so the fact it has to carry is whether
                             that press signs a transaction or opens the demo
                             simulator. Same predicate the press routes on. */}
-                        {!opensReal(activeMarket) && (
-                          <span className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
-                            Demo
-                          </span>
-                        )}
+                        {!opensReal(activeMarket) && <DemoChip />}
                       </div>
                     </div>
 
@@ -3823,13 +3795,7 @@ export function AppDemo() {
                     <Plus className="h-3.5 w-3.5" />
                     Open position
                   </button>
-                  {/* Third and last surface offering this open: same badge,
-                      same predicate as the card and the Watch header. */}
-                  {!opensReal(selectedRiskBreakdownPreset) && (
-                    <span className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold">
-                      Demo
-                    </span>
-                  )}
+                  {!opensReal(selectedRiskBreakdownPreset) && <DemoChip />}
                 </div>
               </motion.div>
             </>

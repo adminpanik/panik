@@ -17,6 +17,7 @@
 import type { LiveProtocol } from "./live";
 import type { ContractClient } from "./exit";
 import { CHAIN_MODE_LABEL, type ChainMode, type ControlState } from "./chainMode";
+import { marketParams } from "../../../packages/scoring/src/markets";
 import { SCORING_CHAINS } from "../../../packages/scoring/src/chains";
 // The protocol naming table, imported here rather than re-typed: the sentences
 // below are rendered, and a raw `aave_v3` in one of them is the enum leak the
@@ -189,6 +190,23 @@ export function isOpenSupported(
 }
 
 /**
+ * Can this mode's chain open this market in-app, as a plain yes/no.
+ *
+ * The catalog question, separated from the button question: the Compass grid
+ * filters on this (testnet shows only what works), the Demo badges render its
+ * negation, and `openControlState` routes through it, so a card shown, a badge
+ * absent, and a button enabled are all the SAME claim. The `marketParams` term
+ * is the null-over-fallback rule: a market the engine holds no parameters for
+ * cannot be sized, so it is not openable, whatever the address tables say.
+ */
+export function canOpenInApp(mode: ChainMode, protocol: LiveProtocol, symbol: string): boolean {
+  return (
+    marketParams(protocol, symbol) !== null &&
+    isOpenSupported(openChainConfig(mode), protocol, symbol)
+  );
+}
+
+/**
  * Why this chain cannot open this market, in one sentence, at the point of
  * action.
  *
@@ -245,7 +263,7 @@ export function openControlState(
   protocol: LiveProtocol,
   symbol: string,
 ): ControlState {
-  if (!isOpenSupported(openChainConfig(mode), protocol, symbol)) {
+  if (!canOpenInApp(mode, protocol, symbol)) {
     return { enabled: false, hint: openAvailabilityLine(mode, protocol, symbol) };
   }
   if (!handler) {

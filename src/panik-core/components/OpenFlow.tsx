@@ -21,6 +21,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Loader2, X } fro
 import { useAccount, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { asContractClient, bufferedGas, explorerTxUrl } from "../lib/exit";
+import { formatTokenAmount } from "../lib/exitLegs";
 import type { AdvisorOpenPlan } from "../lib/live";
 import { useProspective } from "../lib/live";
 import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
@@ -67,8 +68,9 @@ interface OpenProgress {
   /**
    * Borrow amount (token units, decimal string) the LANDED borrow leg carried,
    * recorded when its receipt confirms. The done screen states this figure and
-   * never the input box: after a resume the two can differ, and the screen
-   * must describe the transaction that exists, not the edit that did not run.
+   * never the input box: the input is USD while this is token units, and in
+   * the crash window between the borrow landing and the done screen rendering
+   * the input can be edited to a number no transaction ever carried.
    */
   borrowAmount: string | null;
 }
@@ -80,6 +82,15 @@ const EMPTY_PROGRESS: OpenProgress = {
   borrowAmount: null,
 };
 
+/**
+ * A stored amount is only an amount if it parses as bare token units. Checked
+ * HERE so no consumer can feed a hand-edited record to `BigInt()` and throw
+ * from inside a success path.
+ */
+function unitString(v: unknown): string | null {
+  return typeof v === "string" && /^\d+$/.test(v) ? v : null;
+}
+
 function loadProgress(key: string): OpenProgress {
   try {
     const raw = window.sessionStorage.getItem(key);
@@ -88,20 +99,12 @@ function loadProgress(key: string): OpenProgress {
     return {
       completedSteps: Number(parsed.completedSteps) || 0,
       txHashes: Array.isArray(parsed.txHashes) ? parsed.txHashes.map(String) : [],
-      collateralAmount:
-        typeof parsed.collateralAmount === "string" ? parsed.collateralAmount : null,
-      borrowAmount: typeof parsed.borrowAmount === "string" ? parsed.borrowAmount : null,
+      collateralAmount: unitString(parsed.collateralAmount),
+      borrowAmount: unitString(parsed.borrowAmount),
     };
   } catch {
     return EMPTY_PROGRESS;
   }
-}
-
-/** Token units -> readable figure, DISPLAY ONLY (money math stays BigInt). */
-function formatTokenAmount(units: string, decimals: number): string {
-  return (Number(units) / 10 ** decimals).toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-  });
 }
 
 function saveProgress(key: string, progress: OpenProgress): void {
@@ -405,18 +408,15 @@ export function OpenFlow({
       );
       // The open is finished; the resume record has nothing left to protect.
       saveProgress(progressKey, EMPTY_PROGRESS);
-      // The RECORDED figures, not the input boxes: after a resume the borrow
-      // input can hold an edit that never ran. A record predating the borrow
-      // field simply omits that clause rather than guessing.
-      const suppliedLine =
-        `Supplied ${formatTokenAmount(committed ?? collateralAmount.toString(), token.decimals)} ` +
-        `${plan.collateralSymbol}`;
-      const borrowedLine = borrowed
-        ? ` and borrowed ${formatTokenAmount(borrowed, borrow.decimals)} ${config.borrowSymbol}`
+      // The RECORDED figures, never the input boxes (see OpenProgress). A
+      // record predating the borrow field omits that clause rather than guess.
+      const borrowedClause = borrowed
+        ? ` and borrowed ${formatTokenAmount(BigInt(borrowed), borrow.decimals)} ${config.borrowSymbol}`
         : "";
       if (mountedRef.current) {
         setDoneSummary(
-          `${suppliedLine}${borrowedLine} on ${PROTOCOL_LABEL[plan.protocol] ?? plan.protocol}.`,
+          `Supplied ${formatTokenAmount(BigInt(committed ?? collateralAmount.toString()), token.decimals)} ` +
+            `${plan.collateralSymbol}${borrowedClause} on ${PROTOCOL_LABEL[plan.protocol] ?? plan.protocol}.`,
         );
         setDoneHash(hashes[hashes.length - 1] ?? null);
       }

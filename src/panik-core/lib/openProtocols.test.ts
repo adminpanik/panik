@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildOpenSteps,
+  canOpenInApp,
   collateralStepCount,
   faucetDeficit,
   isOpenSupported,
@@ -128,6 +129,19 @@ describe("isOpenSupported per chain", () => {
     for (const protocol of ["moonwell", "compound_v3", "morpho"] as const) {
       expect(isOpenSupported(SEPOLIA, protocol, "USDC")).toBe(false);
     }
+  });
+});
+
+describe("canOpenInApp", () => {
+  // The one predicate behind the Compass catalog cut, the Demo badges, and
+  // openControlState: a card shown, a badge absent, and a button enabled must
+  // all be the same claim.
+  it("answers per chain, per protocol, per symbol", () => {
+    expect(canOpenInApp("testnet", "aave_v3", "USDC")).toBe(true);
+    expect(canOpenInApp("testnet", "aave_v3", "WETH")).toBe(false); // predeploy, not faucet-mintable
+    expect(canOpenInApp("testnet", "moonwell", "WETH")).toBe(false); // protocol absent on Sepolia
+    expect(canOpenInApp("mainnet", "aave_v3", "wstETH")).toBe(true);
+    expect(canOpenInApp("mainnet", "moonwell", "cbETH")).toBe(false); // no verified mToken
   });
 });
 
