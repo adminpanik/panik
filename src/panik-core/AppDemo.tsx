@@ -63,6 +63,15 @@ import { COMPOSITE_WEIGHTS } from "../../packages/scoring/src/params";
  * simulator arms these exact numbers against the live scoring path.
  */
 import { MARKET_SCENARIOS } from "../../packages/scoring/src/simulation";
+/**
+ * The advisor's borrow sizing (borrow = collateral * LT / target HF) and the
+ * market's own LT, from the engine so a Compass-initiated real open is sized by
+ * the same rule as an Advisor-initiated one. See `requestOpenPosition`.
+ */
+import { TARGET_HF } from "../../packages/scoring/src/advisor/repayMath";
+import { marketParams } from "../../packages/scoring/src/markets";
+import { estimateHealthFactor } from "../../packages/scoring/src/prospective";
+import type { RiskProfile as EngineRiskProfile } from "../../packages/scoring/src/types";
 import { PositionState } from "./lib/types";
 import { LivePositions, positionKey } from "./components/LivePositions";
 import { AlertFeed, AlertHistoryView, ALERT_PREVIEW_COUNT } from "./components/AlertHistory";
@@ -96,6 +105,7 @@ import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
 import { DelegationManager } from "./components/DelegationManager";
 import { ChainModeBadge, ChainModeSwitch } from "./components/ChainModeSwitch";
 import { useChainMode } from "./lib/chainMode";
+import { openControlState } from "./lib/openProtocols";
 import { OpenFlow } from "./components/OpenFlow";
 import { AdvisorPopup } from "./components/AdvisorPopup";
 import type { AdvisorOpenPlan } from "./lib/live";
@@ -949,8 +959,62 @@ export function AppDemo() {
   }, [advisorLive.report]);
   // Atomic Exit modal (Phase 2): opened from Advisor CTAs with a prefill.
   const [exitPrefill, setExitPrefill] = useState<ExitPrefill | null>(null);
-  // In-app open flow (Phase 2): opened from Advisor opportunity CTAs.
+  // In-app open flow (Phase 2): opened from Advisor opportunity CTAs and from
+  // any Compass/Watch "Open position" whose market the selected chain carries.
   const [openFlowPlan, setOpenFlowPlan] = useState<AdvisorOpenPlan | null>(null);
+
+  /**
+   * Route an "Open position" click to the flow that can honor it.
+   *
+   * The selected chain really carrying the market (the same `openControlState`
+   * policy that gates the Advisor buttons) opens the REAL transaction flow;
+   * anything else falls back to the DEMO simulator, which signs nothing and
+   * says so on every screen. One decision point for all three surfaces that
+   * offer the button (Compass card, Watch simulator, risk-breakdown modal), so
+   * a card cannot promise a real open the modal would then refuse.
+   *
+   * Sizing mirrors the advisor's opportunity scan (`findOpportunities`):
+   * collateral is the preset's default (or the Watch simulator's slider value),
+   * borrow is capped at the profile's target health factor via the market's own
+   * liquidation threshold. The borrow prefill IS the cap in OpenFlow, so the
+   * Watch borrow slider deliberately does not carry over: a slider value above
+   * the profile cap must not become a pressable plan.
+   */
+  const requestOpenPosition = (preset: VaultPreset, collateralUsdOverride?: number) => {
+    const control = openControlState(
+      setOpenFlowPlan,
+      chainMode,
+      preset.engineProtocol,
+      preset.collateralSymbol,
+    );
+    if (!control.enabled) {
+      setOpenPositionPreset(preset);
+      return;
+    }
+    const params = marketParams(preset.engineProtocol, preset.collateralSymbol);
+    const profile: EngineRiskProfile =
+      selectedRiskProfile in TARGET_HF ? (selectedRiskProfile as EngineRiskProfile) : "moderate";
+    const collateralUsd = Math.max(
+      1,
+      Math.round(collateralUsdOverride ?? preset.defaultCollateral * preset.defaultPrice),
+    );
+    const borrowUsd = params
+      ? Math.round((collateralUsd * params.liquidationThreshold) / TARGET_HF[profile])
+      : Math.round(preset.defaultBorrow);
+    setOpenFlowPlan({
+      protocol: preset.engineProtocol,
+      collateralSymbol: preset.collateralSymbol,
+      collateralUsd,
+      borrowUsd,
+      // Static fallbacks only: OpenFlow re-scores the plan live via
+      // /api/prospective as soon as it mounts, and on every sizing edit.
+      projectedScore: preset.baseRisk,
+      projectedHf: params
+        ? estimateHealthFactor(collateralUsd, borrowUsd, params.liquidationThreshold)
+        : null,
+      apy: poolYields?.[preset.id]?.apy ?? preset.apy,
+    });
+  };
 
   // Telegram alert linking (Connect Telegram lives in the Settings tab).
   // Each wallet-scoped write signs its OWN action-bound, single-use proof: a
@@ -1842,7 +1906,7 @@ export function AppDemo() {
                           preset={preset}
                           poolYield={poolYields?.[preset.id] ?? null}
                           onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
-                          onOpen={() => setOpenPositionPreset(preset)}
+                          onOpen={() => requestOpenPosition(preset)}
                           onSimulate={() => {
                             setSelectedPresetId(preset.id);
                             setWatchSource("recommendations");
@@ -2064,7 +2128,17 @@ export function AppDemo() {
                       <div className="flex items-center gap-2.5">
                         {/* Simulate-to-open path: the simulator is where conviction
                             forms, so the open action must be one click away here. */}
-                        <Button onClick={() => setOpenPositionPreset(activeMarket)} className="shrink-0">
+                        <Button
+                          onClick={() =>
+                            requestOpenPosition(
+                              activeMarket,
+                              collateralAmount * assetPrice > 0
+                                ? collateralAmount * assetPrice
+                                : undefined,
+                            )
+                          }
+                          className="shrink-0"
+                        >
                           <Plus className="h-3.5 w-3.5" />
                           Open position
                         </Button>
@@ -3668,7 +3742,7 @@ export function AppDemo() {
                     Open simulator
                   </button>
                   <button
-                    onClick={() => setOpenPositionPreset(selectedRiskBreakdownPreset)}
+                    onClick={() => requestOpenPosition(selectedRiskBreakdownPreset)}
                     className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 text-center text-xs font-sans font-bold text-surface-base bg-text-primary rounded-md cursor-pointer hover:opacity-90 transition-all shadow-lg"
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -3707,7 +3781,9 @@ export function AppDemo() {
         </div>
       )}
 
-      {/* Demo-only open-position flow (no signing, no funds - see component) */}
+      {/* DEMO simulator fallback: only reached when `requestOpenPosition`
+          found the selected chain cannot really open the market (no signing,
+          no funds - see component). Real opens go to OpenFlow above. */}
       {openPositionPreset && (() => {
         const isFromWatch = activeTab === "watch" && openPositionPreset.id === activeMarket.id;
         const customCollateralUsd = isFromWatch ? collateralAmount * assetPrice : undefined;
