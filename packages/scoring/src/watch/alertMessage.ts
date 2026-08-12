@@ -291,28 +291,8 @@ function factLines(t: WatchTransition, extras: AlertExtras): string[] {
   const limit = ALERT_THRESHOLD[t.profile];
   const wallet = truncateWallet(t.wallet);
   const protocol = PROTOCOL_LABEL[t.protocol] ?? t.protocol;
-  const outside = t.to === "outside";
-  // The transition's own stamp is the record of what was true at the crossing;
-  // `extras` only fills in for the dispatcher reading it back out of the row.
-  const simulation = t.simulation ?? extras.simulation ?? null;
 
   const lines: string[] = [];
-  // FIRST, above the siren, and that placement is the requirement rather than a
-  // preference: a push notification shows the opening characters and nothing
-  // else, so a marker buried in the body reaches the user only after they have
-  // already believed the headline. A crash alert for a crash that did not happen
-  // is the worst false alarm a liquidation alerter can send - it teaches the
-  // user to discount the next one, which is the real one.
-  if (simulation) {
-    lines.push(simulationAlertLine(simulation));
-    lines.push("");
-  }
-  lines.push(
-    outside
-      ? "🚨 Panik alert - position past your risk limit"
-      : "⚠️ Panik alert - position approaching your risk limit",
-  );
-  lines.push("");
   lines.push(`👛 Wallet ${wallet}`);
   lines.push(`🏦 Protocol ${protocol}`);
   lines.push(`📊 Risk score ${t.score} / 100 (${t.band}), your ${t.profile} limit is ${limit}`);
@@ -348,13 +328,47 @@ function factLines(t: WatchTransition, extras: AlertExtras): string[] {
 }
 
 /**
+ * The simulation marker, FIRST, above the siren - and that placement is the
+ * requirement rather than a preference: a push notification shows the opening
+ * characters and nothing else, so a marker buried in the body reaches the user
+ * only after they have already believed the headline. A crash alert for a crash
+ * that did not happen is the worst false alarm a liquidation alerter can send -
+ * it teaches the user to discount the next one, which is the real one.
+ *
+ * The transition's own stamp is the record of what was true at the crossing;
+ * `extras` only fills in for the dispatcher reading it back out of a row.
+ *
+ * Its own function, not part of `factLines`, because the ALL-CLEAR needs the
+ * same marker under a different headline: "nothing to do" issued against a
+ * price that never moved misleads exactly as much as the alert does, and a
+ * shared fact block cannot carry two headlines.
+ */
+function simulationOf(t: WatchTransition, extras: AlertExtras): SimulationMark | null {
+  return t.simulation ?? extras.simulation ?? null;
+}
+
+/**
+ * Bookended on purpose. The closing line of either message tells the user what
+ * to do (or not do), and under a simulation that is answering a price which did
+ * not move; the marker has to be the last thing read as well as the first, so
+ * no crop of the message shows an instruction without the reason it was issued.
+ */
+const SIMULATION_FOOTER =
+  "🧪 Reminder: the price move above is simulated. Nothing has happened to the market.";
+
+/**
  * Build the alert body for a transition INTO approaching/outside. Recovery
  * transitions go to `formatResolution` instead.
  */
 export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): string {
   const outside = t.to === "outside";
+  const simulation = simulationOf(t, extras);
 
   const lines: string[] = [];
+  if (simulation) {
+    lines.push(simulationAlertLine(simulation));
+    lines.push("");
+  }
   lines.push(
     outside
       ? `🚨 Panik alert - position ${LIMIT_STATE.outside}`
@@ -380,15 +394,9 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
       : "⏳ This position is getting close to your liquidation comfort zone. Consider adding collateral or repaying debt before it crosses the line.",
   );
 
-  // Bookended on purpose. The action line above tells the user to act, and under
-  // a simulation that instruction is answering a price that did not move; the
-  // marker has to be the last thing read as well as the first, so no crop of
-  // this message shows an instruction without the reason it was issued.
   if (simulation) {
     lines.push("");
-    lines.push(
-      "🧪 Reminder: the price move above is simulated. Nothing has happened to the market.",
-    );
+    lines.push(SIMULATION_FOOTER);
   }
 
   return lines.join("\n");
@@ -405,7 +413,12 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
  * does not claim a delta it cannot compute.
  */
 export function formatResolution(t: WatchTransition, extras: AlertExtras = {}): string {
+  const simulation = simulationOf(t, extras);
   const lines: string[] = [];
+  if (simulation) {
+    lines.push(simulationAlertLine(simulation));
+    lines.push("");
+  }
   lines.push(`✅ Panik all clear - position ${BACK_UNDER_LIMIT}`);
   lines.push("");
   lines.push(...factLines(t, extras));
@@ -419,6 +432,10 @@ export function formatResolution(t: WatchTransition, extras: AlertExtras = {}): 
   lines.push(
     "🛡️ Nothing to do. I'll keep watching and message you again if it drifts back toward your limit.",
   );
+  if (simulation) {
+    lines.push("");
+    lines.push(SIMULATION_FOOTER);
+  }
 
   return lines.join("\n");
 }

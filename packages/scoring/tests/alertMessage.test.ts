@@ -250,6 +250,21 @@ describe("formatResolution", () => {
     const msg = formatResolution({ ...recovered, from: null }, { healthFactor: 1.9 });
     expect(msg).toContain("🔁 What changed: this position is now under your risk limit.");
   });
+
+  it("marks a simulated all-clear at both ends, like the alert", () => {
+    // "Nothing to do" issued against a price that never moved misleads exactly
+    // as much as the alert does, so the recovery carries the same bookends.
+    const msg = formatResolution(recovered, {
+      healthFactor: 1.9,
+      simulation: { label: "Crash" },
+    });
+    const lines = msg.split("\n");
+    expect(lines[0]).toContain("SIMULATED MARKET EVENT");
+    expect(lines[lines.length - 1]).toContain("simulated");
+    // Still an all-clear, and still never a siren.
+    expect(msg).toContain("back under your risk limit");
+    expect(msg).not.toContain("🚨");
+  });
 });
 
 describe("truncateWallet", () => {
