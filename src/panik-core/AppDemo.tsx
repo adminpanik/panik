@@ -2491,8 +2491,22 @@ export function AppDemo() {
                 {/* Source toggle. Business requirement: Watch mirrors the
                     positions this wallet actually holds on-chain (Current
                     Positions). Recommendations keeps the Compass-derived
-                    what-if sandbox for markets you could open. */}
-                <div className="flex items-center gap-1 p-1 bg-black/30 border border-border-subtle rounded-md w-max">
+                    what-if sandbox for markets you could open.
+
+                    `ChainModeSwitch`'s shape, not a third one: a labelled group
+                    of `aria-pressed` buttons, the selected one a neutral filled
+                    plate. It is not a tablist. The two options do not swap
+                    panels; they change which catalog the ONE simulator below
+                    reads, and the app already has exactly one hand-built tabs
+                    implementation (`NavTabs`) whose roving tabindex and
+                    `tab-*` ids a second, nested copy would have to duplicate.
+                    The one-off chip tray this replaces was a third pattern
+                    with an 11px label and no state anywhere but the fill. */}
+                <div
+                  role="group"
+                  aria-label="Which markets the simulator reads"
+                  className="flex flex-wrap items-center gap-2"
+                >
                   {([
                     { key: "positions", label: "Current positions", count: watchPositionMarkets.length as number | null },
                     { key: "recommendations", label: "Recommendations", count: null as number | null },
@@ -2501,16 +2515,26 @@ export function AppDemo() {
                     return (
                       <button
                         key={opt.key}
+                        type="button"
                         onClick={() => setWatchSource(opt.key)}
                         aria-pressed={active}
-                        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-2xs font-sans font-bold transition-all cursor-pointer ${
-                          active ? "bg-white/10 text-text-primary" : "text-text-muted hover:text-text-secondary"
+                        /* Explicit, because a button's accessible name is its
+                           content flattened with no separators: the count pill
+                           beside the label announces as "Current positions4". */
+                        aria-label={opt.count === null ? opt.label : `${opt.label}, ${opt.count}`}
+                        className={`flex h-9 items-center gap-2 rounded-md border px-3.5 text-xs font-sans font-bold transition-colors cursor-pointer ${
+                          active
+                            ? "bg-text-primary text-surface-base border-text-primary"
+                            : "bg-white/[0.02] text-text-secondary border-border-subtle hover:bg-white/[0.06] hover:text-text-primary"
                         }`}
                       >
                         {opt.key === "positions" ? <Eye className="w-3.5 h-3.5" /> : <CompassIcon className="w-3.5 h-3.5" />}
                         <span>{opt.label}</span>
+                        {/* Tinted from the surface token, not from white: on the
+                            selected plate the fill IS near-white, so a white
+                            wash renders the count invisible. */}
                         {opt.count !== null && opt.count > 0 && (
-                          <span className={`text-2xs px-1.5 py-0.5 rounded-full tabular-nums ${active ? "bg-white/15" : "bg-white/10 text-text-muted"}`}>
+                          <span className={`rounded-full px-1.5 text-xs tabular-nums ${active ? "bg-surface-base/15" : "bg-white/10"}`}>
                             {opt.count}
                           </span>
                         )}
@@ -2544,19 +2568,46 @@ export function AppDemo() {
                     paid for, so a 4/12 rail came out 224px, narrower than its
                     own parameter labels, which then clipped. The rail wants
                     ~300px to hold "Collateral deposited (wstETH):" beside its
-                    input. */}
+                    input.
+
+                    The arithmetic, on the CONTENT column rather than the
+                    window: content = window - 256 (sidebar) - 64 (p-8), then
+                    the 32px gap comes off before the 8/12 and 4/12 shares. At
+                    1280 that is 960 content -> 619 / 309; at 1440, 1120 ->
+                    725 / 363; at 1024 it would have been 704 -> 448 / 224,
+                    which is the number that made `lg` wrong.
+
+                    Both columns are flex and their cards take `xl:flex-auto`,
+                    so each column's slack is shared out over the cards in it
+                    rather than pooling under the last one. Grid items already
+                    stretch to the tallest item in the row, so whichever column
+                    is shorter grows to meet the other and the two end level at
+                    any market, at any score, with no magic number to go stale.
+                    Before this the left column stopped 292px above the rail
+                    (measured at 1440x900) and the bottom third of the page was
+                    a hole. No `min-h-0` and no internal scroller, for the same
+                    reason the Portfolio alert card has neither: a flex child
+                    allowed to shrink below its content is a card that clips
+                    it. */}
                 {/* Simulator Area (xl:col-span-8) */}
-                <div className="col-span-1 xl:col-span-8 space-y-6">
+                <div className="col-span-1 xl:col-span-8 flex flex-col gap-6">
                   
                   {/* The simulator's summary, as ONE card. Three depths of
                       container around one subject read as three separate
-                      subjects; `Card` has exactly two depths, on purpose. */}
-                  <Card tone="raised">
+                      subjects; `Card` has exactly two depths, on purpose.
+
+                      `xl:flex-auto` here and on the readings card below, so the
+                      two split whatever slack the rail leaves and neither ends
+                      with a visible pool of it. `flex-auto`, not `flex-1`:
+                      `flex-1` zeroes the basis, which makes two cards holding
+                      quite different amounts exactly the same height and puts
+                      all of the emptiness in the shorter one. */}
+                  <Card tone="raised" className="flex flex-col xl:flex-auto">
                     {/* Wraps on a phone: side by side, the market name took
                         three lines while the action next to it took three of
                         its own, and neither was readable. Stacked, each gets
                         the full width for one line. */}
-                    <div className="flex flex-wrap justify-between items-center gap-3 mb-5 border-b border-border-subtle pb-3">
+                    <div className="flex shrink-0 flex-wrap justify-between items-center gap-3 mb-5 border-b border-border-subtle pb-3">
                       {/* Market selector - mode-aware. Positions mode lists the
                           wallet's real on-chain positions; Recommendations lists
                           the Compass preset catalog. */}
@@ -2565,7 +2616,7 @@ export function AppDemo() {
                             letter-spaced style was retired everywhere else in
                             the app, and "SCORED ON-CHAIN" was provenance the
                             score's own InfoTip states properly. */}
-                        <span className="block text-2xs font-sans text-text-muted mb-1">
+                        <span className="block text-xs font-sans text-text-muted mb-1">
                           {watchingOwnPosition ? "Your position" : "Simulated market"}
                         </span>
                         <button
@@ -2614,14 +2665,14 @@ export function AppDemo() {
                                         }`}
                                       >
                                         <div className="min-w-0">
-                                          <span className="block text-2xs font-sans text-text-muted">{preset.protocol}</span>
+                                          <span className="block text-xs font-sans text-text-muted">{preset.protocol}</span>
                                           <span className={`block text-sm font-sans font-semibold truncate tabular-nums ${
                                             isActive ? "text-text-primary" : "text-text-secondary"
                                           }`}>{preset.collateralSymbol} · {position.collateralValueUsd === null ? "size unavailable (prices degraded)" : `${formatCurrency(position.collateralValueUsd)} supplied`}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
                                           <RiskChip band={preset.riskStatus}>{preset.riskStatus}</RiskChip>
-                                          <span className="text-2xs font-sans text-text-muted tabular-nums">{preset.baseRisk}</span>
+                                          <span className="text-xs font-sans text-text-muted tabular-nums">{preset.baseRisk}</span>
                                         </div>
                                       </li>
                                     );
@@ -2644,14 +2695,14 @@ export function AppDemo() {
                                         }`}
                                       >
                                         <div className="min-w-0">
-                                          <span className="block text-2xs font-sans text-text-muted">{p.protocol}</span>
+                                          <span className="block text-xs font-sans text-text-muted">{p.protocol}</span>
                                           <span className={`block text-sm font-sans font-semibold truncate ${
                                             isActive ? "text-text-primary" : "text-text-secondary"
                                           }`}>{p.assetPair}</span>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
                                           <RiskChip band={p.riskStatus}>{p.riskStatus}</RiskChip>
-                                          <span className="text-2xs font-sans text-text-muted tabular-nums">{p.baseRisk}</span>
+                                          <span className="text-xs font-sans text-text-muted tabular-nums">{p.baseRisk}</span>
                                         </div>
                                       </li>
                                     );
@@ -2679,29 +2730,30 @@ export function AppDemo() {
                       </div>
                     </div>
 
-                    {/* Score on the left, its four components on the right.
+                    {/* The score, then what it is made of, stacked.
 
-                        The split is `xl`, not `md`: a Tailwind breakpoint
-                        measures the WINDOW, and this block sits inside window
-                        minus a 256px sidebar minus the 8/12 simulator column, so
-                        at 768px it has ~408px and splitting it there crushed the
-                        driver bars to 62px. Everything inside is stepped a
-                        breakpoint or two late for the same reason. */}
-                    <div className="flex flex-col xl:flex-row gap-6 text-left">
-                      {/* Normal flow, not `justify-between`: this column is three
-                          short lines, and stretching them to the height of the
-                          four bars beside them left a hole in the card. */}
-                      <div className="flex-1 xl:max-w-[280px]">
-                        <div>
-                          {/* No icon. Portfolio's stat labels carry none, and a
-                              generic pulse glyph beside the score's name adds no
-                              information the words are missing. */}
-                          <div className="flex items-center gap-1 text-text-muted font-sans text-2xs mb-2">
-                            <span>{RISK_SCORE_NAME}</span>
-                            <InfoTip text={`${RISK_SCORE_HINT} Your risk profile sets where alerts fire.`} />
-                          </div>
+                        This used to split side by side at `xl`. It does not any
+                        more, and the reason is the same arithmetic that set the
+                        breakpoint: the left side held three short lines and the
+                        right side four bars, so at every width above the split
+                        the score column was a 165px block in a 400px space and
+                        the card carried a permanent hole. Stacked, both parts
+                        get the full 690px of the column, the driver rows stop
+                        competing for width with a paragraph, and the card
+                        matches the Compass risk-breakdown panel it shares its
+                        row treatment with. */}
+                    <div className="flex flex-1 flex-col gap-5 text-left">
+                      <div className="space-y-2">
+                        {/* No icon. Portfolio's stat labels carry none, and a
+                            generic pulse glyph beside the score's name adds no
+                            information the words are missing. */}
+                        <div className="flex items-center gap-1 text-text-muted font-sans text-xs">
+                          <span>{RISK_SCORE_NAME}</span>
+                          <InfoTip text={`${RISK_SCORE_HINT} Your risk profile sets where alerts fire.`} />
+                        </div>
 
-                          <div className="flex items-baseline gap-2 mb-2">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+                          <div className="flex items-baseline gap-2">
                             {/* Neutral ink, like every other figure in the
                                 product. A 40px saturated numeral is the loudest
                                 thing a dashboard can emit, and it was saying in
@@ -2710,29 +2762,26 @@ export function AppDemo() {
                             <span className="text-4xl font-sans font-black tracking-tight tabular-nums text-text-primary">
                               {positionState.riskScore}
                             </span>
-                            <span className="text-xs font-sans text-text-muted tabular-nums">/ 100</span>
+                            <span className="text-sm font-sans text-text-muted tabular-nums">/ 100</span>
 
-                            {/* Beside the figure, not `ml-auto`. Below `xl`
-                                this column is the full card width, and pushing
-                                the band to the far edge left 600px of nothing
-                                between a score and the word that reads it. */}
+                            {/* Beside the figure, not at the far edge: a band
+                                pushed to the other end of a 690px row leaves a
+                                score and the word that reads it with the width
+                                of the card between them. */}
                             <RiskChip band={positionState.status} className="ml-1">
                               {positionState.status === "CRITICAL" ? "CRITICAL THREAT" :
                                positionState.status === "HIGH" ? "HIGH RISK" :
                                positionState.status === "ELEVATED" ? "ELEVATED" : "LOW RISK"}
                             </RiskChip>
                           </div>
-                        </div>
 
-                        {/* Plain language summary & trend indicators */}
-                        <div className="mt-3 pt-3 border-t border-border-subtle space-y-2.5">
                           {/* Absent when the simulation sits on the real numbers:
                               there is then no delta, and a zero dressed up as a
                               trend is a movement that did not happen. Neutral ink
-                              — the arrow says the direction, and the chip six
-                              pixels above already says the band. */}
+                              — the arrow says the direction, and the chip beside
+                              it already says the band. */}
                           {scoreDelta !== 0 && (
-                            <p className="flex items-center gap-1 font-sans text-2xs text-text-secondary tabular-nums">
+                            <p className="flex items-center gap-1 font-sans text-xs text-text-secondary tabular-nums">
                               {scoreDelta > 0 ? (
                                 <ArrowUp className="w-3 h-3 shrink-0" aria-hidden="true" />
                               ) : (
@@ -2742,80 +2791,87 @@ export function AppDemo() {
                               {watchingOwnPosition ? "your position" : "this market"} now
                             </p>
                           )}
-
-                          <p className="text-2xs text-text-secondary leading-relaxed font-sans">
-                            {/* One clause each: a verdict that needs two
-                                sentences is not a verdict, and the brochure
-                                language that used to wrap these read as
-                                reassurance we had not measured. */}
-                            {positionState.status === "CRITICAL" && "Spot price is close to your liquidation benchmark."}
-                            {positionState.status === "HIGH" && "Leverage is high. Repay or add collateral."}
-                            {positionState.status === "ELEVATED" && "Stable, but exposed to short-term volatility."}
-                            {positionState.status === "LOW" && "Collateral buffer is comfortable."}
-                          </p>
                         </div>
+
+                        <p className="text-sm text-text-secondary leading-relaxed font-sans">
+                          {/* One clause each: a verdict that needs two
+                              sentences is not a verdict, and the brochure
+                              language that used to wrap these read as
+                              reassurance we had not measured. */}
+                          {positionState.status === "CRITICAL" && "Spot price is close to your liquidation benchmark."}
+                          {positionState.status === "HIGH" && "Leverage is high. Repay or add collateral."}
+                          {positionState.status === "ELEVATED" && "Stable, but exposed to short-term volatility."}
+                          {positionState.status === "LOW" && "Collateral buffer is comfortable."}
+                        </p>
                       </div>
 
-                      {/* Right: Top Risk Drivers section */}
-                      <div className="flex-1 min-w-0 border-t xl:border-t-0 xl:border-l border-border-subtle pt-4 xl:pt-0 xl:pl-6 space-y-4">
-                        <span className="block text-2xs font-sans text-text-muted select-none">
-                          Score breakdown
-                        </span>
+                      <div className="flex flex-1 min-w-0 flex-col">
+                        {/* One row per driver, from RISK_DRIVERS, in the same
+                            `BreakdownRow` the Compass panel uses for the same
+                            four figures. These were four copies of the same
+                            twelve lines, which is how three ended up with a
+                            hand-typed colour and one with a number the engine
+                            never produced.
 
-                        {/* One row per driver, from RISK_DRIVERS. These were four
-                            copies of the same twelve lines, which is how three
-                            ended up with a hand-typed colour and one with a
-                            number the engine never produced. */}
-                        <div className="grid grid-cols-1 2xl:grid-cols-2 gap-x-6 gap-y-4">
+                            The value is a bare 0-100 number, not "78%". A
+                            sub-score is a risk point on the same scale as the
+                            composite above it, and printing it as a percentage
+                            invited the reading "78% of what" — the panel one
+                            click away had already stopped. The bar carries the
+                            denominator. */}
+                        <BreakdownSection heading="Score breakdown">
                           {RISK_DRIVERS.map((driver) => {
-                            const { label, hint, of } = driver;
-                            const value = of(positionState.breakdown);
+                            const value = driver.of(positionState.breakdown);
                             return (
-                              <div key={label} className="space-y-1.5">
-                                <div className="flex justify-between items-center text-2xs font-sans">
-                                  <span className="text-text-secondary flex items-center gap-1">
-                                    {label}
-                                    <InfoTip
-                                      text={`${hint} ${driverWeightPct(driver)}% of the score.`}
-                                    />
-                                  </span>
-                                  <span className="font-bold tabular-nums text-text-primary">
-                                    {value}%
-                                  </span>
-                                </div>
+                              <BreakdownRow
+                                key={driver.key}
+                                label={driver.label}
+                                hint={`${driver.hint} ${driverWeightPct(driver)}% of the score.`}
+                                value={value}
+                              >
                                 {/* Neutral fill; the bar LENGTH is the channel.
                                     These four are the parts of one score, not
                                     four verdicts, and the composite has already
-                                    been banded once by the chip. `RiskDial` lists
-                                    the same four with no hue either. */}
-                                <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden relative">
+                                    been banded once by the chip. `RiskDial`
+                                    lists the same four with no hue either. */}
+                                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.03]">
                                   <div
                                     className="h-full rounded-full bg-text-secondary transition-all duration-300"
                                     style={{ width: `${value}%` }}
-                                  ></div>
+                                  />
                                 </div>
-                              </div>
+                              </BreakdownRow>
                             );
                           })}
-                        </div>
+                        </BreakdownSection>
+
                       </div>
                     </div>
                   </Card>
 
-                  {/* The two core numbers, in the app's stat tile. Liquidation
-                      distance leads, because the sliders move collateral, price
-                      and debt — the health factor is an OUTPUT here as it is
-                      everywhere else, and it is the one figure on this screen a
-                      non-expert cannot read. Values and sub-lines come from
-                      `watchOutlook` beside `scoreDelta`.
+                  {/* What the score is a score OF, in the row treatment the
+                      Compass panel uses for the same job. Liquidation distance
+                      leads, because the sliders move collateral, price and debt
+                      — the health factor is an OUTPUT here as it is everywhere
+                      else, and it is the one figure on this screen a non-expert
+                      cannot read. Values and sub-lines come from `watchOutlook`
+                      beside `scoreDelta`.
 
-                      NO DEBT replaces both tiles with one line rather than
-                      printing "LOAN TO VALUE 0%". A position with nothing
+                      The two dollar rows are the figures the ENGINE was handed
+                      (`prospectiveArgs`), which the token amounts in the
+                      controls are not: move the borrowed price to $0.87 and
+                      "105,200 USDC" and "$91,524" stop being the same quantity.
+                      They also carry the collateral's worth, which used to be
+                      glued onto the collateral slider's maximum-end label as if
+                      it were part of the range.
+
+                      Replaced entirely by one line with NO DEBT rather than
+                      printing "Loan to value 0%": a position with nothing
                       borrowed has no loan-to-value and no liquidation distance,
-                      and a 24px zero is the same lie as a "$0" standing in for an
-                      unknown price. It reads the borrowed amount rather than the
-                      health factor because the offline fallback formula has no
-                      null to offer. */}
+                      and that zero is the same lie as a "$0" standing in for an
+                      unknown price. The branch reads the borrowed amount rather
+                      than the health factor because the offline fallback
+                      formula has no null to offer. */}
                   {borrowUsd <= 0 ? (
                     <EmptyState
                       tone="clear"
@@ -2823,48 +2879,77 @@ export function AppDemo() {
                       hint={`Nothing is borrowed against your ${activeMarket.collateralAsset}, so there is nothing to liquidate. Raise the borrowed amount to simulate one.`}
                     />
                   ) : (
-                    <div className="grid gap-5 sm:grid-cols-2">
-                      <Card tone="raised">
-                        <Stat
+                    <Card tone="raised" className="xl:flex-auto">
+                      <BreakdownSection heading="The position being scored">
+                        {/* Same wording rule as the Compass panel, from the same
+                            predicate: a same-asset market still has a real
+                            distance to liquidation, but it is a gap that has to
+                            OPEN between the two legs, not a fall in a price they
+                            share, so "Drop to liquidation" would name the wrong
+                            move. `stripNote` is non-null exactly in the two
+                            cases with no drop to reframe. */}
+                        <BreakdownRow
                           label={
-                            <>
-                              Drop to liquidation
-                              <InfoTip text={watchOutlook.hover} />
-                            </>
+                            sameAssetMarket && watchOutlook.stripNote === null
+                              ? "Depeg to liquidation"
+                              : "Drop to liquidation"
+                          }
+                          hint={
+                            sameAssetMarket && watchOutlook.stripNote === null
+                              ? `${sameAssetDepegNote(activeMarket.collateralAsset)} ${watchOutlook.hover}`
+                              : watchOutlook.hover
                           }
                           value={watchOutlook.strip}
-                          sub={watchDropSub}
+                          note={watchDropSub || undefined}
                         />
-                      </Card>
-
-                      <Card tone="raised">
-                        <Stat
-                          label={
-                            <>
-                              Loan to value
-                              <InfoTip text="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation." />
-                            </>
-                          }
+                        <BreakdownRow
+                          label="Loan to value"
+                          hint="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation."
                           value={watchLtvPct === null ? "No collateral" : `${watchLtvPct}%`}
-                          sub={`${activeMarket.protocol} liquidates above ${watchMaxLtvPct}%`}
+                          note={`${activeMarket.protocol} liquidates above ${watchMaxLtvPct}%`}
                         />
-                      </Card>
-                    </div>
+                        {/* The token amount only where it says something the
+                            dollars do not. At a simulated price of $1 the two
+                            are the same number, so "$2,000" over "2,000 USDC"
+                            is one quantity printed twice; the panel drops its
+                            note on the same test. */}
+                        <BreakdownRow
+                          label="Collateral value"
+                          hint="Your collateral amount at the simulated collateral price. This is the dollar figure the score is computed on."
+                          value={formatCurrency(watchCollateralValue)}
+                          note={
+                            assetPrice === 1
+                              ? undefined
+                              : `${collateralAmount.toLocaleString("en-US")} ${activeMarket.collateralAsset}`
+                          }
+                        />
+                        <BreakdownRow
+                          label="Borrowed value"
+                          hint="Your borrowed amount at the simulated borrowed price. This is the dollar figure the score is computed on."
+                          value={formatCurrency(borrowUsd)}
+                          note={
+                            debtPrice === 1
+                              ? undefined
+                              : `${borrowAmount.toLocaleString("en-US")} ${activeMarket.debtAsset}`
+                          }
+                        />
+                      </BreakdownSection>
+                    </Card>
                   )}
 
                 </div>
 
-                {/* Automation triggers & Telemetry feed column (xl:col-span-4) */}
-                <div className="col-span-1 xl:col-span-4 space-y-6">
-                  
+                {/* The controls column (xl:col-span-4) */}
+                <div className="col-span-1 xl:col-span-4 flex flex-col gap-6">
+
                   {/* Scenario presets (#3): the answer first, sliders second.
                       Same `Card` as everything else on this tab now — it was a
                       hand-typed copy of the raised tone that had drifted to
                       p-6. */}
                   <Card tone="raised" className="space-y-3">
-                    <span className="flex items-center gap-1 text-2xs font-sans text-text-muted border-b border-border-subtle pb-2">
+                    <span className="flex items-center gap-1 text-xs font-sans font-semibold text-text-muted">
                       Price scenarios
-                      <InfoTip text="Crash and black-swan magnitudes mirror the backtest event set. The HF preview on each card is an estimate; the headline score uses the live engine." />
+                      <InfoTip text="Crash and black-swan magnitudes mirror the backtest event set. The HF preview on each row is an estimate; the headline score uses the live engine." />
                     </span>
                     {/* A same-asset market gets the reason instead of the chips.
                         Run against USDC collateral and USDC debt, the four
@@ -2882,12 +2967,22 @@ export function AppDemo() {
                         liquidation price for exactly this reason. Only the
                         instruction after it is this screen's. */}
                     {sameAssetMarket ? (
-                      <p className="text-xs font-sans text-text-secondary leading-relaxed">
+                      <p className="text-sm font-sans text-text-secondary leading-relaxed">
                         {sameAssetDepegNote(activeMarket.collateralAsset)} Set the two price controls
                         below apart to simulate it.
                       </p>
                     ) : (
-                    <div className="grid grid-cols-2 gap-2">
+                    /* Hairlines, not four bordered tiles inside a bordered card.
+                       Selection is carried the way the market dropdown above
+                       carries it — a `border-l-2` accent plus a background
+                       shift — which is legible without giving every row an edge
+                       of its own, and `aria-pressed` states it for a reader who
+                       cannot see either. */
+                    <div
+                      role="group"
+                      aria-label="Collateral price scenario"
+                      className="divide-y divide-border-subtle border-t border-border-subtle"
+                    >
                       {PRICE_SCENARIOS.map((s) => {
                         const price = scenarioPrice(s.pct);
                         const maxLTV = demoMaxLtv(activeMarket.protocol);
@@ -2897,49 +2992,60 @@ export function AppDemo() {
                         return (
                           <button
                             key={s.key}
+                            type="button"
+                            aria-pressed={active}
+                            /* Built from the same values the row draws, for the
+                               same reason the toggle above carries one: flattened
+                               without separators this row announces as
+                               "Current$2,000market priceHF ~1.46". */
+                            aria-label={[
+                              s.label,
+                              formatCurrency(price),
+                              s.pct === 0 ? s.note : `${s.note}, ${Math.round(s.pct * 100)}%`,
+                              borrowUsd > 0
+                                ? (liquidated ? "liquidated" : `health factor about ${estHf.toFixed(2)}`)
+                                : null,
+                            ].filter(Boolean).join(", ")}
                             onClick={() => applyScenario(s.key, s.pct)}
-                            className={`text-left p-2.5 rounded-md border transition-all cursor-pointer ${
+                            className={`block w-full cursor-pointer border-l-2 py-3 pl-3 pr-1 text-left transition-colors ${
                               active
-                                ? "bg-white/[0.06] border-border-strong"
-                                : "bg-white/[0.01] border-border-subtle hover:bg-white/[0.04]"
+                                ? "border-l-border-strong bg-white/[0.06]"
+                                : "border-l-transparent hover:bg-white/[0.04]"
                             }`}
                           >
-                            <div className="flex items-baseline justify-between">
-                              <span className={`text-2xs font-sans font-bold ${active ? "text-text-primary" : "text-text-secondary"}`}>
+                            <span className="flex items-baseline justify-between gap-3">
+                              <span className={`text-xs font-sans ${active ? "text-text-primary font-semibold" : "text-text-secondary"}`}>
                                 {s.label}
                               </span>
-                              {/* The scenario's magnitude, not a measurement
-                                  of anything. It defines which button this is
-                                  ("Crash" is -40%), so it reads as a label and
-                                  is inked like one. Painting it risk-critical
-                                  put three permanent red figures on the page
-                                  that would say -20/-40/-55 for a debt-free
-                                  position in no danger at all. */}
-                              {s.pct !== 0 && (
-                                <span className="text-2xs font-sans text-text-muted tabular-nums">{Math.round(s.pct * 100)}%</span>
-                              )}
-                            </div>
-                            <span className="block text-2xs font-sans text-text-secondary mt-1 tabular-nums">
-                              {formatCurrency(price)}
+                              <span className="shrink-0 text-sm font-sans font-semibold tabular-nums text-text-primary">
+                                {formatCurrency(price)}
+                              </span>
+                            </span>
+                            <span className="mt-0.5 flex items-baseline justify-between gap-3">
+                              {/* The scenario's magnitude, not a measurement of
+                                  anything. It defines which row this is ("Crash"
+                                  is -40%), so it reads as a label and is inked
+                                  like one, beside the event it is named for. */}
+                              <span className="text-xs font-sans text-text-muted tabular-nums">
+                                {s.pct === 0 ? s.note : `${s.note}, ${Math.round(s.pct * 100)}%`}
+                              </span>
                               {borrowUsd > 0 && (
-                                /* Colour survives on ONE branch. "Liquidated"
-                                   is a verdict — this scenario ends the
-                                   position — and it is the only thing in this
-                                   panel that is. The HF preview beside it is a
-                                   reading, so it is inked as one; it used to
-                                   run its own green/amber/red ramp cut at 1.3,
-                                   a fourth set of thresholds on a screen that
-                                   already had three. */
-                                /* Leading space, not just the margin: without
-                                   it the accessible text of this line is
-                                   "$1,667HF ~1.20". */
-                                <span className={`ml-1.5 font-bold tabular-nums ${liquidated ? "text-risk-critical" : "text-text-primary"}`}>
-                                  {" "}
+                                /* No hue, on either branch. "Liquidated" was the
+                                   one coloured verdict left on this tab, and at
+                                   a -20% stress it is three rows of it at once,
+                                   which is not the handful the ramp is rationed
+                                   to; the word already says the whole thing
+                                   without help, and the band the reader should
+                                   act on is the chip on the score. The HF
+                                   preview beside it used to run its own
+                                   green/amber/red ramp cut at 1.3, a fourth set
+                                   of thresholds on a screen that already had
+                                   three. */
+                                <span className="shrink-0 text-xs font-sans font-semibold tabular-nums text-text-secondary">
                                   {liquidated ? "Liquidated" : `HF ~${estHf.toFixed(2)}`}
                                 </span>
                               )}
                             </span>
-                            <span className="block text-2xs font-sans text-text-muted mt-0.5">{s.note}</span>
                           </button>
                         );
                       })}
@@ -2947,14 +3053,23 @@ export function AppDemo() {
                     )}
                   </Card>
 
-                  {/* Advanced parameters (#4): direct inputs for amounts + prices */}
-                  <Card tone="raised" className="space-y-4">
-                    <span className="text-2xs font-sans text-text-muted block border-b border-border-subtle pb-2">
+                  {/* Advanced parameters (#4): direct inputs for amounts + prices.
+
+                      Hairline rows, like the scenarios above. Each control used
+                      to sit in its own tinted, bordered, rounded well inside
+                      this bordered card, which is four boxes drawn to say
+                      "these four things are separate" about four rows a divider
+                      already separates. The hover tint went with them: it lit up
+                      a container the pointer was only crossing to reach the
+                      slider, and it stated nothing about state. */}
+                  <Card tone="raised" className="flex flex-col xl:flex-auto">
+                    <span className="text-xs font-sans font-semibold text-text-muted block">
                       Adjust the position
                     </span>
 
+                    <div className="mt-3 divide-y divide-border-subtle border-t border-border-subtle">
                     {/* Collateral amount */}
-                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
+                    <div className="space-y-2 py-4">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
                         <span>Collateral ({activeMarket.collateralAsset})</span>
                         <input
@@ -2963,7 +3078,7 @@ export function AppDemo() {
                           step={activeMarket.defaultCollateral < 10 ? 0.1 : 100}
                           value={collateralAmount}
                           onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-text-primary text-xs font-sans focus:border-border-strong tabular-nums"
+                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-text-primary text-sm font-sans focus:border-border-strong tabular-nums"
                           aria-label="Collateral amount"
                         />
                       </div>
@@ -2977,9 +3092,14 @@ export function AppDemo() {
                         className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-collateral-slider"
                       />
-                      <div className="flex justify-between text-xs font-sans text-text-muted">
+                      {/* Both ends state the END, in the shape the price slider
+                          below uses. The right one used to read "2.5x, worth
+                          $128,500" where the dollars were the CURRENT holding,
+                          not the maximum the label names: one clause, two
+                          unrelated facts, and the reader gets the wrong one. */}
+                      <div className="flex justify-between text-xs font-sans text-text-muted tabular-nums">
                         <span>0</span>
-                        <span>2.5x, worth {formatCurrency(collateralAmount * assetPrice)}</span>
+                        <span>2.5x ({formatCurrency(activeMarket.defaultCollateral * 2.5 * assetPrice)})</span>
                       </div>
                     </div>
 
@@ -2989,7 +3109,7 @@ export function AppDemo() {
                         sliders reading the same words and driving different
                         halves of the position. The leg is what tells them apart,
                         and it is also what the amount rows above are named for. */}
-                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
+                    <div className="space-y-2 py-4">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
                         <span>Collateral price ({activeMarket.collateralAsset})</span>
                         <input
@@ -3008,7 +3128,7 @@ export function AppDemo() {
                              simulated price means for this position is the
                              score, the chip and the drop tile's job; the input
                              is a control. */
-                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans text-text-primary focus:border-border-strong tabular-nums"
+                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-sm font-sans text-text-primary focus:border-border-strong tabular-nums"
                           aria-label="Collateral asset price in USD"
                         />
                       </div>
@@ -3025,14 +3145,14 @@ export function AppDemo() {
                         className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-price-slider"
                       />
-                      <div className="flex justify-between text-xs font-sans text-text-muted">
+                      <div className="flex justify-between text-xs font-sans text-text-muted tabular-nums">
                         <span>-60% ({formatCurrency(activeMarket.defaultPrice * 0.4)})</span>
                         <span>+30% ({formatCurrency(activeMarket.defaultPrice * 1.3)})</span>
                       </div>
                     </div>
 
                     {/* Borrowed amount */}
-                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
+                    <div className="space-y-2 py-4">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
                         <span>Borrowed ({activeMarket.debtAsset})</span>
                         <input
@@ -3041,7 +3161,7 @@ export function AppDemo() {
                           step={activeMarket.defaultBorrow < 10 ? 0.1 : 50}
                           value={borrowAmount}
                           onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans text-text-primary focus:border-border-strong tabular-nums"
+                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-sm font-sans text-text-primary focus:border-border-strong tabular-nums"
                           aria-label="Borrowed amount"
                         />
                       </div>
@@ -3055,14 +3175,14 @@ export function AppDemo() {
                         className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-borrow-slider"
                       />
-                      <div className="flex justify-between text-xs font-sans text-text-muted">
+                      <div className="flex justify-between text-xs font-sans text-text-muted tabular-nums">
                         <span>0</span>
                         <span>+60% debt</span>
                       </div>
                     </div>
 
                     {/* Borrowed asset price (depeg scenarios) */}
-                    <div className="space-y-1.5 bg-white/[0.01] hover:bg-white/[0.03] p-3 rounded-md border border-border-subtle transition-colors">
+                    <div className="space-y-2 py-4">
                       <div className="flex flex-wrap justify-between items-center gap-x-2 gap-y-1 text-xs font-sans text-text-secondary">
                         <span>Borrowed price ({activeMarket.debtAsset})</span>
                         <input
@@ -3071,7 +3191,7 @@ export function AppDemo() {
                           step={0.005}
                           value={debtPrice}
                           onChange={(e) => setDebtPrice(Math.max(0, Number(e.target.value)))}
-                          className="w-24 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-xs font-sans text-text-primary focus:border-border-strong tabular-nums"
+                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-sm font-sans text-text-primary focus:border-border-strong tabular-nums"
                           aria-label="Borrowed asset price in USD"
                         />
                       </div>
@@ -3085,10 +3205,14 @@ export function AppDemo() {
                         className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         id="watch-debt-price-slider"
                       />
-                      <div className="flex justify-between text-xs font-sans text-text-muted">
-                        <span title="USDC fell to $0.87 during the SVB weekend in March 2023." className="cursor-help">$0.85 depeg</span>
+                      <div className="flex justify-between text-xs font-sans text-text-muted tabular-nums">
+                        <span className="flex items-center gap-1">
+                          $0.85 depeg
+                          <InfoTip text="USDC fell to $0.87 during the SVB weekend in March 2023, which is the event this end of the range is scaled to." />
+                        </span>
                         <span>$1.05 premium</span>
                       </div>
+                    </div>
                     </div>
                   </Card>
 
