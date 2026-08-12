@@ -3344,15 +3344,22 @@ export function AppDemo() {
                          "watch worker" was an internal service name on a user's
                          dashboard; the cadence is the same fact in words someone
                          has a reason to know, and it is only stated once the
-                         history has actually been read. */
-                      <div>
-                        <SparklinePlaceholder height={riskChartHeight} />
-                        {walletHistory !== null && (
-                          <p className="mt-4 text-sm font-sans leading-relaxed text-text-secondary">
-                            This fills in as PANIK rescores your wallet, about once a minute.
-                          </p>
-                        )}
-                      </div>
+                         history has actually been read.
+
+                         The two states differ in what fills the frame, never in
+                         its size. A read that has not returned is seconds long
+                         and gets a plain reserved block; a wallet PANIK has
+                         scored once holds this frame for minutes and across
+                         reloads, so there the sentence sits INSIDE it. Below the
+                         frame it read as a caption to a chart that had failed. */
+                      <SparklinePlaceholder
+                        height={riskChartHeight}
+                        note={
+                          walletHistory !== null
+                            ? "This fills in as PANIK rescores your wallet, about once a minute."
+                            : undefined
+                        }
+                      />
                     )}
                   </Card>
                   )}

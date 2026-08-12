@@ -49,17 +49,46 @@ const REF_GUTTER = "w-14";
  * sentence where a chart will go has to re-lay itself out the moment the series
  * arrives, and the reader loses their place in whatever sits below.
  *
+ * `note` is for the wait that is not a fetch: a wallet whose history has been
+ * read and holds too few points to draw yet. That state survives a reload and
+ * can stand for minutes, so the reserved room has to say why it is reserved.
+ * A grey fill alone reads as a broken chart, and a fill with the reason printed
+ * underneath reads as a caption to one. The note takes the fill's place rather
+ * than sitting on top of it, because a wash competing with the sentence over it
+ * is what made the plain version illegible in the first place.
+ *
  * It lives beside `Sparkline` because it borrows that layout's gutter widths.
  * A placeholder built from a second copy of those numbers is one that stops
  * matching the chart it stands in for, with nothing failing to say so.
  */
-export function SparklinePlaceholder({ height = 36 }: { height?: number }) {
+export function SparklinePlaceholder({
+  height = 36,
+  note,
+}: {
+  height?: number;
+  note?: React.ReactNode;
+}) {
   return (
-    <div aria-hidden="true">
+    /* The empty frame is decoration and stays hidden from a screen reader; a
+       note is the only thing here anyone was meant to read. */
+    <div aria-hidden={note ? undefined : true}>
       <div className="flex items-stretch gap-1.5">
         <div className="shrink-0 min-w-8" />
         <div className="flex-1 min-w-0" style={{ height }}>
-          <Skeleton className="h-full w-full" />
+          {note ? (
+            /* The box treatment `EmptyState` uses for tone="clear": nothing is
+               wrong here, and the tab's two "nothing to draw yet" surfaces
+               should read as the same kind of statement. No glyph, because the
+               one that tone carries is a green check, and "we have not scored
+               this wallet twice yet" is not a safety claim. */
+            <div className="flex h-full w-full items-center justify-center rounded-md border border-border-subtle bg-white/[0.02] px-5">
+              <p className="max-w-md text-center text-sm font-sans leading-relaxed text-text-secondary">
+                {note}
+              </p>
+            </div>
+          ) : (
+            <Skeleton className="h-full w-full" />
+          )}
         </div>
         <div className={`shrink-0 ${REF_GUTTER}`} />
       </div>
