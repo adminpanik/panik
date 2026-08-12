@@ -12,11 +12,21 @@
  *
  * Only HF and borrowUsd are needed - both already on every ActiveScore leg.
  *
+ * The SAME target, said in the way a user can act on: a position at HF = T
+ * survives a collateral price drop of d* = 1 - 1/T, so "reach 1.75" and
+ * "survive a 43% drop" are one target in two forms, and
+ *
+ *   R = D - L(1 - d*)   with L = HF x D
+ *
+ * is the identical repay. `repayToTargetDrawdown` is that entry point; it maps
+ * d* back to T and delegates, so the dollars have exactly one source.
+ *
  * COLLATERAL-FUNDED: the position's own collateral is sold to fund the repay,
  * so both sides move. See `collateralFundedRepayToTargetHf`, which additionally
  * needs the weighted liquidation threshold.
  */
 
+import { drawdownToLiquidation, hfForDrawdown } from "../prospective";
 import type { RiskProfile } from "../types";
 
 /**
@@ -45,6 +55,37 @@ export function borrowForTargetHf(
 ): number {
   return Math.round(((collateralUsd * liquidationThreshold) / targetHf) * 100) / 100;
 }
+
+/**
+ * A health-factor target as the thing it actually buys.
+ *
+ * Throws rather than returning null because this runs once at module load over
+ * three constants that are all above 1: a TARGET_HF edit that has no drawdown
+ * form is a broken build, not a runtime unknown, and every test run trips it.
+ */
+function targetDrawdownOf(targetHf: number): number {
+  const d = drawdownToLiquidation(targetHf);
+  if (d === null) throw new Error(`TARGET_HF ${targetHf} has no drawdown equivalent`);
+  return d;
+}
+
+/**
+ * The SAME targets as `TARGET_HF`, expressed as the collateral price drop the
+ * position survives once the repay lands: d* = 1 - 1/T.
+ *
+ *   conservative 2.00 -> 50%   moderate 1.75 -> 42.9%   aggressive 1.50 -> 33.3%
+ *
+ * This is the number a person can act on ("survive a 43% drop" against "reach
+ * 1.75"), and it is DERIVED, never written down: `drawdownToLiquidation` is the
+ * one copy of `1 - 1/HF` in the codebase, so a change to a target moves both
+ * forms together and neither can be quietly edited out of agreement with the
+ * other.
+ */
+export const TARGET_DRAWDOWN: Record<RiskProfile, number> = {
+  conservative: targetDrawdownOf(TARGET_HF.conservative),
+  moderate: targetDrawdownOf(TARGET_HF.moderate),
+  aggressive: targetDrawdownOf(TARGET_HF.aggressive),
+};
 
 /**
  * Above this fraction of total debt, a REDUCE is promoted to a full EXIT.
@@ -88,6 +129,95 @@ export function repayToTargetHf(
   if (borrowUsd <= 0 || hfNow <= 0 || hfNow >= targetHf) return 0;
   const repay = borrowUsd * (1 - hfNow / targetHf);
   return Math.min(Math.max(repay, 0), borrowUsd);
+}
+
+/**
+ * The same repay, sized from the drop it has to survive instead of the ratio it
+ * has to reach: R = D - L(1 - d*), with L = HF x D the liquidation-weighted
+ * collateral a wallet-funded repay leaves untouched.
+ *
+ * A pure reparameterization, and deliberately a MAPPING rather than a second
+ * formula - d* enters through `hfForDrawdown` and the dollars still come out of
+ * `repayToTargetHf`. The algebra is identical but the floats are not (the two
+ * expressions differ in the last ULP), and one repay quoted two ways is exactly
+ * the drift this module keeps out. Bit-identical to the health-factor form for
+ * every input, which the equivalence test pins.
+ *
+ * Returns 0 for a drawdown no health factor can express (see `hfForDrawdown`),
+ * the same answer this module already gives for "nothing to repay here".
+ */
+export function repayToTargetDrawdown(
+  borrowUsd: number,
+  hfNow: number,
+  targetDrawdown: number,
+): number {
+  const targetHf = hfForDrawdown(targetDrawdown);
+  if (targetHf === null) return 0;
+  return repayToTargetHf(borrowUsd, hfNow, targetHf);
+}
+
+/**
+ * How much price-drop protection one dollar of repay buys: exactly 1/L.
+ *
+ * After repaying R the position survives a drop of 1 - (D - R)/L, which is
+ * LINEAR in R with slope 1/L - the same slope at every repay size, because a
+ * wallet-funded repay never touches the collateral L is measured from. So a UI
+ * can honestly say "each $1,000 repaid adds 1000/L" without simulating, and the
+ * user can size a repay themselves.
+ *
+ * Null, never 0, when either input is unknown or unusable: a rate of 0 would
+ * say a repay buys nothing, which is a claim about the position rather than an
+ * absence of one.
+ */
+export function drawdownPerUsdRepaid(
+  borrowUsd: number | null,
+  hfNow: number | null,
+): number | null {
+  if (borrowUsd === null || hfNow === null) return null;
+  if (!Number.isFinite(borrowUsd) || !Number.isFinite(hfNow)) return null;
+  if (borrowUsd <= 0 || hfNow <= 0) return null;
+  return 1 / (hfNow * borrowUsd);
+}
+
+/**
+ * The drop the position survives after the sized repay PLUS one further
+ * `stepUsd` - the "each $1,000 more buys you this" figure - or null when that
+ * step is not a real option.
+ *
+ * The slope is constant (`drawdownPerUsdRepaid`), so the arithmetic is only an
+ * addition. The GUARD is the part worth having: the extrapolation is only true
+ * while there is still `stepUsd` of debt left to repay. Past that the step is
+ * buying debt the position does not have, and the line runs straight through
+ * 100% - a $800 debt at HF 1.20 extrapolated to "each further $1,000 takes that
+ * to 147%", a price drop no collateral survives and no user can act on. The
+ * economic floor does not catch this: it is $5.
+ *
+ * Null, never a clamp to 100%: "repay $1,000 more and you survive anything" is
+ * not a rounded-down truth, it is a different and false claim. A caller with
+ * null says nothing, which is the house rule for a fact the code does not have.
+ *
+ * `drawdownAfterRepay` is the post-repay figure the caller is already showing
+ * (from `drawdownToLiquidation(projectedHf)`), passed in rather than recomputed
+ * so this function adds no second copy of `1 - 1/HF`.
+ */
+export function drawdownAfterExtraRepay(
+  drawdownAfterRepay: number | null,
+  borrowUsd: number | null,
+  hfNow: number | null,
+  repayUsd: number,
+  stepUsd: number,
+): number | null {
+  if (drawdownAfterRepay === null || !Number.isFinite(drawdownAfterRepay)) return null;
+  if (!Number.isFinite(repayUsd) || repayUsd < 0) return null;
+  if (!Number.isFinite(stepUsd) || stepUsd <= 0) return null;
+  const perUsd = drawdownPerUsdRepaid(borrowUsd, hfNow);
+  if (perUsd === null || borrowUsd === null) return null;
+  // The step has to come out of the debt that is actually left after the sized
+  // repay. This is also what keeps the result below 1: leaving any debt at all
+  // leaves a finite health factor, and a finite health factor is a drop under
+  // 100%.
+  if (borrowUsd - repayUsd < stepUsd) return null;
+  return drawdownAfterRepay + perUsd * stepUsd;
 }
 
 /**

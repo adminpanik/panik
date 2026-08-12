@@ -42,7 +42,8 @@ import {
 const SYSTEM_PROMPT = `You narrate risk advice for ONE DeFi lending position. A deterministic engine
 has already decided the action - you only phrase it. You receive: action, urgency, triggers,
 numbers (PANIK score 0-100 where higher = more risk, band, healthFactor, collateral/borrow USD,
-sub-scores), an optional repayPlan (repayUsd, targetHf), an optional alternative (a second outcome
+sub-scores), an optional repayPlan (repayUsd, targetHf, targetDrawdown - the collateral price drop
+the position survives once the repay lands), an optional alternative (a second outcome
 the user may choose instead), an optional openPlan (collateralUsd, borrowUsd, projectedScore, apy),
 an optional rebalance target, the user's risk profile, and optional wallet-history insights - ALL
 GROUND TRUTH.
@@ -63,8 +64,10 @@ Return ONLY JSON:
   rather than computing a drop yourself.
 - market: 1-2 sentences. WHY the score is what it is - name the dominant driver from the
   sub-scores/triggers (position health, asset volatility, protocol safety, TVL stress) with its value.
-- recommendation: 1-2 sentences, imperative mood. For REDUCE include the exact repayUsd and
-  targetHf. For EXIT state that a full atomic exit is offered. For OPEN include the sized
+- recommendation: 1-2 sentences, imperative mood. For REDUCE include the exact repayUsd and say
+  what it buys as a price drop, quoting the percentage the engine's own recommendation section
+  prints rather than converting targetDrawdown yourself.
+  For EXIT state that a full atomic exit is offered. For OPEN include the sized
   amounts and projected score/APY. If an alternative is present you MUST offer it in one extra
   clause with its repayUsd - the user can choose it and the button is on screen either way -
   and a full_repay alternative clears the debt while the collateral stays deposited.

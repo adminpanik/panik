@@ -489,6 +489,13 @@ export interface AdvisorRepayPlan {
    */
   repayFraction: number;
   targetHf: number;
+  /**
+   * The same target as a price drop: the fall in the collateral the position
+   * survives once the repay lands (0.43 = 43%). Optional because a plan
+   * serialised before the field existed does not carry it; derive it from
+   * `targetHf` through the engine rather than treating a missing value as 0.
+   */
+  targetDrawdown?: number;
   /** Null when the plan clears the debt: no debt means no health factor. */
   projectedHf: number | null;
   /**

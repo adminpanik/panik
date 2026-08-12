@@ -10,6 +10,8 @@ import {
 import { findOpportunities } from "../src/advisor/opportunities";
 import {
   collateralFundedRepayToTargetHf,
+  drawdownAfterExtraRepay,
+  drawdownPerUsdRepaid,
   hfAfterRepayFraction,
   REDUCE_TO_EXIT_RATIO,
   REPAY_FRACTION_SCALE,
@@ -17,11 +19,13 @@ import {
   repayFractionFloorFromAmount,
   repayFractionNumerator,
   repayFractionOfDebt,
+  repayToTargetDrawdown,
   repayToTargetHf,
   repayUsdFromFraction,
+  TARGET_DRAWDOWN,
   TARGET_HF,
 } from "../src/advisor/repayMath";
-import { drawdownToLiquidation, formatDrawdownPct } from "../src/prospective";
+import { drawdownToLiquidation, formatDrawdownPct, hfForDrawdown } from "../src/prospective";
 import { adviseLeg, adviseWallet, safestAlternativeProtocol } from "../src/advisor/rules";
 import type { AdvisorRecommendation, WalletInsights } from "../src/advisor/types";
 import { MARKETS } from "../src/markets";
@@ -207,6 +211,193 @@ describe("repayMath", () => {
     expect(drawdownToLiquidation(2.0)).toBeCloseTo(0.5, 9);
     expect(drawdownToLiquidation(null)).toBeNull();
     expect(drawdownToLiquidation(0.9)).toBe(0);
+  });
+});
+
+/**
+ * The drawdown parameterization: same targets, same dollars, usable number.
+ *
+ * The whole point of these tests is that NOTHING moved. A repay sized from
+ * "survive a 43% drop" has to be the identical figure the old "reach 1.75"
+ * produced, to the last bit - a reparameterization that changes a quoted repay
+ * by a cent is not a reparameterization, it is a silent repricing.
+ */
+describe("repay sizing reparameterized to drawdown", () => {
+  const PROFILES = ["conservative", "moderate", "aggressive"] as const;
+
+  it("TARGET_DRAWDOWN is TARGET_HF through the one drawdown formula", () => {
+    for (const p of PROFILES) {
+      expect(TARGET_DRAWDOWN[p]).toBe(drawdownToLiquidation(TARGET_HF[p]));
+    }
+    // The spec's mapping, stated once here so a target change is visible in a
+    // diff: 2.00 -> 50%, 1.75 -> 43%, 1.50 -> 33%.
+    expect(TARGET_DRAWDOWN.conservative).toBeCloseTo(0.5, 12);
+    expect(TARGET_DRAWDOWN.moderate).toBeCloseTo(0.4286, 4);
+    expect(TARGET_DRAWDOWN.aggressive).toBeCloseTo(0.3333, 4);
+    expect(formatDrawdownPct(TARGET_DRAWDOWN.conservative)).toBe("50%");
+    expect(formatDrawdownPct(TARGET_DRAWDOWN.moderate)).toBe("43%");
+    expect(formatDrawdownPct(TARGET_DRAWDOWN.aggressive)).toBe("33%");
+  });
+
+  it("hfForDrawdown inverts drawdownToLiquidation exactly on the targets", () => {
+    for (const p of PROFILES) {
+      // Exact, not close: this round trip is what makes the two sizings
+      // bit-identical rather than merely equal to within a rounding.
+      expect(hfForDrawdown(TARGET_DRAWDOWN[p])).toBe(TARGET_HF[p]);
+    }
+    expect(hfForDrawdown(0)).toBe(1);
+    // Not a survivable drop, and no health factor to print for it.
+    expect(hfForDrawdown(1)).toBeNull();
+    expect(hfForDrawdown(1.5)).toBeNull();
+    expect(hfForDrawdown(-0.1)).toBeNull();
+    expect(hfForDrawdown(Number.NaN)).toBeNull();
+    expect(hfForDrawdown(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+
+  it("sizes the IDENTICAL repay as the health-factor form", () => {
+    const inputs: [number, number][] = [
+      [10_000, 1.31],
+      [123_456.78, 1.02],
+      [1_000_000, 1.4999],
+      [7, 1.2],
+      [850_000.55, 1.0001],
+      [42, 0.85], // under water: still sized, still clamped to the debt
+      [1e9, 1.25],
+    ];
+    for (const p of PROFILES) {
+      for (const [borrowUsd, hf] of inputs) {
+        const byHf = repayToTargetHf(borrowUsd, hf, TARGET_HF[p]);
+        const byDrawdown = repayToTargetDrawdown(borrowUsd, hf, TARGET_DRAWDOWN[p]);
+        expect(byDrawdown).toBe(byHf);
+        // And it really is R = D - L(1 - d*), the spec's form, to float noise.
+        if (byHf > 0) {
+          const l = hf * borrowUsd;
+          expect(byDrawdown).toBeCloseTo(borrowUsd - l * (1 - TARGET_DRAWDOWN[p]), 6);
+        }
+      }
+    }
+  });
+
+  it("refuses exactly what the health-factor form refuses", () => {
+    const d = TARGET_DRAWDOWN.moderate;
+    const t = TARGET_HF.moderate;
+    const cases: [number, number][] = [
+      [10_000, t], // already at target
+      [10_000, 2.5], // already above it
+      [10_000, 0], // no health factor
+      [10_000, -1], // not a health factor at all
+      [0, 1.2], // no debt
+      [-5, 1.2],
+      [Number.NaN, 1.2],
+      [10_000, Number.NaN],
+      [Number.POSITIVE_INFINITY, 1.2],
+    ];
+    for (const [borrowUsd, hf] of cases) {
+      expect(repayToTargetDrawdown(borrowUsd, hf, d)).toBe(repayToTargetHf(borrowUsd, hf, t));
+    }
+    // A target drop no health factor can express sizes nothing, rather than
+    // sizing something from an Infinity.
+    expect(repayToTargetDrawdown(10_000, 1.2, 1)).toBe(0);
+    expect(repayToTargetDrawdown(10_000, 1.2, Number.NaN)).toBe(0);
+  });
+
+  it("lands the position on the target drawdown it was sized for", () => {
+    const borrowUsd = 10_000;
+    const hf = 1.31;
+    for (const p of PROFILES) {
+      const repay = repayToTargetDrawdown(borrowUsd, hf, TARGET_DRAWDOWN[p]);
+      const after = hfAfterRepayFraction(hf, repay / borrowUsd);
+      expect(drawdownToLiquidation(after)).toBeCloseTo(TARGET_DRAWDOWN[p], 9);
+    }
+  });
+
+  it("drawdownPerUsdRepaid: 1/L, and the relationship really is linear", () => {
+    const borrowUsd = 10_000;
+    const hf = 1.31;
+    const l = hf * borrowUsd; // liquidation-weighted collateral
+    const rate = drawdownPerUsdRepaid(borrowUsd, hf) as number;
+    expect(rate).toBeCloseTo(1 / l, 15);
+
+    // The claim the UI makes: $1,000 more buys 1000/L more protection, and the
+    // same 1000/L wherever you are on the line.
+    const base = repayToTargetDrawdown(borrowUsd, hf, TARGET_DRAWDOWN.moderate);
+    for (const extra of [0, 1_000, 2_000]) {
+      const repay = base + extra;
+      const after = drawdownToLiquidation(hfAfterRepayFraction(hf, repay / borrowUsd)) as number;
+      expect(after).toBeCloseTo(TARGET_DRAWDOWN.moderate + extra * rate, 9);
+    }
+  });
+
+  it("drawdownPerUsdRepaid: null, never 0, for what it cannot rate", () => {
+    expect(drawdownPerUsdRepaid(null, 1.31)).toBeNull();
+    expect(drawdownPerUsdRepaid(10_000, null)).toBeNull();
+    expect(drawdownPerUsdRepaid(0, 1.31)).toBeNull();
+    expect(drawdownPerUsdRepaid(10_000, 0)).toBeNull();
+    expect(drawdownPerUsdRepaid(-10_000, 1.31)).toBeNull();
+    expect(drawdownPerUsdRepaid(Number.NaN, 1.31)).toBeNull();
+    expect(drawdownPerUsdRepaid(Number.POSITIVE_INFINITY, 1.31)).toBeNull();
+  });
+
+  it("drawdownAfterExtraRepay: never extrapolates past the debt that is left", () => {
+    const T = TARGET_HF.moderate;
+    const after = drawdownToLiquidation(T);
+    const step = 1_000;
+    const sized = (borrowUsd: number, hf: number) => repayToTargetHf(borrowUsd, hf, T);
+
+    // Big enough to fund another step: a real figure, and strictly under 100%.
+    const stepped = drawdownAfterExtraRepay(after, 10_000, 1.31, sized(10_000, 1.31), step);
+    expect(stepped).not.toBeNull();
+    expect(stepped as number).toBeGreaterThan(after as number);
+    expect(stepped as number).toBeLessThan(1);
+    // The slope really is 1/L, so the step is exactly 1000/L above the figure.
+    expect(stepped as number).toBeCloseTo((after as number) + step / (1.31 * 10_000), 12);
+
+    // The regression this guard exists for. A small debt extrapolated linearly
+    // printed a drop no collateral can survive; the economic floor is $5 and
+    // does not stop these reaching the card.
+    //   $800  @ 1.20 -> "takes that to 147%"
+    //   $100  @ 1.02 -> "takes that to 1023%"
+    for (const [borrowUsd, hf] of [
+      [800, 1.2],
+      [400, 1.2],
+      [200, 1.05],
+      [100, 1.02],
+    ] as [number, number][]) {
+      expect(drawdownAfterExtraRepay(after, borrowUsd, hf, sized(borrowUsd, hf), step)).toBeNull();
+    }
+
+    // The boundary, exactly. Debt left after the sized repay is D - D(1 - hf/T)
+    // = D*hf/T, so it equals the step when D = step*T/hf. At that debt the step
+    // is the last dollar of it and is still offered; a cent under, it is not.
+    const hf = 1.2;
+    const atBoundary = (step * T) / hf;
+    expect(atBoundary - sized(atBoundary, hf)).toBeCloseTo(step, 9);
+    expect(
+      drawdownAfterExtraRepay(after, atBoundary, hf, sized(atBoundary, hf), step),
+    ).not.toBeNull();
+    expect(
+      drawdownAfterExtraRepay(after, atBoundary - 0.01, hf, sized(atBoundary - 0.01, hf), step),
+    ).toBeNull();
+
+    // Nothing to say without the inputs, and never a 0 or a clamped 100%.
+    expect(drawdownAfterExtraRepay(null, 10_000, 1.31, 2_514, step)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, null, 1.31, 2_514, step)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, 10_000, null, 2_514, step)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, 10_000, 1.31, Number.NaN, step)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, 10_000, 1.31, 2_514, 0)).toBeNull();
+    expect(drawdownAfterExtraRepay(after, 10_000, 1.31, -1, step)).toBeNull();
+  });
+
+  it("the plan carries both forms of the one target", () => {
+    const rec = adviseLeg(
+      leg({ total: 60, band: "HIGH", healthFactor: 1.31, borrowValueUsd: 10_000 }),
+      "moderate",
+    );
+    expect(rec.repayPlan?.targetHf).toBe(TARGET_HF.moderate);
+    expect(rec.repayPlan?.targetDrawdown).toBe(TARGET_DRAWDOWN.moderate);
+    // The prose states the target as the drop, not as the ratio.
+    expect(rec.sections.recommendation).toContain("43%");
+    expect(rec.sections.recommendation).not.toContain("1.75");
   });
 });
 

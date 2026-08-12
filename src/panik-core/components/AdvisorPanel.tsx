@@ -84,6 +84,31 @@ import { openControlState } from "../lib/openProtocols";
  */
 import { fmtBps, fmtGasUnits, fmtUsd } from "../../../packages/scoring/src/advisor/fallback";
 import { isDeleverageExecutable } from "../lib/exit";
+/**
+ * The engine's marginal-protection rate and the engine's rounding for it.
+ *
+ * Both deep imports, for the same reason `fmtUsd` above is one: the slope is
+ * 1/L with L the liquidation-weighted collateral, and a component computing
+ * `1 / (hf * debt)` for itself is a second copy of the money math sitting next
+ * to the first. `formatDrawdownPct` is the one rounding policy for a price drop
+ * anywhere in the product, so the added protection and the drop it is added to
+ * are printed by the same rule.
+ */
+import { drawdownAfterExtraRepay } from "../../../packages/scoring/src/advisor/repayMath";
+import {
+  drawdownToLiquidation,
+  formatDrawdownPct,
+} from "../../../packages/scoring/src/prospective";
+
+/**
+ * The repay step the linear relationship is quoted at.
+ *
+ * Post-repay protection is linear in the repay (slope 1/L, the same at every
+ * size), so one step is enough for the user to scale it themselves. $1,000 is
+ * the step: small enough to be a real decision, large enough that the figure
+ * beside it is not "under 0.1%" on an ordinary position.
+ */
+const REPAY_STEP_USD = 1_000;
 
 /**
  * The action, as a chip, in NEUTRAL ink, on the cards that have no button.
@@ -458,9 +483,37 @@ function routesFor(rec: AdvisorRecommendation): Routes {
   const reduce = rec.action === "REDUCE" ? rec.repayPlan : undefined;
   if (reduce) {
     const outlook = liquidationOutlook(reduce.projectedHf, symbol);
+    // What the NEXT $1,000 buys, so the sized repay reads as one point on a
+    // line the user can move along rather than a figure to take or leave.
+    //
+    // Stated as where the drop lands, not as the size of the step: "adds 1.8%"
+    // to a 43% figure can be read as 44.8% or as 43.8%, and one of those is a
+    // liquidation the user did not plan for. The rate itself is the engine's
+    // (slope 1/L, constant at every repay size), so the two readings agree.
+    //
+    // Every null here is a silence, never a zero: an unpriced leg has no rate,
+    // a debt too small to fund another step has no next step (the engine's
+    // guard - past that the line runs through 100%), and a position large
+    // enough that $1,000 does not move the printed percentage gets no sentence
+    // rather than one claiming the drop is unchanged.
+    const after = drawdownToLiquidation(reduce.projectedHf);
+    const stepped = drawdownAfterExtraRepay(
+      after,
+      rec.numbers.borrowValueUsd,
+      rec.numbers.healthFactor,
+      reduce.repayUsd,
+      REPAY_STEP_USD,
+    );
+    let linear = "";
+    if (after !== null && stepped !== null) {
+      const steppedPct = formatDrawdownPct(stepped);
+      if (steppedPct !== formatDrawdownPct(after)) {
+        linear = ` Each further ${fmtUsd(REPAY_STEP_USD)} repaid takes that to ${steppedPct}.`;
+      }
+    }
     lead = {
       cost: `Repays ${fmtUsd(reduce.repayUsd)}${reduce.repayAssetSymbol ? ` of ${reduce.repayAssetSymbol}` : ""} from your wallet. Nothing is sold.`,
-      protection: `${outlook.sentence}. Your collateral stays deposited.`,
+      protection: `${outlook.sentence}. Your collateral stays deposited.${linear}`,
       hint: outlook.hover,
     };
   }

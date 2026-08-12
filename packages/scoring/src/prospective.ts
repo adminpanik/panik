@@ -44,6 +44,26 @@ export function drawdownToLiquidation(hf: number | null): number | null {
 }
 
 /**
+ * The inverse of `drawdownToLiquidation`: the health factor a position has to
+ * hold to survive a `drop` fraction of collateral price. HF = 1 / (1 - d).
+ *
+ * It exists so a target can be STATED as a drawdown ("survive a 43% drop") and
+ * still be sized by the one repay formula, which takes a health factor. Writing
+ * the drawdown form of that formula out separately is the alternative, and it
+ * would be a second copy of the money math that drifts in the last ULP from the
+ * first - measured, not assumed: `D - HF*D*(1 - d)` and `D*(1 - HF/T)` disagree
+ * at 1e-13 on ordinary inputs. Mapping and delegating cannot disagree at all.
+ *
+ * Null for anything that is not a survivable drop: below 0 is not a drop, and
+ * at or above 1 (the collateral going to zero) no finite health factor
+ * survives. Callers get null rather than an Infinity to print.
+ */
+export function hfForDrawdown(drop: number): number | null {
+  if (!Number.isFinite(drop) || drop < 0 || drop >= 1) return null;
+  return 1 / (1 - drop);
+}
+
+/**
  * A drawdown fraction as a percentage a person can act on.
  *
  * The rounding lives beside the formula because the same drop is printed by two

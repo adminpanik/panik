@@ -69,6 +69,17 @@ export interface RepayPlan {
   /** Profile-derived health-factor target. */
   targetHf: number;
   /**
+   * The same target as the collateral price drop the position survives once the
+   * repay lands: d* = 1 - 1/targetHf, so 1.75 is "survives a 42.9% drop".
+   *
+   * The two fields are one target in two forms and are derived from each other
+   * (`TARGET_DRAWDOWN` in `repayMath.ts`); they can never disagree. This one is
+   * carried rather than left to each consumer to compute, because the formula
+   * has exactly one home (`drawdownToLiquidation`) and a consumer reaching for
+   * it is a consumer about to write a second copy.
+   */
+  targetDrawdown: number;
+  /**
    * HF after the repay (== targetHf by construction on a sized repay).
    *
    * Null when the plan clears the debt outright: a position with no debt has no

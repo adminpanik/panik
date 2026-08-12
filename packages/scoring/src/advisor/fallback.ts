@@ -187,9 +187,21 @@ function recommendationBody(rec: AdvisorRecommendation): string {
     case "REDUCE": {
       const p = rec.repayPlan;
       if (!p) return `Reduce this ${label} position.`;
+      // The target as the thing it buys, not the ratio that encodes it. Derived
+      // from `targetHf` rather than read from `p.targetDrawdown`, for the reason
+      // `repayAssetPhrase` gives: this prose is also rendered from a plan that
+      // arrived over the wire, and a plan serialised before the field existed
+      // would print "NaN%". Same value either way (`TARGET_DRAWDOWN`).
+      const after = drawdownToLiquidation(p.targetHf);
+      if (after === null) {
+        return `Repay ~${fmtUsd(p.repayUsd)} of${repayAssetPhrase(p)} debt on ${label}.`;
+      }
+      const now = drawdownToLiquidation(rec.numbers.healthFactor);
+      const from = now === null ? "" : `, up from ${formatDrawdownPct(now)}`;
       return (
-        `Repay ~${fmtUsd(p.repayUsd)} of${repayAssetPhrase(p)} debt on ${label} to lift your ` +
-        `health factor from ${fmtHf(rec.numbers.healthFactor)} to ${p.targetHf.toFixed(2)}.`
+        `Repay ~${fmtUsd(p.repayUsd)} of${repayAssetPhrase(p)} debt on ${label} so the position ` +
+        `survives a ${formatDrawdownPct(after)} ${rec.numbers.scoredCollateralSymbol} price drop ` +
+        `before liquidation${from}.`
       );
     }
     case "REBALANCE": {

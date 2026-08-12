@@ -649,7 +649,7 @@ const RECOMMENDATIONS: AdvisorRecommendation[] = [
         "Your Moonwell position holds $84,200 collateral against $56,800 debt (health factor 1.20, PANIK score 52 - HIGH). A 17% WETH (proxy) price drop would trigger liquidation.",
       market: "The score is being driven by position health (80/100).",
       recommendation:
-        "Repay ~$17,851 of USDC debt on Moonwell to lift your health factor from 1.20 to 1.75.",
+        "Repay ~$17,851 of USDC debt on Moonwell so the position survives a 43% WETH (proxy) price drop before liquidation, up from 17%.",
       execution:
         "The Reduce button pre-fills a partial exit repaying ~$17,851 of USDC on Moonwell; you sign the transaction yourself.",
     },
