@@ -121,11 +121,18 @@ export function RiskDial({
   // focusable element, so it replaces the numeral and the word for a screen
   // reader rather than adding to them — starting it with the explanation would
   // bury the score behind a sentence about scores.
+  //
+  // The four component names are the product's own, verbatim from the
+  // RISK_DRIVERS table in AppDemo: a dial announcing "asset risk" and
+  // "systemic risk" beside a panel labelling the same two figures "Asset
+  // volatility" and "Market stress" is one quantity under two names, and the
+  // name a screen reader gets is the one nothing else can check. The table
+  // stays where it is; only the words are shared.
   const explanation =
     `${riskScoreLabel(score, band)} ` +
     (subScores
-      ? `Position health ${term(subScores.positionHealth)}, asset risk ${term(subScores.assetRisk)}, ` +
-        `protocol safety ${term(subScores.protocolSafety)}, systemic risk ${term(subScores.systemicRisk)}. `
+      ? `Position health ${term(subScores.positionHealth)}, Asset volatility ${term(subScores.assetRisk)}, ` +
+        `Protocol risk ${term(subScores.protocolSafety)}, Market stress ${term(subScores.systemicRisk)}. `
       : "") +
     (degraded ? "Weighted over the parts we could measure. " : "Weighted 40/25/20/15. ") +
     "Higher means closer to liquidation; your risk profile sets where alerts fire.";

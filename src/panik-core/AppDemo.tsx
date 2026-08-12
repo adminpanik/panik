@@ -174,11 +174,16 @@ interface RiskDriver {
   /** Engine sub-score name — indexes COMPOSITE_WEIGHTS and the live sub-scores. */
   key: keyof typeof COMPOSITE_WEIGHTS;
   label: string;
-  /** The same driver named in one word, for the panel's four narrow cells. */
-  short: string;
+  /**
+   * ONE sentence per driver, for every surface that explains it.
+   *
+   * There used to be two, a long one for Watch and a short one for the
+   * breakdown panel, which is how the same sub-score got two definitions a
+   * click apart. Both surfaces render these four rows in a column of the same
+   * width, so the second variant was answering a question that does not
+   * differ. Every call site appends `driverWeightPct` the same way.
+   */
   hint: string;
-  /** The panel's cells are half the width and get their own, shorter, hint. */
-  panelHint: string;
   of: (b: PositionState["breakdown"]) => number;
 }
 
@@ -186,33 +191,25 @@ const RISK_DRIVERS: RiskDriver[] = [
   {
     key: "positionHealth",
     label: "Position health",
-    short: "Position",
-    hint: "How close your health factor and your LTV sit to the protocol's liquidation point.",
-    panelHint: "Distance to liquidation: health factor plus current LTV.",
+    hint: "Distance to liquidation: health factor plus current LTV.",
     of: (b) => b.positionHealth,
   },
   {
     key: "assetRisk",
     label: "Asset volatility",
-    short: "Asset",
-    hint: "How sharply your collateral's price has moved recently (30d vol, drawdown, correlation). Volatile collateral erodes your buffer faster.",
-    panelHint: "Collateral price volatility, 90d drawdown, and BTC correlation.",
+    hint: "Collateral price volatility, 90d drawdown, and BTC correlation.",
     of: (b) => b.assetVolatility,
   },
   {
     key: "protocolSafety",
     label: "Protocol risk",
-    short: "Protocol",
-    hint: "Audit posture, governance timelock, and market controls of the protocol holding this position.",
-    panelHint: "Protocol safety: audits, governance timelock, market controls.",
+    hint: "Protocol safety: audits, governance timelock, market controls.",
     of: (b) => b.protocolSafety,
   },
   {
     key: "systemicRisk",
     label: "Market stress",
-    short: "Systemic",
-    hint: "Market-wide stress: sector TVL flows and broad drawdowns that hit every position at once.",
-    panelHint: "Market-wide stress: sector TVL flows and capital flight.",
+    hint: "Market-wide stress: sector TVL flows and capital flight.",
     of: (b) => b.systemicMarketStress,
   },
 ];
@@ -245,6 +242,24 @@ function driverWeightPct(driver: RiskDriver): number {
  * branch.
  */
 const COMPOSITE_WEIGHT_SENTENCE = `Weighted ${RISK_DRIVERS.map(driverWeightPct).join("/")}.`;
+
+/**
+ * What the composite is, for the two surfaces that print it as a headline
+ * figure: the Compass risk-breakdown panel and the Watch simulator.
+ *
+ * One string, because the score is one quantity. Watch called it a "risk index"
+ * and described it with a different four-item list than the one it drew two
+ * inches to the right, which is the "one name per concept" rule failing on a
+ * single screen. `riskScoreLabel` (ui/RiskDial) holds the same vocabulary for
+ * the accessible name.
+ */
+const RISK_SCORE_HINT =
+  `0-100 composite of the four components in the score breakdown. ${COMPOSITE_WEIGHT_SENTENCE}` +
+  ` LOW under 25, ELEVATED under 50, HIGH under 75, CRITICAL above.` +
+  ` Higher means closer to liquidation.`;
+
+/** The score's visible name. One name, every surface. */
+const RISK_SCORE_NAME = "PANIK risk score";
 
 /**
  * Collateral and debt are the SAME asset (the two USDC supply presets).
@@ -985,14 +1000,8 @@ function RiskBreakdownPanel({
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-1 text-xs font-sans text-text-secondary">
-              Panik risk score
-              <InfoTip
-                text={
-                  `0-100 composite of the four components below. ${COMPOSITE_WEIGHT_SENTENCE}` +
-                  ` LOW under 25, ELEVATED under 50, HIGH under 75, CRITICAL above.` +
-                  ` Higher means closer to liquidation.`
-                }
-              />
+              {RISK_SCORE_NAME}
+              <InfoTip text={RISK_SCORE_HINT} />
             </span>
             <div className="flex items-center gap-2">
               {/* Live is the default and needs no badge. Only the fixture case
@@ -1031,7 +1040,7 @@ function RiskBreakdownPanel({
               <BreakdownRow
                 key={driver.key}
                 label={driver.label}
-                hint={`${driver.panelHint} ${driverWeightPct(driver)}% of the score.`}
+                hint={`${driver.hint} ${driverWeightPct(driver)}% of the score.`}
                 value={value}
               >
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.03]">
@@ -1744,7 +1753,7 @@ export function AppDemo() {
   useEffect(() => setAlertHistoryOpen(false), [historyWallet]);
 
   // 30d aggregate risk series: bucket snapshots by day, protocols weighted by
-  // collateral USD (same weighting the macro Aggregate risk index uses).
+  // collateral USD (same weighting the macro Aggregate PANIK risk score uses).
   const riskHistory = useMemo(() => {
     const snaps = walletHistory?.snapshots;
     if (!snaps || snaps.length < 2) return null;
@@ -2555,7 +2564,7 @@ export function AppDemo() {
                         {/* Sentence case, and two words. The uppercase
                             letter-spaced style was retired everywhere else in
                             the app, and "SCORED ON-CHAIN" was provenance the
-                            risk index's own InfoTip states properly. */}
+                            score's own InfoTip states properly. */}
                         <span className="block text-2xs font-sans text-text-muted mb-1">
                           {watchingOwnPosition ? "Your position" : "Simulated market"}
                         </span>
@@ -2685,11 +2694,11 @@ export function AppDemo() {
                       <div className="flex-1 xl:max-w-[280px]">
                         <div>
                           {/* No icon. Portfolio's stat labels carry none, and a
-                              generic pulse glyph beside the words "risk index"
-                              adds no information the words are missing. */}
+                              generic pulse glyph beside the score's name adds no
+                              information the words are missing. */}
                           <div className="flex items-center gap-1 text-text-muted font-sans text-2xs mb-2">
-                            <span>Risk index</span>
-                            <InfoTip text="0-100 composite of position health, asset risk, protocol safety, and market stress. Higher means closer to liquidation; your risk profile sets where alerts fire." />
+                            <span>{RISK_SCORE_NAME}</span>
+                            <InfoTip text={`${RISK_SCORE_HINT} Your risk profile sets where alerts fire.`} />
                           </div>
 
                           <div className="flex items-baseline gap-2 mb-2">
@@ -3440,7 +3449,7 @@ export function AppDemo() {
                         <Stat
                           label={
                             <>
-                              Aggregate risk index
+                              Aggregate {RISK_SCORE_NAME}
                               {/* The weighting is by collateral value, so a leg
                                   we could not price carries no weight and drops
                                   out of this average entirely. Its sub-line is
@@ -3449,7 +3458,7 @@ export function AppDemo() {
                                   than buying a second line. */}
                               <InfoTip
                                 text={
-                                  "Collateral-weighted average PANIK score across this wallet's positions. Bigger positions move it more." +
+                                  `Collateral-weighted average ${RISK_SCORE_NAME} across this wallet's positions. Bigger positions move it more.` +
                                   unpricedHint
                                 }
                               />
@@ -3474,7 +3483,7 @@ export function AppDemo() {
                 })()}
 
                 {/* ONE grid, two rows. Row 1 is Positions (7) beside the stacked
-                    Asset allocation + Alert history (5); row 2 is Risk index
+                    Asset allocation + Alert history (5); row 2 is the score
                     history across all 12. Both row-1 items are grid items in the
                     same row, so they end on the same line by definition, and the
                     chart is not paying for that alignment with half the width it
@@ -3675,7 +3684,7 @@ export function AppDemo() {
                   </div>
                   )}
 
-                  {/* Row 2: risk index over time (score_snapshots via
+                  {/* Row 2: the aggregate score over time (score_snapshots via
                       /api/history), across all twelve columns.
 
                       Full width because this is the one card on the tab whose
@@ -3694,11 +3703,11 @@ export function AppDemo() {
                   <Card className="lg:col-span-12">
                     <div className="flex items-baseline justify-between mb-4">
                       <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
-                        Risk index history
-                        <InfoTip text="Aggregate PANIK score of this wallet over time, protocols weighted by collateral." />
+                        Aggregate {RISK_SCORE_NAME} history
+                        <InfoTip text={`Aggregate ${RISK_SCORE_NAME} of this wallet over time, protocols weighted by collateral.`} />
                       </h3>
                       {/* The delta, not the score. "57 / 100" is already the
-                          Aggregate risk index card two rows up, and the same
+                          Aggregate score card two rows up, and the same
                           figure printed twice reads as two metrics that happen
                           to agree. Direction over the window is the one fact
                           this card knows that the stat card cannot. */}
