@@ -189,7 +189,9 @@ describe("end to end: a simulated crash drives the whole protection chain", () =
     // And last, so no crop shows the instruction without the reason.
     expect(lines[lines.length - 1]).toContain("simulated");
     // The alert is still a real alert about a real crossing.
-    expect(text).toContain("past your risk limit");
+    // Phrased by LIMIT_STATE.outside, the same words the app uses; the header
+    // stopped being a literal so no ProfileStatus token can appear in copy.
+    expect(text).toContain("over your risk limit");
     expect(text).toContain("Health factor 0.97");
     // House style survives the addition.
     expect(text).not.toMatch(new RegExp("[" + String.fromCharCode(0x2014, 0x2013) + "]"));

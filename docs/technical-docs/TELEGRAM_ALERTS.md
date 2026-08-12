@@ -10,8 +10,8 @@ This doc covers setup, the moving parts, and the anti-spam design.
 |-------|-------|---------|-------|
 | Trigger | `packages/scoring/src/profile.ts` (`statusFor`) | pure | within / approaching / outside vs the profile threshold (25 / 50 / 75) |
 | Debounce | `packages/scoring/src/watch/loop.ts` (`WatchService.confirmTicks`) | worker | a status must hold N consecutive 60s ticks before it emits |
-| Send gate | `packages/scoring/src/watch/alertPolicy.ts` (`decideSend`) | worker | materiality + cooldown + escalation bypass |
-| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`) | worker | plain text + emoji pictograms, hyphens only |
+| Send gate | `packages/scoring/src/watch/alertPolicy.ts` (`decideSend`) | worker | materiality + cooldown + escalation bypass + resolution rate limit |
+| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`, `formatResolution`) | worker | plain text + emoji pictograms, hyphens only |
 | Worker | `scripts/watch-worker.ts` (`npm run worker`) | standalone | scores, persists transitions, dispatches |
 | Send | `server/telegram.ts` (`sendMessage`) | worker + webhook | Bot API, fetch-only |
 | Link store | `server/telegramStore.ts` | Railway api-server + Vercel fallbacks | Supabase REST, no pg/viem |
@@ -102,9 +102,26 @@ Knobs live in `ALERT_POLICY` (`packages/scoring/src/params.ts`):
   never alert; they cannot be liquidated regardless of composite score.
 
 `notify_channel` records the outcome for every transition: `telegram` (sent),
-`skipped` (recovery), `suppressed_cooldown`, `suppressed_immaterial`, `blocked`
-(user blocked the bot). Honest scope: these cut nuisance volume and
-safe-position noise, not the calibrated precision/recall point.
+`skipped` (a recovery on a position we never alerted on, so there is nothing to
+resolve), `suppressed_cooldown`, `suppressed_immaterial`, `blocked` (user
+blocked the bot). Honest scope: these cut nuisance volume and safe-position
+noise, not the calibrated precision/recall point.
+
+**Resolution notifications (P2 7.2).** A recovery (`to_status = 'within'`) now
+sends an all-clear stating what changed, instead of being skipped silently. It
+is rate-limited to **one all-clear per alert actually delivered**: the gate
+requires a prior sent alert, and a second recovery with no new alert in between
+is suppressed. An alert still measures its cooldown against the last sent
+ALERT, so an all-clear can never reset the clock and re-open the window. A
+position flapping over/under its limit inside one cooldown therefore produces
+two messages (one alert, one all-clear), not four.
+
+**Why now (P2 7.1).** Every alert carries a `🔎 Why now:` line naming the
+dominant trigger and the value that fired it, plus a one-line sub-score
+breakdown. Triggers are the advisor's own (`advisor/rules.ts`); `whyNow()` in
+`watch/alertMessage.ts` holds the severity order and the copy. A trigger whose
+value is unavailable falls through to the next one, so the alert says less
+rather than inventing a number, and raw trigger strings never reach a user.
 
 ## Setup
 

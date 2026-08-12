@@ -472,6 +472,19 @@ delivery layer in `ALERT_POLICY`, never touching the score. The Telegram link
 flow (deep-link mint + `/start` webhook) runs as fetch-only Vercel functions
 under `api/telegram/`. Full design: `docs/technical-docs/TELEGRAM_ALERTS.md`.
 
+Recovery rows (`to_status = 'within'`) travel the same path: they are persisted
+by `onTransition` like any other transition and dispatched by the same poller,
+which sends the all-clear (P2 7.2) when `decideSend` allows it and stamps
+`skipped` when there is no alert to resolve. The rate limit is one more layer in
+`decideSend`, not a second policy.
+
+The one piece of an alert that is NOT persist-then-dispatch is the "why now"
+line (P2 7.1): its triggers are derived at send time from the worker's in-memory
+`ActiveScore` for that leg, so after a restart a queued row still sends, minus
+that line. Deliberate - the enrichment is best-effort and omitting it costs a
+sentence, while persisting it would cost a schema column for something the next
+tick regenerates in 60s.
+
 Post-camp (contract work resumes, in order):
 
 ```
