@@ -103,7 +103,7 @@ export interface ExitChainReader extends SignerCodeReader {
 }
 
 /** Base Sepolia by default; mainnet only once EXIT_CHAIN_ID flips to 8453. */
-function chainFor(chainId: number) {
+export function chainFor(chainId: number) {
   return chainId === base.id ? base : baseSepolia;
 }
 

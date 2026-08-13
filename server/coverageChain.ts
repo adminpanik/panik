@@ -17,7 +17,6 @@
  */
 
 import { createPublicClient } from "viem";
-import { base, baseSepolia } from "viem/chains";
 import {
   EXECUTOR_ADDRESS,
   EXIT_ADAPTERS,
@@ -30,7 +29,7 @@ import {
 import { exitReserveAddresses, loadExitReserveSet } from "../src/panik-core/lib/exitReserves";
 // The same public-first endpoint ladder the relayer and the delegation reader
 // build on, so the sweep can never be the one component reading a stale node.
-import { executorRpcTransport } from "./exitChain";
+import { chainFor, executorRpcTransport } from "./exitChain";
 import type { CoverageChain, CoverageMarkets } from "./coverageSweep";
 import type { ExitReserveState } from "../src/panik-core/lib/exitLegs";
 
@@ -113,10 +112,6 @@ const MORPHO_ABI = [
 interface Client {
   readContract(args: unknown): Promise<unknown>;
   getCode(args: { address: `0x${string}` }): Promise<`0x${string}` | undefined>;
-}
-
-function chainFor(chainId: number) {
-  return chainId === base.id ? base : baseSepolia;
 }
 
 export interface CoverageChainConfig {

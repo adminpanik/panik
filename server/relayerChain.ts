@@ -26,7 +26,6 @@
  */
 
 import { createPublicClient } from "viem";
-import { base, baseSepolia } from "viem/chains";
 import {
   EXECUTOR_ABI,
   EXECUTOR_ADDRESS,
@@ -39,7 +38,7 @@ import {
 import { exitReserveAddresses, loadExitReserveSet } from "../src/panik-core/lib/exitReserves";
 // One resolver for the whole executor side. The relayer and the delegation
 // reader ending up on different nodes is the failure this import prevents.
-import { executorRpcTransport } from "./exitChain";
+import { chainFor, executorRpcTransport } from "./exitChain";
 import type { AtomicExitForCall, RelayerChain, RelayerReceipt } from "./exitRelayer";
 import type { ExitReserveState } from "../src/panik-core/lib/exitLegs";
 
@@ -92,10 +91,6 @@ interface Client {
     effectiveGasPrice: bigint;
     blockNumber: bigint;
   }>;
-}
-
-function chainFor(chainId: number) {
-  return chainId === base.id ? base : baseSepolia;
 }
 
 /**

@@ -30,10 +30,9 @@
 
 import { createWalletClient, publicActions } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { base, baseSepolia } from "viem/chains";
 // The executor side's one endpoint ladder. A broadcast wedged behind a single
 // rate-limited node is an unsubmitted permit, so the signer fails over too.
-import { executorRpcTransport } from "./exitChain";
+import { chainFor, executorRpcTransport } from "./exitChain";
 
 /** A transaction the relayer has already simulated and priced. */
 export interface RelayerTxRequest {
@@ -67,10 +66,6 @@ export interface RelayerSigner {
   pendingNonce(): Promise<number>;
   /** Native balance in wei, for the low-gas guard and the 4.B balance event. */
   balance(): Promise<bigint>;
-}
-
-function chainFor(chainId: number) {
-  return chainId === base.id ? base : baseSepolia;
 }
 
 /** Normalize a hex private key; returns null rather than echoing the input. */
