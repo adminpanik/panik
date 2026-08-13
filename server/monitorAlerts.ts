@@ -69,7 +69,12 @@ export type AlertKind =
   /** The signer's code changed since the permit was verified against it. */
   | "coverage.signer_code_changed"
   /** A user with an at-risk position cannot be reached on Telegram. */
-  | "telegram.unreachable";
+  | "telegram.unreachable"
+  /**
+   * The scoring pass keeps producing nothing while wallets are watched. The
+   * worker is alive and blind, which every liveness signal reads as healthy.
+   */
+  | "scoring.blind";
 
 /** One condition, ready to deliver. JSON-safe throughout. */
 export interface MonitorAlert {

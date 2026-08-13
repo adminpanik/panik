@@ -30,6 +30,13 @@
  * indistinguishable from health. The row lives in Postgres so the API process —
  * deployed separately, with its own lifecycle — can be the one that notices.
  *
+ * AND LIVENESS IS NOT HEALTH. A completed tick that scored nothing stamps a
+ * heartbeat as healthy as any other, which is how a multi-day reader outage ran
+ * unnoticed: every loop ticked, every leg was rejected, no transition was
+ * written and therefore no alert was queued. Loop 1 also reports what it
+ * PRODUCED, and a run of empty ticks against a non-empty registry is a page of
+ * its own (server/scoringBlind.ts).
+ *
  * NOTE THE TWO CHAINS. Loops 1-2 score the chain PANIK_SCORING_CHAIN selects
  * (Base mainnet by default; server/scoringChain.ts). Loop 3 executes on the
  * EXECUTOR's chain (Base Sepolia today, from EXIT_CHAIN_ID) because that is
@@ -79,6 +86,7 @@ import {
   heartbeatAlerts,
   type HeartbeatStore,
 } from "../server/workerHeartbeat";
+import { ScoringBlindWatch } from "../server/scoringBlind";
 import { assessRpc, endpointsForChain, sampleAll } from "../server/rpcHealth";
 import { RelayerWatch, balanceAlerts, type SignerBalance } from "../server/relayerHealth";
 import { sweepCoverage, type CoverageMarkets, type SweepTarget } from "../server/coverageSweep";
@@ -213,6 +221,13 @@ const profileByWallet = new Map<string, RiskProfile>();
 const lastScored = new Map<string, ActiveScore>();
 /** Time (ms) of the last persisted snapshot per key, for the heartbeat. */
 const lastSnapshotAt = new Map<string, number>();
+/**
+ * Legs the scoring pass has produced since boot. MONOTONIC on purpose: the
+ * blind-scoring detector reads the DELTA across a tick rather than a counter
+ * this loop resets, so two ticks that overlap (a pass that overruns its own
+ * period) cannot lose each other's legs and manufacture an empty tick.
+ */
+let legsScoredTotal = 0;
 
 function key(wallet: string, protocol: Protocol): string {
   return `${wallet.toLowerCase()}:${protocol}`;
@@ -327,6 +342,7 @@ async function persistTransition(t: WatchTransition): Promise<void> {
 const service = new WatchService({
   scoreWallet: async (wallet) => {
     const scores = await adapter.scoreWallet(wallet);
+    legsScoredTotal += scores.length;
     for (const s of scores) {
       lastScored.set(key(s.wallet, s.protocol), s);
       void maybeSnapshot(s);
@@ -616,6 +632,12 @@ alertSinks.push(userSink);
 
 const alerts = new AlertDispatcher(alertLedger, alertSinks);
 const relayerWatch = new RelayerWatch();
+/**
+ * The one monitor that watches what the watch loop PRODUCES rather than that it
+ * ran. Fed from `runTick` at watch cadence, not from the 5-minute monitor loop:
+ * the condition is a run of consecutive ticks, so it has to see every tick.
+ */
+const scoringWatch = new ScoringBlindWatch();
 
 function formatOperatorMessage(alert: MonitorAlert): string {
   const lines = [`[${alert.severity.toUpperCase()}] ${alert.kind}`, alert.summary];
@@ -1013,6 +1035,8 @@ async function runMonitor(): Promise<void> {
 
 // ── boot ──────────────────────────────────────────────────────────────────────
 let tickCount = 0;
+/** `legsScoredTotal` as of the end of the previous tick. */
+let legsScoredAtLastTick = 0;
 
 async function main(): Promise<void> {
   process.on("unhandledRejection", (reason) =>
@@ -1035,6 +1059,19 @@ async function main(): Promise<void> {
       }
     }
     await service.tick();
+    // WHAT THE TICK PRODUCED, not just that it ran. A tick that scores nothing
+    // completes normally and stamps a healthy heartbeat, which is exactly how a
+    // multi-day reader outage went unalerted: alive and blind reads as alive.
+    // See server/scoringBlind.ts.
+    const legsScored = legsScoredTotal - legsScoredAtLastTick;
+    legsScoredAtLastTick = legsScoredTotal;
+    raise(
+      scoringWatch.observe({
+        legsScored,
+        walletsWatched: profileByWallet.size,
+        at: Date.now(),
+      }),
+    );
     // The heartbeat is pinged AFTER the work, never before: a ping at the top
     // of a loop asserts "I started", and a loop that hangs mid-tick would keep
     // asserting health forever. Only completion is evidence.
