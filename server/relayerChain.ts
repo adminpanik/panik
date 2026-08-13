@@ -131,10 +131,10 @@ export function relayerReserveOverride(
  */
 export interface RelayerChainConfig {
   /**
-   * Pins the endpoint set (the fork test's anvil node). Omit for the resolved
-   * public-first ladder in `executorRpcUrls`.
+   * Pins one endpoint (the fork test's anvil node). Omit for the resolved
+   * ladder in `executorRpcUrls`.
    */
-  rpcUrl?: string | readonly string[];
+  rpcUrl?: string;
   chainId?: number;
   executor?: `0x${string}`;
   dataProvider?: `0x${string}`;

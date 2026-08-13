@@ -61,7 +61,7 @@ async function main() {
 
   const client = createPublicClient({
     chain: baseSepolia,
-    transport: executorRpcTransport(rpcUrls, EXIT_CHAIN_ID),
+    transport: executorRpcTransport(undefined, EXIT_CHAIN_ID),
   }) as unknown as { readContract(p: unknown): Promise<unknown> };
 
   // ── (a) the resolved reserve set ──────────────────────────────────────────
@@ -112,7 +112,7 @@ async function main() {
   // ── (b) the relayer's leg builder ─────────────────────────────────────────
   rule("(b) relayer leg builder over the live position (READ-ONLY, relayer disarmed)");
 
-  const relayerChain = new ViemRelayerChain({ rpcUrl: rpcUrls, chainId: EXIT_CHAIN_ID });
+  const relayerChain = new ViemRelayerChain({ chainId: EXIT_CHAIN_ID });
   line(`  relayer resolves : [${(await relayerChain.reserves()).join(", ")}]`);
   line();
 
@@ -153,7 +153,7 @@ async function main() {
   // ── (c) the coverage sweep ────────────────────────────────────────────────
   rule("(c) coverage sweep: same set, and the approvals it inspects");
 
-  const coverageChain = new ViemCoverageChain({ rpcUrl: rpcUrls, chainId: EXIT_CHAIN_ID });
+  const coverageChain = new ViemCoverageChain({ chainId: EXIT_CHAIN_ID });
   const sweepReserves = await coverageChain.aaveReserves();
   const markets = coverageMarketsFromEnv(sweepReserves);
   line(`  sweep resolves   : [${sweepReserves.join(", ")}]`);

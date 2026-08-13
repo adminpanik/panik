@@ -116,10 +116,9 @@ interface Client {
 
 export interface CoverageChainConfig {
   /**
-   * Pins the endpoint set. Omit (or pass an empty list) for the resolved
-   * public-first ladder in `executorRpcUrls`.
+   * Pins one endpoint. Omit for the resolved ladder in `executorRpcUrls`.
    */
-  rpcUrl?: string | readonly string[];
+  rpcUrl?: string;
   chainId?: number;
   dataProvider?: `0x${string}`;
   executor?: `0x${string}`;

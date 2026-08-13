@@ -93,12 +93,7 @@ export class LocalKeyRelayerSigner implements RelayerSigner {
     getBalance(args: unknown): Promise<bigint>;
   };
 
-  constructor(
-    privateKey: string,
-    rpcUrl: string | readonly string[] | undefined,
-    chainId: number,
-    label: string,
-  ) {
+  constructor(privateKey: string, rpcUrl: string | undefined, chainId: number, label: string) {
     const key = normalizeKey(privateKey);
     if (!key) throw new Error(`relayer signer ${label}: malformed private key`);
     const account = privateKeyToAccount(key);
@@ -325,7 +320,7 @@ export function bumpFee(previous: bigint): bigint {
  * at all.
  */
 export function signerPoolFromEnv(
-  rpcUrl: string | readonly string[] | undefined,
+  rpcUrl: string | undefined,
   chainId: number,
 ): RelayerSignerPool | null {
   const kind = (process.env.RELAYER_SIGNER_KIND ?? "local").trim().toLowerCase();

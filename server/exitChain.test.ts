@@ -103,54 +103,42 @@ describe("executorRpcUrls", () => {
   });
 });
 
-/** The endpoint urls a built transport would actually try, in order. */
-function urlsOf(transport: ReturnType<typeof executorRpcTransport>): string[] {
-  const built = transport({}) as unknown as {
-    value?: { transports?: { value?: { url?: string } }[] };
+interface BuiltTransport {
+  config: { retryCount: number };
+  value?: {
+    transports?: {
+      config: { retryCount: number; timeout: number };
+      value?: { url?: string };
+    }[];
   };
+}
+
+const build = (rpcUrl?: string): BuiltTransport =>
+  executorRpcTransport(rpcUrl, SEPOLIA)({}) as unknown as BuiltTransport;
+
+/** The endpoint urls a built transport would actually try, in order. */
+function urlsOf(built: BuiltTransport): string[] {
   return (built.value?.transports ?? []).map((t) => t.value?.url ?? "");
 }
 
 describe("executorRpcTransport", () => {
   it("fails over across every resolved endpoint", () => {
-    const urls = executorRpcUrls(SEPOLIA, EMPTY);
-    // Built from process.env, so this asserts the count rather than the
-    // contents: a developer with a key set has one more endpoint than one
+    // Built from process.env, so this asserts against the count the same env
+    // resolves to: a developer with a key set has one more endpoint than one
     // without, and both are correct.
-    expect(urlsOf(executorRpcTransport(undefined, SEPOLIA)).length).toBeGreaterThanOrEqual(
-      urls.length,
-    );
-    expect(urlsOf(executorRpcTransport(undefined, SEPOLIA))).toContain(PUBLIC_SEPOLIA);
+    expect(urlsOf(build())).toEqual(executorRpcUrls(SEPOLIA));
   });
 
-  it("pins an explicit endpoint set, and pins it alone", () => {
+  it("pins an explicit endpoint, and pins it alone", () => {
     // The fork test's anvil node. Drifting onto a public node mid-run would
     // silently score a fork against mainnet-of-record state.
-    expect(urlsOf(executorRpcTransport("http://127.0.0.1:8545", SEPOLIA))).toEqual([
-      "http://127.0.0.1:8545",
-    ]);
-    expect(
-      urlsOf(executorRpcTransport(["http://127.0.0.1:8545", PUBLIC_SEPOLIA], SEPOLIA)),
-    ).toEqual(["http://127.0.0.1:8545", PUBLIC_SEPOLIA]);
-  });
-
-  it("dedupes a pinned list", () => {
-    expect(
-      urlsOf(executorRpcTransport(["http://127.0.0.1:8545", "http://127.0.0.1:8545"], SEPOLIA)),
-    ).toEqual(["http://127.0.0.1:8545"]);
-  });
-
-  it("resolves from env when the pinned list is empty", () => {
-    expect(urlsOf(executorRpcTransport([], SEPOLIA))).toContain(PUBLIC_SEPOLIA);
+    expect(urlsOf(build("http://127.0.0.1:8545"))).toEqual(["http://127.0.0.1:8545"]);
   });
 
   it("retries inside each endpoint, not across the fallback", () => {
     // A second retry layer would only multiply the wait before the next
     // endpoint is tried at all.
-    const built = executorRpcTransport([PUBLIC_SEPOLIA], SEPOLIA)({}) as unknown as {
-      config: { retryCount: number };
-      value?: { transports?: { config: { retryCount: number; timeout: number } }[] };
-    };
+    const built = build(PUBLIC_SEPOLIA);
     expect(built.config.retryCount).toBe(0);
     expect(built.value?.transports?.[0]?.config.retryCount).toBe(2);
     expect(built.value?.transports?.[0]?.config.timeout).toBe(15_000);

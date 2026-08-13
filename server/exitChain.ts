@@ -178,15 +178,11 @@ export function executorRpcUrls(
  * revert, which is exactly right here: a permit the executor would reject must
  * surface as a revert on the first node, not be re-asked of three in turn.
  *
- * `rpcUrl` pins the endpoint set explicitly (the fork test's anvil node), and
- * pins it alone — a fork run must never silently drift onto a public node.
+ * `rpcUrl` pins one endpoint explicitly (the fork test's anvil node), and pins
+ * it alone — a fork run must never silently drift onto a public node.
  */
-export function executorRpcTransport(
-  rpcUrl?: string | readonly string[],
-  chainId: number = EXIT_CHAIN_ID,
-) {
-  const pinned = typeof rpcUrl === "string" ? [rpcUrl] : [...(rpcUrl ?? [])];
-  const urls = pinned.length > 0 ? [...new Set(pinned)] : executorRpcUrls(chainId);
+export function executorRpcTransport(rpcUrl?: string, chainId: number = EXIT_CHAIN_ID) {
+  const urls = rpcUrl ? [rpcUrl] : executorRpcUrls(chainId);
   return fallback(
     urls.map((url) => http(url, { retryCount: 2, retryDelay: 300, timeout: 15_000 })),
     { retryCount: 0 },
@@ -201,7 +197,7 @@ export class ViemExitChainReader implements ExitChainReader {
   private slippageCeiling: number | null = null;
 
   constructor(
-    rpcUrl?: string | readonly string[],
+    rpcUrl?: string,
     executor: `0x${string}` = EXECUTOR_ADDRESS,
     chainId: number = EXIT_CHAIN_ID,
   ) {
