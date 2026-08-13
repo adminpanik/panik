@@ -18,9 +18,10 @@
  * Goldsky table reports every Aave user on Base, which is a fact about Base
  * rather than about PANIK.
  *
- * Nothing here renders an unknown as a zero. A missing price, an unprovisioned
- * events pipeline and a genuine zero are three different statements, and the
- * tiles say which one they mean.
+ * Nothing here renders an unknown as a zero, and nothing renders a known zero
+ * as an unknown. A missing price, an events pipeline that has never ingested
+ * anything, and a genuine zero are three different statements, and the tiles
+ * say which one they mean.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -132,7 +133,7 @@ export function MetricsPanel({
             value={metrics.eventsReady ? formatUsd(metrics.txVolumeUsd) : "$…"}
             sub={
               !metrics.eventsReady
-                ? "Events pipeline not connected here"
+                ? "No lending events on record yet"
                 : metrics.txUnpriced && metrics.txUnpriced > 0
                   ? `${formatCount(metrics.txUnpriced)} events carried no USD amount`
                   : `${formatUsd(metrics.txVolumeUsd30d)} in the last 30 days`
@@ -144,7 +145,7 @@ export function MetricsPanel({
             sub={
               metrics.eventsReady
                 ? `${formatCount(metrics.txCount30d)} in the last 30 days`
-                : "Events pipeline not connected here"
+                : "No lending events on record yet"
             }
           />
           <Stat
