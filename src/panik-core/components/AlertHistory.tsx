@@ -241,8 +241,11 @@ export function AlertHistoryView({
   onClose,
 }: AlertHistoryViewProps) {
   const view = useRef<HTMLElement>(null);
+  // `preventScroll`: this mounts inside the tab's entry animation, and the
+  // browser's scroll-into-view on focusing a still-animating element fights
+  // the transition for the scroll position.
   useEffect(() => {
-    view.current?.focus();
+    view.current?.focus({ preventScroll: true });
   }, []);
 
   const groups = groupByDay(alerts, Date.now());

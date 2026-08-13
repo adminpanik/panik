@@ -905,8 +905,13 @@ function RiskBreakdownPanel({
   // The panel takes focus on open and Escape closes it: the dismissal contract
   // a keyboard user expects from anything that covers the page behind a
   // backdrop. Same shape as `AlertHistoryView`.
+  //
+  // `preventScroll`, because this mounts on the first frame of the slide-in,
+  // while the element is still translated fully off-screen: the browser's
+  // default scroll-into-view then fights the spring for the scroll position
+  // and the animation visibly stutters.
   useEffect(() => {
-    panel.current?.focus();
+    panel.current?.focus({ preventScroll: true });
   }, []);
 
   const sameAsset = isSameAssetMarket(preset);
