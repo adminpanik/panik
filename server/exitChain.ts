@@ -35,6 +35,10 @@
 import { createPublicClient, fallback, http } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
+// The vetted keyless nodes and the override rules, shared with the app's exit
+// flow. Three nodes per chain, each checked for Multicall3, so the executor
+// side and the UI can never disagree about which public node is acceptable.
+import { exitRpcUrls } from "../src/panik-core/lib/exitRpc";
 import { ERC1271_ABI, type SignerCodeReader } from "./exit7702";
 
 /**
@@ -109,51 +113,24 @@ export function chainFor(chainId: number) {
 
 const isMainnet = (chainId: number): boolean => chainId === base.id;
 
-function isHttpUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "https:" || parsed.protocol === "http:";
-  } catch {
-    return false;
-  }
-}
-
 /**
- * The executor's RPC endpoints, in the order a transport tries them.
+ * The executor's RPC endpoints, in the order a transport tries them: the
+ * operator's override, then the vetted public nodes, then Alchemy.
  *
- * This used to resolve to ONE url, and the ladder preferred Alchemy whenever a
- * key was set: a rate limit or an outage there was the end of every executor
- * read, every delegation check and every submission, with the public node
- * sitting right there unused. So it is a LIST now, and it is public-first:
- *
- *   1. `EXIT_EXECUTOR_RPC_URL` when set — still the operator's explicit
- *      override, still tried first, just no longer the only escape from
- *      Alchemy. Dropped rather than trusted when it is blank or not an http(s)
- *      URL: a typo in a deploy-time env var would otherwise be the first
- *      endpoint every call tries, and it would be invisible because the calls
- *      still succeed on the next entry.
- *   2. The chain's own public node. Always present, needs no key, and is the
- *      operator of record for Base.
- *   3. Alchemy, only when that chain's key is set. Last because a key is a
- *      quota: it is worth having as a backstop, not worth spending on every
- *      read the public node would have served.
- *
- * Duplicates are collapsed — an override naming the public node is one
- * endpoint, not two, and a fallback that retries the same URL twice is a
- * fallback in name only.
+ * Alchemy is LAST because a key is a quota — it is worth having as the backstop,
+ * not worth spending on every read a public node would have served. The override
+ * and public tiers (and their validation, and the dedupe) come from
+ * `exitRpcUrls`, which is the same list the UI's exit flow fails over across.
  */
 export function executorRpcUrls(
   chainId: number = EXIT_CHAIN_ID,
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const urls: string[] = [];
+  const urls = exitRpcUrls(chainId, env.EXIT_EXECUTOR_RPC_URL);
 
-  const override = (env.EXIT_EXECUTOR_RPC_URL ?? "").trim();
-  if (override && isHttpUrl(override)) urls.push(override);
-
+  // Read only THIS chain's key: a mainnet key on a Sepolia chain id would be an
+  // endpoint answering for the wrong network, which is worse than no key.
   const mainnet = isMainnet(chainId);
-  urls.push(mainnet ? "https://mainnet.base.org" : "https://sepolia.base.org");
-
   const key = (
     (mainnet ? env.ALCHEMY_API_KEY_BASE_MAINNET : env.ALCHEMY_API_KEY_BASE_SEPOLIA) ?? ""
   ).trim();
