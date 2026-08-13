@@ -132,38 +132,9 @@ if (!botToken) {
   process.exit(1);
 }
 
-const DEFAULT_TICK_MS = 60_000;
-/**
- * Floor on the watch cadence. A tick is O(wallets x protocols) RPC reads, so
- * `WATCH_TICK_MS=1000` is not "more responsive", it is a self-inflicted rate
- * limit that makes every read fail - the exact failure this branch is fixing.
- * The clamp is silent-upwards on purpose: refusing to boot over a bad number
- * would take the alerting down for a typo.
- */
-const MIN_TICK_MS = 15_000;
-
-/**
- * The watch cadence, overridable so an operator can slow the loop down without
- * a redeploy. That is the knob that matters when RPC budget is the constraint:
- * halving the tick rate halves the reads.
- *
- * Anything unparseable (blank, `abc`, `NaN`) falls back to the default rather
- * than to zero - a cadence of 0 would be an unbounded loop, which is the one
- * outcome worse than the quota problem this exists to manage.
- */
-function tickIntervalMs(raw: string | undefined): number {
-  const parsed = Number(raw?.trim());
-  if (!raw?.trim() || !Number.isFinite(parsed)) return DEFAULT_TICK_MS;
-  return Math.max(MIN_TICK_MS, Math.floor(parsed));
-}
-
-const TICK_MS = tickIntervalMs(process.env.WATCH_TICK_MS);
-console.log(
-  TICK_MS === DEFAULT_TICK_MS
-    ? `watch tick ${TICK_MS}ms (default)`
-    : `watch tick ${TICK_MS}ms (WATCH_TICK_MS=${process.env.WATCH_TICK_MS ?? "unset"},` +
-        ` default ${DEFAULT_TICK_MS}ms, floor ${MIN_TICK_MS}ms)`,
-);
+/** Floor at 15s: a tick is O(wallets x protocols) chain reads, so a tiny value is a self-inflicted rate limit. */
+const TICK_MS = Math.max(15_000, Number(process.env.WATCH_TICK_MS) || 60_000);
+console.log(`watch tick ${TICK_MS}ms (WATCH_TICK_MS=${process.env.WATCH_TICK_MS ?? "unset"})`);
 const DISPATCH_MS = 15_000;
 const RELAYER_MS = 30_000;
 const SNAPSHOT_HEARTBEAT_MS = 15 * 60_000;
