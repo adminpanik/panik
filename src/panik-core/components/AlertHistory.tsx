@@ -14,7 +14,7 @@ import React, { useEffect, useRef } from "react";
 import { ArrowLeft } from "lucide-react";
 import type { HistoryAlert, LiveProtocol } from "../lib/live";
 import { limitEventCopy, limitStateCopy } from "../lib/utils";
-import { Button, Card, EmptyState } from "../ui";
+import { Button, Card, EmptyState, Skeleton } from "../ui";
 import { InfoTip } from "./InfoTip";
 
 /**
@@ -172,6 +172,28 @@ export function AlertFeed({ alerts, protocolLabel, targets, onSelectTarget }: Al
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * The preview's shape while the log is still being fetched.
+ *
+ * A feed cannot say "no alerts yet" before it has read one, so this is what the
+ * card holds until it can: the rows it will have, at the height they will be.
+ * It borrows `ALERT_ROW_CLS` for the same reason it lives in this file - a
+ * placeholder carrying its own copy of the row's padding is one that drifts out
+ * of alignment with the rows it is reserving space for.
+ */
+export function AlertFeedSkeleton() {
+  return (
+    <div className="divide-y divide-border-subtle" aria-hidden="true">
+      {Array.from({ length: ALERT_PREVIEW_COUNT }, (_, i) => (
+        <div key={i} className={ALERT_ROW_CLS}>
+          <Skeleton className="h-3.5 w-44 max-w-full" />
+          <Skeleton className="h-3 w-12 shrink-0" />
+        </div>
+      ))}
     </div>
   );
 }

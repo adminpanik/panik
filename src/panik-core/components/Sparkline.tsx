@@ -4,6 +4,7 @@
  */
 
 import React, { useId } from "react";
+import { Skeleton } from "../ui/Skeleton";
 
 /**
  * Dependency-free inline sparkline: an SVG polyline with a soft area fill,
@@ -41,6 +42,65 @@ export interface SparklineReference {
  * mismatch shows up as x labels drifting out from under the plot.
  */
 const REF_GUTTER = "w-14";
+
+/**
+ * The chart's frame with no series in it: same left gutter, same plot width,
+ * same reference gutter, same x-label row underneath. A card that draws a bare
+ * sentence where a chart will go has to re-lay itself out the moment the series
+ * arrives, and the reader loses their place in whatever sits below.
+ *
+ * `note` is for the wait that is not a fetch: a wallet whose history has been
+ * read and holds too few points to draw yet. That state survives a reload and
+ * can stand for minutes, so the reserved room has to say why it is reserved.
+ * A grey fill alone reads as a broken chart, and a fill with the reason printed
+ * underneath reads as a caption to one. The note takes the fill's place rather
+ * than sitting on top of it, because a wash competing with the sentence over it
+ * is what made the plain version illegible in the first place.
+ *
+ * It lives beside `Sparkline` because it borrows that layout's gutter widths.
+ * A placeholder built from a second copy of those numbers is one that stops
+ * matching the chart it stands in for, with nothing failing to say so.
+ */
+export function SparklinePlaceholder({
+  height = 36,
+  note,
+}: {
+  height?: number;
+  note?: React.ReactNode;
+}) {
+  return (
+    /* The empty frame is decoration and stays hidden from a screen reader; a
+       note is the only thing here anyone was meant to read. */
+    <div aria-hidden={note ? undefined : true}>
+      <div className="flex items-stretch gap-1.5">
+        <div className="shrink-0 min-w-8" />
+        <div className="flex-1 min-w-0" style={{ height }}>
+          {note ? (
+            /* The box treatment `EmptyState` uses for tone="clear": nothing is
+               wrong here, and the tab's two "nothing to draw yet" surfaces
+               should read as the same kind of statement. No glyph, because the
+               one that tone carries is a green check, and "we have not scored
+               this wallet twice yet" is not a safety claim. */
+            <div className="flex h-full w-full items-center justify-center rounded-md border border-border-subtle bg-white/[0.02] px-5">
+              <p className="max-w-md text-center text-sm font-sans leading-relaxed text-text-secondary">
+                {note}
+              </p>
+            </div>
+          ) : (
+            <Skeleton className="h-full w-full" />
+          )}
+        </div>
+        <div className={`shrink-0 ${REF_GUTTER}`} />
+      </div>
+      <div className="flex gap-1.5 mt-0.5">
+        <div className="shrink-0 min-w-8" />
+        {/* The x-label row's own height, held open rather than measured: the
+            labels are `text-2xs`, whose line box is 16px. */}
+        <div className="h-4 flex-1" />
+      </div>
+    </div>
+  );
+}
 
 export function Sparkline(props: {
   data: number[];
