@@ -28,7 +28,9 @@
  * checking, or a hung connection pool takes the probe down with it.
  */
 
+import { SCORING_CHAINS } from "../packages/scoring/src/chains";
 import { sequencerStale } from "./relayerPolicy";
+import { isHttpUrl } from "./scoringChain";
 import type { MonitorAlert } from "./monitorAlerts";
 
 /** One configured endpoint. `label` appears in alerts; the URL never does. */
@@ -243,12 +245,24 @@ export function assessRpc(samples: readonly RpcSample[], opts: RpcHealthOptions)
  * second opinion is the entire point and an operator who forgets to configure
  * one leaves the check unable to detect divergence at all. Duplicate URLs are
  * collapsed: probing the same node twice is a second opinion in name only.
+ *
+ * THE SCORING OVERRIDE IS PROBED TOO. `SCORING_RPC_URL_*` sits at the head of
+ * the scoring transport's fallback list (server/scoringChain.ts), so when an
+ * operator sets one, every read this monitor exists to protect goes there —
+ * and probing Alchemy and the public node instead would watch two endpoints
+ * scoring no longer touches while the one it does serves a stale head unseen.
+ * The env var name comes from the chain registry rather than a literal, so the
+ * probe cannot drift out of step with what the transport reads. A malformed
+ * value is dropped on the same rule the transport drops it by: it is not in
+ * use, so an alert about it would name an endpoint nothing is reading.
  */
 export function endpointsForChain(chainId: number, env: NodeJS.ProcessEnv = process.env): RpcEndpoint[] {
   const mainnet = chainId === 8453;
   const key = mainnet ? env.ALCHEMY_API_KEY_BASE_MAINNET : env.ALCHEMY_API_KEY_BASE_SEPOLIA;
   const publicUrl = mainnet ? "https://mainnet.base.org" : "https://sepolia.base.org";
   const override = mainnet ? env.RPC_HEALTH_URL_BASE_MAINNET : env.RPC_HEALTH_URL_BASE_SEPOLIA;
+  const scoringChain = Object.values(SCORING_CHAINS).find((c) => c.chainId === chainId);
+  const scoringOverride = scoringChain ? env[scoringChain.rpcUrlEnv]?.trim() : undefined;
 
   const out: RpcEndpoint[] = [];
   if (key) {
@@ -257,6 +271,9 @@ export function endpointsForChain(chainId: number, env: NodeJS.ProcessEnv = proc
   }
   out.push({ label: "public", url: publicUrl });
   if (override && override.trim()) out.push({ label: "override", url: override.trim() });
+  if (scoringOverride && isHttpUrl(scoringOverride)) {
+    out.push({ label: "scoring-override", url: scoringOverride });
+  }
 
   const seen = new Set<string>();
   return out.filter((e) => (seen.has(e.url) ? false : (seen.add(e.url), true)));
