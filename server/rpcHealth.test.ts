@@ -151,4 +151,53 @@ describe("endpointsForChain", () => {
     } as NodeJS.ProcessEnv);
     expect(endpoints).toHaveLength(1);
   });
+
+  // The endpoint scoring actually reads has to be one of the probed ones.
+  // SCORING_RPC_URL_* is first in the scoring transport's fallback list, so an
+  // operator who sets it sends 100% of scoring traffic somewhere this monitor
+  // was not looking.
+  it("probes the scoring override, under its own label", () => {
+    const endpoints = endpointsForChain(8453, {
+      SCORING_RPC_URL_BASE_MAINNET: "https://rpc.operator.example/base",
+    } as NodeJS.ProcessEnv);
+    expect(endpoints.map((e) => e.label)).toEqual(["public", "scoring-override"]);
+    expect(endpoints[1]!.url).toBe("https://rpc.operator.example/base");
+  });
+
+  it("reads the sepolia variable off the sepolia chain, not the mainnet one", () => {
+    const env = {
+      SCORING_RPC_URL_BASE_MAINNET: "https://mainnet.operator.example",
+      SCORING_RPC_URL_BASE_SEPOLIA: "https://sepolia.operator.example",
+    } as NodeJS.ProcessEnv;
+    expect(endpointsForChain(84532, env).map((e) => e.url)).toContain(
+      "https://sepolia.operator.example",
+    );
+    expect(endpointsForChain(84532, env).map((e) => e.url)).not.toContain(
+      "https://mainnet.operator.example",
+    );
+  });
+
+  it("adds nothing when no scoring override is set", () => {
+    const endpoints = endpointsForChain(8453, {
+      ALCHEMY_API_KEY_BASE_MAINNET: "test-key",
+    } as NodeJS.ProcessEnv);
+    expect(endpoints.map((e) => e.label)).toEqual(["alchemy", "public"]);
+  });
+
+  it("drops a malformed scoring override, matching what the transport does", () => {
+    for (const bad of ["not-a-url", "ws://rpc.operator.example", "   "]) {
+      const endpoints = endpointsForChain(8453, {
+        SCORING_RPC_URL_BASE_MAINNET: bad,
+      } as NodeJS.ProcessEnv);
+      expect(endpoints.map((e) => e.label)).toEqual(["public"]);
+    }
+  });
+
+  it("collapses a scoring override that is just the public node", () => {
+    const endpoints = endpointsForChain(8453, {
+      SCORING_RPC_URL_BASE_MAINNET: "https://mainnet.base.org",
+    } as NodeJS.ProcessEnv);
+    expect(endpoints).toHaveLength(1);
+    expect(endpoints[0]!.label).toBe("public");
+  });
 });

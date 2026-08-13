@@ -141,7 +141,13 @@ function readersFor(
   return config.protocols.map((p) => byProtocol[p]());
 }
 
-function isHttpUrl(value: string): boolean {
+/**
+ * Exported so the RPC health probe drops a malformed `SCORING_RPC_URL_*` on
+ * exactly the same rule this module does. A probe that accepted a URL the
+ * transport rejects (or the reverse) would report on an endpoint scoring never
+ * uses, which is worse than not probing it.
+ */
+export function isHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
     return parsed.protocol === "https:" || parsed.protocol === "http:";

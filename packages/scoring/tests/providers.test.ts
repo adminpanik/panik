@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_FAILURE_TTL_MS, TtlCache } from "../src/providers/cache";
 import { CoinGeckoProvider } from "../src/providers/coingecko";
 import { DefiLlamaProvider } from "../src/providers/defillama";
 
@@ -66,6 +67,20 @@ describe("CoinGeckoProvider", () => {
     });
     await expect(p2.getAssetRiskInput("ethereum")).rejects.toThrow("price points");
   });
+
+  it("stops re-asking after a 429, and still fails rather than inventing data", async () => {
+    const fetchFn = vi.fn(async () => errorResponse(429));
+    const provider = new CoinGeckoProvider("k", { fetchFn });
+
+    await expect(provider.getAssetRiskInput("ethereum")).rejects.toThrow("HTTP 429");
+    expect(fetchFn).toHaveBeenCalledTimes(2); // ethereum + bitcoin, once each
+
+    // Every other leg of every other wallet in the window rides the cached
+    // rejection: no new requests, and no result that could pass for data.
+    await expect(provider.getAssetRiskInput("ethereum")).rejects.toThrow("HTTP 429");
+    await expect(provider.getAssetRiskInput("usd-coin")).rejects.toThrow("HTTP 429");
+    expect(fetchFn).toHaveBeenCalledTimes(3); // only the new asset, usd-coin
+  });
 });
 
 describe("DefiLlamaProvider", () => {
@@ -102,5 +117,116 @@ describe("DefiLlamaProvider", () => {
     await expect(provider.getSystemicRiskInput("aave-v3")).rejects.toThrow(
       "empty TVL series",
     );
+  });
+
+  it("does not re-ask a failing endpoint inside the negative window", async () => {
+    const fetchFn = vi.fn(async () => errorResponse(503));
+    const provider = new DefiLlamaProvider({ fetchFn });
+
+    await expect(provider.getSystemicRiskInput("aave-v3")).rejects.toThrow("HTTP 503");
+    // Both legs (sector + protocol) missed once; neither is re-fetched.
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    await expect(provider.getSystemicRiskInput("aave-v3")).rejects.toThrow("HTTP 503");
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("TtlCache negative caching", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const HOUR = 60 * 60 * 1000;
+
+  it("caches the rejection: one fetch serves every caller in the window", async () => {
+    const fetcher = vi.fn(async () => {
+      throw new Error("HTTP 429");
+    });
+    const cache = new TtlCache<number>(HOUR);
+
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces the cached miss as a rejection, never as data", async () => {
+    const cause = new Error("HTTP 429");
+    const cache = new TtlCache<number | null>(HOUR);
+    const fetcher = async (): Promise<number | null> => {
+      throw cause;
+    };
+
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toBe(cause);
+    // The point of the whole design: allSettled consumers must still see a
+    // rejection, so the sub-score stays null rather than becoming a zero.
+    const settled = await Promise.allSettled([cache.getOrFetch("k", fetcher)]);
+    expect(settled[0]!.status).toBe("rejected");
+    expect((settled[0] as PromiseRejectedResult).reason).toBe(cause);
+  });
+
+  it("retries once the (much shorter) negative TTL expires", async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const fetcher = vi.fn(async () => {
+      throw new Error("HTTP 429");
+    });
+    const cache = new TtlCache<number>(HOUR);
+
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    vi.setSystemTime(start + DEFAULT_FAILURE_TTL_MS - 1);
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(start + DEFAULT_FAILURE_TTL_MS + 1);
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    // The success TTL is untouched by any of this: an hour, not a minute.
+    expect(DEFAULT_FAILURE_TTL_MS).toBeLessThan(HOUR);
+  });
+
+  it("lets a later success replace the negative entry and cache normally", async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    let fail = true;
+    const fetcher = vi.fn(async () => {
+      if (fail) throw new Error("HTTP 429");
+      return 7;
+    });
+    const cache = new TtlCache<number>(HOUR);
+
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    fail = false;
+    vi.setSystemTime(start + DEFAULT_FAILURE_TTL_MS + 1);
+    await expect(cache.getOrFetch("k", fetcher)).resolves.toBe(7);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    // And the replacement is a normal success entry: cached for the full hour.
+    vi.setSystemTime(start + DEFAULT_FAILURE_TTL_MS + HOUR - 1);
+    await expect(cache.getOrFetch("k", fetcher)).resolves.toBe(7);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps failures per key: one bad asset does not blank the others", async () => {
+    const fetcher = vi.fn(async (key: string) => {
+      if (key === "bad") throw new Error("HTTP 429");
+      return 1;
+    });
+    const cache = new TtlCache<number>(HOUR);
+
+    await expect(cache.getOrFetch("bad", () => fetcher("bad"))).rejects.toThrow("HTTP 429");
+    await expect(cache.getOrFetch("good", () => fetcher("good"))).resolves.toBe(1);
+  });
+
+  it("never caches a failure longer than the success TTL it was given", async () => {
+    const fetcher = vi.fn(async () => {
+      throw new Error("HTTP 429");
+    });
+    // ttl 0 means "do not cache" — the negative default must not override it.
+    const cache = new TtlCache<number>(0);
+
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    await expect(cache.getOrFetch("k", fetcher)).rejects.toThrow("HTTP 429");
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
