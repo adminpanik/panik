@@ -49,10 +49,17 @@ export interface AdminMetrics {
   collateralUsd: number | null;
   /** Most recent snapshot feeding the above. Null = no snapshots at all. */
   asOf: string | null;
-  /** False when the Goldsky events table is not provisioned here. */
+  /**
+   * False when the Goldsky events table is missing OR has never been written
+   * to. Existence alone is not readiness: the table ships in the scoring-engine
+   * migration whether or not the pipeline was ever provisioned, and an empty
+   * one reported as ready renders as "0 transactions", which is
+   * indistinguishable from a genuinely quiet month.
+   */
   eventsReady: boolean;
-  /** Lending events on watched wallets. Null when the pipeline is absent. */
+  /** Lending events on watched wallets. Null when no events exist at all. */
   txCount: number | null;
+  /** Zero when there are no matching events; null only when they are unpriced. */
   txVolumeUsd: number | null;
   /** Events with no USD amount, so a partial volume is visibly partial. */
   txUnpriced: number | null;
