@@ -199,6 +199,28 @@ export function AlertFeedSkeleton() {
 }
 
 /**
+ * A log that has been read and holds nothing.
+ *
+ * `clear`, not `problem`: an empty log means we watched this wallet and nothing
+ * crossed its limit, which is good news. A failed fetch is `problem`, and the
+ * two must never look alike - an unreachable log rendering as "no alerts yet"
+ * is this product promising it is watching at the one moment it cannot see.
+ *
+ * One component because it is one fact, said in two places: the Portfolio
+ * card's preview and the full history page below. They held byte-identical
+ * copies of the title and the hint.
+ */
+export function AlertLogEmptyState() {
+  return (
+    <EmptyState
+      tone="clear"
+      title="No alerts yet"
+      hint="PANIK messages you the moment a position crosses your profile's risk limit."
+    />
+  );
+}
+
+/**
  * The day an alert belongs to, as a person names it. Local time on purpose: an
  * alert that reached someone at 11pm belongs to their evening, not to the next
  * UTC day. The year is always printed, because "14 March" with no year is a
@@ -306,14 +328,7 @@ export function AlertHistoryView({
       </div>
 
       {alerts.length === 0 ? (
-        /* "clear", not "problem": an empty log means we watched this wallet and
-           nothing crossed its limit, which is good news. A failed fetch would be
-           `problem`, and the two must never look alike. */
-        <EmptyState
-          tone="clear"
-          title="No alerts yet"
-          hint="PANIK messages you the moment a position crosses your profile's risk limit."
-        />
+        <AlertLogEmptyState />
       ) : (
         /* ONE card with dated sections inside it, not one card per day. A log
            where most days hold a single alert draws twelve bordered boxes for

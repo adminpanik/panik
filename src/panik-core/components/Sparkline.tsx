@@ -4,6 +4,7 @@
  */
 
 import React, { useId } from "react";
+import { CLEAR_TONE_BOX } from "../ui/EmptyState";
 import { Skeleton } from "../ui/Skeleton";
 
 /**
@@ -76,12 +77,16 @@ export function SparklinePlaceholder({
         <div className="shrink-0 min-w-8" />
         <div className="flex-1 min-w-0" style={{ height }}>
           {note ? (
-            /* The box treatment `EmptyState` uses for tone="clear": nothing is
-               wrong here, and the tab's two "nothing to draw yet" surfaces
-               should read as the same kind of statement. No glyph, because the
-               one that tone carries is a green check, and "we have not scored
-               this wallet twice yet" is not a safety claim. */
-            <div className="flex h-full w-full items-center justify-center rounded-md border border-border-subtle bg-white/[0.02] px-5">
+            /* `EmptyState`'s own tone="clear" box, imported rather than
+               re-typed: nothing is wrong here, and the tab's two "nothing to
+               draw yet" surfaces have to read as the same kind of statement.
+               The layout is this component's, because the frame has to match
+               the chart it stands in for. No glyph, because the one that tone
+               carries is a green check, and "we have not scored this wallet
+               twice yet" is not a safety claim. */
+            <div
+              className={`flex h-full w-full items-center justify-center rounded-md border px-5 ${CLEAR_TONE_BOX}`}
+            >
               <p className="max-w-md text-center text-sm font-sans leading-relaxed text-text-secondary">
                 {note}
               </p>

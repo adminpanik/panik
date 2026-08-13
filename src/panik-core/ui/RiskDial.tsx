@@ -1,6 +1,18 @@
 import React from "react";
 import type { Band, DegradableSubScores } from "../lib/live";
-import { marketContextMissing, RISK_TEXT } from "../lib/utils";
+import { marketContextMissing, RISK_SCORE_NAME, RISK_TEXT } from "../lib/utils";
+/**
+ * The score's vocabulary, from the engine that owns the score. A DEEP import of
+ * a leaf module (its only runtime import is `params.ts`, which has none), for
+ * the reason every other deep import in panik-core exists: the package barrel
+ * reaches viem through the chain adapters and must never enter a browser
+ * bundle. See `scoreVocabulary.ts` for why the words live there.
+ */
+import {
+  COMPOSITE_WEIGHT_SENTENCE,
+  DRIVER_KEYS,
+  DRIVER_LABEL,
+} from "../../../packages/scoring/src/scoreVocabulary";
 import { InfoTip } from "../components/InfoTip";
 
 /**
@@ -43,7 +55,7 @@ const CIRCUMFERENCE = 2 * Math.PI * R;
  * screenshots, tsc, and the design checklist's computed-style scan.
  */
 export function riskScoreLabel(score: number, band: Band): string {
-  return `PANIK risk score ${score} of 100, ${band}.`;
+  return `${RISK_SCORE_NAME} ${score} of 100, ${band}.`;
 }
 
 export function RiskDial({
@@ -114,7 +126,7 @@ export function RiskDial({
   const term = (v: number | null) => (v === null ? "not measured" : String(Math.round(v)));
   // The published weights only describe the score when all four terms were
   // read. With one dropped the composite is renormalised over the rest, so
-  // quoting 40/25/20/15 would be stating arithmetic the number did not follow.
+  // quoting them would be stating arithmetic the number did not follow.
   const degraded = subScores ? marketContextMissing(subScores) : false;
 
   // The accessible name has to lead with the answer. It is the label for a
@@ -122,19 +134,16 @@ export function RiskDial({
   // reader rather than adding to them — starting it with the explanation would
   // bury the score behind a sentence about scores.
   //
-  // The four component names are the product's own, verbatim from the
-  // RISK_DRIVERS table in AppDemo: a dial announcing "asset risk" and
-  // "systemic risk" beside a panel labelling the same two figures "Asset
-  // volatility" and "Market stress" is one quantity under two names, and the
-  // name a screen reader gets is the one nothing else can check. The table
-  // stays where it is; only the words are shared.
+  // The four component names and the weight sentence are read from the engine,
+  // not retyped: a dial announcing "asset risk" beside a panel labelling the
+  // same figure "Asset volatility" is one quantity under two names, and the
+  // name a screen reader gets is the one nothing else can check.
   const explanation =
     `${riskScoreLabel(score, band)} ` +
     (subScores
-      ? `Position health ${term(subScores.positionHealth)}, Asset volatility ${term(subScores.assetRisk)}, ` +
-        `Protocol risk ${term(subScores.protocolSafety)}, Market stress ${term(subScores.systemicRisk)}. `
+      ? `${DRIVER_KEYS.map((k) => `${DRIVER_LABEL[k]} ${term(subScores[k])}`).join(", ")}. `
       : "") +
-    (degraded ? "Weighted over the parts we could measure. " : "Weighted 40/25/20/15. ") +
+    (degraded ? "Weighted over the parts we could measure. " : `${COMPOSITE_WEIGHT_SENTENCE} `) +
     "Higher means closer to liquidation; your risk profile sets where alerts fire.";
 
   return (

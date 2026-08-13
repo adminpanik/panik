@@ -34,14 +34,19 @@ import {
   bandOfScore,
   calculateDynamicPosition,
   demoMaxLtv,
+  depegAwareOutlook,
   formatCompactUsd,
   formatCurrency,
+  formatPlainAmount,
   formatUsd,
   liquidationOutlook,
   type LiquidationOutlook,
+  loanToValuePct,
+  LOAN_TO_VALUE_HINT,
   LOAN_TO_VALUE_UNAVAILABLE_HINT,
   PROTOCOL_LABEL,
   RISK_CHIP,
+  RISK_SCORE_NAME,
   RISK_TEXT,
   sameAssetDepegNote,
 } from "./lib/utils";
@@ -59,6 +64,17 @@ import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
  * would have had the UI stating a wrong one with no visual tell.
  */
 import { COMPOSITE_WEIGHTS } from "../../packages/scoring/src/params";
+/**
+ * The score's own vocabulary, from the engine that owns the score: the four
+ * sub-score names, their shares of the composite, and the sentence stating
+ * those shares. Same deep-import terms as the line above (`scoreVocabulary.ts`
+ * imports `params.ts` and nothing else).
+ */
+import {
+  COMPOSITE_WEIGHT_SENTENCE,
+  DRIVER_LABEL,
+  DRIVER_WEIGHT_PCT,
+} from "../../packages/scoring/src/scoreVocabulary";
 /**
  * The price-scenario magnitudes, from the engine for the same reason again:
  * `simulation.ts` has no runtime imports, and the operator-facing market
@@ -80,7 +96,13 @@ import { marketParams } from "../../packages/scoring/src/markets";
 import type { RiskProfile } from "../../packages/scoring/src/types";
 import { PositionState } from "./lib/types";
 import { LivePositions, positionKey } from "./components/LivePositions";
-import { AlertFeed, AlertFeedSkeleton, AlertHistoryView, ALERT_PREVIEW_COUNT } from "./components/AlertHistory";
+import {
+  AlertFeed,
+  AlertFeedSkeleton,
+  AlertHistoryView,
+  AlertLogEmptyState,
+  ALERT_PREVIEW_COUNT,
+} from "./components/AlertHistory";
 import { Sparkline, SparklinePlaceholder } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
@@ -158,90 +180,66 @@ const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
  *
  * Watch used to render them twice on one screen under two names, with two
  * different numbers for the same quantity, and the Compass panel hand-typed a
- * third copy of the labels and the weights. The table is the fix: label, hint
- * and weight exist in one place, and the value is read out of a breakdown by an
- * accessor, so no surface can invent its own.
+ * third copy of the labels and the weights. The table is the fix: the value is
+ * read out of a breakdown by an accessor, so no surface can invent its own.
  *
- * `key` is the engine's own sub-score name, which is also the key into
- * COMPOSITE_WEIGHTS — so the weight is READ from the engine rather than retyped,
- * and a re-weight there moves every InfoTip and every panel label at once.
- *
- * "Market stress", not "Pool conditions": the quantity is market-wide (sector
- * TVL flows, broad drawdowns), and calling it a pool property was the third
- * name on this screen for something that is not a pool.
+ * The label and the weight are the ENGINE's (`scoreVocabulary.ts`), not this
+ * file's: `packages/scoring` owns the score, so it owns what the score's parts
+ * are called and what share each one carries. `key` is the engine's own
+ * sub-score name, which is what indexes both.
  */
 interface RiskDriver {
-  /** Engine sub-score name — indexes COMPOSITE_WEIGHTS and the live sub-scores. */
+  /** Engine sub-score name — indexes DRIVER_LABEL and the live sub-scores. */
   key: keyof typeof COMPOSITE_WEIGHTS;
   label: string;
   /**
-   * ONE sentence per driver, for every surface that explains it.
+   * ONE sentence per driver, for every surface that explains it, with the
+   * driver's share of the composite appended.
    *
    * There used to be two, a long one for Watch and a short one for the
    * breakdown panel, which is how the same sub-score got two definitions a
    * click apart. Both surfaces render these four rows in a column of the same
    * width, so the second variant was answering a question that does not
-   * differ. Every call site appends `driverWeightPct` the same way.
+   * differ.
+   *
+   * The share is folded in HERE, at module init, rather than at the call sites:
+   * both of them appended it the same way from compile-time constants, which
+   * rebuilt four strings per surface on every render of a screen whose sliders
+   * render continuously.
    */
   hint: string;
   of: (b: PositionState["breakdown"]) => number;
 }
 
-const RISK_DRIVERS: RiskDriver[] = [
+/** The half of a driver this file owns: what it measures, and where to read it. */
+const RISK_DRIVER_DEFS: Omit<RiskDriver, "label">[] = [
   {
     key: "positionHealth",
-    label: "Position health",
     hint: "Distance to liquidation: health factor plus current LTV.",
     of: (b) => b.positionHealth,
   },
   {
     key: "assetRisk",
-    label: "Asset volatility",
     hint: "Collateral price volatility, 90d drawdown, and BTC correlation.",
     of: (b) => b.assetVolatility,
   },
   {
     key: "protocolSafety",
-    label: "Protocol risk",
     hint: "Protocol safety: audits, governance timelock, market controls.",
     of: (b) => b.protocolSafety,
   },
   {
     key: "systemicRisk",
-    label: "Market stress",
     hint: "Market-wide stress: sector TVL flows and capital flight.",
     of: (b) => b.systemicMarketStress,
   },
 ];
 
-/**
- * A driver's share of the composite, as a whole percent. Rounded because the
- * weights are fractions and `0.15 * 100` is not a number anyone wants printed.
- */
-function driverWeightPct(driver: RiskDriver): number {
-  return Math.round(COMPOSITE_WEIGHTS[driver.key] * 100);
-}
-
-/**
- * How the composite is weighted, in RiskDial's own words and from the engine's
- * own numbers.
- *
- * The weights are a HOVER fact, never a visible label beside a sub-score.
- * Printed on the surface they read as a promise about the arithmetic the score
- * followed, and the engine renormalises over the terms it could read, so that
- * promise is only kept when all four came back.
- *
- * This string matches `RiskDial`'s tooltip character for character so the two
- * surfaces teach one sentence, and it is built from `COMPOSITE_WEIGHTS` so a
- * re-weight moves both.
- *
- * The Compass path is the case where the published weights ARE the arithmetic:
- * `CompassLiveScore.subScores` is non-nullable (lib/live.ts), and the offline
- * fallback is constructed so its weighted sum reproduces the composite. Nothing
- * this panel renders can be degraded, so it never needs RiskDial's other
- * branch.
- */
-const COMPOSITE_WEIGHT_SENTENCE = `Weighted ${RISK_DRIVERS.map(driverWeightPct).join("/")}.`;
+const RISK_DRIVERS: RiskDriver[] = RISK_DRIVER_DEFS.map((d) => ({
+  ...d,
+  label: DRIVER_LABEL[d.key],
+  hint: `${d.hint} ${DRIVER_WEIGHT_PCT[d.key]}% of the score.`,
+}));
 
 /**
  * What the composite is, for the two surfaces that print it as a headline
@@ -250,16 +248,19 @@ const COMPOSITE_WEIGHT_SENTENCE = `Weighted ${RISK_DRIVERS.map(driverWeightPct).
  * One string, because the score is one quantity. Watch called it a "risk index"
  * and described it with a different four-item list than the one it drew two
  * inches to the right, which is the "one name per concept" rule failing on a
- * single screen. `riskScoreLabel` (ui/RiskDial) holds the same vocabulary for
- * the accessible name.
+ * single screen. It opens with `RISK_SCORE_NAME`'s quantity and quotes the
+ * engine's own weight sentence, the same one `RiskDial`'s tooltip carries.
+ *
+ * The Compass path is the case where the published weights ARE the arithmetic:
+ * `CompassLiveScore.subScores` is non-nullable (lib/live.ts), and the offline
+ * fallback is constructed so its weighted sum reproduces the composite. Nothing
+ * this panel renders can be degraded, so it never needs RiskDial's other
+ * branch.
  */
 const RISK_SCORE_HINT =
   `0-100 composite of the four components in the score breakdown. ${COMPOSITE_WEIGHT_SENTENCE}` +
   ` LOW under 25, ELEVATED under 50, HIGH under 75, CRITICAL above.` +
   ` Higher means closer to liquidation.`;
-
-/** The score's visible name. One name, every surface. */
-const RISK_SCORE_NAME = "PANIK risk score";
 
 /**
  * Collateral and debt are the SAME asset (the two USDC supply presets).
@@ -789,6 +790,93 @@ function MarketCard({
 }
 
 /**
+ * One Compass section: its heading, and under it either its cards or the
+ * statement that it has none.
+ *
+ * Recommended and Outside were 36-line near-copies, each carrying its own copy
+ * of the eight-prop `MarketCard` call and each testing its own emptiness twice
+ * (once to decide whether the section exists, again to decide what goes in it).
+ * The two tests are one decision and they live here now: cards if there are
+ * cards, otherwise the empty statement if this tab is stating empties, and
+ * otherwise nothing at all.
+ *
+ * `muted` is the out-of-profile section, and it dims the heading and the cards
+ * together: the heading IS the "not recommended", so a full-strength heading
+ * over dimmed cards would put the emphasis on the warning rather than the
+ * markets the profile actually points at.
+ */
+function MarketSection({
+  heading,
+  presets,
+  statesEmpty,
+  emptyTitle,
+  emptyHint,
+  muted = false,
+  poolYields,
+  opensReal,
+  onBreakdown,
+  onSimulate,
+  onOpen,
+}: {
+  heading: string;
+  presets: VaultPreset[];
+  /** Whether an empty section is STATED rather than dropped. See its caller. */
+  statesEmpty: boolean;
+  emptyTitle: string;
+  emptyHint?: string;
+  muted?: boolean;
+  poolYields: Record<string, PoolYield> | null;
+  /** The predicate the open click routes on, so card and click agree. */
+  opensReal: (preset: VaultPreset) => boolean;
+  onBreakdown: (preset: VaultPreset) => void;
+  onSimulate: (preset: VaultPreset) => void;
+  onOpen: (preset: VaultPreset) => void;
+}) {
+  if (presets.length === 0 && !statesEmpty) return null;
+  return (
+    <div className={muted ? "space-y-4 pt-4" : "space-y-4"}>
+      <h2
+        className={`text-base font-sans font-bold tracking-wide ${
+          muted ? "text-text-secondary" : "text-text-primary"
+        }`}
+      >
+        {heading}
+      </h2>
+      {presets.length === 0 ? (
+        /* `clear`, not `problem`: nothing failed here, this is the coverage the
+           chain and the profile between them produce. */
+        <EmptyState tone="clear" title={emptyTitle} hint={emptyHint} />
+      ) : (
+        /* Three across at `xl`. Two columns left a permanent orphan: an odd
+           count is the normal case here (three recommended and five outside at
+           the moderate profile), and at two wide the stray card sat alone
+           beside half a row of void. The cards are five elements tall now
+           rather than nine, so three fit the 1120px content column without
+           crushing anything.
+
+           `lg`, not `md`: at a 768px window the sidebar has already taken
+           256px, so two columns there were 208px each, which is narrower than
+           "Compound V3" plus its risk chip. */
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+          {presets.map((preset) => (
+            <MarketCard
+              key={preset.id}
+              preset={preset}
+              poolYield={poolYields?.[preset.id] ?? null}
+              muted={muted}
+              opensDemo={!opensReal(preset)}
+              onBreakdown={() => onBreakdown(preset)}
+              onOpen={() => onOpen(preset)}
+              onSimulate={() => onSimulate(preset)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Everything the risk-breakdown panel renders, read once so no cell can derive
  * a second version of a figure another cell already shows.
  */
@@ -825,12 +913,13 @@ function BreakdownRow({
   /** Omitted by a row whose whole content is prose or a chart. */
   value?: React.ReactNode;
   /**
-   * One clause the label and the figure do not already state.
+   * One clause the figure does not already state, stacked UNDER it so the
+   * qualifier reads as belonging to it. At body size: the thing most often
+   * qualified here is a dollar amount, and the money line is not the row's
+   * small print.
    *
-   * It stacks UNDER the figure when there is one, so the qualifier reads as
-   * belonging to it; a row with no figure is prose and takes the full width.
-   * Both at body size: the thing most often qualified here is a dollar amount,
-   * and the money line is not the row's small print.
+   * A row whose whole content is prose passes it as `children` instead, which
+   * lands in the same place at the same size.
    */
   note?: React.ReactNode;
   children?: React.ReactNode;
@@ -855,9 +944,6 @@ function BreakdownRow({
           </span>
         )}
       </div>
-      {value === undefined && note !== undefined && (
-        <p className="text-sm font-sans text-text-secondary">{note}</p>
-      )}
       {children}
     </div>
   );
@@ -881,6 +967,50 @@ function BreakdownSection({
       </h4>
       <div className="divide-y divide-border-subtle border-t border-border-subtle">{children}</div>
     </section>
+  );
+}
+
+/**
+ * The engine's four weighted sub-scores as labelled rows with bars.
+ *
+ * ONE component for the two surfaces that draw them, the Compass
+ * risk-breakdown panel and the Watch score card. They were verbatim copies that
+ * had already begun to diverge (only one carried the bar's transition), which
+ * is the same drift that once gave three of these rows a hand-typed colour and
+ * the fourth a number the engine never produced.
+ *
+ * Only the accessor differs, so only the accessor is a prop: Compass reads a
+ * `Record` keyed by the engine's sub-score name, Watch a `PositionState`
+ * breakdown whose field names are its own.
+ *
+ * These are the parts of ONE score, already banded once by the chip above them,
+ * so there is no hue on any of the four: the bar LENGTH is the channel, and
+ * four hues here would be four verdicts about one position. The value is a bare
+ * 0-100 number rather than "78%" - a sub-score is a risk point on the same
+ * scale as the composite, and printing it as a percentage invites "78% of
+ * what". The bar carries the denominator.
+ */
+function ScoreBreakdownSection({ valueOf }: { valueOf: (driver: RiskDriver) => number }) {
+  return (
+    <BreakdownSection heading="Score breakdown">
+      {RISK_DRIVERS.map((driver) => {
+        const value = valueOf(driver);
+        return (
+          <BreakdownRow key={driver.key} label={driver.label} hint={driver.hint} value={value}>
+            {/* The transition is kept on both call sites rather than neither:
+                Watch's sliders move these four bars continuously, and a panel
+                whose values never change within a mount pays nothing for a
+                transition that never fires. */}
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.03]">
+              <div
+                className="h-full rounded-full bg-text-secondary transition-all duration-300"
+                style={{ width: `${value}%` }}
+              />
+            </div>
+          </BreakdownRow>
+        );
+      })}
+    </BreakdownSection>
   );
 }
 
@@ -931,21 +1061,12 @@ function RiskBreakdownPanel({
 
   const sameAsset = isSameAssetMarket(preset);
   const outlook = data.outlook;
-  /**
-   * The plain-drawdown case. `stripNote` is non-null exactly when a bare
-   * percentage would read as the opposite of the truth (no debt, liquidatable
-   * now), which are the two cases with no drop to reframe.
-   */
-  const statesADrop = outlook.stripNote === null;
+  // The liquidation row's label and hover, from the one helper Watch's
+  // equivalent row also reads.
+  const liquidationRow = depegAwareOutlook(outlook, preset.collateralAsset, sameAsset);
 
   const collateralValue = preset.defaultCollateral * preset.defaultPrice;
-  /**
-   * Guarded rather than trusted: every preset is a non-zero constant today, and
-   * `borrow / 0` is the "Infinity%" the design system forbids one edit away.
-   */
-  const ltvPct = collateralValue > 0
-    ? Math.round((preset.defaultBorrow / collateralValue) * 100)
-    : null;
+  const ltvPct = loanToValuePct(preset.defaultBorrow, collateralValue);
   // The protocol's real per-asset limits, from `MARKETS`, or the stated
   // "we hold no parameters for this market" when it lists none.
   const limits = assetLoanToValue(preset.protocol, preset.collateralSymbol);
@@ -1013,12 +1134,7 @@ function RiskBreakdownPanel({
                   is worth calling out, because it is the one the reader would
                   otherwise get wrong. */}
               {!data.isLive && (
-                <span
-                  title="This market's score came from the offline fallback, not a live engine read."
-                  className="rounded-sm border border-border-subtle bg-white/[0.04] px-2 py-0.5 text-2xs font-sans font-bold text-text-muted"
-                >
-                  Demo
-                </span>
+                <DemoChip title="This market's score came from the offline fallback, not a live engine read." />
               )}
               {/* Keyed on the band this preset ALREADY carries, not on a band
                   re-derived from its number: the re-derived chain had no HIGH
@@ -1034,30 +1150,9 @@ function RiskBreakdownPanel({
           </div>
         </div>
 
-        {/* The engine's four weighted sub-scores, from the same RISK_DRIVERS
-            table Watch's breakdown reads, at the same neutral bar treatment.
-            These are the parts of ONE score, already banded once by the chip
-            above; four hues here would be four verdicts about one position. */}
-        <BreakdownSection heading="Score breakdown">
-          {RISK_DRIVERS.map((driver) => {
-            const value = data.subs[driver.key];
-            return (
-              <BreakdownRow
-                key={driver.key}
-                label={driver.label}
-                hint={`${driver.hint} ${driverWeightPct(driver)}% of the score.`}
-                value={value}
-              >
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.03]">
-                  <div
-                    className="h-full rounded-full bg-text-secondary"
-                    style={{ width: `${value}%` }}
-                  />
-                </div>
-              </BreakdownRow>
-            );
-          })}
-        </BreakdownSection>
+        {/* The engine's four sub-scores, keyed by the engine's own names: this
+            panel's `subs` is a Record, Watch's is a PositionState breakdown. */}
+        <ScoreBreakdownSection valueOf={(driver) => data.subs[driver.key]} />
 
         {/* The example the score is ABOUT, said in words above its figures.
             Every number here is the sample trade `VAULT_PRESETS` states plus
@@ -1067,29 +1162,15 @@ function RiskBreakdownPanel({
           heading="Example position this preview is scored on"
           hint="PANIK previews each market against a sample position of a fixed size. These are that sample's figures, not a position you hold. Open the simulator to score your own numbers."
         >
-          {/* A same-asset market still has a real distance to liquidation -
-              the engine's 1 - 1/HF is a ratio and holds - but it is a gap that
-              has to OPEN between the two legs, not a fall in a price they
-              share. "Drop to liquidation" would name the wrong move. */}
           <BreakdownRow
-            label={sameAsset && statesADrop ? "Depeg to liquidation" : outlook.statLabel}
-            /* The caveat leads, because it changes how the percentage is read;
-               the engine's own hover, which opens with the exact health factor,
-               follows it unaltered. */
-            hint={
-              sameAsset && statesADrop
-                ? `${sameAssetDepegNote(preset.collateralAsset)} ${outlook.hover}`
-                : outlook.hover
-            }
+            label={liquidationRow.label}
+            hint={liquidationRow.hint}
             value={outlook.statValue}
           />
 
           <BreakdownRow
             label="Loan to value"
-            hint={
-              `Debt as a share of the collateral's value. ` +
-              (limits === null ? LOAN_TO_VALUE_UNAVAILABLE_HINT : limits.note)
-            }
+            hint={`${LOAN_TO_VALUE_HINT} ${limits === null ? LOAN_TO_VALUE_UNAVAILABLE_HINT : limits.note}`}
             /* Never a zero standing in for an unknown: a market with no
                collateral value has no loan to value, and "0%" is the reading a
                reader would act on. */
@@ -1104,10 +1185,11 @@ function RiskBreakdownPanel({
               change it instead, in the wording Watch uses for the same
               reason. */}
           {sameAsset ? (
-            <BreakdownRow
-              label="What moves this market"
-              note={sameAssetDepegNote(preset.collateralAsset)}
-            />
+            <BreakdownRow label="What moves this market">
+              <p className="text-sm font-sans text-text-secondary">
+                {sameAssetDepegNote(preset.collateralAsset)}
+              </p>
+            </BreakdownRow>
           ) : (
             <BreakdownRow
               label="Liquidation price"
@@ -1118,18 +1200,17 @@ function RiskBreakdownPanel({
 
           {/* Grouped, because these sit in a column with `formatCurrency`'s
               output two rows up and "4500" beside "$8,000" reads as two
-              different kinds of number. No token formatter applies: these are
-              plain constants from `VAULT_PRESETS`, not wei, so
-              `formatTokenAmount` (which takes a bigint and a decimals) has
-              nothing to convert. */}
+              different kinds of number. `formatPlainAmount`, not
+              `formatTokenAmount`: these are plain constants from
+              `VAULT_PRESETS`, not wei, so there is nothing to convert. */}
           <BreakdownRow
             label="Collateral"
-            value={`${preset.defaultCollateral.toLocaleString("en-US")} ${preset.collateralAsset}`}
+            value={formatPlainAmount(preset.defaultCollateral, preset.collateralAsset)}
             note={collateralNote}
           />
           <BreakdownRow
             label="Borrowed"
-            value={`${preset.defaultBorrow.toLocaleString("en-US")} ${preset.debtAsset}`}
+            value={formatPlainAmount(preset.defaultBorrow, preset.debtAsset)}
           />
         </BreakdownSection>
 
@@ -1495,6 +1576,13 @@ export function AppDemo() {
    */
   const opensReal = (preset: VaultPreset) =>
     canOpenInApp(chainMode, preset.engineProtocol, preset.collateralSymbol);
+
+  /** A Compass card's "stress-test this" press: same landing for both sections. */
+  const simulateFromCompass = (preset: VaultPreset) => {
+    setSelectedPresetId(preset.id);
+    setWatchSource("recommendations");
+    setActiveTab("watch");
+  };
 
   const requestOpenPosition = (preset: VaultPreset, collateralUsdOverride?: number) => {
     const params = marketParams(preset.engineProtocol, preset.collateralSymbol);
@@ -2156,23 +2244,41 @@ export function AppDemo() {
     positionState.healthFactor,
     activeMarket.collateralAsset,
   );
-  // Guarded because the collateral slider goes to 0 and `borrowUsd / 0` rendered
-  // "Infinity%".
-  const watchLtvPct =
-    watchCollateralValue > 0 ? Math.round((borrowUsd / watchCollateralValue) * 100) : null;
+  // The collateral slider goes to 0, which is the guard's whole reason to
+  // exist: `borrowUsd / 0` rendered "Infinity%" here once.
+  const watchLtvPct = loanToValuePct(borrowUsd, watchCollateralValue);
+  // The liquidation row's label and hover, from the one helper the Compass
+  // panel's equivalent row also reads.
+  const watchLiquidationRow = depegAwareOutlook(
+    watchOutlook,
+    activeMarket.collateralAsset,
+    sameAssetMarket,
+  );
   const watchMaxLtvPct = Math.round(demoMaxLtv(activeMarket.protocol) * 100);
   const watchLiqPrice = positionState.liquidationPrice;
-  const watchDropSub = [
-    positionState.healthFactor === null
-      ? null
-      : `Health factor ${positionState.healthFactor.toFixed(2)}`,
-    watchOutlook.stripNote,
-    watchOutlook.stripNote === null && watchLiqPrice > 0
-      ? `${activeMarket.collateralAsset} at ${formatCurrency(watchLiqPrice)}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  /**
+   * Dropped whole on a same-asset market with a drop to state, which is exactly
+   * the case the row above renames to "Depeg to liquidation": the third clause
+   * is a DOLLAR collateral price ("USDC at $0.50"), the one figure the Compass
+   * panel withholds on these markets because no dollar move can separate the
+   * two legs, and the first two clauses would then sit under a label about a
+   * depeg as if they qualified it. The exact health factor is not lost, it
+   * opens the row's hover, which is where every other surface keeps it.
+   */
+  const watchDropSub =
+    sameAssetMarket && watchLiquidationRow.statesADrop
+      ? ""
+      : [
+          positionState.healthFactor === null
+            ? null
+            : `Health factor ${positionState.healthFactor.toFixed(2)}`,
+          watchOutlook.stripNote,
+          watchOutlook.stripNote === null && watchLiqPrice > 0
+            ? `${activeMarket.collateralAsset} at ${formatCurrency(watchLiqPrice)}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
 
   // LIVE chain telemetry: real Base gas price via the API (the previous
   // random-walk simulation is gone). The block number arrives on the same poll
@@ -2215,17 +2321,18 @@ export function AppDemo() {
   /**
    * Whether an empty Compass section is STATED rather than dropped.
    *
-   * Only on testnet, and only while the catalog holds something. A section that
-   * simply vanishes is indistinguishable from a page that failed to load, which
-   * is what a moderate profile on the cut Sepolia catalog actually looked like:
-   * one out-of-profile card under a screen of void. Mainnet keeps the
-   * drop-if-empty behaviour, its catalog being static and both sections filling
-   * at every profile.
+   * Only while the catalog holds something: with NOTHING openable the tab says
+   * so once, in its own state below, rather than printing two empty sections
+   * that state the same absence twice.
    *
-   * With NOTHING openable the tab says so once, in its own state below, rather
-   * than printing two empty sections that state the same absence twice.
+   * NOT gated on the chain. A section that simply vanishes is indistinguishable
+   * from a page that failed to load, which is what a moderate profile on the
+   * cut Sepolia catalog looked like: one out-of-profile card under a screen of
+   * void. The mainnet catalog is fuller but the sections partition it on LIVE
+   * engine scores, so a profile whose window no live score falls in empties one
+   * of them there too, and the same heading disappears for the same reason.
    */
-  const statesEmptySections = chainMode === "testnet" && compassCatalog.length > 0;
+  const statesEmptySections = compassCatalog.length > 0;
 
   const TOUR_STEPS = [
     { step: 1, label: "Start here", body: "This is your Panik dashboard. Use the sidebar to navigate between tools." },
@@ -2245,10 +2352,11 @@ export function AppDemo() {
         cancellable and says which job it is doing, and a wallet with a saved
         profile skips the quiz entirely.
 
-        The cancel is keyed on the intent, not on whether a wallet is bound. A
-        returning visitor has no bound wallet (nothing is restored from
-        localStorage any more), so the old rule shut them into a modal they
-        opened themselves and could not leave. */}
+        The cancel is withheld on the first run, and only while no wallet is
+        bound. Both terms are load-bearing: the first is what makes a genuine
+        first run mandatory, and the second releases the modal once a wallet
+        arrives some other way (a wagmi connect mid-run) rather than holding
+        someone inside a flow whose first step has already been answered. */}
     {onboardingIntent && (
       <Onboarding
         mode={onboardingIntent}
@@ -2465,53 +2573,27 @@ export function AppDemo() {
                   />
                 )}
 
-                {/* Three across at `xl`. Two columns left a permanent orphan:
-                    an odd count is the normal case here (three recommended and
-                    five outside at the moderate profile), and at two wide the
-                    stray card sat alone beside half a row of void. The cards
-                    are five elements tall now rather than nine, so three fit
-                    the 1120px content column without crushing anything.
-
-                    `lg`, not `md`: at a 768px window the sidebar has already
-                    taken 256px, so two columns there were 208px each, which is
-                    narrower than "Compound V3" plus its risk chip. */}
-                {(recommended.length > 0 || statesEmptySections) && (
-                  <div className="space-y-4">
-                    <h2 className="text-base font-sans font-bold text-text-primary tracking-wide">
-                      Recommended for your {selectedRiskProfile} profile
-                    </h2>
-                    {/* About this section only, and shorter than the page line
-                        above it, so the two do not say the same thing twice.
-                        The hint is a measured fact rather than a guess: this
-                        branch runs only with a non-empty catalog, so an empty
-                        `recommended` puts every openable market in `outside`. */}
-                    {recommended.length === 0 ? (
-                      <EmptyState
-                        tone="clear"
-                        title={`No ${CHAIN_MODE_LABEL.testnet} market scores inside this profile`}
-                        hint="The ones that can be opened there are in the section below, outside it."
-                      />
-                    ) : (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                        {recommended.map((preset) => (
-                          <MarketCard
-                            key={preset.id}
-                            preset={preset}
-                            poolYield={poolYields?.[preset.id] ?? null}
-                            opensDemo={!opensReal(preset)}
-                            onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
-                            onOpen={() => requestOpenPosition(preset)}
-                            onSimulate={() => {
-                              setSelectedPresetId(preset.id);
-                              setWatchSource("recommendations");
-                              setActiveTab("watch");
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* The empty-section copy is chain-neutral, because the reason
+                    a section empties is not: on testnet the catalog is already
+                    cut to what can be opened there, on mainnet it is the whole
+                    catalog partitioned on live scores, and either can leave a
+                    profile with nothing on one side. Naming the chain is
+                    enough; "can be opened there" would be false on mainnet. */}
+                <MarketSection
+                  heading={`Recommended for your ${selectedRiskProfile} profile`}
+                  presets={recommended}
+                  statesEmpty={statesEmptySections}
+                  emptyTitle={`No ${CHAIN_MODE_LABEL[chainMode]} market scores inside this profile`}
+                  /* A measured fact rather than a guess: an empty section is
+                     only stated with a non-empty catalog, so an empty
+                     `recommended` puts every market in `outside`. */
+                  emptyHint="Everything in this catalog is in the section below, outside it."
+                  poolYields={poolYields}
+                  opensReal={opensReal}
+                  onBreakdown={setSelectedRiskBreakdownPreset}
+                  onOpen={requestOpenPosition}
+                  onSimulate={simulateFromCompass}
+                />
 
                 {/* Outside the profile's limits. The per-card "Outside safety
                     triggers" caption is gone: it restated this heading eight
@@ -2525,42 +2607,22 @@ export function AppDemo() {
                     open to the profile's target health factor whichever
                     section it was pressed in, so the position that comes out
                     of an out-of-profile card is still within target. This
-                    heading is what says "not recommended". */}
-                {(outside.length > 0 || statesEmptySections) && (
-                  <div className="space-y-4 pt-4">
-                    <h2 className="text-base font-sans font-bold text-text-secondary tracking-wide">
-                      Outside your profile
-                    </h2>
-                    {/* Good news, and worth the one line: on this chain the
-                        whole openable set fits the profile. No hint, because
-                        there is nothing further a reader would act on. */}
-                    {outside.length === 0 ? (
-                      <EmptyState
-                        tone="clear"
-                        title={`Every market that can be opened on ${CHAIN_MODE_LABEL.testnet} is inside your profile`}
-                      />
-                    ) : (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                        {outside.map((preset) => (
-                          <MarketCard
-                            key={preset.id}
-                            preset={preset}
-                            poolYield={poolYields?.[preset.id] ?? null}
-                            muted
-                            opensDemo={!opensReal(preset)}
-                            onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
-                            onOpen={() => requestOpenPosition(preset)}
-                            onSimulate={() => {
-                              setSelectedPresetId(preset.id);
-                              setWatchSource("recommendations");
-                              setActiveTab("watch");
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                    heading is what says "not recommended".
+
+                    Good news when it is empty, and worth the one line. No hint,
+                    because there is nothing further a reader would act on. */}
+                <MarketSection
+                  heading="Outside your profile"
+                  muted
+                  presets={outside}
+                  statesEmpty={statesEmptySections}
+                  emptyTitle={`Every ${CHAIN_MODE_LABEL[chainMode]} market scores inside your profile`}
+                  poolYields={poolYields}
+                  opensReal={opensReal}
+                  onBreakdown={setSelectedRiskBreakdownPreset}
+                  onOpen={requestOpenPosition}
+                  onSimulate={simulateFromCompass}
+                />
 
               </TabPanel>
             )}
@@ -2886,44 +2948,13 @@ export function AppDemo() {
                       </div>
 
                       <div className="flex flex-1 min-w-0 flex-col">
-                        {/* One row per driver, from RISK_DRIVERS, in the same
-                            `BreakdownRow` the Compass panel uses for the same
-                            four figures. These were four copies of the same
-                            twelve lines, which is how three ended up with a
-                            hand-typed colour and one with a number the engine
-                            never produced.
-
-                            The value is a bare 0-100 number, not "78%". A
-                            sub-score is a risk point on the same scale as the
-                            composite above it, and printing it as a percentage
-                            invited the reading "78% of what" — the panel one
-                            click away had already stopped. The bar carries the
-                            denominator. */}
-                        <BreakdownSection heading="Score breakdown">
-                          {RISK_DRIVERS.map((driver) => {
-                            const value = driver.of(positionState.breakdown);
-                            return (
-                              <BreakdownRow
-                                key={driver.key}
-                                label={driver.label}
-                                hint={`${driver.hint} ${driverWeightPct(driver)}% of the score.`}
-                                value={value}
-                              >
-                                {/* Neutral fill; the bar LENGTH is the channel.
-                                    These four are the parts of one score, not
-                                    four verdicts, and the composite has already
-                                    been banded once by the chip. `RiskDial`
-                                    lists the same four with no hue either. */}
-                                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.03]">
-                                  <div
-                                    className="h-full rounded-full bg-text-secondary transition-all duration-300"
-                                    style={{ width: `${value}%` }}
-                                  />
-                                </div>
-                              </BreakdownRow>
-                            );
-                          })}
-                        </BreakdownSection>
+                        {/* The same four rows the Compass panel draws, from the
+                            same component; only the accessor differs, because
+                            this surface reads a `PositionState` breakdown whose
+                            field names are its own. */}
+                        <ScoreBreakdownSection
+                          valueOf={(driver) => driver.of(positionState.breakdown)}
+                        />
 
                       </div>
                     </div>
@@ -2961,30 +2992,21 @@ export function AppDemo() {
                   ) : (
                     <Card tone="raised" className="xl:flex-auto">
                       <BreakdownSection heading="The position being scored">
-                        {/* Same wording rule as the Compass panel, from the same
-                            predicate: a same-asset market still has a real
-                            distance to liquidation, but it is a gap that has to
-                            OPEN between the two legs, not a fall in a price they
-                            share, so "Drop to liquidation" would name the wrong
-                            move. `stripNote` is non-null exactly in the two
-                            cases with no drop to reframe. */}
+                        {/* Label and hover from `depegAwareOutlook`, the same
+                            decision the Compass panel's equivalent row makes.
+                            The label used to be hard-coded "Drop to
+                            liquidation" on the non-depeg branch, which
+                            overrode the engine's own switch and printed a drop
+                            for a position that is liquidatable now. */}
                         <BreakdownRow
-                          label={
-                            sameAssetMarket && watchOutlook.stripNote === null
-                              ? "Depeg to liquidation"
-                              : "Drop to liquidation"
-                          }
-                          hint={
-                            sameAssetMarket && watchOutlook.stripNote === null
-                              ? `${sameAssetDepegNote(activeMarket.collateralAsset)} ${watchOutlook.hover}`
-                              : watchOutlook.hover
-                          }
+                          label={watchLiquidationRow.label}
+                          hint={watchLiquidationRow.hint}
                           value={watchOutlook.strip}
                           note={watchDropSub || undefined}
                         />
                         <BreakdownRow
                           label="Loan to value"
-                          hint="Debt as a share of your collateral's value. The closer this gets to the protocol's maximum, the smaller your cushion before liquidation."
+                          hint={`${LOAN_TO_VALUE_HINT} The closer this gets to the protocol's maximum, the smaller your cushion before liquidation.`}
                           value={watchLtvPct === null ? "No collateral" : `${watchLtvPct}%`}
                           note={`${activeMarket.protocol} liquidates above ${watchMaxLtvPct}%`}
                         />
@@ -3000,7 +3022,7 @@ export function AppDemo() {
                           note={
                             assetPrice === 1
                               ? undefined
-                              : `${collateralAmount.toLocaleString("en-US")} ${activeMarket.collateralAsset}`
+                              : formatPlainAmount(collateralAmount, activeMarket.collateralAsset)
                           }
                         />
                         <BreakdownRow
@@ -3010,7 +3032,7 @@ export function AppDemo() {
                           note={
                             debtPrice === 1
                               ? undefined
-                              : `${borrowAmount.toLocaleString("en-US")} ${activeMarket.debtAsset}`
+                              : formatPlainAmount(borrowAmount, activeMarket.debtAsset)
                           }
                         />
                       </BreakdownSection>
@@ -3069,6 +3091,15 @@ export function AppDemo() {
                         const estHf = borrowUsd > 0 ? (collateralAmount * price * maxLTV) / borrowUsd : Infinity;
                         const active = activeScenario === s.key;
                         const liquidated = Number.isFinite(estHf) && estHf < 1;
+                        // Each of these renders twice per row, once visibly and
+                        // once in the accessible name. Formatted once so the
+                        // two cannot round the same number differently, and so
+                        // four rows do not pay for eight `Intl` formats on
+                        // every slider frame.
+                        const priceText = formatCurrency(price);
+                        const magnitude =
+                          s.pct === 0 ? s.note : `${s.note}, ${Math.round(s.pct * 100)}%`;
+                        const hfText = estHf.toFixed(2);
                         return (
                           <button
                             key={s.key}
@@ -3080,10 +3111,10 @@ export function AppDemo() {
                                "Current$2,000market priceHF ~1.46". */
                             aria-label={[
                               s.label,
-                              formatCurrency(price),
-                              s.pct === 0 ? s.note : `${s.note}, ${Math.round(s.pct * 100)}%`,
+                              priceText,
+                              magnitude,
                               borrowUsd > 0
-                                ? (liquidated ? "liquidated" : `health factor about ${estHf.toFixed(2)}`)
+                                ? (liquidated ? "liquidated" : `health factor about ${hfText}`)
                                 : null,
                             ].filter(Boolean).join(", ")}
                             onClick={() => applyScenario(s.key, s.pct)}
@@ -3098,7 +3129,7 @@ export function AppDemo() {
                                 {s.label}
                               </span>
                               <span className="shrink-0 text-sm font-sans font-semibold tabular-nums text-text-primary">
-                                {formatCurrency(price)}
+                                {priceText}
                               </span>
                             </span>
                             <span className="mt-0.5 flex items-baseline justify-between gap-3">
@@ -3107,7 +3138,7 @@ export function AppDemo() {
                                   is -40%), so it reads as a label and is inked
                                   like one, beside the event it is named for. */}
                               <span className="text-xs font-sans text-text-muted tabular-nums">
-                                {s.pct === 0 ? s.note : `${s.note}, ${Math.round(s.pct * 100)}%`}
+                                {magnitude}
                               </span>
                               {borrowUsd > 0 && (
                                 /* No hue, on either branch. "Liquidated" was the
@@ -3122,7 +3153,7 @@ export function AppDemo() {
                                    of thresholds on a screen that already had
                                    three. */
                                 <span className="shrink-0 text-xs font-sans font-semibold tabular-nums text-text-secondary">
-                                  {liquidated ? "Liquidated" : `HF ~${estHf.toFixed(2)}`}
+                                  {liquidated ? "Liquidated" : `HF ~${hfText}`}
                                 </span>
                               )}
                             </span>
@@ -3913,13 +3944,7 @@ export function AppDemo() {
                           hint="We could not reach the alert log, so whether this wallet has raised any alert is unknown right now. That is not the same as having raised none."
                         />
                       ) : (
-                        /* Same words and same treatment as the full history
-                           page's empty log, because it is the same fact. */
-                        <EmptyState
-                          tone="clear"
-                          title="No alerts yet"
-                          hint="PANIK messages you the moment a position crosses your profile's risk limit."
-                        />
+                        <AlertLogEmptyState />
                       )}
                     </Card>
                     )}
@@ -4001,7 +4026,7 @@ export function AppDemo() {
                          endpoint is down. */
                       <EmptyState
                         tone="problem"
-                        title="Risk index history unavailable"
+                        title={`Aggregate ${RISK_SCORE_NAME} history unavailable`}
                         hint="We could not reach the stored score history for this wallet, so there is no series to draw. The scores above come from the live feed and are unaffected."
                       />
                     ) : (

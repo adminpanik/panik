@@ -39,6 +39,37 @@ const REVEAL_STEP = TOTAL_QUESTIONS + 1;   // step 6 → AI analysis
  */
 export type OnboardingMode = "first-run" | "switch-wallet" | "retake-quiz";
 
+/**
+ * What the wallet step says, per job it is doing.
+ *
+ * A module-level table rather than a nested ternary building three object
+ * literals on every render: the copy is compile-time constant, and the ternary
+ * put its three variants far enough apart that "Switch wallet" and "Add a
+ * wallet" could drift into two different explanations of the same field.
+ */
+const WALLET_COPY = {
+  "first-run": {
+    label: "Step 1: your wallet",
+    title: "Start with your wallet",
+    blurb:
+      "Paste your wallet address. Panik reads its public history while you answer a few questions.",
+  },
+  switch: {
+    label: "Switch wallet",
+    title: "Switch wallet",
+    blurb:
+      "Paste the address Panik should watch instead. An address you have onboarded before skips the questions.",
+  },
+  add: {
+    label: "Add a wallet",
+    title: "Add a wallet",
+    blurb:
+      "Paste the address Panik should watch. An address you have onboarded before skips the questions.",
+  },
+} as const;
+
+type WalletCopy = (typeof WALLET_COPY)[keyof typeof WALLET_COPY];
+
 interface OnboardingProps {
   /** Called with the computed (quiz) profile + the wallet address. */
   onComplete: (result: ProfileResult, wallet: string) => void;
@@ -65,18 +96,30 @@ export function Onboarding({
   mode = "first-run",
   initialWallet,
 }: OnboardingProps) {
-  // Retaking needs a wallet to complete against, so without one it degrades to
-  // the wallet flow rather than opening a quiz whose answer lands nowhere.
-  const retakingQuiz = mode === "retake-quiz" && Boolean(initialWallet);
-  const startStep = retakingQuiz ? 1 : WALLET_STEP;
+  /**
+   * The wallet a retake completes against, and the ONE expression of that
+   * decision: four things follow from it (the opening step, the pre-filled
+   * field, the background scan, and the progress denominator) and they were
+   * four separate re-derivations of the same two operands.
+   *
+   * Undefined covers "not retaking" and "retaking with nothing to retake
+   * against": a retake with no bound wallet degrades to the wallet flow rather
+   * than opening a quiz whose answer lands nowhere.
+   */
+  const retakeWallet = mode === "retake-quiz" ? initialWallet : undefined;
+  const startStep = retakeWallet ? 1 : WALLET_STEP;
 
   const [step, setStep] = useState(startStep);        // 0 wallet, 1..5 questions, 6 reveal
   const [answers, setAnswers] = useState<Answers>({});
-  const [wallet, setWallet] = useState(retakingQuiz ? initialWallet ?? "" : "");
+  const [wallet, setWallet] = useState(retakeWallet ?? "");
   const [walletError, setWalletError] = useState("");
   const [exiting, setExiting] = useState(false);
 
   const profile = useWalletProfile();
+  // Destructured because the effect below depends on it: `profile` is a fresh
+  // object every render, so depending on the hook itself re-ran the effect on
+  // every one of them. `start` is a `useCallback` with no deps and is stable.
+  const { start } = profile;
   const resolveStarted = useRef(false);
   const scanStarted = useRef(false);
 
@@ -89,13 +132,15 @@ export function Onboarding({
   const progressPct = Math.round(((step - startStep) / (REVEAL_STEP - startStep)) * 100);
 
   // The wallet step is what normally fires the background scan, so a flow that
-  // skips it has to start the scan here or the reveal has nothing to poll.
+  // skips it has to start the scan here or the reveal has nothing to poll. The
+  // ref keeps it to one scan; the deps keep it from being re-evaluated on every
+  // render to find that out.
   useEffect(() => {
-    if (retakingQuiz && initialWallet && !scanStarted.current) {
+    if (retakeWallet && !scanStarted.current) {
       scanStarted.current = true;
-      void profile.start(initialWallet);
+      void start(retakeWallet);
     }
-  }, [retakingQuiz, initialWallet, profile]);
+  }, [retakeWallet, start]);
 
   // Kick off the reveal once we land on the final step (poll the background scan
   // with the quiz's stated profile). Runs exactly once.
@@ -144,23 +189,7 @@ export function Onboarding({
   };
 
   const walletCopy =
-    mode === "first-run"
-      ? {
-          label: "Step 1: your wallet",
-          title: "Start with your wallet",
-          blurb: "Paste your wallet address. Panik reads its public history while you answer a few questions.",
-        }
-      : initialWallet
-        ? {
-            label: "Switch wallet",
-            title: "Switch wallet",
-            blurb: "Paste the address Panik should watch instead. An address you have onboarded before skips the questions.",
-          }
-        : {
-            label: "Add a wallet",
-            title: "Add a wallet",
-            blurb: "Paste the address Panik should watch. An address you have onboarded before skips the questions.",
-          };
+    WALLET_COPY[mode === "first-run" ? "first-run" : initialWallet ? "switch" : "add"];
 
   const stepLabel = onWalletStep
     ? walletCopy.label
@@ -203,8 +232,8 @@ export function Onboarding({
                     <button
                       type="button"
                       onClick={onCancel}
-                      aria-label={retakingQuiz ? "Cancel retaking the questions" : "Cancel wallet change"}
-                      title={retakingQuiz ? "Keep your current risk profile" : "Keep current wallet"}
+                      aria-label={retakeWallet ? "Cancel retaking the questions" : "Cancel wallet change"}
+                      title={retakeWallet ? "Keep your current risk profile" : "Keep current wallet"}
                       className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
                     >
                       <X className="w-4 h-4" />
@@ -232,8 +261,7 @@ export function Onboarding({
               >
                 {onWalletStep && (
                   <WalletStep
-                    title={walletCopy.title}
-                    blurb={walletCopy.blurb}
+                    copy={walletCopy}
                     wallet={wallet}
                     walletValid={walletValid}
                     walletError={walletError}
@@ -270,8 +298,9 @@ export function Onboarding({
 
 // ── Wallet step ─────────────────────────────────────────────────────────────
 function WalletStep(props: {
-  title: string;
-  blurb: string;
+  /** One entry of `WALLET_COPY`, so the title and the blurb cannot be paired
+      from two different variants. */
+  copy: WalletCopy;
   wallet: string;
   walletValid: boolean;
   walletError: string;
@@ -281,10 +310,10 @@ function WalletStep(props: {
   return (
     <>
       <h2 className="font-sans font-extrabold text-2xl text-text-primary tracking-tight mb-1.5">
-        {props.title}
+        {props.copy.title}
       </h2>
       <p className="text-text-secondary text-sm font-sans mb-6 leading-relaxed">
-        {props.blurb}
+        {props.copy.blurb}
       </p>
 
       <div className="relative">
