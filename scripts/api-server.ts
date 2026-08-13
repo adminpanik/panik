@@ -83,6 +83,7 @@ import { logNarration, type NarrationLogRow, type NarrationStore } from "../serv
 import { buildCreateInput, type RawCreateBody } from "../server/adminCampaigns";
 import { adminAuthGate } from "../server/adminAuth";
 import { adminBearerGate } from "../server/adminGate";
+import { MetricsStore } from "../server/metricsStore";
 import { verifyWalletOwnership } from "../server/walletAuth";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
 import { SupabaseDelegationStore } from "../server/exitDelegationStore";
@@ -1692,6 +1693,26 @@ function affectedPositions(
     .filter((p) => p.multiplier === null || p.multiplier !== 1);
 }
 
+/**
+ * The dashboard tile set: wallets connected, positions monitored, collateral
+ * under watch, transaction count and volume. One `admin_metrics()` RPC, so the
+ * whole page is a single round trip (server/metricsStore.ts).
+ *
+ * Behind the same admin gate as the rest. The figures aggregate every watched
+ * wallet, which is the shape of PANIK's entire user base; that is an operator
+ * fact, not a public one, and no unauthenticated form of this route exists.
+ */
+async function adminMetrics(req: express.Request, res: express.Response): Promise<void> {
+  if (!requireAdmin(req, res)) return;
+  if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
+  try {
+    res.json(await MetricsStore.fromEnv().fetchMetrics());
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+}
+
+app.get("/api/admin/metrics", adminLimit, adminBearerGate, adminMetrics);
 app.get("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.post("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.get("/api/admin/redemptions", adminLimit, adminBearerGate, adminRedemptions);
