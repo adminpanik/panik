@@ -12,6 +12,10 @@
  *      gate (materiality / cooldown / escalation), sends Telegram, and stamps
  *      notified_at + notify_channel. A recovery row sends the all-clear
  *      (formatResolution) instead of an alert, rate-limited by the same gate.
+ *      Delivery attempts are BOUNDED (NOTIFY_MAX_ATTEMPTS): the drain reads a
+ *      fixed batch, so rows Telegram will never accept — a 400 for a chat that
+ *      no longer exists — used to hold that batch against every other user's
+ *      alerts for as long as the worker ran.
  *   3. Relayer loop @30s (Phase 4.A) offers every scored position to
  *      server/exitRelayer.ts, which submits a delegated exit when the user's
  *      SIGNED trigger has fired. IT SHIPS DISARMED: RELAYER_ENABLED defaults
@@ -29,6 +33,13 @@
  * that dies or hangs silences every other alert at once and silence is
  * indistinguishable from health. The row lives in Postgres so the API process —
  * deployed separately, with its own lifecycle — can be the one that notices.
+ *
+ * AND LIVENESS IS NOT HEALTH. A completed tick that scored nothing stamps a
+ * heartbeat as healthy as any other, which is how a multi-day reader outage ran
+ * unnoticed: every loop ticked, every leg was rejected, no transition was
+ * written and therefore no alert was queued. Loop 1 also reports what it
+ * PRODUCED, and a run of empty ticks against a non-empty registry is a page of
+ * its own (server/scoringBlind.ts).
  *
  * NOTE THE TWO CHAINS. Loops 1-2 score the chain PANIK_SCORING_CHAIN selects
  * (Base mainnet by default; server/scoringChain.ts). Loop 3 executes on the
@@ -79,6 +90,13 @@ import {
   heartbeatAlerts,
   type HeartbeatStore,
 } from "../server/workerHeartbeat";
+import { ScoringBlindWatch } from "../server/scoringBlind";
+import {
+  freshScores,
+  isScoreFresh,
+  scoreMaxAgeMs,
+  type StampedScore,
+} from "../server/scoreFreshness";
 import { assessRpc, endpointsForChain, sampleAll } from "../server/rpcHealth";
 import { RelayerWatch, balanceAlerts, type SignerBalance } from "../server/relayerHealth";
 import { sweepCoverage, type CoverageMarkets, type SweepTarget } from "../server/coverageSweep";
@@ -140,6 +158,11 @@ const WALLET_RELOAD_EVERY_TICKS = 5;
  * stand, slow enough not to be its own load problem.
  */
 const MONITOR_MS = 5 * 60_000;
+/**
+ * How old an entry in `lastScored` may be before its consumers treat it as
+ * UNKNOWN rather than as current. Three ticks; see server/scoreFreshness.ts.
+ */
+const SCORE_MAX_AGE_MS = scoreMaxAgeMs(TICK_MS);
 
 // ── chain + scoring adapter (same construction as scripts/api-server.ts) ────
 const providers = {
@@ -209,10 +232,28 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
 
 // ── shared state ────────────────────────────────────────────────────────────
 const profileByWallet = new Map<string, RiskProfile>();
-/** Full ActiveScore per `${wallet}:${protocol}` from the latest tick. */
-const lastScored = new Map<string, ActiveScore>();
+/**
+ * Full ActiveScore per `${wallet}:${protocol}`, STAMPED with the tick that read
+ * it.
+ *
+ * The stamp is load-bearing, not bookkeeping. Nothing evicts from this map, so
+ * an outage leaves every entry sitting here looking exactly like a current
+ * reading, and its three consumers (the relayer's candidate set, the coverage
+ * sweep, the alert's why-now line) all act on it as if it described the wallet
+ * now. Each of them rejects entries older than SCORE_MAX_AGE_MS, and a rejected
+ * entry means UNKNOWN: the position leaves the set rather than being carried
+ * forward as unchanged. See server/scoreFreshness.ts.
+ */
+const lastScored = new Map<string, StampedScore<ActiveScore>>();
 /** Time (ms) of the last persisted snapshot per key, for the heartbeat. */
 const lastSnapshotAt = new Map<string, number>();
+/**
+ * Legs the scoring pass has produced since boot. MONOTONIC on purpose: the
+ * blind-scoring detector reads the DELTA across a tick rather than a counter
+ * this loop resets, so two ticks that overlap (a pass that overruns its own
+ * period) cannot lose each other's legs and manufacture an empty tick.
+ */
+let legsScoredTotal = 0;
 
 function key(wallet: string, protocol: Protocol): string {
   return `${wallet.toLowerCase()}:${protocol}`;
@@ -249,7 +290,7 @@ function syncWatched(service: WatchService, rows: WatchedRow[]): void {
 // ── persistence ──────────────────────────────────────────────────────────────
 async function maybeSnapshot(s: ActiveScore): Promise<void> {
   const k = key(s.wallet, s.protocol);
-  const prev = lastScored.get(k);
+  const prev = lastScored.get(k)?.score;
   const lastAt = lastSnapshotAt.get(k) ?? 0;
   const changed =
     !prev || prev.total !== s.total || prev.band !== s.band;
@@ -327,8 +368,10 @@ async function persistTransition(t: WatchTransition): Promise<void> {
 const service = new WatchService({
   scoreWallet: async (wallet) => {
     const scores = await adapter.scoreWallet(wallet);
+    legsScoredTotal += scores.length;
+    const at = Date.now();
     for (const s of scores) {
-      lastScored.set(key(s.wallet, s.protocol), s);
+      lastScored.set(key(s.wallet, s.protocol), { score: s, at });
       void maybeSnapshot(s);
     }
     return scores;
@@ -378,7 +421,24 @@ interface PendingRow {
    */
   simulation_id: string | null;
   simulation_label: string | null;
+  /** Sends already spent on this row. See NOTIFY_MAX_ATTEMPTS. */
+  notify_attempts: number;
 }
+
+/**
+ * How many sends one alert row gets before the queue gives up on it.
+ *
+ * Eight, at the 15s dispatch cadence, is about two minutes of retrying — long
+ * enough to ride out a 429 burst or a Telegram 5xx, short enough that a row
+ * Telegram will NEVER accept cannot hold a batch slot for the rest of time.
+ *
+ * The 403 branch below is still separate and still immediate: a blocked user is
+ * a KNOWN terminal state and there is nothing to learn from seven more tries.
+ * This cap is for the failures we cannot classify — 400 "chat not found" being
+ * the one that actually wedged the queue, because it is permanent and does not
+ * announce itself as such.
+ */
+const NOTIFY_MAX_ATTEMPTS = 8;
 
 async function stamp(id: string, channel: string): Promise<void> {
   await db.query(
@@ -388,17 +448,61 @@ async function stamp(id: string, channel: string): Promise<void> {
 }
 
 /**
+ * Record a failed send, and retire the row once it has had its attempts.
+ *
+ * `undeliverable` is stamped through the same two columns every other
+ * non-delivery uses, so the drain skips the row and /api/history can still tell
+ * it apart from a delivery: only `telegram` means Telegram accepted it. Nothing
+ * here renders as delivered, and nothing here is silent — a retired alert is a
+ * user who was not warned, which is worth a line in the log whatever the cause.
+ */
+async function recordSendFailure(row: PendingRow, reason: string): Promise<void> {
+  const attempts = (row.notify_attempts ?? 0) + 1;
+  try {
+    if (attempts >= NOTIFY_MAX_ATTEMPTS) {
+      await db.query(
+        `update public.watch_transitions
+            set notify_attempts = $2, notified_at = now(), notify_channel = 'undeliverable'
+          where id = $1`,
+        [row.id, attempts],
+      );
+      console.error(
+        `alert ${row.id} (${row.wallet}:${row.protocol}) undeliverable after ${attempts} attempts: ${reason}`.slice(
+          0,
+          200,
+        ),
+      );
+      return;
+    }
+    await db.query("update public.watch_transitions set notify_attempts = $2 where id = $1", [
+      row.id,
+      attempts,
+    ]);
+  } catch (err) {
+    // The counter failing to persist is itself worth saying out loud: it is the
+    // only thing standing between a permanent failure and an infinite retry.
+    console.error(
+      `attempt counter update failed for alert ${row.id}: ${(err as Error).message.slice(0, 120)}`,
+    );
+  }
+}
+
+/**
  * The advisor's own triggers for this leg, plus the facts that phrase them, so
  * the alert can state WHY it fired (7.1). Read from the in-memory ActiveScore of
  * the tick that produced the transition - the same object the snapshot row was
  * written from. Undefined right after a restart (the map is cold until the first
  * tick), and the message then simply omits the why-now line rather than
  * reconstructing one from a stale row.
+ *
+ * A score too old to be evidence is treated exactly like a cold map: omitted.
+ * "Why now" is a claim about the moment of the crossing, and explaining it with
+ * facts from before an outage is worse than not explaining it at all.
  */
 function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): AlertExtras["why"] {
-  const scored = lastScored.get(key(wallet, protocol));
-  if (!scored) return undefined;
-  const rec = adviseLeg(scored, profile);
+  const entry = lastScored.get(key(wallet, protocol));
+  if (!entry || !isScoreFresh(entry, Date.now(), SCORE_MAX_AGE_MS)) return undefined;
+  const rec = adviseLeg(entry.score, profile);
   return {
     triggers: rec.triggers,
     facts: { ...rec.numbers, protocol: rec.protocol, profile },
@@ -408,7 +512,7 @@ function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): Al
 async function dispatchPending(): Promise<void> {
   const { rows } = await db.query<PendingRow>(
     `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band,
-            t.from_status, t.to_status, t.created_at,
+            t.from_status, t.to_status, t.created_at, t.notify_attempts,
             t.simulation_id, t.simulation_label, l.chat_id,
             s.health_factor, s.collateral_usd, s.borrow_usd, s.usd_values_unavailable
        from public.watch_transitions t
@@ -503,8 +607,19 @@ async function dispatchPending(): Promise<void> {
       await stamp(r.id, "blocked");
       console.error(`telegram 403 for chat ${r.chat_id}; link disabled`);
     } else {
-      // Transient (429/5xx/network): leave notified_at null for the next poll.
-      console.error(`telegram send failed (status ${result.status}): ${result.description ?? ""}`.slice(0, 160));
+      // Everything else (429, 5xx, network, and Telegram's 400s for a chat that
+      // does not exist) leaves notified_at null for the next poll, but no longer
+      // forever: the attempt counter is what turns "retry until it works" into
+      // "retry until it clearly will not". A 400 is permanent and indistinguishable
+      // from a transient failure at this layer, and fifty of them used to hold the
+      // whole batch — every user's alerts included.
+      console.error(
+        `telegram send failed (status ${result.status}, attempt ${r.notify_attempts + 1}/${NOTIFY_MAX_ATTEMPTS}): ${result.description ?? ""}`.slice(
+          0,
+          200,
+        ),
+      );
+      await recordSendFailure(r, `HTTP ${result.status} ${result.description ?? ""}`);
     }
   }
 }
@@ -616,6 +731,12 @@ alertSinks.push(userSink);
 
 const alerts = new AlertDispatcher(alertLedger, alertSinks);
 const relayerWatch = new RelayerWatch();
+/**
+ * The one monitor that watches what the watch loop PRODUCES rather than that it
+ * ran. Fed from `runTick` at watch cadence, not from the 5-minute monitor loop:
+ * the condition is a run of consecutive ticks, so it has to see every tick.
+ */
+const scoringWatch = new ScoringBlindWatch();
 
 function formatOperatorMessage(alert: MonitorAlert): string {
   const lines = [`[${alert.severity.toUpperCase()}] ${alert.kind}`, alert.summary];
@@ -760,11 +881,26 @@ const relayerDeps = buildRelayerDeps();
  * ENGINE's own ActiveScore — the relayer never recomputes a health factor. Only
  * positions carrying debt are offered: a position with no debt has no leg to
  * build and would only produce a `no_legs` skip.
+ *
+ * AND ONLY POSITIONS SCORED RECENTLY. The `healthFactor` on each candidate is
+ * what `runRelayerTick` compares against the user's SIGNED trigger, so an entry
+ * left over from before a scoring outage would arm a real transaction on a
+ * reading nothing has confirmed since. A position with no fresh score is
+ * unknown, and unknown does not enter the candidate set — the relayer is never
+ * asked to decide it, which is why nothing in server/exitRelayer.ts needs to
+ * change.
  */
 async function runRelayer(): Promise<void> {
   if (!relayerDeps) return;
+  const { fresh, staleKeys } = freshScores(lastScored, Date.now(), SCORE_MAX_AGE_MS);
+  if (staleKeys.length > 0) {
+    console.debug(
+      `relayer: ${staleKeys.length} position(s) held out, no score inside ${Math.round(SCORE_MAX_AGE_MS / 1000)}s: ` +
+        `${staleKeys.slice(0, 5).join(", ")}${staleKeys.length > 5 ? " …" : ""}`,
+    );
+  }
   const candidates: RelayerCandidate[] = [];
-  for (const score of lastScored.values()) {
+  for (const score of fresh) {
     if (score.borrowValueUsd !== null && score.borrowValueUsd <= 0) continue;
     candidates.push({
       wallet: score.wallet.toLowerCase() as `0x${string}`,
@@ -818,10 +954,25 @@ async function coverageMarkets(): Promise<CoverageMarkets> {
  * not from a threshold invented here. A broken approval on a healthy position
  * is a warning worth fixing this week; the same break on a position the watcher
  * has already flagged is the exact moment the promise fails.
+ *
+ * A position with no fresh score is left out, and leaving it out is the honest
+ * answer in both directions: sweeping it would verify coverage against a stale
+ * picture, and `atRisk` derived from a stale score would either invent an
+ * emergency or, worse, quietly downgrade a real one to "healthy". Unknown is
+ * not "within". The blind-scoring page (server/scoringBlind.ts) is what covers
+ * the case where this empties out.
  */
 function sweepTargets(): SweepTarget[] {
   const byWallet = new Map<string, { protocols: Set<Protocol>; atRisk: boolean }>();
-  for (const score of lastScored.values()) {
+  const { fresh, staleKeys } = freshScores(lastScored, Date.now(), SCORE_MAX_AGE_MS);
+  if (staleKeys.length > 0) {
+    console.debug(
+      `coverage sweep: ${staleKeys.length} position(s) held out, no score inside ` +
+        `${Math.round(SCORE_MAX_AGE_MS / 1000)}s: ${staleKeys.slice(0, 5).join(", ")}` +
+        `${staleKeys.length > 5 ? " …" : ""}`,
+    );
+  }
+  for (const score of fresh) {
     const wallet = score.wallet.toLowerCase();
     const profile = profileByWallet.get(wallet);
     // A wallet that has dropped out of the registry is no longer monitored, and
@@ -1013,6 +1164,8 @@ async function runMonitor(): Promise<void> {
 
 // ── boot ──────────────────────────────────────────────────────────────────────
 let tickCount = 0;
+/** `legsScoredTotal` as of the end of the previous tick. */
+let legsScoredAtLastTick = 0;
 
 async function main(): Promise<void> {
   process.on("unhandledRejection", (reason) =>
@@ -1035,6 +1188,19 @@ async function main(): Promise<void> {
       }
     }
     await service.tick();
+    // WHAT THE TICK PRODUCED, not just that it ran. A tick that scores nothing
+    // completes normally and stamps a healthy heartbeat, which is exactly how a
+    // multi-day reader outage went unalerted: alive and blind reads as alive.
+    // See server/scoringBlind.ts.
+    const legsScored = legsScoredTotal - legsScoredAtLastTick;
+    legsScoredAtLastTick = legsScoredTotal;
+    raise(
+      scoringWatch.observe({
+        legsScored,
+        walletsWatched: profileByWallet.size,
+        at: Date.now(),
+      }),
+    );
     // The heartbeat is pinged AFTER the work, never before: a ping at the top
     // of a loop asserts "I started", and a loop that hangs mid-tick would keep
     // asserting health forever. Only completion is evidence.
