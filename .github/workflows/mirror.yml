@@ -1,0 +1,15 @@
+name: mirror-to-personal
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push main to adminpanik/panik
+        run: git push --force https://x-access-token:${{ secrets.MIRROR_TOKEN }}@github.com/adminpanik/panik.git main:main
