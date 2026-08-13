@@ -19,7 +19,7 @@ import {
   statusFor,
   type RiskProfile,
 } from "../packages/scoring/src/index";
-import { buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
+import { alchemyKeyNotice, buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 
 const wallet = process.argv[2]?.trim();
 if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) {
@@ -33,10 +33,10 @@ const profile: RiskProfile =
     : "moderate";
 
 const alchemy = resolveAlchemyKey(process.env.PANIK_SCORING_CHAIN, process.env);
-if (alchemy.key === null) {
-  console.error(`Missing env ${alchemy.missing} (scoring chain: ${alchemy.config.label})`);
-  process.exit(1);
-}
+// Same relaxation as the API server and the worker: the key is optional, the
+// public node at the head of the fallback list is not (server/scoringChain.ts).
+const alchemyNotice = alchemyKeyNotice(alchemy);
+if (alchemyNotice) console.warn(alchemyNotice);
 
 const scoringChain = buildScoringChain({
   mode: process.env.PANIK_SCORING_CHAIN,

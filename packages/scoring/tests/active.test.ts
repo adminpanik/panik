@@ -603,28 +603,44 @@ describe("CompoundActiveReader (Comet)", async () => {
     },
   );
 
+  /**
+   * A multicall stub keyed on the contract each batch targets, plus an ordered
+   * `rest` for everything else (the ETH/USD round, the symbol lookup). The
+   * reader walks its comets in PARALLEL, so a flat call-order chain would hand
+   * one comet's getAssetInfo batch to the other comet's head read.
+   */
+  const perComet = (byComet: Record<string, unknown[][]>, rest: unknown[][] = []) =>
+    vi.fn(({ contracts }: { contracts: readonly { address: string }[] }) =>
+      Promise.resolve(byComet[contracts[0]?.address ?? ""]?.shift() ?? rest.shift() ?? []),
+    );
+
+  const bothComets = [
+    { address: "0xcometusdc", baseSymbol: "USDC", priceInEth: false },
+    { address: "0xcometweth", baseSymbol: "WETH", priceInEth: true },
+  ] as never;
+  // cUSDCv3: borrow 1,000 USDC against $2,000 of cbETH → HF (2000×0.8)/1000 = 1.6
+  const usdcLeg = () => [
+    [ok(1), ok(1_000n * 10n ** 6n), ok("0xbf"), ok(10n ** 6n)],
+    [assetInfo("0xcbeth")],
+    [ok(1_00000000n), ok([1n * 10n ** 18n, 0n]), ok(2000_00000000n)],
+  ];
+  // cWETHv3: 40 WETH borrow against 60 cbETH → HF 1.2, ETH/USD needed for USD
+  const wethLeg = () => [
+    whaleHead(),
+    [assetInfo("0xcbeth")],
+    [ok(1_00000000n), ok([60n * 10n ** 18n, 0n]), ok(1_00000000n)],
+  ];
+
   // The shipping config (COMETS_BASE) holds BOTH cUSDCv3 and cWETHv3. Dropping
   // the ETH-quoted leg used to leave a fully-valid-looking "HF 1.6, comfortable"
   // reading with 40 WETH of real debt invisible.
   it("signals a degraded comet without losing the healthy one (two-comet config)", async () => {
     const onWarn = vi.fn();
-    const bothComets = [
-      { address: "0xcometusdc", baseSymbol: "USDC", priceInEth: false },
-      { address: "0xcometweth", baseSymbol: "WETH", priceInEth: true },
-    ] as never;
-    const multicall = vi
-      .fn()
-      // cUSDCv3: borrow 1,000 USDC against $2,000 of cbETH → HF (2000×0.8)/1000 = 1.6
-      .mockResolvedValueOnce([ok(1), ok(1_000n * 10n ** 6n), ok("0xbf"), ok(10n ** 6n)])
-      .mockResolvedValueOnce([assetInfo("0xcbeth")])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([1n * 10n ** 18n, 0n]), ok(2000_00000000n)])
-      // cWETHv3: 40 WETH borrow against 60 cbETH → HF 1.2, ETH/USD needed for USD
-      .mockResolvedValueOnce(whaleHead())
-      .mockResolvedValueOnce([assetInfo("0xcbeth")])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([60n * 10n ** 18n, 0n]), ok(1_00000000n)])
-      // ETH/USD unusable
-      .mockResolvedValueOnce([fail])
-      .mockResolvedValueOnce([ok("cbETH")]);
+    const multicall = perComet(
+      { "0xcometusdc": usdcLeg(), "0xcometweth": wethLeg() },
+      // ETH/USD unusable, then the dominant-symbol lookup.
+      [[fail], [ok("cbETH")]],
+    );
 
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
     const r = await new CompoundActiveReader(client, bothComets, { now, onWarn }).read("0xw");
@@ -640,20 +656,10 @@ describe("CompoundActiveReader (Comet)", async () => {
   });
 
   it("pools both comets when every round is usable", async () => {
-    const bothComets = [
-      { address: "0xcometusdc", baseSymbol: "USDC", priceInEth: false },
-      { address: "0xcometweth", baseSymbol: "WETH", priceInEth: true },
-    ] as never;
-    const multicall = vi
-      .fn()
-      .mockResolvedValueOnce([ok(1), ok(1_000n * 10n ** 6n), ok("0xbf"), ok(10n ** 6n)])
-      .mockResolvedValueOnce([assetInfo("0xcbeth")])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([1n * 10n ** 18n, 0n]), ok(2000_00000000n)])
-      .mockResolvedValueOnce(whaleHead())
-      .mockResolvedValueOnce([assetInfo("0xcbeth")])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([60n * 10n ** 18n, 0n]), ok(1_00000000n)])
-      .mockResolvedValueOnce([ok(ethRound(3000))])
-      .mockResolvedValueOnce([ok("cbETH")]);
+    const multicall = perComet({ "0xcometusdc": usdcLeg(), "0xcometweth": wethLeg() }, [
+      [ok(ethRound(3000))],
+      [ok("cbETH")],
+    ]);
 
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
     const r = await new CompoundActiveReader(client, bothComets, { now }).read("0xw");
@@ -699,20 +705,89 @@ describe("CompoundActiveReader (Comet)", async () => {
     expect(multicall).toHaveBeenCalledTimes(4); // head, infos, prices, symbol
   });
 
+  // `userBasic` -> (principal, baseTrackingIndex, baseTrackingAccrued,
+  // assetsIn, _reserved). `assetsIn` is Comet's bitmask over userCollateral.
+  const userBasic = (assetsIn: number, principal = 0n) =>
+    ok([principal, 0n, 0n, assetsIn, 0] as const);
+
   it("returns null — and never warns — for wallets with no Comet usage", async () => {
     const onWarn = vi.fn();
     const multicall = vi
       .fn()
-      .mockResolvedValueOnce([ok(1), ok(0n), ok("0xbf"), ok(10n ** 18n)])
-      .mockResolvedValueOnce([assetInfo()])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([0n, 0n]), ok(1_00000000n)]);
+      // head: numAssets, borrowBalanceOf, baseTokenPriceFeed, baseScale, userBasic
+      .mockResolvedValueOnce([ok(1), ok(0n), ok("0xbf"), ok(10n ** 18n), userBasic(0)]);
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
     expect(await new CompoundActiveReader(client, ethComets, { now, onWarn }).read("0xempty"))
       .toBeNull();
     // The head multicall precedes any position check, so an unconditional warn
     // here would fire every 60s for every watched wallet on the platform.
     expect(onWarn).not.toHaveBeenCalled();
-    expect(multicall).toHaveBeenCalledTimes(3); // no oracle read either
+    // ONE call, not three. No borrow and an empty `assetsIn` mask settles it in
+    // the head batch; the getAssetInfo and price batches below it would only
+    // read a row of zeros to reach this same null. With two comets on Base and
+    // a tick every 60s, the two calls saved here are the bulk of the reader's
+    // RPC budget for wallets that use no Comet market at all.
+    expect(multicall).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat an unreadable userBasic as an empty wallet", async () => {
+    // A failed leg is UNKNOWN, not zero. Short-circuiting on it would answer
+    // "no position" for a wallet nobody could see — so the full path still
+    // runs and the answer comes from balances that were actually read.
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([ok(1), ok(0n), ok("0xbf"), ok(10n ** 18n), fail])
+      .mockResolvedValueOnce([assetInfo()])
+      .mockResolvedValueOnce([ok(1_00000000n), ok([0n, 0n]), ok(1_00000000n)]);
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    expect(await new CompoundActiveReader(client, ethComets, { now }).read("0xw")).toBeNull();
+    expect(multicall).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps reading a borrower whose collateral mask is empty", async () => {
+    // Debt with no collateral bit: `assetsIn` alone would look like an empty
+    // wallet. The short-circuit needs BOTH signals, and this is the position
+    // that would vanish if it needed only one.
+    const multicall = vi
+      .fn()
+      .mockResolvedValueOnce([ok(1), ok(1_000n * 10n ** 6n), ok("0xbf"), ok(10n ** 6n), userBasic(0)])
+      .mockResolvedValueOnce([assetInfo()])
+      .mockResolvedValueOnce([ok(1_00000000n), ok([0n, 0n]), ok(1_00000000n)]);
+    const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    const r = await new CompoundActiveReader(client, usdComets, { now }).read("0xw");
+    expect(r).not.toBeNull();
+    expect(r?.borrowValueUsd).toBeCloseTo(1000, 6);
+    expect(r?.positionHealth.healthFactor).toBe(0); // no collateral behind $1,000 of debt
+  });
+
+  it("reads a wallet WITH a position identically whether or not userBasic answers", async () => {
+    // The early exit must be invisible to every wallet that has anything here.
+    // Same fixtures twice: once with a populated `assetsIn` (the new head
+    // batch), once with that leg failing (which falls through to exactly the
+    // call sequence this reader made before the short-circuit existed). The
+    // two readings must be indistinguishable, money math included.
+    const armed = (basic: unknown) => {
+      const multicall = vi
+        .fn()
+        .mockResolvedValueOnce([ok(1), ok(1n * 10n ** 18n), ok("0xbasefeed"), ok(10n ** 18n), basic])
+        .mockResolvedValueOnce([assetInfo()])
+        .mockResolvedValueOnce([ok(1_00000000n), ok([2n * 10n ** 18n, 0n]), ok(1_05000000n)])
+        .mockResolvedValueOnce([ok(ethRound(2000))])
+        .mockResolvedValueOnce([ok("cbETH")]);
+      return { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
+    };
+
+    const withMask = await new CompoundActiveReader(armed(userBasic(0b1)), ethComets, {
+      now,
+    }).read("0xw");
+    const legacy = await new CompoundActiveReader(armed(fail), ethComets, { now }).read("0xw");
+
+    expect(withMask).toEqual(legacy);
+    // Pinned against the arithmetic, not just against each other: 2 x 1.05 ETH
+    // x $2000 collateral, 1 x 1.0 ETH x $2000 borrow, liqCF 0.80.
+    expect(withMask?.collateralValueUsd).toBeCloseTo(4200, 6);
+    expect(withMask?.borrowValueUsd).toBeCloseTo(2000, 6);
+    expect(withMask?.positionHealth.healthFactor).toBeCloseTo((4200 * 0.8) / 2000, 6);
   });
 });
 

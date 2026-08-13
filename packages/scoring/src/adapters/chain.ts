@@ -108,6 +108,11 @@ export const cometAbi = parseAbi([
   "function numAssets() view returns (uint8)",
   "function getAssetInfo(uint8 i) view returns ((uint8 offset, address asset, address priceFeed, uint64 scale, uint64 borrowCollateralFactor, uint64 liquidateCollateralFactor, uint64 liquidationFactor, uint128 supplyCap))",
   "function userCollateral(address account, address asset) view returns (uint128 balance, uint128 reserved)",
+  // `assetsIn` is Comet's own bitmask over userCollateral: bit i is set when
+  // asset i's balance becomes non-zero and cleared when it returns to zero. So
+  // a zero mask IS "this wallet holds no collateral in this market", readable
+  // in the same batch as the borrow balance instead of costing a second one.
+  "function userBasic(address account) view returns (int104 principal, uint64 baseTrackingIndex, uint64 baseTrackingAccrued, uint16 assetsIn, uint8 _reserved)",
   "function borrowBalanceOf(address account) view returns (uint256)",
   "function baseTokenPriceFeed() view returns (address)",
   "function baseScale() view returns (uint64)",

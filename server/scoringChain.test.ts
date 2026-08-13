@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
-import { requestScoringChainMode } from "../packages/scoring/src/chains";
+import { SCORING_CHAINS, requestScoringChainMode } from "../packages/scoring/src/chains";
 import { LruCache } from "./lruCache";
 import {
   buildScoringChain,
@@ -8,6 +8,7 @@ import {
   chainScopedKey,
   resolveAlchemyKey,
   scoringChainWire,
+  scoringRpcUrls,
 } from "./scoringChain";
 
 const BOTH_KEYS = {
@@ -40,6 +41,62 @@ describe("resolveAlchemyKey", () => {
   it("treats a blank or whitespace key as missing", () => {
     expect(resolveAlchemyKey(undefined, { ALCHEMY_API_KEY_BASE_MAINNET: "   " }).key).toBeNull();
     expect(resolveAlchemyKey(undefined, {}).key).toBeNull();
+  });
+});
+
+describe("scoringRpcUrls", () => {
+  const mainnet = SCORING_CHAINS.mainnet;
+  const testnet = SCORING_CHAINS.testnet;
+
+  it("puts the keyless public node FIRST and Alchemy behind it", () => {
+    // The outage this ordering fixes: one exhausted free-tier key was the whole
+    // transport, so every server-side read failed at once. Public first means
+    // the quota is a backstop, not the front door.
+    expect(scoringRpcUrls(mainnet, "mk", {})).toEqual([
+      "https://mainnet.base.org",
+      "https://base-mainnet.g.alchemy.com/v2/mk",
+    ]);
+    expect(scoringRpcUrls(testnet, "sk", {})).toEqual([
+      "https://sepolia.base.org",
+      "https://base-sepolia.g.alchemy.com/v2/sk",
+    ]);
+  });
+
+  it("builds a usable list with no Alchemy key at all", () => {
+    // This is what lets the process boot public-only instead of exiting.
+    expect(scoringRpcUrls(mainnet, null, {})).toEqual(["https://mainnet.base.org"]);
+    expect(scoringRpcUrls(mainnet, "   ", {})).toEqual(["https://mainnet.base.org"]);
+    expect(scoringRpcUrls(mainnet, undefined, {})).toEqual(["https://mainnet.base.org"]);
+  });
+
+  it("lets SCORING_RPC_URL_* lead, per chain", () => {
+    expect(
+      scoringRpcUrls(mainnet, "mk", {
+        SCORING_RPC_URL_BASE_MAINNET: " https://node.example/rpc ",
+        SCORING_RPC_URL_BASE_SEPOLIA: "https://wrong.example",
+      }),
+    ).toEqual([
+      "https://node.example/rpc",
+      "https://mainnet.base.org",
+      "https://base-mainnet.g.alchemy.com/v2/mk",
+    ]);
+  });
+
+  it("drops an override that is not an http(s) URL", () => {
+    // A typo at the head of the list is a worse outage than the one this list
+    // prevents, and an invisible one: reads still succeed on the next entry.
+    for (const bad of ["", "   ", "not-a-url", "ws://node.example", "ftp://node.example"]) {
+      expect(scoringRpcUrls(mainnet, null, { SCORING_RPC_URL_BASE_MAINNET: bad })).toEqual([
+        "https://mainnet.base.org",
+      ]);
+    }
+  });
+
+  it("collapses an override that names the public node", () => {
+    // A fallback that retries the same URL twice is a fallback in name only.
+    expect(
+      scoringRpcUrls(mainnet, null, { SCORING_RPC_URL_BASE_MAINNET: "https://mainnet.base.org" }),
+    ).toEqual(["https://mainnet.base.org"]);
   });
 });
 
@@ -127,7 +184,7 @@ describe("requestScoringChainMode", () => {
 });
 
 describe("buildScoringChains", () => {
-  it("builds every chain whose key is configured", () => {
+  it("builds a runtime for every registered chain", () => {
     const set = buildScoringChains({ defaultMode: undefined, env: BOTH_KEYS, providers });
     expect([...set.available].sort()).toEqual(["mainnet", "testnet"]);
     expect(set.defaultMode).toBe("mainnet");
@@ -142,28 +199,30 @@ describe("buildScoringChains", () => {
     expect(set.resolve("not-a-chain").config.mode).toBe("mainnet");
   });
 
-  it("serves the default chain when the asked-for one has no key configured", () => {
-    // The response still names the chain it ACTUALLY read, so a label can
-    // never end up on the other chain's numbers.
+  it("still serves a chain whose Alchemy key is absent", () => {
+    // A missing key shortens that chain's fallback list to its public node; it
+    // does not remove the chain. Leaving it out used to send the caller to the
+    // default chain instead, which is a worse answer than a slower read.
     const set = buildScoringChains({
       defaultMode: undefined,
       env: { ALCHEMY_API_KEY_BASE_MAINNET: "mk" },
       providers,
     });
-    expect(set.available).toEqual(["mainnet"]);
+    expect([...set.available].sort()).toEqual(["mainnet", "testnet"]);
     const served = set.resolve("testnet");
-    expect(served.config.mode).toBe("mainnet");
-    expect(scoringChainWire(served.config).label).toBe("Base");
+    expect(served.config.mode).toBe("testnet");
+    // The response still names the chain it ACTUALLY read, so a label can
+    // never end up on the other chain's numbers.
+    expect(scoringChainWire(served.config).label).toBe("Base Sepolia");
   });
 
-  it("refuses to boot when the DEFAULT chain has no key", () => {
-    expect(() =>
-      buildScoringChains({
-        defaultMode: "testnet",
-        env: { ALCHEMY_API_KEY_BASE_MAINNET: "mk" },
-        providers,
-      }),
-    ).toThrow(/ALCHEMY_API_KEY_BASE_SEPOLIA/);
+  it("boots with no Alchemy keys at all", () => {
+    // The regression this branch exists for: an exhausted free tier used to
+    // throw here, so the API and the worker exited instead of reading public.
+    const set = buildScoringChains({ defaultMode: "testnet", env: {}, providers });
+    expect(set.defaultMode).toBe("testnet");
+    expect([...set.available].sort()).toEqual(["mainnet", "testnet"]);
+    expect(set.resolve(undefined).config.chainId).toBe(EXIT_CHAIN_ID);
   });
 });
 

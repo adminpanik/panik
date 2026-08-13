@@ -59,7 +59,7 @@ import {
   type RiskProfile,
   type WatchTransition,
 } from "../packages/scoring/src/index";
-import { buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
+import { alchemyKeyNotice, buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 import { SimulationCache, SimulationStore } from "../server/simulationStore";
 import { transactionPoolerUrl } from "../server/profileDeps";
 import { probeReachable, sendMessage } from "../server/telegram";
@@ -108,20 +108,26 @@ const botToken = process.env.TELEGRAM_BOT_TOKEN;
 // Same switch, same default, same helper as scripts/api-server.ts - the worker
 // and the API must never score different chains for the same wallet.
 const alchemy = resolveAlchemyKey(process.env.PANIK_SCORING_CHAIN, process.env);
-if (!cgKey || alchemy.key === null || !dbUrl) {
-  const missingChainKey = alchemy.key === null ? alchemy.missing : "-";
+if (!cgKey || !dbUrl) {
   console.error(
-    `Missing env (COINGECKO_API_KEY / ${missingChainKey} / SUPABASE_DB_URL)` +
+    `Missing env (COINGECKO_API_KEY / SUPABASE_DB_URL)` +
       ` - scoring chain is ${alchemy.config.label} (PANIK_SCORING_CHAIN=${process.env.PANIK_SCORING_CHAIN ?? "unset"})`,
   );
   process.exit(1);
 }
+// A missing Alchemy key is a WARNING, not a boot failure: every chain has a
+// keyless public node at the head of its fallback list (server/scoringChain.ts),
+// and exiting here turned an expired free tier into a silent alerting outage.
+const alchemyNotice = alchemyKeyNotice(alchemy);
+if (alchemyNotice) console.warn(alchemyNotice);
 if (!botToken) {
   console.error("Missing env TELEGRAM_BOT_TOKEN (worker cannot send alerts)");
   process.exit(1);
 }
 
-const TICK_MS = 60_000;
+/** Floor at 15s: a tick is O(wallets x protocols) chain reads, so a tiny value is a self-inflicted rate limit. */
+const TICK_MS = Math.max(15_000, Number(process.env.WATCH_TICK_MS) || 60_000);
+console.log(`watch tick ${TICK_MS}ms (WATCH_TICK_MS=${process.env.WATCH_TICK_MS ?? "unset"})`);
 const DISPATCH_MS = 15_000;
 const RELAYER_MS = 30_000;
 const SNAPSHOT_HEARTBEAT_MS = 15 * 60_000;

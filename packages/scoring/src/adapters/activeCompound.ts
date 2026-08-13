@@ -130,7 +130,12 @@ export class CompoundActiveReader {
     );
   }
 
-  /** Reads one Comet market's totals in its own denomination. */
+  /**
+   * Reads one Comet market's totals in its own denomination. Three multicalls
+   * when the wallet uses this market, ONE when it does not: most watched
+   * wallets are in no Comet market at all, and paying three round-trips each
+   * tick to arrive at `null` is what exhausted the RPC budget.
+   */
   private async readLeg(
     comet: (typeof COMETS_BASE)[number],
     wallet: string,
@@ -145,6 +150,7 @@ export class CompoundActiveReader {
         { address: comet.address, abi: cometAbi, functionName: "borrowBalanceOf", args: [wallet] },
         { address: comet.address, abi: cometAbi, functionName: "baseTokenPriceFeed" },
         { address: comet.address, abi: cometAbi, functionName: "baseScale" },
+        { address: comet.address, abi: cometAbi, functionName: "userBasic", args: [wallet] },
       ],
     });
     const numAssets = ok<number>(head[0]);
@@ -154,6 +160,14 @@ export class CompoundActiveReader {
     if (numAssets === null || borrowBase === null || baseFeed === null || baseScale === null) {
       return null;
     }
+
+    // `assetsIn` is Comet's collateral bitmask: a zero mask with zero debt means
+    // the two multicalls below would only re-derive the `return null` at the
+    // bottom of this method. It fires ONLY when the read itself succeeded — a
+    // failed leg is unknown, not empty, and answering "no position" for a wallet
+    // we could not see is the one wrong answer this reader must never give.
+    const basic = ok<readonly [bigint, bigint, bigint, number, number]>(head[4]);
+    if (borrowBase === 0n && basic?.[3] === 0) return null;
 
     const infos = await this.client.multicall({
       allowFailure: true,
@@ -213,11 +227,10 @@ export class CompoundActiveReader {
 
   /** Aggregates across both Comet markets; null when the wallet uses neither. */
   async read(wallet: string): Promise<ActiveReading | null> {
-    const legs: CometLeg[] = [];
-    for (const comet of this.comets) {
-      const leg = await this.readLeg(comet, wallet);
-      if (leg) legs.push(leg);
-    }
+    // Comet markets are isolated, so the legs never inform each other: reading
+    // them in sequence only added a round-trip's latency per market.
+    const readings = await Promise.all(this.comets.map((c) => this.readLeg(c, wallet)));
+    const legs = readings.filter((leg): leg is CometLeg => leg !== null);
     if (legs.length === 0) return null;
 
     // Only now — with a real position in an ETH-quoted market — is the oracle
