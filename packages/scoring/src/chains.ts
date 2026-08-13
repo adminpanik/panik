@@ -60,22 +60,15 @@ export interface ScoringChainConfig {
   /** Env var naming the Alchemy key for this chain. OPTIONAL at runtime. */
   readonly alchemyKeyEnv: string;
   /**
-   * The chain's own keyless node. Always present, so a scoring runtime can be
-   * built for this chain with no credentials at all.
-   *
-   * This exists because an exhausted Alchemy free tier used to be a total
-   * outage: the scoring client was built from ONE Alchemy URL, so every
-   * server-side read on every chain failed at once and there was nowhere else
-   * to go. All of the traffic on this path is plain JSON-RPC (`eth_call`,
-   * `eth_blockNumber`, `eth_gasPrice`) with no `alchemy_*` method anywhere, so
-   * a public node serves it identically.
+   * The chain's own keyless node, so a runtime can be built with no credentials
+   * at all: an exhausted Alchemy free tier used to be a total outage because
+   * ONE Alchemy URL was the whole transport. This path is plain JSON-RPC with
+   * no `alchemy_*` method anywhere, so a public node serves it identically.
    */
   readonly publicRpcUrl: string;
   /**
-   * Env var naming an operator's own RPC endpoint for this chain. When set it
-   * is tried FIRST, ahead of the public node — that is the whole point of
-   * running one. Backend-only: never VITE_-prefixed, because the value may
-   * carry a key.
+   * Env var naming an operator's own RPC endpoint, tried ahead of the public
+   * node. Backend-only: never VITE_-prefixed, because the value may carry a key.
    */
   readonly rpcUrlEnv: string;
   readonly aave: AaveMarketConfig;

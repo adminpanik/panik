@@ -59,7 +59,7 @@ import {
   type RiskProfile,
   type WatchTransition,
 } from "../packages/scoring/src/index";
-import { buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
+import { alchemyKeyNotice, buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 import { SimulationCache, SimulationStore } from "../server/simulationStore";
 import { transactionPoolerUrl } from "../server/profileDeps";
 import { probeReachable, sendMessage } from "../server/telegram";
@@ -115,18 +115,11 @@ if (!cgKey || !dbUrl) {
   );
   process.exit(1);
 }
-// A missing Alchemy key is a WARNING, not a boot failure. Every chain in the
-// registry has a keyless public node at the head of its fallback list
-// (server/scoringChain.ts), so the worker reads fine without one - it just has
-// no paid endpoint to fall back to when the public node rate-limits. Exiting
-// here turned an expired free tier into a silent alerting outage.
-if (alchemy.key === null) {
-  console.warn(
-    `No ${alchemy.missing} configured - ${alchemy.config.label} reads run public-only` +
-      ` (${alchemy.config.publicRpcUrl}). Set that key, or ${alchemy.config.rpcUrlEnv},` +
-      ` to put a second endpoint behind the public one.`,
-  );
-}
+// A missing Alchemy key is a WARNING, not a boot failure: every chain has a
+// keyless public node at the head of its fallback list (server/scoringChain.ts),
+// and exiting here turned an expired free tier into a silent alerting outage.
+const alchemyNotice = alchemyKeyNotice(alchemy);
+if (alchemyNotice) console.warn(alchemyNotice);
 if (!botToken) {
   console.error("Missing env TELEGRAM_BOT_TOKEN (worker cannot send alerts)");
   process.exit(1);

@@ -41,6 +41,7 @@ import {
   type YieldTable,
 } from "../packages/scoring/src/index";
 import {
+  alchemyKeyNotice,
   buildScoringChains,
   chainScopedKey,
   resolveAlchemyKey,
@@ -114,16 +115,10 @@ if (!cgKey || !dbUrl) {
 }
 // The Alchemy key is OPTIONAL. Each chain's fallback transport starts at a
 // keyless public node (server/scoringChain.ts), so the API serves scores
-// without one; the key only adds an endpoint behind it. This used to
-// process.exit(1), which is why an exhausted free tier read as "the API is
-// down" rather than "reads are slower".
-if (alchemy.key === null) {
-  console.warn(
-    `No ${alchemy.missing} configured — ${alchemy.config.label} reads run public-only` +
-      ` (${alchemy.config.publicRpcUrl}). Set that key, or ${alchemy.config.rpcUrlEnv},` +
-      ` to put a second endpoint behind the public one.`,
-  );
-}
+// without one. This used to process.exit(1), which is why an exhausted free
+// tier read as "the API is down" rather than "reads are slower".
+const alchemyNotice = alchemyKeyNotice(alchemy);
+if (alchemyNotice) console.warn(alchemyNotice);
 
 const providers = {
   assetRisk: new CoinGeckoProvider(cgKey),

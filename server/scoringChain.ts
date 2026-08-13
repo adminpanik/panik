@@ -77,6 +77,10 @@ export interface BuildScoringChainOptions {
   simulation?: () => MarketSimulation | null;
 }
 
+export type AlchemyKeyResolution =
+  | { key: string; config: ScoringChainConfig }
+  | { key: null; missing: string; config: ScoringChainConfig };
+
 /**
  * The Alchemy key the configured chain would use, or a description of what is
  * missing. Returning the variable NAME matters: the failure a mis-set
@@ -90,10 +94,25 @@ export interface BuildScoringChainOptions {
 export function resolveAlchemyKey(
   mode: string | undefined,
   env: Record<string, string | undefined>,
-): { key: string; config: ScoringChainConfig } | { key: null; missing: string; config: ScoringChainConfig } {
+): AlchemyKeyResolution {
   const config = scoringChainConfig(mode);
   const key = env[config.alchemyKeyEnv]?.trim();
   return key ? { key, config } : { key: null, missing: config.alchemyKeyEnv, config };
+}
+
+/**
+ * What every entrypoint says about a missing key, in one place: the API, the
+ * worker and score-wallet all boot public-only rather than exit, so the notice
+ * has to name the key, the node that is standing in for it, and the override —
+ * and three hand-rolled copies of that is three chances to name only one.
+ */
+export function alchemyKeyNotice(resolved: AlchemyKeyResolution): string | null {
+  if (resolved.key !== null) return null;
+  return (
+    `No ${resolved.missing} configured — ${resolved.config.label} reads run public-only` +
+    ` (${resolved.config.publicRpcUrl}). Set that key, or ${resolved.config.rpcUrlEnv},` +
+    ` to put a second endpoint behind the public one.`
+  );
 }
 
 /**
@@ -132,27 +151,12 @@ function isHttpUrl(value: string): boolean {
 }
 
 /**
- * The endpoints a scoring read tries, in order.
- *
- *   1. `SCORING_RPC_URL_<CHAIN>`, when it is set and is an http(s) URL. An
- *      operator who runs a node has said so; nothing should be tried ahead of
- *      it. A blank or malformed value is DROPPED rather than trusted, because
- *      a typo at the head of the list would otherwise be an invisible outage:
- *      the reads still succeed on entry 2 and nobody notices the endpoint they
- *      paid for is never reached.
- *   2. The chain's public node. Keyless, so it is always here.
- *   3. Alchemy, ONLY when the key for this chain is configured.
- *
- * Public FIRST, Alchemy behind it, is deliberate and is the fix for the outage
- * this function exists for: a free-tier quota that ran out took every
- * server-side read down at once, because the single Alchemy URL was the whole
- * transport. The scoring path issues nothing but standard JSON-RPC — no
- * `alchemy_*` method — so the public node answers it identically, and the paid
- * endpoint becomes the backstop for when the public one rate-limits instead of
- * the single point of failure.
- *
- * Duplicates collapse: an override naming the public node is one endpoint, not
- * a fallback that retries the same URL twice.
+ * The endpoints a scoring read tries, in order: operator override, public node,
+ * Alchemy. Public ahead of the paid endpoint is the whole point — a single
+ * exhausted free-tier quota WAS the transport, and this path issues nothing but
+ * standard JSON-RPC, so the public node answers it identically. A malformed
+ * override is dropped rather than trusted: a typo at the head of the list is an
+ * invisible outage, since the reads still succeed on the entry behind it.
  */
 export function scoringRpcUrls(
   config: ScoringChainConfig,
@@ -177,12 +181,9 @@ export function buildScoringChain(opts: BuildScoringChainOptions): ScoringChainR
     // endpoint that has no one behind it. `retryCount: 0` on the fallback keeps
     // a genuine execution revert from being re-asked of every node in turn.
     //
-    // No client-level `batch.multicall` here, unlike the browser config. The
-    // readers call `client.multicall()` explicitly, and viem already caps that
-    // action's calldata chunks at 1024 bytes by default — the same public-node
-    // limit the browser config pins by hand. Setting it on the client would
-    // additionally route bare `readContract` calls (activeMoonwell) through
-    // Multicall3, which is a behaviour change rather than a transport fix.
+    // No client-level `batch.multicall` here, unlike the browser config: it
+    // would route bare `readContract` calls through Multicall3, which is a
+    // behaviour change rather than a transport fix.
     transport: fallback(
       scoringRpcUrls(config, opts.alchemyKey, opts.env ?? process.env).map((url, i, all) =>
         http(url, {
@@ -224,7 +225,7 @@ export interface ScoringChainSet {
    * it does not remove the chain.
    */
   available: ScoringChainMode[];
-  /** The runtime for a mode, or the default one when that mode is unconfigured. */
+  /** The runtime for a mode. Every registered mode has one. */
   get(mode: ScoringChainMode): ScoringChainRuntime;
   /** A raw `?chain=` value -> a runtime that exists. Never throws, never 4xxs. */
   resolve(raw: unknown): ScoringChainRuntime;
@@ -239,39 +240,25 @@ export interface BuildScoringChainsOptions
 }
 
 /**
- * Build one runtime per registered chain.
- *
- * Every mode is built, key or no key. This used to skip a chain whose Alchemy
- * key was absent, and to throw when the DEFAULT chain's key was absent — which
- * made an expired free tier a refusal to boot rather than a slower read. With
- * a keyless public endpoint in the fallback list for every chain, "no key" is
- * a shorter endpoint list, not an unreadable chain, and there is nothing left
- * for the process to exit over.
- *
- * The invariant that mattered is untouched: each mode still gets exactly one
- * runtime from exactly one registry entry, and the `chain` block served with
- * the positions still names the chain that was actually read.
+ * Build one runtime per registered chain, key or no key. Skipping a keyless
+ * chain (and throwing when the DEFAULT chain's key was absent) made an expired
+ * free tier a refusal to boot rather than a slower read; with a keyless public
+ * endpoint in every chain's fallback list there is nothing left to exit over.
  */
 export function buildScoringChains(opts: BuildScoringChainsOptions): ScoringChainSet {
-  const defaultMode = scoringChainMode(opts.defaultMode);
-  const runtimes = new Map<ScoringChainMode, ScoringChainRuntime>();
-  for (const mode of SCORING_CHAIN_MODES) {
-    const resolved = resolveAlchemyKey(mode, opts.env);
-    runtimes.set(
+  // Keyed by mode rather than a Map so every registered mode is present by
+  // construction and there is no "unconfigured mode" branch to get wrong.
+  const runtimes = Object.fromEntries(
+    SCORING_CHAIN_MODES.map((mode) => [
       mode,
-      buildScoringChain({ ...opts, mode, alchemyKey: resolved.key, env: opts.env }),
-    );
-  }
-  // Non-null by construction: `defaultMode` is a member of SCORING_CHAIN_MODES
-  // and the loop above builds every member.
-  const fallbackRuntime = runtimes.get(defaultMode) as ScoringChainRuntime;
+      buildScoringChain({ ...opts, mode, alchemyKey: resolveAlchemyKey(mode, opts.env).key }),
+    ]),
+  ) as Record<ScoringChainMode, ScoringChainRuntime>;
   return {
-    defaultMode,
-    available: [...runtimes.keys()],
-    get: (mode) => runtimes.get(mode) ?? fallbackRuntime,
-    resolve(raw) {
-      return runtimes.get(requestScoringChainMode(raw, opts.defaultMode)) ?? fallbackRuntime;
-    },
+    defaultMode: scoringChainMode(opts.defaultMode),
+    available: [...SCORING_CHAIN_MODES],
+    get: (mode) => runtimes[mode],
+    resolve: (raw) => runtimes[requestScoringChainMode(raw, opts.defaultMode)],
   };
 }
 

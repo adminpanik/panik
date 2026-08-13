@@ -184,7 +184,7 @@ describe("requestScoringChainMode", () => {
 });
 
 describe("buildScoringChains", () => {
-  it("builds every chain whose key is configured", () => {
+  it("builds a runtime for every registered chain", () => {
     const set = buildScoringChains({ defaultMode: undefined, env: BOTH_KEYS, providers });
     expect([...set.available].sort()).toEqual(["mainnet", "testnet"]);
     expect(set.defaultMode).toBe("mainnet");
