@@ -91,6 +91,12 @@ import {
   type HeartbeatStore,
 } from "../server/workerHeartbeat";
 import { ScoringBlindWatch } from "../server/scoringBlind";
+import {
+  freshScores,
+  isScoreFresh,
+  scoreMaxAgeMs,
+  type StampedScore,
+} from "../server/scoreFreshness";
 import { assessRpc, endpointsForChain, sampleAll } from "../server/rpcHealth";
 import { RelayerWatch, balanceAlerts, type SignerBalance } from "../server/relayerHealth";
 import { sweepCoverage, type CoverageMarkets, type SweepTarget } from "../server/coverageSweep";
@@ -152,6 +158,11 @@ const WALLET_RELOAD_EVERY_TICKS = 5;
  * stand, slow enough not to be its own load problem.
  */
 const MONITOR_MS = 5 * 60_000;
+/**
+ * How old an entry in `lastScored` may be before its consumers treat it as
+ * UNKNOWN rather than as current. Three ticks; see server/scoreFreshness.ts.
+ */
+const SCORE_MAX_AGE_MS = scoreMaxAgeMs(TICK_MS);
 
 // ── chain + scoring adapter (same construction as scripts/api-server.ts) ────
 const providers = {
@@ -221,8 +232,19 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
 
 // ── shared state ────────────────────────────────────────────────────────────
 const profileByWallet = new Map<string, RiskProfile>();
-/** Full ActiveScore per `${wallet}:${protocol}` from the latest tick. */
-const lastScored = new Map<string, ActiveScore>();
+/**
+ * Full ActiveScore per `${wallet}:${protocol}`, STAMPED with the tick that read
+ * it.
+ *
+ * The stamp is load-bearing, not bookkeeping. Nothing evicts from this map, so
+ * an outage leaves every entry sitting here looking exactly like a current
+ * reading, and its three consumers (the relayer's candidate set, the coverage
+ * sweep, the alert's why-now line) all act on it as if it described the wallet
+ * now. Each of them rejects entries older than SCORE_MAX_AGE_MS, and a rejected
+ * entry means UNKNOWN: the position leaves the set rather than being carried
+ * forward as unchanged. See server/scoreFreshness.ts.
+ */
+const lastScored = new Map<string, StampedScore<ActiveScore>>();
 /** Time (ms) of the last persisted snapshot per key, for the heartbeat. */
 const lastSnapshotAt = new Map<string, number>();
 /**
@@ -268,7 +290,7 @@ function syncWatched(service: WatchService, rows: WatchedRow[]): void {
 // ── persistence ──────────────────────────────────────────────────────────────
 async function maybeSnapshot(s: ActiveScore): Promise<void> {
   const k = key(s.wallet, s.protocol);
-  const prev = lastScored.get(k);
+  const prev = lastScored.get(k)?.score;
   const lastAt = lastSnapshotAt.get(k) ?? 0;
   const changed =
     !prev || prev.total !== s.total || prev.band !== s.band;
@@ -347,8 +369,9 @@ const service = new WatchService({
   scoreWallet: async (wallet) => {
     const scores = await adapter.scoreWallet(wallet);
     legsScoredTotal += scores.length;
+    const at = Date.now();
     for (const s of scores) {
-      lastScored.set(key(s.wallet, s.protocol), s);
+      lastScored.set(key(s.wallet, s.protocol), { score: s, at });
       void maybeSnapshot(s);
     }
     return scores;
@@ -471,11 +494,15 @@ async function recordSendFailure(row: PendingRow, reason: string): Promise<void>
  * written from. Undefined right after a restart (the map is cold until the first
  * tick), and the message then simply omits the why-now line rather than
  * reconstructing one from a stale row.
+ *
+ * A score too old to be evidence is treated exactly like a cold map: omitted.
+ * "Why now" is a claim about the moment of the crossing, and explaining it with
+ * facts from before an outage is worse than not explaining it at all.
  */
 function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): AlertExtras["why"] {
-  const scored = lastScored.get(key(wallet, protocol));
-  if (!scored) return undefined;
-  const rec = adviseLeg(scored, profile);
+  const entry = lastScored.get(key(wallet, protocol));
+  if (!entry || !isScoreFresh(entry, Date.now(), SCORE_MAX_AGE_MS)) return undefined;
+  const rec = adviseLeg(entry.score, profile);
   return {
     triggers: rec.triggers,
     facts: { ...rec.numbers, protocol: rec.protocol, profile },
@@ -854,11 +881,26 @@ const relayerDeps = buildRelayerDeps();
  * ENGINE's own ActiveScore — the relayer never recomputes a health factor. Only
  * positions carrying debt are offered: a position with no debt has no leg to
  * build and would only produce a `no_legs` skip.
+ *
+ * AND ONLY POSITIONS SCORED RECENTLY. The `healthFactor` on each candidate is
+ * what `runRelayerTick` compares against the user's SIGNED trigger, so an entry
+ * left over from before a scoring outage would arm a real transaction on a
+ * reading nothing has confirmed since. A position with no fresh score is
+ * unknown, and unknown does not enter the candidate set — the relayer is never
+ * asked to decide it, which is why nothing in server/exitRelayer.ts needs to
+ * change.
  */
 async function runRelayer(): Promise<void> {
   if (!relayerDeps) return;
+  const { fresh, staleKeys } = freshScores(lastScored, Date.now(), SCORE_MAX_AGE_MS);
+  if (staleKeys.length > 0) {
+    console.debug(
+      `relayer: ${staleKeys.length} position(s) held out, no score inside ${Math.round(SCORE_MAX_AGE_MS / 1000)}s: ` +
+        `${staleKeys.slice(0, 5).join(", ")}${staleKeys.length > 5 ? " …" : ""}`,
+    );
+  }
   const candidates: RelayerCandidate[] = [];
-  for (const score of lastScored.values()) {
+  for (const score of fresh) {
     if (score.borrowValueUsd !== null && score.borrowValueUsd <= 0) continue;
     candidates.push({
       wallet: score.wallet.toLowerCase() as `0x${string}`,
@@ -912,10 +954,25 @@ async function coverageMarkets(): Promise<CoverageMarkets> {
  * not from a threshold invented here. A broken approval on a healthy position
  * is a warning worth fixing this week; the same break on a position the watcher
  * has already flagged is the exact moment the promise fails.
+ *
+ * A position with no fresh score is left out, and leaving it out is the honest
+ * answer in both directions: sweeping it would verify coverage against a stale
+ * picture, and `atRisk` derived from a stale score would either invent an
+ * emergency or, worse, quietly downgrade a real one to "healthy". Unknown is
+ * not "within". The blind-scoring page (server/scoringBlind.ts) is what covers
+ * the case where this empties out.
  */
 function sweepTargets(): SweepTarget[] {
   const byWallet = new Map<string, { protocols: Set<Protocol>; atRisk: boolean }>();
-  for (const score of lastScored.values()) {
+  const { fresh, staleKeys } = freshScores(lastScored, Date.now(), SCORE_MAX_AGE_MS);
+  if (staleKeys.length > 0) {
+    console.debug(
+      `coverage sweep: ${staleKeys.length} position(s) held out, no score inside ` +
+        `${Math.round(SCORE_MAX_AGE_MS / 1000)}s: ${staleKeys.slice(0, 5).join(", ")}` +
+        `${staleKeys.length > 5 ? " …" : ""}`,
+    );
+  }
+  for (const score of fresh) {
     const wallet = score.wallet.toLowerCase();
     const profile = profileByWallet.get(wallet);
     // A wallet that has dropped out of the registry is no longer monitored, and
