@@ -167,6 +167,32 @@ export const LOAN_TO_VALUE_UNAVAILABLE_HINT =
   "We do not hold the loan-to-value limits this market lists, so there is no borrowing ceiling to simulate against. This preview covers the deposit only.";
 
 /**
+ * What a loan-to-value row IS, for every surface that shows one.
+ *
+ * The definition is the same fact wherever it appears; what differs is the
+ * clause after it (the market's listed ceiling on the Compass panel, the
+ * cushion warning in Watch), so each row appends its own. Two near-identical
+ * hand-typed openings is how one row ends up defining the ratio against "the
+ * collateral" and the other against "your collateral" for the same quantity.
+ */
+export const LOAN_TO_VALUE_HINT = "Debt as a share of the collateral's value.";
+
+/**
+ * Debt over collateral as a whole percent, or null when there is no collateral
+ * to divide by.
+ *
+ * Guarded rather than trusted, in ONE place: `debt / 0` is the "Infinity%" the
+ * design system forbids, and it reached the screen once already. Null is the
+ * caller's cue to print a word; a zero here would be the "never render an
+ * unknown value as a zero" rule failing on the number a user acts on.
+ */
+export function loanToValuePct(debtUsd: number, collateralUsd: number): number | null {
+  if (!(collateralUsd > 0)) return null;
+  const pct = Math.round((debtUsd / collateralUsd) * 100);
+  return Number.isFinite(pct) ? pct : null;
+}
+
+/**
  * Calculates a DeFi position health factor and PANIK risk score.
  * Formula models general lending logic:
  * Max LTV is assumed to be 80% (0.80).
@@ -378,12 +404,14 @@ export const RISK_TEXT: Record<Band, string> = {
   CRITICAL: "text-risk-critical",
 };
 
-export const RISK_FILL: Record<Band, string> = {
-  LOW: "bg-risk-low",
-  ELEVATED: "bg-risk-elevated",
-  HIGH: "bg-risk-high",
-  CRITICAL: "bg-risk-critical",
-};
+/**
+ * The score's visible name. One name, every surface: the Compass breakdown
+ * panel, the Watch simulator, the Portfolio aggregate card and its history, and
+ * `riskScoreLabel`'s accessible name in `ui/RiskDial`. Watch called it a "risk
+ * index" while the panel a click away called it this, which is the "one name
+ * per concept" rule failing across two screens.
+ */
+export const RISK_SCORE_NAME = "PANIK risk score";
 
 /**
  * Composite score -> band, using the engine's cut points (arch §Bands, and
@@ -525,6 +553,40 @@ export function sameAssetDepegNote(asset: string): string {
   );
 }
 
+/**
+ * A liquidation-distance row's label and hover, once the market's two legs have
+ * been taken into account.
+ *
+ * The decision is one decision and it was being made twice, in two files, and
+ * had already drifted: the Compass panel deferred to `outlook.statLabel` on the
+ * ordinary branch while Watch hard-coded "Drop to liquidation", which overrode
+ * the engine on the liquidatable-now leg and printed a drop where there is
+ * none.
+ *
+ * `statesADrop` is the caller's cue for everything else that hangs off the same
+ * test: `stripNote` is non-null exactly in the two cases with no drop to
+ * reframe (no debt, liquidatable now), so a plain percentage is the thing being
+ * stated only when it is null.
+ */
+export function depegAwareOutlook(
+  outlook: LiquidationOutlook,
+  asset: string,
+  sameAsset: boolean,
+): { label: string; hint: string; statesADrop: boolean } {
+  const statesADrop = outlook.stripNote === null;
+  // A same-asset market still has a real distance to liquidation - the engine's
+  // 1 - 1/HF is a ratio and holds - but it is a gap that has to OPEN between the
+  // two legs, not a fall in a price they share. The caveat leads the hover,
+  // because it changes how the percentage is read; the engine's own wording,
+  // which opens with the exact health factor, follows it unaltered.
+  const depeg = sameAsset && statesADrop;
+  return {
+    label: depeg ? "Depeg to liquidation" : outlook.statLabel,
+    hint: depeg ? `${sameAssetDepegNote(asset)} ${outlook.hover}` : outlook.hover,
+    statesADrop,
+  };
+}
+
 /** The label `statValue` answers to when a drawdown is the thing being stated. */
 const DROP_LABEL = "Drop to liquidation";
 /** ...and when there is no drawdown to state, because the two are not the same question. */
@@ -635,6 +697,28 @@ export function formatCurrency(value: number): string {
     minimumFractionDigits: Math.min(2, maximumFractionDigits),
     maximumFractionDigits,
   }).format(value);
+}
+
+/**
+ * A token amount that is already a plain number, beside its symbol.
+ *
+ * Not a substitute for `formatTokenAmount` (lib/exitLegs), which is the money
+ * path: that one takes a bigint and the token's decimals, because a wei amount
+ * put through `Number()` is a rounding error on somebody's funds. This is for
+ * the two preview surfaces whose amounts are `VAULT_PRESETS` constants and
+ * simulator slider positions - never wei, so there is nothing to convert.
+ *
+ * ONE rounding rule per quantity: two fraction digits, matching
+ * `formatTokenAmount`'s default `dp`, so a quantity that reaches the screen
+ * down one path cannot print with more precision than the same quantity down
+ * the other. `toLocaleString`'s own default is three, which is where the two
+ * were free to disagree.
+ */
+export function formatPlainAmount(amount: number, symbol: string): string {
+  // The unknown is a word, never a 0 (see `formatUsd`). Unreachable from the
+  // sliders today, and one edit away from being reachable.
+  if (!Number.isFinite(amount)) return `… ${symbol}`;
+  return `${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${symbol}`;
 }
 
 /**

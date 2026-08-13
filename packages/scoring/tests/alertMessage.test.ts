@@ -172,7 +172,7 @@ describe("whyNow", () => {
   it("falls back to the largest weighted sub-score contribution", () => {
     const w = whyNow({ triggers: ["band:HIGH", "profile:outside"], facts });
     expect(w?.trigger).toBe("driver:positionHealth");
-    expect(w?.text).toBe("position health is the largest contributor to this score, at 88 / 100.");
+    expect(w?.text).toBe("Position health is the largest contributor to this score, at 88 / 100.");
   });
 
   it("returns nothing when there is nothing measured to report", () => {
@@ -201,14 +201,15 @@ describe("whyNow", () => {
 
 describe("formatSubScores", () => {
   it("orders by share of the composite and omits unmeasured terms", () => {
+    // Labels are `DRIVER_LABEL`'s, shared with the app's score surfaces.
     expect(formatSubScores(facts.subScores)).toBe(
-      "🧩 Risk drivers: position health 88, asset volatility 52, protocol risk 30, market stress 22",
+      "🧩 Risk drivers: Position health 88, Asset volatility 52, Protocol risk 30, Market stress 22",
     );
     // Unmeasured is not zero: the term is dropped, never printed as 0.
     const degraded = formatSubScores({ ...facts.subScores, assetRisk: null, systemicRisk: null });
-    expect(degraded).toBe("🧩 Risk drivers: position health 88, protocol risk 30");
-    expect(degraded).not.toContain("asset volatility");
-    expect(degraded).not.toContain("market stress");
+    expect(degraded).toBe("🧩 Risk drivers: Position health 88, Protocol risk 30");
+    expect(degraded).not.toContain("Asset volatility");
+    expect(degraded).not.toContain("Market stress");
   });
 });
 

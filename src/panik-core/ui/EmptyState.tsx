@@ -28,6 +28,16 @@ const EMPTY_TONE = {
   },
 } as const;
 
+/**
+ * The `clear` tone's box treatment, for the one surface that needs the skin
+ * without the component: `SparklinePlaceholder` holds a chart's exact frame
+ * open and centres a sentence in it, which `EmptyState`'s own layout (icon
+ * beside a title, height set by its content) cannot do. It hand-copied these
+ * two classes, so the two "nothing to report here" boxes on the Portfolio tab
+ * were one edit away from reading as different kinds of statement.
+ */
+export const CLEAR_TONE_BOX = EMPTY_TONE.clear.box;
+
 interface EmptyStateProps {
   tone: keyof typeof EMPTY_TONE;
   title: string;

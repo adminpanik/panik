@@ -16,6 +16,7 @@ import { TARGET_HF } from "../advisor/repayMath";
 import { COMPOSITE_WEIGHTS } from "../params";
 import { ALERT_THRESHOLD } from "../profile";
 import { drawdownToLiquidation, formatDrawdownPct } from "../prospective";
+import { DRIVER_KEYS, DRIVER_LABEL } from "../scoreVocabulary";
 import { simulationAlertLine } from "../simulation";
 import type { SimulationMark } from "../simulation";
 import type { DegradableSubScores, ProfileStatus, Protocol, RiskProfile } from "../types";
@@ -48,14 +49,6 @@ const LIMIT_STATE: Record<ProfileStatus, string> = {
 
 /** `LIMIT_EVENT.within` - what a recovery IS, not where it ended up. */
 const BACK_UNDER_LIMIT = "back under your risk limit";
-
-/** Sub-score labels, matching the app's RISK_DRIVERS so both surfaces agree. */
-const DRIVER_LABEL: Record<keyof DegradableSubScores, string> = {
-  positionHealth: "position health",
-  assetRisk: "asset volatility",
-  protocolSafety: "protocol risk",
-  systemicRisk: "market stress",
-};
 
 /** Position facts the dispatcher reads from the latest score snapshot. */
 export interface AlertExtras {
@@ -209,8 +202,7 @@ const WHY_NOW_RULES: ReadonlyArray<{
 function drivers(
   subScores: DegradableSubScores,
 ): Array<{ key: keyof DegradableSubScores; value: number }> {
-  return (Object.keys(DRIVER_LABEL) as Array<keyof DegradableSubScores>)
-    .map((key) => ({ key, value: subScores[key] }))
+  return DRIVER_KEYS.map((key) => ({ key, value: subScores[key] }))
     .filter((d): d is { key: keyof DegradableSubScores; value: number } => d.value !== null)
     .sort((a, b) => COMPOSITE_WEIGHTS[b.key] * b.value - COMPOSITE_WEIGHTS[a.key] * a.value);
 }
