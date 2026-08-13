@@ -3348,6 +3348,23 @@ export function AppDemo() {
                     onExit={(prefill) => setExitPrefill(prefill)}
                     onOpen={(plan) => setOpenFlowPlan(plan)}
                   />
+                ) : advisorLive.offline ? (
+                  /* `problem`, and it must not resemble the card below it. A
+                     service we could not reach rendering as "Advisor is not
+                     live yet" tells someone a feature was never built, on a tab
+                     that is built and would have had something to say about
+                     their position. The alert feed's split, one tab over.
+
+                     `offline` excludes a 404 (see useAdvisor), so a deployment
+                     that genuinely does not mount the route still falls through
+                     to the card below. */
+                  <div className="max-w-2xl mx-auto my-8">
+                    <EmptyState
+                      tone="problem"
+                      title="Advisor unavailable"
+                      hint="We could not reach the advisor service, so what it would say about this wallet is unknown right now. That is not the same as it having nothing to flag."
+                    />
+                  </div>
                 ) : (
                 <div className="bg-surface-raised/50 border border-border-subtle p-12 rounded-lg flex flex-col items-center text-center max-w-2xl mx-auto my-8">
                   <div className="w-12 h-12 rounded-full bg-white/[0.06] border border-border-subtle flex items-center justify-center mb-6">
