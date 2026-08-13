@@ -25,7 +25,7 @@
  * a hand-written v2 fragment for views that predate the sync.
  */
 
-import { createPublicClient, http } from "viem";
+import { createPublicClient } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import {
   EXECUTOR_ABI,
@@ -37,6 +37,9 @@ import {
 // coverage sweep. NOT `EXIT_USDC_ADDRESS`: that is `executor.usdc()`, the token
 // the executor PAYS OUT in, and Aave does not list it. See exitReserves.ts.
 import { exitReserveAddresses, loadExitReserveSet } from "../src/panik-core/lib/exitReserves";
+// One resolver for the whole executor side. The relayer and the delegation
+// reader ending up on different nodes is the failure this import prevents.
+import { executorRpcTransport } from "./exitChain";
 import type { AtomicExitForCall, RelayerChain, RelayerReceipt } from "./exitRelayer";
 import type { ExitReserveState } from "../src/panik-core/lib/exitLegs";
 
@@ -95,26 +98,6 @@ function chainFor(chainId: number) {
   return chainId === base.id ? base : baseSepolia;
 }
 
-// Widened copy of the generated literal: TS flags `84532 === 8453` as a
-// no-overlap comparison. Same trick server/exitChain.ts and
-// src/panik-core/lib/exit.ts use.
-const EXECUTOR_CHAIN: number = EXIT_CHAIN_ID;
-
-/**
- * Executor RPC endpoint, resolved exactly as server/exitChain.ts resolves it so
- * the relayer and the delegation reader can never end up on different nodes.
- */
-export function relayerRpcUrl(): string {
-  const override = process.env.EXIT_EXECUTOR_RPC_URL;
-  if (override && override.trim()) return override.trim();
-  if (EXECUTOR_CHAIN === base.id) {
-    const key = process.env.ALCHEMY_API_KEY_BASE_MAINNET;
-    return key ? `https://base-mainnet.g.alchemy.com/v2/${key}` : "https://mainnet.base.org";
-  }
-  const key = process.env.ALCHEMY_API_KEY_BASE_SEPOLIA;
-  return key ? `https://base-sepolia.g.alchemy.com/v2/${key}` : "https://sepolia.base.org";
-}
-
 /**
  * `RELAYER_RESERVES`, the operator's override for the resolved reserve set.
  *
@@ -152,7 +135,11 @@ export function relayerReserveOverride(
  * test and for an operator pinning the set via RELAYER_RESERVES.
  */
 export interface RelayerChainConfig {
-  rpcUrl?: string;
+  /**
+   * Pins the endpoint set (the fork test's anvil node). Omit for the resolved
+   * public-first ladder in `executorRpcUrls`.
+   */
+  rpcUrl?: string | readonly string[];
   chainId?: number;
   executor?: `0x${string}`;
   dataProvider?: `0x${string}`;
@@ -213,7 +200,7 @@ export class ViemRelayerChain implements RelayerChain {
     this.gasBufferPct = config.gasBufferPct ?? GAS_BUFFER_PCT;
     this.client = createPublicClient({
       chain: chainFor(chainId),
-      transport: http(config.rpcUrl ?? relayerRpcUrl()),
+      transport: executorRpcTransport(config.rpcUrl, chainId),
     }) as unknown as Client;
   }
 

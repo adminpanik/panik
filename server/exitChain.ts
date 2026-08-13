@@ -23,16 +23,19 @@
  * ABI: that file is regenerated from the deployed contract and is still v1 (no
  * delegated views), and it is marked DO NOT EDIT. These three views land with
  * the executor-v2 deploy this PR is stacked on.
+ *
+ * This module also owns HOW the executor side reaches a node
+ * (`executorRpcUrls` / `executorRpcTransport`), because the relayer, its
+ * signers, the coverage sweep and this reader must all be on the same
+ * endpoints. That resolution used to be copied into server/relayerChain.ts, and
+ * two copies of one ladder is how a relayer and a reader end up disagreeing
+ * about what the chain says.
  */
 
-import { createPublicClient, http } from "viem";
+import { createPublicClient, fallback, http } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
 import { ERC1271_ABI, type SignerCodeReader } from "./exit7702";
-
-// Widened copy of the generated literal: TS flags `84532 === 8453` as a
-// no-overlap comparison, the same trick src/panik-core/lib/exit.ts uses.
-const EXECUTOR_CHAIN: number = EXIT_CHAIN_ID;
 
 /**
  * Narrow view of a viem public client — just the two reads this module makes.
@@ -106,20 +109,88 @@ function chainFor(chainId: number) {
 
 const isMainnet = (chainId: number): boolean => chainId === base.id;
 
-/**
- * Executor RPC endpoint. EXIT_EXECUTOR_RPC_URL wins; otherwise Alchemy Base
- * Sepolia when its key is set (same key ping-apis.mjs uses); otherwise the
- * public Base Sepolia node. Mainnet cutover reuses the mainnet Alchemy key.
- */
-function defaultRpcUrl(): string {
-  const override = process.env.EXIT_EXECUTOR_RPC_URL;
-  if (override && override.trim()) return override.trim();
-  if (isMainnet(EXECUTOR_CHAIN)) {
-    const key = process.env.ALCHEMY_API_KEY_BASE_MAINNET;
-    return key ? `https://base-mainnet.g.alchemy.com/v2/${key}` : "https://mainnet.base.org";
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
   }
-  const key = process.env.ALCHEMY_API_KEY_BASE_SEPOLIA;
-  return key ? `https://base-sepolia.g.alchemy.com/v2/${key}` : "https://sepolia.base.org";
+}
+
+/**
+ * The executor's RPC endpoints, in the order a transport tries them.
+ *
+ * This used to resolve to ONE url, and the ladder preferred Alchemy whenever a
+ * key was set: a rate limit or an outage there was the end of every executor
+ * read, every delegation check and every submission, with the public node
+ * sitting right there unused. So it is a LIST now, and it is public-first:
+ *
+ *   1. `EXIT_EXECUTOR_RPC_URL` when set — still the operator's explicit
+ *      override, still tried first, just no longer the only escape from
+ *      Alchemy. Dropped rather than trusted when it is blank or not an http(s)
+ *      URL: a typo in a deploy-time env var would otherwise be the first
+ *      endpoint every call tries, and it would be invisible because the calls
+ *      still succeed on the next entry.
+ *   2. The chain's own public node. Always present, needs no key, and is the
+ *      operator of record for Base.
+ *   3. Alchemy, only when that chain's key is set. Last because a key is a
+ *      quota: it is worth having as a backstop, not worth spending on every
+ *      read the public node would have served.
+ *
+ * Duplicates are collapsed — an override naming the public node is one
+ * endpoint, not two, and a fallback that retries the same URL twice is a
+ * fallback in name only.
+ */
+export function executorRpcUrls(
+  chainId: number = EXIT_CHAIN_ID,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const urls: string[] = [];
+
+  const override = (env.EXIT_EXECUTOR_RPC_URL ?? "").trim();
+  if (override && isHttpUrl(override)) urls.push(override);
+
+  const mainnet = isMainnet(chainId);
+  urls.push(mainnet ? "https://mainnet.base.org" : "https://sepolia.base.org");
+
+  const key = (
+    (mainnet ? env.ALCHEMY_API_KEY_BASE_MAINNET : env.ALCHEMY_API_KEY_BASE_SEPOLIA) ?? ""
+  ).trim();
+  if (key) {
+    urls.push(`https://base-${mainnet ? "mainnet" : "sepolia"}.g.alchemy.com/v2/${key}`);
+  }
+
+  return [...new Set(urls)];
+}
+
+/**
+ * The transport every executor-side client is built on — reads, delegation
+ * checks, and the relayer's own signer.
+ *
+ * Same shape the app's exit flow uses (src/panik-core/lib/exit.ts): each `http`
+ * retries itself, and the `fallback` does NOT retry on top of that, because a
+ * second retry layer only multiplies the wait before the next endpoint is tried
+ * at all. No `rank`: endpoint order is a decision made above, and a transport
+ * that reorders itself would make "which node signed for this" unanswerable.
+ *
+ * viem's fallback rotates on TRANSPORT failure only, never on an execution
+ * revert, which is exactly right here: a permit the executor would reject must
+ * surface as a revert on the first node, not be re-asked of three in turn.
+ *
+ * `rpcUrl` pins the endpoint set explicitly (the fork test's anvil node), and
+ * pins it alone — a fork run must never silently drift onto a public node.
+ */
+export function executorRpcTransport(
+  rpcUrl?: string | readonly string[],
+  chainId: number = EXIT_CHAIN_ID,
+) {
+  const pinned = typeof rpcUrl === "string" ? [rpcUrl] : [...(rpcUrl ?? [])];
+  const urls = pinned.length > 0 ? [...new Set(pinned)] : executorRpcUrls(chainId);
+  return fallback(
+    urls.map((url) => http(url, { retryCount: 2, retryDelay: 300, timeout: 15_000 })),
+    { retryCount: 0 },
+  );
 }
 
 /** viem-backed reader against the deployed executor. */
@@ -129,11 +200,15 @@ export class ViemExitChainReader implements ExitChainReader {
   /** maxPermitSlippageBps is immutable on-chain, so cache the first read forever. */
   private slippageCeiling: number | null = null;
 
-  constructor(rpcUrl?: string, executor: `0x${string}` = EXECUTOR_ADDRESS, chainId: number = EXIT_CHAIN_ID) {
+  constructor(
+    rpcUrl?: string | readonly string[],
+    executor: `0x${string}` = EXECUTOR_ADDRESS,
+    chainId: number = EXIT_CHAIN_ID,
+  ) {
     this.executor = executor;
     this.client = createPublicClient({
       chain: chainFor(chainId),
-      transport: http(rpcUrl ?? defaultRpcUrl()),
+      transport: executorRpcTransport(rpcUrl, chainId),
     }) as unknown as ReadClient;
   }
 

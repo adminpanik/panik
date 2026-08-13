@@ -28,9 +28,12 @@
  * leased exclusively for the duration of a submission.
  */
 
-import { createWalletClient, http, publicActions } from "viem";
+import { createWalletClient, publicActions } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base, baseSepolia } from "viem/chains";
+// The executor side's one endpoint ladder. A broadcast wedged behind a single
+// rate-limited node is an unsubmitted permit, so the signer fails over too.
+import { executorRpcTransport } from "./exitChain";
 
 /** A transaction the relayer has already simulated and priced. */
 export interface RelayerTxRequest {
@@ -95,7 +98,12 @@ export class LocalKeyRelayerSigner implements RelayerSigner {
     getBalance(args: unknown): Promise<bigint>;
   };
 
-  constructor(privateKey: string, rpcUrl: string, chainId: number, label: string) {
+  constructor(
+    privateKey: string,
+    rpcUrl: string | readonly string[] | undefined,
+    chainId: number,
+    label: string,
+  ) {
     const key = normalizeKey(privateKey);
     if (!key) throw new Error(`relayer signer ${label}: malformed private key`);
     const account = privateKeyToAccount(key);
@@ -105,7 +113,7 @@ export class LocalKeyRelayerSigner implements RelayerSigner {
     this.client = createWalletClient({
       account,
       chain: chainFor(chainId),
-      transport: http(rpcUrl),
+      transport: executorRpcTransport(rpcUrl, chainId),
     }).extend(publicActions) as unknown as typeof this.client;
   }
 
@@ -321,7 +329,10 @@ export function bumpFee(previous: bigint): bigint {
  * kill switch and the signer config are independent, and a dry run needs no key
  * at all.
  */
-export function signerPoolFromEnv(rpcUrl: string, chainId: number): RelayerSignerPool | null {
+export function signerPoolFromEnv(
+  rpcUrl: string | readonly string[] | undefined,
+  chainId: number,
+): RelayerSignerPool | null {
   const kind = (process.env.RELAYER_SIGNER_KIND ?? "local").trim().toLowerCase();
   if (kind === "kms") {
     const ids = (process.env.RELAYER_KMS_KEY_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
