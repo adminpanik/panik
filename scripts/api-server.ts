@@ -284,21 +284,46 @@ const COMPASS_SCENARIOS: {
 
 let compassCache: { at: number; scores: unknown[] } = { at: 0, scores: [] };
 
+/**
+ * The eight preset scores, refreshed at most once a minute.
+ *
+ * A failed refresh serves the LAST GOOD payload with its original `at`, which
+ * is the rule `getPoolYields` below already follows. `scoreProspective` awaits
+ * its market-context providers with `Promise.all`, so one CoinGecko hiccup on
+ * one of eight scenarios rejected the whole batch and the route answered 500 —
+ * and the client's own fallback for a dead /api/compass is the listed
+ * `VAULT_PRESETS` constants, so a single upstream blip replaced eight measured
+ * scores with eight guesses. Stale engine numbers with a timestamp saying how
+ * stale are strictly better than that, and the timestamp is why: it rides out
+ * on `updatedAt` untouched, so the age is the client's to see rather than this
+ * function's to hide.
+ *
+ * With no cached payload at all (`at === 0`, the boot state) there is nothing
+ * to be stale about, and the throw stands: an error is the honest answer and
+ * an empty score list would read as eight markets the engine declined to score.
+ */
 async function getCompass(): Promise<typeof compassCache> {
   if (Date.now() - compassCache.at < 60_000) return compassCache;
-  const scores = await Promise.all(
-    COMPASS_SCENARIOS.map(async (s) => {
-      const r = await scoreProspective(s, providers);
-      return {
-        id: s.id,
-        total: r.total,
-        band: r.band,
-        subScores: r.subScores,
-        healthFactor: r.healthFactor,
-        liquidationDrawdown: r.liquidationDrawdown,
-      };
-    }),
-  );
+  let scores: unknown[];
+  try {
+    scores = await Promise.all(
+      COMPASS_SCENARIOS.map(async (s) => {
+        const r = await scoreProspective(s, providers);
+        return {
+          id: s.id,
+          total: r.total,
+          band: r.band,
+          subScores: r.subScores,
+          healthFactor: r.healthFactor,
+          liquidationDrawdown: r.liquidationDrawdown,
+        };
+      }),
+    );
+  } catch (err) {
+    if (compassCache.at === 0) throw err;
+    console.error(`compass refresh failed, serving cache: ${(err as Error).message.slice(0, 100)}`);
+    return compassCache;
+  }
   compassCache = { at: Date.now(), scores };
   return compassCache;
 }

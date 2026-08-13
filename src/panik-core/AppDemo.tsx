@@ -657,6 +657,19 @@ function apyTrendCopy(apy: number, apySeries: number[]): string | null {
 }
 
 /**
+ * Why a Compass score is wearing a Demo badge, said once for the two surfaces
+ * that show the same score: the card, and the risk breakdown it opens.
+ *
+ * `VAULT_PRESETS` carries a listed `baseRisk`/`riskStatus` per market so the
+ * grid has something to draw before /api/compass answers, and those constants
+ * are what a card falls back to when it never does. They are a plausible
+ * reading of a market rather than a measurement of one, and a dial drawn from
+ * them is indistinguishable from a live engine read unless the card says so.
+ */
+const FALLBACK_SCORE_NOTE =
+  "This market's score came from the offline fallback, not a live engine read.";
+
+/**
  * One Compass market.
  *
  * Deliberately shaped like a Portfolio position row, because it is the same
@@ -675,6 +688,7 @@ function MarketCard({
   poolYield,
   muted = false,
   opensDemo,
+  scoreFromFallback,
   onBreakdown,
   onSimulate,
   onOpen,
@@ -688,6 +702,14 @@ function MarketCard({
    * label on the card and the screen the click reaches cannot disagree.
    */
   opensDemo: boolean;
+  /**
+   * The dial on this card is drawn from the LISTED score, because the engine
+   * feed is down and there was nothing to overlay. A separate claim from
+   * `opensDemo`, about the number rather than the button, which is why the two
+   * chips share a word and carry different hovers. The risk breakdown behind
+   * this card makes the same claim from the same condition.
+   */
+  scoreFromFallback: boolean;
   onBreakdown: () => void;
   onSimulate: () => void;
   onOpen: () => void;
@@ -725,20 +747,29 @@ function MarketCard({
             score is a proportion of a fixed range and the arc is that
             denominator drawn. `plain` because this button owns the name (see
             the prop's docblock). */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onBreakdown();
-          }}
-          aria-label={
-            `${riskScoreLabel(preset.baseRisk, preset.riskStatus)} ` +
-            `Open the ${preset.protocol} risk breakdown.`
-          }
-          title={`Open the ${preset.protocol} risk breakdown`}
-          className="shrink-0 cursor-pointer rounded-full"
-        >
-          <RiskDial score={preset.baseRisk} band={preset.riskStatus} plain />
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Beside the figure it is about, for the same reason the simulation
+              marker travels with the payload it describes: a provenance mark
+              reachable only by opening the panel behind this card leaves every
+              glance at the grid reading a constant as a measurement. Live is
+              the default and wears nothing. */}
+          {scoreFromFallback && <DemoChip title={FALLBACK_SCORE_NOTE} />}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onBreakdown();
+            }}
+            aria-label={
+              `${riskScoreLabel(preset.baseRisk, preset.riskStatus)} ` +
+              (scoreFromFallback ? `${FALLBACK_SCORE_NOTE} ` : "") +
+              `Open the ${preset.protocol} risk breakdown.`
+            }
+            title={`Open the ${preset.protocol} risk breakdown`}
+            className="cursor-pointer rounded-full"
+          >
+            <RiskDial score={preset.baseRisk} band={preset.riskStatus} plain />
+          </button>
+        </div>
       </div>
 
       {/* The money line, in the Portfolio position row's exact shape: figure in
@@ -814,6 +845,7 @@ function MarketSection({
   muted = false,
   poolYields,
   opensReal,
+  scoreFromFallback,
   onBreakdown,
   onSimulate,
   onOpen,
@@ -828,6 +860,8 @@ function MarketSection({
   poolYields: Record<string, PoolYield> | null;
   /** The predicate the open click routes on, so card and click agree. */
   opensReal: (preset: VaultPreset) => boolean;
+  /** Whether this market's dial is the listed constant. See `MarketCard`. */
+  scoreFromFallback: (preset: VaultPreset) => boolean;
   onBreakdown: (preset: VaultPreset) => void;
   onSimulate: (preset: VaultPreset) => void;
   onOpen: (preset: VaultPreset) => void;
@@ -865,6 +899,7 @@ function MarketSection({
               poolYield={poolYields?.[preset.id] ?? null}
               muted={muted}
               opensDemo={!opensReal(preset)}
+              scoreFromFallback={scoreFromFallback(preset)}
               onBreakdown={() => onBreakdown(preset)}
               onOpen={() => onOpen(preset)}
               onSimulate={() => onSimulate(preset)}
@@ -1133,9 +1168,7 @@ function RiskBreakdownPanel({
               {/* Live is the default and needs no badge. Only the fixture case
                   is worth calling out, because it is the one the reader would
                   otherwise get wrong. */}
-              {!data.isLive && (
-                <DemoChip title="This market's score came from the offline fallback, not a live engine read." />
-              )}
+              {!data.isLive && <DemoChip title={FALLBACK_SCORE_NOTE} />}
               {/* Keyed on the band this preset ALREADY carries, not on a band
                   re-derived from its number: the re-derived chain had no HIGH
                   branch, so a preset labelled HIGH was painted CRITICAL red. */}
@@ -1454,7 +1487,7 @@ export function AppDemo() {
   // legitimate here and is not for the wallet.
   const chainMode = useChainMode();
 
-  const { scores: compassLive } = useCompassScores();
+  const { scores: compassLive, offline: compassFeedDown } = useCompassScores();
   const { pools: poolYields } = useCompassYields();
   const chainTel = useChainTelemetry(chainMode);
 
@@ -1576,6 +1609,22 @@ export function AppDemo() {
    */
   const opensReal = (preset: VaultPreset) =>
     canOpenInApp(chainMode, preset.engineProtocol, preset.collateralSymbol);
+
+  /**
+   * Whether this market's dial is the LISTED score rather than an engine read.
+   *
+   * Both terms are load-bearing. `compassLive?.[id]` alone is also false while
+   * the first poll is in flight, and a badge that flashes on every load teaches
+   * the reader to ignore it; `compassFeedDown` alone would badge markets whose
+   * scores arrived in a poll that has since started failing, and those figures
+   * are the engine's - stale, not invented. Only a market with no live score
+   * AND a feed that could not be read is drawing a constant.
+   *
+   * Same shape as `opensReal` and read by the same two sections, so the card and
+   * the breakdown panel behind it cannot disagree about which it is showing.
+   */
+  const scoreFromFallback = (preset: VaultPreset) =>
+    compassFeedDown && !compassLive?.[preset.id];
 
   /** A Compass card's "stress-test this" press: same landing for both sections. */
   const simulateFromCompass = (preset: VaultPreset) => {
@@ -2590,6 +2639,7 @@ export function AppDemo() {
                   emptyHint="Everything in this catalog is in the section below, outside it."
                   poolYields={poolYields}
                   opensReal={opensReal}
+                  scoreFromFallback={scoreFromFallback}
                   onBreakdown={setSelectedRiskBreakdownPreset}
                   onOpen={requestOpenPosition}
                   onSimulate={simulateFromCompass}
@@ -2619,6 +2669,7 @@ export function AppDemo() {
                   emptyTitle={`Every ${CHAIN_MODE_LABEL[chainMode]} market scores inside your profile`}
                   poolYields={poolYields}
                   opensReal={opensReal}
+                  scoreFromFallback={scoreFromFallback}
                   onBreakdown={setSelectedRiskBreakdownPreset}
                   onOpen={requestOpenPosition}
                   onSimulate={simulateFromCompass}
@@ -3348,6 +3399,23 @@ export function AppDemo() {
                     onExit={(prefill) => setExitPrefill(prefill)}
                     onOpen={(plan) => setOpenFlowPlan(plan)}
                   />
+                ) : advisorLive.offline ? (
+                  /* `problem`, and it must not resemble the card below it. A
+                     service we could not reach rendering as "Advisor is not
+                     live yet" tells someone a feature was never built, on a tab
+                     that is built and would have had something to say about
+                     their position. The alert feed's split, one tab over.
+
+                     `offline` excludes a 404 (see useAdvisor), so a deployment
+                     that genuinely does not mount the route still falls through
+                     to the card below. */
+                  <div className="max-w-2xl mx-auto my-8">
+                    <EmptyState
+                      tone="problem"
+                      title="Advisor unavailable"
+                      hint="We could not reach the advisor service, so what it would say about this wallet is unknown right now. That is not the same as it having nothing to flag."
+                    />
+                  </div>
                 ) : (
                 <div className="bg-surface-raised/50 border border-border-subtle p-12 rounded-lg flex flex-col items-center text-center max-w-2xl mx-auto my-8">
                   <div className="w-12 h-12 rounded-full bg-white/[0.06] border border-border-subtle flex items-center justify-center mb-6">

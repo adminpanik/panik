@@ -212,6 +212,23 @@ function isRateLimited(err: unknown): boolean {
   return (err as Error | undefined)?.message === "429";
 }
 
+/**
+ * Did the route answer that it does not exist here, rather than fail to answer?
+ *
+ * 404 is the one status that says something about the DEPLOYMENT rather than
+ * about the outside world: the path is not mounted, so a surface whose fallback
+ * is "this feature is not live yet" is telling the truth. Every other failure —
+ * a 5xx from a route that is mounted, or a fetch that never reached one — means
+ * we could not get an answer, which is a different sentence and must not render
+ * as the same card.
+ *
+ * Reads the status off `getJson`'s thrown message, same as `isRateLimited`, and
+ * lives beside it for the same reason: the two agree with one throw site.
+ */
+function isRouteAbsent(err: unknown): boolean {
+  return (err as Error | undefined)?.message === "404";
+}
+
 /** Poll a JSON endpoint on an interval; null until first success. */
 function usePolled<T>(url: string, intervalMs: number): { data: T | null; offline: boolean } {
   const [data, setData] = useState<T | null>(null);
@@ -666,8 +683,20 @@ export interface AdvisorReport {
 
 /**
  * Advisor report for ONE wallet - 60s poll of /api/advisor (the server caches
- * the expensive narration for 5 min). Null wallet or offline degrades to null,
- * so the Advisor tab can keep its Coming-Soon fallback.
+ * the expensive narration for 5 min). Null wallet degrades to a null report.
+ *
+ * `offline` is the same flag every other hook here raises, and the Advisor tab
+ * has to read it. A null report alone covers three different situations - no
+ * wallet bound, first fetch still in flight, and a service that could not be
+ * reached - and the tab's only fallback was "Advisor is not live yet", so a
+ * 502 from a route that exists rendered as the feature not existing. Telling
+ * someone a risk advisor was never built is a worse answer than telling them it
+ * is unreachable, because only one of the two invites them to look again.
+ *
+ * The 404 case is deliberately NOT `offline`: a path that is not mounted is the
+ * one reading under which the not-live-yet card is true, so it stays in the
+ * tab's default branch. A rate-limited poll is a retry rather than an outage,
+ * same as everywhere else here.
  */
 export function useAdvisor(wallet: string | null, profile: string, chain: string) {
   const [data, setData] = useState<AdvisorReport | null>(null);
@@ -676,11 +705,15 @@ export function useAdvisor(wallet: string | null, profile: string, chain: string
   useEffect(() => {
     // Reset on wallet OR chain change - advice is about a position, and each
     // chain holds a different one. Never show the previous one's advice.
+    //
+    // `offline` resets with it, unconditionally, for the reason
+    // `useWalletPositions` spells out: it is a fact about the last fetch for the
+    // PREVIOUS wallet, and now that the tab renders a "we could not reach the
+    // advisor" panel from it, leaving it standing would make that panel the
+    // first thing a newly bound wallet sees.
     setData(null);
-    if (!wallet) {
-      setOffline(false);
-      return;
-    }
+    setOffline(false);
+    if (!wallet) return;
     let cancelled = false;
     const url =
       `/api/advisor?wallet=${wallet.toLowerCase()}&profile=${encodeURIComponent(profile)}` +
@@ -693,7 +726,7 @@ export function useAdvisor(wallet: string | null, profile: string, chain: string
           setOffline(false);
         }
       } catch (err) {
-        if (!cancelled && !isRateLimited(err)) setOffline(true);
+        if (!cancelled && !isRateLimited(err) && !isRouteAbsent(err)) setOffline(true);
       }
     };
     void load();
