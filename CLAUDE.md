@@ -58,7 +58,9 @@ lines, ever.** `/simpcommit` enforces this.
   were an artifact of missing type packages, not a real wagmi incompatibility.
   `strictNullChecks` is on. The CI ratchet still fails at >=4 and can now be replaced
   with a plain `npm run lint`.
-- `npm test` (160) and `npm run test:scoring` (229) must pass.
+- `npm test` and `npm run test:scoring` must pass with zero failures. Do not trust a
+  remembered count — the suites grow with nearly every PR (667 and 445 as of
+  2026-08-13). Measure the baseline on `origin/main` when you need a delta.
 - Contracts: `cd contracts && forge test`. forge-std is a tracked submodule —
   `git clone --recursive` builds with no setup.
 - Report failures with their output. Never claim a command ran when it didn't.
