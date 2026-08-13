@@ -47,14 +47,20 @@ const CHIP_QUIET = "text-text-muted border-border-subtle bg-white/[0.03]";
 
 /**
  * Delivery outcome, not risk. "Sent" was green and "queued" amber, which put
- * the risk ramp on a fact about our own plumbing. Only `blocked` keeps a hue:
- * it is the one state where PANIK is failing to reach the user, and that is
- * worth interrupting for.
+ * the risk ramp on a fact about our own plumbing. Only the two states where
+ * PANIK failed to REACH the user keep a hue, because those are the ones worth
+ * interrupting for; a muted alert was a decision we made on purpose.
  */
+const CHIP_UNREACHED = "text-risk-critical border-risk-critical/25 bg-risk-critical/10";
+
 const NOTIFY_CHANNEL_CHIP: Record<string, { label: string; cls: string }> = {
   suppressed_cooldown: { label: "Muted · cooldown", cls: CHIP_QUIET },
   suppressed_immaterial: { label: "Muted · no debt", cls: CHIP_QUIET },
-  blocked: { label: "Bot blocked", cls: "text-risk-critical border-risk-critical/25 bg-risk-critical/10" },
+  blocked: { label: "Bot blocked", cls: CHIP_UNREACHED },
+  /* Telegram refused this one until the dispatcher stopped asking. The row is
+     out of the queue, so "Queued" would be a lie, and it never reached anyone,
+     so silence (which this feed reserves for delivery) would be a worse one. */
+  undeliverable: { label: "Not delivered", cls: CHIP_UNREACHED },
 };
 
 /**

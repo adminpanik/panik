@@ -12,6 +12,10 @@
  *      gate (materiality / cooldown / escalation), sends Telegram, and stamps
  *      notified_at + notify_channel. A recovery row sends the all-clear
  *      (formatResolution) instead of an alert, rate-limited by the same gate.
+ *      Delivery attempts are BOUNDED (NOTIFY_MAX_ATTEMPTS): the drain reads a
+ *      fixed batch, so rows Telegram will never accept — a 400 for a chat that
+ *      no longer exists — used to hold that batch against every other user's
+ *      alerts for as long as the worker ran.
  *   3. Relayer loop @30s (Phase 4.A) offers every scored position to
  *      server/exitRelayer.ts, which submits a delegated exit when the user's
  *      SIGNED trigger has fired. IT SHIPS DISARMED: RELAYER_ENABLED defaults
@@ -394,13 +398,70 @@ interface PendingRow {
    */
   simulation_id: string | null;
   simulation_label: string | null;
+  /** Sends already spent on this row. See NOTIFY_MAX_ATTEMPTS. */
+  notify_attempts: number;
 }
+
+/**
+ * How many sends one alert row gets before the queue gives up on it.
+ *
+ * Eight, at the 15s dispatch cadence, is about two minutes of retrying — long
+ * enough to ride out a 429 burst or a Telegram 5xx, short enough that a row
+ * Telegram will NEVER accept cannot hold a batch slot for the rest of time.
+ *
+ * The 403 branch below is still separate and still immediate: a blocked user is
+ * a KNOWN terminal state and there is nothing to learn from seven more tries.
+ * This cap is for the failures we cannot classify — 400 "chat not found" being
+ * the one that actually wedged the queue, because it is permanent and does not
+ * announce itself as such.
+ */
+const NOTIFY_MAX_ATTEMPTS = 8;
 
 async function stamp(id: string, channel: string): Promise<void> {
   await db.query(
     "update public.watch_transitions set notified_at = now(), notify_channel = $2 where id = $1",
     [id, channel],
   );
+}
+
+/**
+ * Record a failed send, and retire the row once it has had its attempts.
+ *
+ * `undeliverable` is stamped through the same two columns every other
+ * non-delivery uses, so the drain skips the row and /api/history can still tell
+ * it apart from a delivery: only `telegram` means Telegram accepted it. Nothing
+ * here renders as delivered, and nothing here is silent — a retired alert is a
+ * user who was not warned, which is worth a line in the log whatever the cause.
+ */
+async function recordSendFailure(row: PendingRow, reason: string): Promise<void> {
+  const attempts = (row.notify_attempts ?? 0) + 1;
+  try {
+    if (attempts >= NOTIFY_MAX_ATTEMPTS) {
+      await db.query(
+        `update public.watch_transitions
+            set notify_attempts = $2, notified_at = now(), notify_channel = 'undeliverable'
+          where id = $1`,
+        [row.id, attempts],
+      );
+      console.error(
+        `alert ${row.id} (${row.wallet}:${row.protocol}) undeliverable after ${attempts} attempts: ${reason}`.slice(
+          0,
+          200,
+        ),
+      );
+      return;
+    }
+    await db.query("update public.watch_transitions set notify_attempts = $2 where id = $1", [
+      row.id,
+      attempts,
+    ]);
+  } catch (err) {
+    // The counter failing to persist is itself worth saying out loud: it is the
+    // only thing standing between a permanent failure and an infinite retry.
+    console.error(
+      `attempt counter update failed for alert ${row.id}: ${(err as Error).message.slice(0, 120)}`,
+    );
+  }
 }
 
 /**
@@ -424,7 +485,7 @@ function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): Al
 async function dispatchPending(): Promise<void> {
   const { rows } = await db.query<PendingRow>(
     `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band,
-            t.from_status, t.to_status, t.created_at,
+            t.from_status, t.to_status, t.created_at, t.notify_attempts,
             t.simulation_id, t.simulation_label, l.chat_id,
             s.health_factor, s.collateral_usd, s.borrow_usd, s.usd_values_unavailable
        from public.watch_transitions t
@@ -519,8 +580,19 @@ async function dispatchPending(): Promise<void> {
       await stamp(r.id, "blocked");
       console.error(`telegram 403 for chat ${r.chat_id}; link disabled`);
     } else {
-      // Transient (429/5xx/network): leave notified_at null for the next poll.
-      console.error(`telegram send failed (status ${result.status}): ${result.description ?? ""}`.slice(0, 160));
+      // Everything else (429, 5xx, network, and Telegram's 400s for a chat that
+      // does not exist) leaves notified_at null for the next poll, but no longer
+      // forever: the attempt counter is what turns "retry until it works" into
+      // "retry until it clearly will not". A 400 is permanent and indistinguishable
+      // from a transient failure at this layer, and fifty of them used to hold the
+      // whole batch — every user's alerts included.
+      console.error(
+        `telegram send failed (status ${result.status}, attempt ${r.notify_attempts + 1}/${NOTIFY_MAX_ATTEMPTS}): ${result.description ?? ""}`.slice(
+          0,
+          200,
+        ),
+      );
+      await recordSendFailure(r, `HTTP ${result.status} ${result.description ?? ""}`);
     }
   }
 }
