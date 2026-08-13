@@ -16,8 +16,7 @@
  * cannot.
  */
 
-import { createPublicClient, http } from "viem";
-import { base, baseSepolia } from "viem/chains";
+import { createPublicClient } from "viem";
 import {
   EXECUTOR_ADDRESS,
   EXIT_ADAPTERS,
@@ -28,6 +27,9 @@ import {
 // deliberately not imported here any more: it is `executor.usdc()`, the PAYOUT
 // token, and sweeping it checked an approval on an asset no position holds.
 import { exitReserveAddresses, loadExitReserveSet } from "../src/panik-core/lib/exitReserves";
+// The same public-first endpoint ladder the relayer and the delegation reader
+// build on, so the sweep can never be the one component reading a stale node.
+import { chainFor, executorRpcTransport } from "./exitChain";
 import type { CoverageChain, CoverageMarkets } from "./coverageSweep";
 import type { ExitReserveState } from "../src/panik-core/lib/exitLegs";
 
@@ -112,12 +114,11 @@ interface Client {
   getCode(args: { address: `0x${string}` }): Promise<`0x${string}` | undefined>;
 }
 
-function chainFor(chainId: number) {
-  return chainId === base.id ? base : baseSepolia;
-}
-
 export interface CoverageChainConfig {
-  rpcUrl: string;
+  /**
+   * Pins one endpoint. Omit for the resolved ladder in `executorRpcUrls`.
+   */
+  rpcUrl?: string;
   chainId?: number;
   dataProvider?: `0x${string}`;
   executor?: `0x${string}`;
@@ -147,7 +148,7 @@ export class ViemCoverageChain implements CoverageChain {
     this.reserveOverride = config.reserves ?? [];
     this.client = createPublicClient({
       chain: chainFor(this.chainId),
-      transport: http(config.rpcUrl),
+      transport: executorRpcTransport(config.rpcUrl, this.chainId),
     }) as unknown as Client;
   }
 

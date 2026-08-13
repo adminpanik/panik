@@ -87,7 +87,7 @@ import { linkState, probeDue, unreachableAlert } from "../server/telegramReach";
 import { ViemExitChainReader } from "../server/exitChain";
 import { SupabaseDelegationStore } from "../server/exitDelegationStore";
 import { SupabaseRelayerAttemptStore, MemoryRelayerAttemptStore } from "../server/relayerAttemptStore";
-import { ViemRelayerChain, relayerReserveOverride, relayerRpcUrl } from "../server/relayerChain";
+import { ViemRelayerChain, relayerReserveOverride } from "../server/relayerChain";
 import { signerPoolFromEnv } from "../server/relayerSigner";
 import {
   SubmissionRateWindow,
@@ -711,18 +711,20 @@ function buildRelayerDeps(): RelayerDeps | null {
     return null;
   }
 
-  const rpcUrl = relayerRpcUrl();
-  const pool = signerPoolFromEnv(rpcUrl, EXIT_CHAIN_ID);
+  // No rpcUrl anywhere below: every executor-side client resolves the SAME
+  // ladder from `executorRpcUrls(EXIT_CHAIN_ID)` by default, so the relayer, its
+  // signers and the delegation reader cannot end up on different nodes.
+  const pool = signerPoolFromEnv(undefined, EXIT_CHAIN_ID);
   if (enabled && !pool) {
     console.error("relayer ARMED but no signer configured; refusing to run armed with no key");
     return null;
   }
 
   return {
-    chain: new ViemRelayerChain({ rpcUrl, chainId: EXIT_CHAIN_ID, reserves: RESERVE_OVERRIDE }),
+    chain: new ViemRelayerChain({ chainId: EXIT_CHAIN_ID, reserves: RESERVE_OVERRIDE }),
     delegations: {
       store: new SupabaseDelegationStore(supabaseUrl, supabaseKey),
-      chain: new ViemExitChainReader(rpcUrl),
+      chain: new ViemExitChainReader(),
       chainId: EXIT_CHAIN_ID,
       executor: EXECUTOR_ADDRESS,
     },
@@ -788,7 +790,6 @@ async function runRelayer(): Promise<void> {
 // ── monitor loop (Phase 4.B) ─────────────────────────────────────────────────
 
 const coverageChain = new ViemCoverageChain({
-  rpcUrl: relayerRpcUrl(),
   chainId: EXIT_CHAIN_ID,
   // Same override as the relayer, and the same chain resolution when it is
   // unset. The sweep verifying a different reserve list from the one the relayer

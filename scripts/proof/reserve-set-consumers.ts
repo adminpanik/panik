@@ -18,7 +18,7 @@
  *       approvals
  */
 
-import { createPublicClient, http } from "viem";
+import { createPublicClient } from "viem";
 import { baseSepolia } from "viem/chains";
 import {
   EXECUTOR_ADDRESS,
@@ -32,7 +32,8 @@ import {
   exitReserveAddresses,
 } from "../../src/panik-core/lib/exitReserves";
 import { buildExitLegs, formatTokenAmount, AMOUNT_FULL } from "../../src/panik-core/lib/exitLegs";
-import { ViemRelayerChain, relayerRpcUrl } from "../../server/relayerChain";
+import { ViemRelayerChain } from "../../server/relayerChain";
+import { executorRpcTransport, executorRpcUrls } from "../../server/exitChain";
 import { ViemCoverageChain, coverageMarketsFromEnv } from "../../server/coverageChain";
 
 /** The live Base Sepolia position under test. */
@@ -50,9 +51,9 @@ const amt = (v: bigint, decimals: number, symbol: string) =>
   v === AMOUNT_FULL ? "MAX (uint256 max)" : `${formatTokenAmount(v, decimals)} ${symbol}`;
 
 async function main() {
-  const rpcUrl = relayerRpcUrl();
+  const rpcUrls = executorRpcUrls(EXIT_CHAIN_ID);
   line(`network      : Base Sepolia (chainId ${EXIT_CHAIN_ID})`);
-  line(`rpc          : ${rpcUrl.replace(/\/v2\/.*/, "/v2/<redacted>")}`);
+  line(`rpc          : ${rpcUrls.map((u) => u.replace(/\/v2\/.*/, "/v2/<redacted>")).join(", ")}`);
   line(`executor     : ${EXECUTOR_ADDRESS}`);
   line(`dataProvider : ${EXIT_DATA_PROVIDER_ADDRESS}`);
   line(`wallet       : ${WALLET}`);
@@ -60,7 +61,7 @@ async function main() {
 
   const client = createPublicClient({
     chain: baseSepolia,
-    transport: http(rpcUrl),
+    transport: executorRpcTransport(undefined, EXIT_CHAIN_ID),
   }) as unknown as { readContract(p: unknown): Promise<unknown> };
 
   // ── (a) the resolved reserve set ──────────────────────────────────────────
@@ -111,7 +112,7 @@ async function main() {
   // ── (b) the relayer's leg builder ─────────────────────────────────────────
   rule("(b) relayer leg builder over the live position (READ-ONLY, relayer disarmed)");
 
-  const relayerChain = new ViemRelayerChain({ rpcUrl, chainId: EXIT_CHAIN_ID });
+  const relayerChain = new ViemRelayerChain({ chainId: EXIT_CHAIN_ID });
   line(`  relayer resolves : [${(await relayerChain.reserves()).join(", ")}]`);
   line();
 
@@ -152,7 +153,7 @@ async function main() {
   // ── (c) the coverage sweep ────────────────────────────────────────────────
   rule("(c) coverage sweep: same set, and the approvals it inspects");
 
-  const coverageChain = new ViemCoverageChain({ rpcUrl, chainId: EXIT_CHAIN_ID });
+  const coverageChain = new ViemCoverageChain({ chainId: EXIT_CHAIN_ID });
   const sweepReserves = await coverageChain.aaveReserves();
   const markets = coverageMarketsFromEnv(sweepReserves);
   line(`  sweep resolves   : [${sweepReserves.join(", ")}]`);

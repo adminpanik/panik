@@ -23,16 +23,23 @@
  * ABI: that file is regenerated from the deployed contract and is still v1 (no
  * delegated views), and it is marked DO NOT EDIT. These three views land with
  * the executor-v2 deploy this PR is stacked on.
+ *
+ * This module also owns HOW the executor side reaches a node
+ * (`executorRpcUrls` / `executorRpcTransport`), because the relayer, its
+ * signers, the coverage sweep and this reader must all be on the same
+ * endpoints. That resolution used to be copied into server/relayerChain.ts, and
+ * two copies of one ladder is how a relayer and a reader end up disagreeing
+ * about what the chain says.
  */
 
-import { createPublicClient, http } from "viem";
+import { createPublicClient, fallback, http } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
+// The vetted keyless nodes and the override rules, shared with the app's exit
+// flow. Three nodes per chain, each checked for Multicall3, so the executor
+// side and the UI can never disagree about which public node is acceptable.
+import { exitRpcUrls } from "../src/panik-core/lib/exitRpc";
 import { ERC1271_ABI, type SignerCodeReader } from "./exit7702";
-
-// Widened copy of the generated literal: TS flags `84532 === 8453` as a
-// no-overlap comparison, the same trick src/panik-core/lib/exit.ts uses.
-const EXECUTOR_CHAIN: number = EXIT_CHAIN_ID;
 
 /**
  * Narrow view of a viem public client — just the two reads this module makes.
@@ -100,26 +107,66 @@ export interface ExitChainReader extends SignerCodeReader {
 }
 
 /** Base Sepolia by default; mainnet only once EXIT_CHAIN_ID flips to 8453. */
-function chainFor(chainId: number) {
+export function chainFor(chainId: number) {
   return chainId === base.id ? base : baseSepolia;
 }
 
 const isMainnet = (chainId: number): boolean => chainId === base.id;
 
 /**
- * Executor RPC endpoint. EXIT_EXECUTOR_RPC_URL wins; otherwise Alchemy Base
- * Sepolia when its key is set (same key ping-apis.mjs uses); otherwise the
- * public Base Sepolia node. Mainnet cutover reuses the mainnet Alchemy key.
+ * The executor's RPC endpoints, in the order a transport tries them: the
+ * operator's override, then the vetted public nodes, then Alchemy.
+ *
+ * Alchemy is LAST because a key is a quota — it is worth having as the backstop,
+ * not worth spending on every read a public node would have served. The override
+ * and public tiers (and their validation, and the dedupe) come from
+ * `exitRpcUrls`, which is the same list the UI's exit flow fails over across.
  */
-function defaultRpcUrl(): string {
-  const override = process.env.EXIT_EXECUTOR_RPC_URL;
-  if (override && override.trim()) return override.trim();
-  if (isMainnet(EXECUTOR_CHAIN)) {
-    const key = process.env.ALCHEMY_API_KEY_BASE_MAINNET;
-    return key ? `https://base-mainnet.g.alchemy.com/v2/${key}` : "https://mainnet.base.org";
+export function executorRpcUrls(
+  chainId: number = EXIT_CHAIN_ID,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const urls = exitRpcUrls(chainId, env.EXIT_EXECUTOR_RPC_URL);
+
+  // Read only THIS chain's key: a mainnet key on a Sepolia chain id would be an
+  // endpoint answering for the wrong network, which is worse than no key.
+  const mainnet = isMainnet(chainId);
+  const key = (
+    (mainnet ? env.ALCHEMY_API_KEY_BASE_MAINNET : env.ALCHEMY_API_KEY_BASE_SEPOLIA) ?? ""
+  ).trim();
+  if (key) {
+    urls.push(`https://base-${mainnet ? "mainnet" : "sepolia"}.g.alchemy.com/v2/${key}`);
   }
-  const key = process.env.ALCHEMY_API_KEY_BASE_SEPOLIA;
-  return key ? `https://base-sepolia.g.alchemy.com/v2/${key}` : "https://sepolia.base.org";
+
+  return [...new Set(urls)];
+}
+
+/**
+ * The transport every executor-side client is built on — reads, delegation
+ * checks, and the relayer's own signer.
+ *
+ * No `rank`: endpoint order is decided in `executorRpcUrls`, and a transport
+ * that reorders itself would make "which node answered for this" unanswerable.
+ *
+ * Retries sit at the TAIL, not on every rung. The first endpoint is a public
+ * node, and retrying a rate-limited public node twice with backoff before even
+ * trying the next one spends ~1.8s to ask the same busy node the same question;
+ * rotating immediately is what the list is for. The LAST endpoint retries
+ * because there is nobody behind it.
+ *
+ * `rpcUrl` pins one endpoint explicitly (the fork test's anvil node), and pins
+ * it alone — a fork run must never silently drift onto a public node.
+ */
+export function executorRpcTransport(rpcUrl?: string, chainId: number = EXIT_CHAIN_ID) {
+  const urls = rpcUrl ? [rpcUrl] : executorRpcUrls(chainId);
+  return fallback(
+    urls.map((url, i) =>
+      i === urls.length - 1
+        ? http(url, { retryCount: 2, retryDelay: 300, timeout: 15_000 })
+        : http(url, { retryCount: 0, timeout: 15_000 }),
+    ),
+    { retryCount: 0 },
+  );
 }
 
 /** viem-backed reader against the deployed executor. */
@@ -129,11 +176,15 @@ export class ViemExitChainReader implements ExitChainReader {
   /** maxPermitSlippageBps is immutable on-chain, so cache the first read forever. */
   private slippageCeiling: number | null = null;
 
-  constructor(rpcUrl?: string, executor: `0x${string}` = EXECUTOR_ADDRESS, chainId: number = EXIT_CHAIN_ID) {
+  constructor(
+    rpcUrl?: string,
+    executor: `0x${string}` = EXECUTOR_ADDRESS,
+    chainId: number = EXIT_CHAIN_ID,
+  ) {
     this.executor = executor;
     this.client = createPublicClient({
       chain: chainFor(chainId),
-      transport: http(rpcUrl ?? defaultRpcUrl()),
+      transport: executorRpcTransport(rpcUrl, chainId),
     }) as unknown as ReadClient;
   }
 
