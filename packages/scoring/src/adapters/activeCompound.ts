@@ -131,15 +131,10 @@ export class CompoundActiveReader {
   }
 
   /**
-   * Reads one Comet market's totals in its own denomination.
-   *
-   * Three multicalls when the wallet uses this market, ONE when it does not.
-   * The wallets the watch loop sweeps every tick are overwhelmingly in the
-   * second group — two comets on Base, most wallets in neither — and paying
-   * three round-trips each to arrive at `null` is what exhausted the RPC
-   * budget. `userBasic.assetsIn` rides along in the head batch (it costs
-   * nothing: one multicall is one `eth_call` however many contracts are in
-   * it) and answers "is there anything here" before the other two are sent.
+   * Reads one Comet market's totals in its own denomination. Three multicalls
+   * when the wallet uses this market, ONE when it does not: most watched
+   * wallets are in no Comet market at all, and paying three round-trips each
+   * tick to arrive at `null` is what exhausted the RPC budget.
    */
   private async readLeg(
     comet: (typeof COMETS_BASE)[number],
@@ -166,19 +161,13 @@ export class CompoundActiveReader {
       return null;
     }
 
-    // No base debt and no collateral bit set: this wallet has nothing in this
-    // comet. The two multicalls below would read a row of zeros and arrive at
-    // the same `return null` at the bottom of this method, so they are skipped
-    // and the answer is byte-identical.
-    //
-    // The mask is trusted ONLY when its own leg succeeded. A failed read is
-    // unknown, not empty, and treating it as empty would answer "no position"
-    // for a wallet we could not see — the one wrong answer this reader must
-    // never give. On failure we fall through to the full three-call path,
-    // exactly as before.
+    // `assetsIn` is Comet's collateral bitmask: a zero mask with zero debt means
+    // the two multicalls below would only re-derive the `return null` at the
+    // bottom of this method. It fires ONLY when the read itself succeeded — a
+    // failed leg is unknown, not empty, and answering "no position" for a wallet
+    // we could not see is the one wrong answer this reader must never give.
     const basic = ok<readonly [bigint, bigint, bigint, number, number]>(head[4]);
-    const assetsIn = basic ? basic[3] : null;
-    if (borrowBase === 0n && assetsIn === 0) return null;
+    if (borrowBase === 0n && basic?.[3] === 0) return null;
 
     const infos = await this.client.multicall({
       allowFailure: true,
@@ -238,11 +227,10 @@ export class CompoundActiveReader {
 
   /** Aggregates across both Comet markets; null when the wallet uses neither. */
   async read(wallet: string): Promise<ActiveReading | null> {
-    const legs: CometLeg[] = [];
-    for (const comet of this.comets) {
-      const leg = await this.readLeg(comet, wallet);
-      if (leg) legs.push(leg);
-    }
+    // Comet markets are isolated, so the legs never inform each other: reading
+    // them in sequence only added a round-trip's latency per market.
+    const readings = await Promise.all(this.comets.map((c) => this.readLeg(c, wallet)));
+    const legs = readings.filter((leg): leg is CometLeg => leg !== null);
     if (legs.length === 0) return null;
 
     // Only now — with a real position in an ETH-quoted market — is the oracle

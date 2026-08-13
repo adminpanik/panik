@@ -603,28 +603,44 @@ describe("CompoundActiveReader (Comet)", async () => {
     },
   );
 
+  /**
+   * A multicall stub keyed on the contract each batch targets, plus an ordered
+   * `rest` for everything else (the ETH/USD round, the symbol lookup). The
+   * reader walks its comets in PARALLEL, so a flat call-order chain would hand
+   * one comet's getAssetInfo batch to the other comet's head read.
+   */
+  const perComet = (byComet: Record<string, unknown[][]>, rest: unknown[][] = []) =>
+    vi.fn(({ contracts }: { contracts: readonly { address: string }[] }) =>
+      Promise.resolve(byComet[contracts[0]?.address ?? ""]?.shift() ?? rest.shift() ?? []),
+    );
+
+  const bothComets = [
+    { address: "0xcometusdc", baseSymbol: "USDC", priceInEth: false },
+    { address: "0xcometweth", baseSymbol: "WETH", priceInEth: true },
+  ] as never;
+  // cUSDCv3: borrow 1,000 USDC against $2,000 of cbETH → HF (2000×0.8)/1000 = 1.6
+  const usdcLeg = () => [
+    [ok(1), ok(1_000n * 10n ** 6n), ok("0xbf"), ok(10n ** 6n)],
+    [assetInfo("0xcbeth")],
+    [ok(1_00000000n), ok([1n * 10n ** 18n, 0n]), ok(2000_00000000n)],
+  ];
+  // cWETHv3: 40 WETH borrow against 60 cbETH → HF 1.2, ETH/USD needed for USD
+  const wethLeg = () => [
+    whaleHead(),
+    [assetInfo("0xcbeth")],
+    [ok(1_00000000n), ok([60n * 10n ** 18n, 0n]), ok(1_00000000n)],
+  ];
+
   // The shipping config (COMETS_BASE) holds BOTH cUSDCv3 and cWETHv3. Dropping
   // the ETH-quoted leg used to leave a fully-valid-looking "HF 1.6, comfortable"
   // reading with 40 WETH of real debt invisible.
   it("signals a degraded comet without losing the healthy one (two-comet config)", async () => {
     const onWarn = vi.fn();
-    const bothComets = [
-      { address: "0xcometusdc", baseSymbol: "USDC", priceInEth: false },
-      { address: "0xcometweth", baseSymbol: "WETH", priceInEth: true },
-    ] as never;
-    const multicall = vi
-      .fn()
-      // cUSDCv3: borrow 1,000 USDC against $2,000 of cbETH → HF (2000×0.8)/1000 = 1.6
-      .mockResolvedValueOnce([ok(1), ok(1_000n * 10n ** 6n), ok("0xbf"), ok(10n ** 6n)])
-      .mockResolvedValueOnce([assetInfo("0xcbeth")])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([1n * 10n ** 18n, 0n]), ok(2000_00000000n)])
-      // cWETHv3: 40 WETH borrow against 60 cbETH → HF 1.2, ETH/USD needed for USD
-      .mockResolvedValueOnce(whaleHead())
-      .mockResolvedValueOnce([assetInfo("0xcbeth")])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([60n * 10n ** 18n, 0n]), ok(1_00000000n)])
-      // ETH/USD unusable
-      .mockResolvedValueOnce([fail])
-      .mockResolvedValueOnce([ok("cbETH")]);
+    const multicall = perComet(
+      { "0xcometusdc": usdcLeg(), "0xcometweth": wethLeg() },
+      // ETH/USD unusable, then the dominant-symbol lookup.
+      [[fail], [ok("cbETH")]],
+    );
 
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
     const r = await new CompoundActiveReader(client, bothComets, { now, onWarn }).read("0xw");
@@ -640,20 +656,10 @@ describe("CompoundActiveReader (Comet)", async () => {
   });
 
   it("pools both comets when every round is usable", async () => {
-    const bothComets = [
-      { address: "0xcometusdc", baseSymbol: "USDC", priceInEth: false },
-      { address: "0xcometweth", baseSymbol: "WETH", priceInEth: true },
-    ] as never;
-    const multicall = vi
-      .fn()
-      .mockResolvedValueOnce([ok(1), ok(1_000n * 10n ** 6n), ok("0xbf"), ok(10n ** 6n)])
-      .mockResolvedValueOnce([assetInfo("0xcbeth")])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([1n * 10n ** 18n, 0n]), ok(2000_00000000n)])
-      .mockResolvedValueOnce(whaleHead())
-      .mockResolvedValueOnce([assetInfo("0xcbeth")])
-      .mockResolvedValueOnce([ok(1_00000000n), ok([60n * 10n ** 18n, 0n]), ok(1_00000000n)])
-      .mockResolvedValueOnce([ok(ethRound(3000))])
-      .mockResolvedValueOnce([ok("cbETH")]);
+    const multicall = perComet({ "0xcometusdc": usdcLeg(), "0xcometweth": wethLeg() }, [
+      [ok(ethRound(3000))],
+      [ok("cbETH")],
+    ]);
 
     const client = { multicall, readContract: vi.fn() } as unknown as PublicClientLike;
     const r = await new CompoundActiveReader(client, bothComets, { now }).read("0xw");
