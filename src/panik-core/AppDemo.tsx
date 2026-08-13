@@ -1725,6 +1725,20 @@ export function AppDemo() {
         : r >= 20 && r < 50;
   const recommended = compassCatalog.filter((p) => inProfile(p.baseRisk));
   const outside = compassCatalog.filter((p) => !inProfile(p.baseRisk));
+  /**
+   * Whether an empty Compass section is STATED rather than dropped.
+   *
+   * Only on testnet, and only while the catalog holds something. A section that
+   * simply vanishes is indistinguishable from a page that failed to load, which
+   * is what a moderate profile on the cut Sepolia catalog actually looked like:
+   * one out-of-profile card under a screen of void. Mainnet keeps the
+   * drop-if-empty behaviour, its catalog being static and both sections filling
+   * at every profile.
+   *
+   * With NOTHING openable the tab says so once, in its own state below, rather
+   * than printing two empty sections that state the same absence twice.
+   */
+  const statesEmptySections = chainMode === "testnet" && compassCatalog.length > 0;
 
   const TOUR_STEPS = [
     { step: 1, label: "Start here", body: "This is your Panik dashboard. Use the sidebar to navigate between tools." },
@@ -1953,6 +1967,17 @@ export function AppDemo() {
                   </p>
                 )}
 
+                {/* Nothing openable at all. One statement, and no hint: the
+                    line above already says where the full catalog is and how to
+                    get to it. `clear` rather than `problem`, because nothing
+                    failed here; this is the coverage the chain has. */}
+                {chainMode === "testnet" && compassCatalog.length === 0 && (
+                  <EmptyState
+                    tone="clear"
+                    title={`No market can be opened on ${CHAIN_MODE_LABEL.testnet} yet`}
+                  />
+                )}
+
                 {/* Three across at `xl`. Two columns left a permanent orphan:
                     an odd count is the normal case here (three recommended and
                     five outside at the moderate profile), and at two wide the
@@ -1963,28 +1988,41 @@ export function AppDemo() {
                     `lg`, not `md`: at a 768px window the sidebar has already
                     taken 256px, so two columns there were 208px each, which is
                     narrower than "Compound V3" plus its risk chip. */}
-                {recommended.length > 0 && (
+                {(recommended.length > 0 || statesEmptySections) && (
                   <div className="space-y-4">
                     <h2 className="text-base font-sans font-bold text-text-primary tracking-wide">
                       Recommended for your {selectedRiskProfile} profile
                     </h2>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                      {recommended.map((preset) => (
-                        <MarketCard
-                          key={preset.id}
-                          preset={preset}
-                          poolYield={poolYields?.[preset.id] ?? null}
-                          opensDemo={!opensReal(preset)}
-                          onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
-                          onOpen={() => requestOpenPosition(preset)}
-                          onSimulate={() => {
-                            setSelectedPresetId(preset.id);
-                            setWatchSource("recommendations");
-                            setActiveTab("watch");
-                          }}
-                        />
-                      ))}
-                    </div>
+                    {/* About this section only, and shorter than the page line
+                        above it, so the two do not say the same thing twice.
+                        The hint is a measured fact rather than a guess: this
+                        branch runs only with a non-empty catalog, so an empty
+                        `recommended` puts every openable market in `outside`. */}
+                    {recommended.length === 0 ? (
+                      <EmptyState
+                        tone="clear"
+                        title={`No ${CHAIN_MODE_LABEL.testnet} market scores inside this profile`}
+                        hint="The ones that can be opened there are in the section below, outside it."
+                      />
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+                        {recommended.map((preset) => (
+                          <MarketCard
+                            key={preset.id}
+                            preset={preset}
+                            poolYield={poolYields?.[preset.id] ?? null}
+                            opensDemo={!opensReal(preset)}
+                            onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
+                            onOpen={() => requestOpenPosition(preset)}
+                            onSimulate={() => {
+                              setSelectedPresetId(preset.id);
+                              setWatchSource("recommendations");
+                              setActiveTab("watch");
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2001,29 +2039,39 @@ export function AppDemo() {
                     section it was pressed in, so the position that comes out
                     of an out-of-profile card is still within target. This
                     heading is what says "not recommended". */}
-                {outside.length > 0 && (
+                {(outside.length > 0 || statesEmptySections) && (
                   <div className="space-y-4 pt-4">
                     <h2 className="text-base font-sans font-bold text-text-secondary tracking-wide">
                       Outside your profile
                     </h2>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                      {outside.map((preset) => (
-                        <MarketCard
-                          key={preset.id}
-                          preset={preset}
-                          poolYield={poolYields?.[preset.id] ?? null}
-                          muted
-                          opensDemo={!opensReal(preset)}
-                          onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
-                          onOpen={() => requestOpenPosition(preset)}
-                          onSimulate={() => {
-                            setSelectedPresetId(preset.id);
-                            setWatchSource("recommendations");
-                            setActiveTab("watch");
-                          }}
-                        />
-                      ))}
-                    </div>
+                    {/* Good news, and worth the one line: on this chain the
+                        whole openable set fits the profile. No hint, because
+                        there is nothing further a reader would act on. */}
+                    {outside.length === 0 ? (
+                      <EmptyState
+                        tone="clear"
+                        title={`Every market that can be opened on ${CHAIN_MODE_LABEL.testnet} is inside your profile`}
+                      />
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+                        {outside.map((preset) => (
+                          <MarketCard
+                            key={preset.id}
+                            preset={preset}
+                            poolYield={poolYields?.[preset.id] ?? null}
+                            muted
+                            opensDemo={!opensReal(preset)}
+                            onBreakdown={() => setSelectedRiskBreakdownPreset(preset)}
+                            onOpen={() => requestOpenPosition(preset)}
+                            onSimulate={() => {
+                              setSelectedPresetId(preset.id);
+                              setWatchSource("recommendations");
+                              setActiveTab("watch");
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
