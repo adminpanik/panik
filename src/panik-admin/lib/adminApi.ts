@@ -127,6 +127,34 @@ export const expireCampaign = (session: Session, id: string) =>
     body: JSON.stringify({ id }),
   });
 
+// ── dashboard metrics ───────────────────────────────────────────────────────
+
+/**
+ * The tile set. Mirrors `AdminMetrics` in server/metricsStore.ts.
+ *
+ * Every numeric that can be unknown is `number | null` all the way down, and
+ * the panel renders null as the unknown glyph rather than a zero. `eventsReady`
+ * is false where the Goldsky pipeline is not provisioned, which is a different
+ * statement from "no transactions happened" and is shown as such.
+ */
+export interface AdminMetrics {
+  walletsConnected: number;
+  positionsMonitored: number;
+  positionsPriced: number;
+  collateralUsd: number | null;
+  asOf: string | null;
+  eventsReady: boolean;
+  txCount: number | null;
+  txVolumeUsd: number | null;
+  txUnpriced: number | null;
+  txCount30d: number | null;
+  txVolumeUsd30d: number | null;
+  generatedAt: string;
+}
+
+export const getMetrics = (session: Session) =>
+  call<AdminMetrics>("/api/admin/metrics", session);
+
 // ── market-event simulator ──────────────────────────────────────────────────
 
 /**

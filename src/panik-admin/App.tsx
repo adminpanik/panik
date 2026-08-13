@@ -24,6 +24,7 @@ import { Button, Card } from "../panik-core/ui";
 import { SignIn } from "./SignIn";
 import { ChangePassword } from "./ChangePassword";
 import { CampaignsPanel } from "./CampaignsPanel";
+import { MetricsPanel } from "./MetricsPanel";
 import { RosterPanel } from "./RosterPanel";
 import { SimulationPanel } from "./SimulationPanel";
 import {
@@ -126,8 +127,13 @@ export default function App() {
             />
           ) : (
             <>
-              {/* First, and deliberately: it is the only control here that
-                  changes what every user of the app is looking at right now. */}
+              {/* Read-only, so it sits above the controls: an operator opening
+                  the console wants the figures first, and everything below this
+                  line changes something. */}
+              <MetricsPanel session={session} onSignedOut={forget} />
+              {/* First of the controls, and deliberately: it is the only one
+                  here that changes what every user of the app is looking at
+                  right now. */}
               <SimulationPanel session={session} onSignedOut={forget} />
               <RosterPanel session={session} onSignedOut={forget} />
               <CampaignsPanel session={session} onSignedOut={forget} />
