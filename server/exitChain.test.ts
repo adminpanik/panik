@@ -107,7 +107,9 @@ describe("executorRpcTransport", () => {
     // Built from process.env, so this asserts against the count the same env
     // resolves to: a developer with a key set has one more endpoint than one
     // without, and both are correct.
-    expect(urlsOf(build())).toEqual(executorRpcUrls(SEPOLIA));
+    const urls = urlsOf(build());
+    expect(urls).toEqual(executorRpcUrls(SEPOLIA));
+    expect(urls.length).toBeGreaterThanOrEqual(PUBLIC_SEPOLIA.length);
   });
 
   it("pins an explicit endpoint, and pins it alone", () => {
@@ -116,12 +118,22 @@ describe("executorRpcTransport", () => {
     expect(urlsOf(build("http://127.0.0.1:8545"))).toEqual(["http://127.0.0.1:8545"]);
   });
 
-  it("retries inside each endpoint, not across the fallback", () => {
-    // A second retry layer would only multiply the wait before the next
-    // endpoint is tried at all.
-    const built = build(PUBLIC_SEPOLIA[0]!);
+  it("retries only at the tail, never on the fallback itself", () => {
+    // The first endpoint is a public node: retrying it twice with backoff
+    // before rotating spends the wait on the node that just said no. Only the
+    // last endpoint retries, because nothing is behind it.
+    const built = build();
+    const transports = built.value?.transports ?? [];
     expect(built.config.retryCount).toBe(0);
-    expect(built.value?.transports?.[0]?.config.retryCount).toBe(2);
-    expect(built.value?.transports?.[0]?.config.timeout).toBe(15_000);
+    expect(transports.length).toBeGreaterThan(1);
+    for (const t of transports.slice(0, -1)) expect(t.config.retryCount).toBe(0);
+    expect(transports.at(-1)?.config.retryCount).toBe(2);
+    for (const t of transports) expect(t.config.timeout).toBe(15_000);
+  });
+
+  it("retries the pinned endpoint, which is also the last one", () => {
+    const transports = build("http://127.0.0.1:8545").value?.transports ?? [];
+    expect(transports).toHaveLength(1);
+    expect(transports[0]?.config.retryCount).toBe(2);
   });
 });

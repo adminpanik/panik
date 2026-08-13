@@ -145,15 +145,14 @@ export function executorRpcUrls(
  * The transport every executor-side client is built on — reads, delegation
  * checks, and the relayer's own signer.
  *
- * Same shape the app's exit flow uses (src/panik-core/lib/exit.ts): each `http`
- * retries itself, and the `fallback` does NOT retry on top of that, because a
- * second retry layer only multiplies the wait before the next endpoint is tried
- * at all. No `rank`: endpoint order is a decision made above, and a transport
- * that reorders itself would make "which node signed for this" unanswerable.
+ * No `rank`: endpoint order is decided in `executorRpcUrls`, and a transport
+ * that reorders itself would make "which node answered for this" unanswerable.
  *
- * viem's fallback rotates on TRANSPORT failure only, never on an execution
- * revert, which is exactly right here: a permit the executor would reject must
- * surface as a revert on the first node, not be re-asked of three in turn.
+ * Retries sit at the TAIL, not on every rung. The first endpoint is a public
+ * node, and retrying a rate-limited public node twice with backoff before even
+ * trying the next one spends ~1.8s to ask the same busy node the same question;
+ * rotating immediately is what the list is for. The LAST endpoint retries
+ * because there is nobody behind it.
  *
  * `rpcUrl` pins one endpoint explicitly (the fork test's anvil node), and pins
  * it alone — a fork run must never silently drift onto a public node.
@@ -161,7 +160,11 @@ export function executorRpcUrls(
 export function executorRpcTransport(rpcUrl?: string, chainId: number = EXIT_CHAIN_ID) {
   const urls = rpcUrl ? [rpcUrl] : executorRpcUrls(chainId);
   return fallback(
-    urls.map((url) => http(url, { retryCount: 2, retryDelay: 300, timeout: 15_000 })),
+    urls.map((url, i) =>
+      i === urls.length - 1
+        ? http(url, { retryCount: 2, retryDelay: 300, timeout: 15_000 })
+        : http(url, { retryCount: 0, timeout: 15_000 }),
+    ),
     { retryCount: 0 },
   );
 }
