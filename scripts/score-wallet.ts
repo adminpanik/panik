@@ -33,9 +33,13 @@ const profile: RiskProfile =
     : "moderate";
 
 const alchemy = resolveAlchemyKey(process.env.PANIK_SCORING_CHAIN, process.env);
+// Same relaxation as the API server and the worker: the key is optional, the
+// public node at the head of the fallback list is not (server/scoringChain.ts).
 if (alchemy.key === null) {
-  console.error(`Missing env ${alchemy.missing} (scoring chain: ${alchemy.config.label})`);
-  process.exit(1);
+  console.warn(
+    `No ${alchemy.missing} configured — reading ${alchemy.config.label} public-only` +
+      ` (${alchemy.config.publicRpcUrl})`,
+  );
 }
 
 const scoringChain = buildScoringChain({

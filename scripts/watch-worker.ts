@@ -108,13 +108,24 @@ const botToken = process.env.TELEGRAM_BOT_TOKEN;
 // Same switch, same default, same helper as scripts/api-server.ts - the worker
 // and the API must never score different chains for the same wallet.
 const alchemy = resolveAlchemyKey(process.env.PANIK_SCORING_CHAIN, process.env);
-if (!cgKey || alchemy.key === null || !dbUrl) {
-  const missingChainKey = alchemy.key === null ? alchemy.missing : "-";
+if (!cgKey || !dbUrl) {
   console.error(
-    `Missing env (COINGECKO_API_KEY / ${missingChainKey} / SUPABASE_DB_URL)` +
+    `Missing env (COINGECKO_API_KEY / SUPABASE_DB_URL)` +
       ` - scoring chain is ${alchemy.config.label} (PANIK_SCORING_CHAIN=${process.env.PANIK_SCORING_CHAIN ?? "unset"})`,
   );
   process.exit(1);
+}
+// A missing Alchemy key is a WARNING, not a boot failure. Every chain in the
+// registry has a keyless public node at the head of its fallback list
+// (server/scoringChain.ts), so the worker reads fine without one - it just has
+// no paid endpoint to fall back to when the public node rate-limits. Exiting
+// here turned an expired free tier into a silent alerting outage.
+if (alchemy.key === null) {
+  console.warn(
+    `No ${alchemy.missing} configured - ${alchemy.config.label} reads run public-only` +
+      ` (${alchemy.config.publicRpcUrl}). Set that key, or ${alchemy.config.rpcUrlEnv},` +
+      ` to put a second endpoint behind the public one.`,
+  );
 }
 if (!botToken) {
   console.error("Missing env TELEGRAM_BOT_TOKEN (worker cannot send alerts)");

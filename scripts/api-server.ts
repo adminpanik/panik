@@ -105,13 +105,24 @@ const alchemy = resolveAlchemyKey(process.env.PANIK_SCORING_CHAIN, process.env);
 // Profiler keys are read by getProfileDeps from env directly; we only need to
 // know here whether to advertise the endpoints (DUNE + DB are the hard reqs).
 const duneKey = process.env.DUNE_API_KEY;
-if (!cgKey || alchemy.key === null || !dbUrl) {
-  const missingChainKey = alchemy.key === null ? alchemy.missing : "-";
+if (!cgKey || !dbUrl) {
   console.error(
-    `Missing env (COINGECKO_API_KEY / ${missingChainKey} / SUPABASE_DB_URL)` +
+    `Missing env (COINGECKO_API_KEY / SUPABASE_DB_URL)` +
       ` — scoring chain is ${alchemy.config.label} (PANIK_SCORING_CHAIN=${process.env.PANIK_SCORING_CHAIN ?? "unset"})`,
   );
   process.exit(1);
+}
+// The Alchemy key is OPTIONAL. Each chain's fallback transport starts at a
+// keyless public node (server/scoringChain.ts), so the API serves scores
+// without one; the key only adds an endpoint behind it. This used to
+// process.exit(1), which is why an exhausted free tier read as "the API is
+// down" rather than "reads are slower".
+if (alchemy.key === null) {
+  console.warn(
+    `No ${alchemy.missing} configured — ${alchemy.config.label} reads run public-only` +
+      ` (${alchemy.config.publicRpcUrl}). Set that key, or ${alchemy.config.rpcUrlEnv},` +
+      ` to put a second endpoint behind the public one.`,
+  );
 }
 
 const providers = {

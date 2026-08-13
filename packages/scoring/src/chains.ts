@@ -57,8 +57,27 @@ export interface ScoringChainConfig {
   readonly label: string;
   /** Alchemy host prefix, e.g. `base-mainnet` -> base-mainnet.g.alchemy.com. */
   readonly alchemyHost: string;
-  /** Env var naming the Alchemy key for this chain. */
+  /** Env var naming the Alchemy key for this chain. OPTIONAL at runtime. */
   readonly alchemyKeyEnv: string;
+  /**
+   * The chain's own keyless node. Always present, so a scoring runtime can be
+   * built for this chain with no credentials at all.
+   *
+   * This exists because an exhausted Alchemy free tier used to be a total
+   * outage: the scoring client was built from ONE Alchemy URL, so every
+   * server-side read on every chain failed at once and there was nowhere else
+   * to go. All of the traffic on this path is plain JSON-RPC (`eth_call`,
+   * `eth_blockNumber`, `eth_gasPrice`) with no `alchemy_*` method anywhere, so
+   * a public node serves it identically.
+   */
+  readonly publicRpcUrl: string;
+  /**
+   * Env var naming an operator's own RPC endpoint for this chain. When set it
+   * is tried FIRST, ahead of the public node — that is the whole point of
+   * running one. Backend-only: never VITE_-prefixed, because the value may
+   * carry a key.
+   */
+  readonly rpcUrlEnv: string;
   readonly aave: AaveMarketConfig;
   /**
    * Protocols with a market that can actually be READ on this chain. Mirrors
@@ -101,6 +120,8 @@ export const SCORING_CHAINS: Record<ScoringChainMode, ScoringChainConfig> = {
     label: "Base",
     alchemyHost: "base-mainnet",
     alchemyKeyEnv: "ALCHEMY_API_KEY_BASE_MAINNET",
+    publicRpcUrl: "https://mainnet.base.org",
+    rpcUrlEnv: "SCORING_RPC_URL_BASE_MAINNET",
     aave: {
       pool: AAVE_POOL_BASE,
       oracle: AAVE_ORACLE_BASE,
@@ -115,6 +136,8 @@ export const SCORING_CHAINS: Record<ScoringChainMode, ScoringChainConfig> = {
     label: "Base Sepolia",
     alchemyHost: "base-sepolia",
     alchemyKeyEnv: "ALCHEMY_API_KEY_BASE_SEPOLIA",
+    publicRpcUrl: "https://sepolia.base.org",
+    rpcUrlEnv: "SCORING_RPC_URL_BASE_SEPOLIA",
     aave: AAVE_BASE_SEPOLIA,
     protocols: ["aave_v3"],
     // Aave's faucet tokens are not listed on CoinGecko and the testnet market
