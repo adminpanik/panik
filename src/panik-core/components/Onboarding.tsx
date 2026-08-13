@@ -31,6 +31,14 @@ const TOTAL_QUESTIONS = QUESTIONS.length; // 5
 const WALLET_STEP = 0;                     // step 0 → wallet (FIRST)
 const REVEAL_STEP = TOTAL_QUESTIONS + 1;   // step 6 → AI analysis
 
+/**
+ * Why the overlay is open. The three entry points want three different things,
+ * and an onboarded user re-entering must never be told they are on step 1 of a
+ * first run: "switch-wallet" still asks for an address but says which job it is
+ * doing, and "retake-quiz" keeps the bound wallet and opens on question 1.
+ */
+export type OnboardingMode = "first-run" | "switch-wallet" | "retake-quiz";
+
 interface OnboardingProps {
   /** Called with the computed (quiz) profile + the wallet address. */
   onComplete: (result: ProfileResult, wallet: string) => void;
@@ -45,23 +53,49 @@ interface OnboardingProps {
    * onboarding omits it - completing the flow is mandatory there.
    */
   onCancel?: () => void;
+  mode?: OnboardingMode;
+  /** The bound wallet. "retake-quiz" completes against it and skips its step. */
+  initialWallet?: string;
 }
 
-export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingProps) {
-  const [step, setStep] = useState(WALLET_STEP);      // 0 wallet, 1..5 questions, 6 reveal
+export function Onboarding({
+  onComplete,
+  savedProfiles,
+  onCancel,
+  mode = "first-run",
+  initialWallet,
+}: OnboardingProps) {
+  // Retaking needs a wallet to complete against, so without one it degrades to
+  // the wallet flow rather than opening a quiz whose answer lands nowhere.
+  const retakingQuiz = mode === "retake-quiz" && Boolean(initialWallet);
+  const startStep = retakingQuiz ? 1 : WALLET_STEP;
+
+  const [step, setStep] = useState(startStep);        // 0 wallet, 1..5 questions, 6 reveal
   const [answers, setAnswers] = useState<Answers>({});
-  const [wallet, setWallet] = useState("");
+  const [wallet, setWallet] = useState(retakingQuiz ? initialWallet ?? "" : "");
   const [walletError, setWalletError] = useState("");
   const [exiting, setExiting] = useState(false);
 
   const profile = useWalletProfile();
   const resolveStarted = useRef(false);
+  const scanStarted = useRef(false);
 
   const walletValid = isPlausibleWalletAddress(wallet);
   const onWalletStep = step === WALLET_STEP;
   const onReveal = step === REVEAL_STEP;
   const qIndex = step - 1; // question index for steps 1..5
-  const progressPct = Math.round((step / REVEAL_STEP) * 100);
+  // Measured from this flow's own first step, so a mode that skips the wallet
+  // step opens at 0% instead of claiming a step the user was never shown.
+  const progressPct = Math.round(((step - startStep) / (REVEAL_STEP - startStep)) * 100);
+
+  // The wallet step is what normally fires the background scan, so a flow that
+  // skips it has to start the scan here or the reveal has nothing to poll.
+  useEffect(() => {
+    if (retakingQuiz && initialWallet && !scanStarted.current) {
+      scanStarted.current = true;
+      void profile.start(initialWallet);
+    }
+  }, [retakingQuiz, initialWallet, profile]);
 
   // Kick off the reveal once we land on the final step (poll the background scan
   // with the quiz's stated profile). Runs exactly once.
@@ -96,7 +130,7 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
     window.setTimeout(() => setStep((s) => Math.min(s + 1, REVEAL_STEP)), 280);
   };
 
-  const goBack = () => setStep((s) => Math.max(WALLET_STEP, s - 1));
+  const goBack = () => setStep((s) => Math.max(startStep, s - 1));
 
   const handleEnter = () => {
     const result = computeProfile(answers);
@@ -109,8 +143,27 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
     if (walletError) setWalletError("");
   };
 
+  const walletCopy =
+    mode === "first-run"
+      ? {
+          label: "Step 1: your wallet",
+          title: "Start with your wallet",
+          blurb: "Paste your wallet address. Panik reads its public history while you answer a few questions.",
+        }
+      : initialWallet
+        ? {
+            label: "Switch wallet",
+            title: "Switch wallet",
+            blurb: "Paste the address Panik should watch instead. An address you have onboarded before skips the questions.",
+          }
+        : {
+            label: "Add a wallet",
+            title: "Add a wallet",
+            blurb: "Paste the address Panik should watch. An address you have onboarded before skips the questions.",
+          };
+
   const stepLabel = onWalletStep
-    ? "Step 1: your wallet"
+    ? walletCopy.label
     : onReveal
       ? "Your analysis"
       : `Question ${step} of ${TOTAL_QUESTIONS}`;
@@ -150,8 +203,8 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
                     <button
                       type="button"
                       onClick={onCancel}
-                      aria-label="Cancel wallet change"
-                      title="Keep current wallet"
+                      aria-label={retakingQuiz ? "Cancel retaking the questions" : "Cancel wallet change"}
+                      title={retakingQuiz ? "Keep your current risk profile" : "Keep current wallet"}
                       className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
                     >
                       <X className="w-4 h-4" />
@@ -179,6 +232,8 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
               >
                 {onWalletStep && (
                   <WalletStep
+                    title={walletCopy.title}
+                    blurb={walletCopy.blurb}
                     wallet={wallet}
                     walletValid={walletValid}
                     walletError={walletError}
@@ -192,7 +247,7 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
                     qIndex={qIndex}
                     selectedKey={answers[QUESTIONS[qIndex].id]}
                     onSelect={selectAnswer}
-                    onBack={goBack}
+                    onBack={step > startStep ? goBack : undefined}
                   />
                 )}
 
@@ -215,6 +270,8 @@ export function Onboarding({ onComplete, savedProfiles, onCancel }: OnboardingPr
 
 // ── Wallet step ─────────────────────────────────────────────────────────────
 function WalletStep(props: {
+  title: string;
+  blurb: string;
   wallet: string;
   walletValid: boolean;
   walletError: string;
@@ -224,10 +281,10 @@ function WalletStep(props: {
   return (
     <>
       <h2 className="font-sans font-extrabold text-2xl text-text-primary tracking-tight mb-1.5">
-        Start with your wallet
+        {props.title}
       </h2>
       <p className="text-text-secondary text-sm font-sans mb-6 leading-relaxed">
-        Paste your wallet address. Panik reads its public history while you answer a few questions.
+        {props.blurb}
       </p>
 
       <div className="relative">
@@ -280,7 +337,8 @@ function QuestionStep(props: {
   qIndex: number;
   selectedKey: OptionKey | undefined;
   onSelect: (qid: keyof Answers, key: OptionKey) => void;
-  onBack: () => void;
+  /** Absent on the first step of the flow, where there is nothing behind it. */
+  onBack?: () => void;
 }) {
   const q = QUESTIONS[props.qIndex];
   return (
@@ -324,14 +382,16 @@ function QuestionStep(props: {
         })}
       </div>
 
-      <button
-        type="button"
-        onClick={props.onBack}
-        className="mt-6 flex items-center gap-1.5 text-xs font-sans text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-      >
-        <ArrowLeft className="w-3.5 h-3.5" />
-        <span>Back</span>
-      </button>
+      {props.onBack && (
+        <button
+          type="button"
+          onClick={props.onBack}
+          className="mt-6 flex items-center gap-1.5 text-xs font-sans text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back</span>
+        </button>
+      )}
     </>
   );
 }
