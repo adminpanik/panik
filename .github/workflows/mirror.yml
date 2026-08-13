@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: mirror-main
+  cancel-in-progress: true
+
 jobs:
   mirror:
     runs-on: ubuntu-latest
