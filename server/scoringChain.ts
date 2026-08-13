@@ -172,12 +172,10 @@ export function buildScoringChain(opts: BuildScoringChainOptions): ScoringChainR
   const config = scoringChainConfig(opts.mode);
   const rawClient = createPublicClient({
     chain: config.mode === "mainnet" ? base : baseSepolia,
-    // `retryCount: 0` on the fallback, retries on each `http`: the same shape
-    // src/panik-core/lib/exit.ts uses. Each endpoint retries itself, and a
-    // second retry layer only multiplies the wait before the NEXT endpoint is
-    // tried at all. viem's fallback does not fail over on an execution revert,
-    // so a genuine revert still surfaces as one instead of being re-asked of
-    // every node in turn.
+    // Retries at the TAIL only: rotating to a different provider is cheaper
+    // than re-asking one that said slow down, so retries are reserved for the
+    // endpoint that has no one behind it. `retryCount: 0` on the fallback keeps
+    // a genuine execution revert from being re-asked of every node in turn.
     //
     // No client-level `batch.multicall` here, unlike the browser config. The
     // readers call `client.multicall()` explicitly, and viem already caps that
@@ -186,8 +184,11 @@ export function buildScoringChain(opts: BuildScoringChainOptions): ScoringChainR
     // additionally route bare `readContract` calls (activeMoonwell) through
     // Multicall3, which is a behaviour change rather than a transport fix.
     transport: fallback(
-      scoringRpcUrls(config, opts.alchemyKey, opts.env ?? process.env).map((url) =>
-        http(url, { retryCount: 2, retryDelay: 300, timeout: 15_000 }),
+      scoringRpcUrls(config, opts.alchemyKey, opts.env ?? process.env).map((url, i, all) =>
+        http(url, {
+          timeout: 15_000,
+          ...(i === all.length - 1 ? { retryCount: 2, retryDelay: 300 } : { retryCount: 0 }),
+        }),
       ),
       { retryCount: 0 },
     ),
