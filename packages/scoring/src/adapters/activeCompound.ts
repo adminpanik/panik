@@ -130,7 +130,17 @@ export class CompoundActiveReader {
     );
   }
 
-  /** Reads one Comet market's totals in its own denomination. */
+  /**
+   * Reads one Comet market's totals in its own denomination.
+   *
+   * Three multicalls when the wallet uses this market, ONE when it does not.
+   * The wallets the watch loop sweeps every tick are overwhelmingly in the
+   * second group — two comets on Base, most wallets in neither — and paying
+   * three round-trips each to arrive at `null` is what exhausted the RPC
+   * budget. `userBasic.assetsIn` rides along in the head batch (it costs
+   * nothing: one multicall is one `eth_call` however many contracts are in
+   * it) and answers "is there anything here" before the other two are sent.
+   */
   private async readLeg(
     comet: (typeof COMETS_BASE)[number],
     wallet: string,
@@ -145,6 +155,7 @@ export class CompoundActiveReader {
         { address: comet.address, abi: cometAbi, functionName: "borrowBalanceOf", args: [wallet] },
         { address: comet.address, abi: cometAbi, functionName: "baseTokenPriceFeed" },
         { address: comet.address, abi: cometAbi, functionName: "baseScale" },
+        { address: comet.address, abi: cometAbi, functionName: "userBasic", args: [wallet] },
       ],
     });
     const numAssets = ok<number>(head[0]);
@@ -154,6 +165,20 @@ export class CompoundActiveReader {
     if (numAssets === null || borrowBase === null || baseFeed === null || baseScale === null) {
       return null;
     }
+
+    // No base debt and no collateral bit set: this wallet has nothing in this
+    // comet. The two multicalls below would read a row of zeros and arrive at
+    // the same `return null` at the bottom of this method, so they are skipped
+    // and the answer is byte-identical.
+    //
+    // The mask is trusted ONLY when its own leg succeeded. A failed read is
+    // unknown, not empty, and treating it as empty would answer "no position"
+    // for a wallet we could not see — the one wrong answer this reader must
+    // never give. On failure we fall through to the full three-call path,
+    // exactly as before.
+    const basic = ok<readonly [bigint, bigint, bigint, number, number]>(head[4]);
+    const assetsIn = basic ? basic[3] : null;
+    if (borrowBase === 0n && assetsIn === 0) return null;
 
     const infos = await this.client.multicall({
       allowFailure: true,
