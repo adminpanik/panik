@@ -502,6 +502,29 @@ export interface LiquidationOutlook {
   hover: string;
 }
 
+/**
+ * Why a market whose collateral and debt are the same asset cannot be moved by
+ * a collateral price alone, in one sentence.
+ *
+ * Two surfaces have to say it. The Watch simulator, whose scenario chips
+ * otherwise report "black swan -55%, HF ~1.48" on a USDC/USDC market, which
+ * reads as surviving USDC going to zero. And the Compass risk-breakdown panel,
+ * which would otherwise print a dollar liquidation price for a pair no dollar
+ * move can separate. Shared rather than re-typed because a second wording is a
+ * second chance for the two to disagree about what the market does.
+ *
+ * The sentence states the fact and stops. What to DO about it differs per
+ * surface (Watch has two price controls; the panel has none), so each adds its
+ * own clause after it.
+ */
+export function sameAssetDepegNote(asset: string): string {
+  return (
+    `Collateral and debt are both ${asset} here, so a move in its price rescales the two` +
+    ` sides together and your distance to liquidation stays where it is. What moves it is a` +
+    ` depeg between what you supplied and what you owe.`
+  );
+}
+
 /** The label `statValue` answers to when a drawdown is the thing being stated. */
 const DROP_LABEL = "Drop to liquidation";
 /** ...and when there is no drawdown to state, because the two are not the same question. */
