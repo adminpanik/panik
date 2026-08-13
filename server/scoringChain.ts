@@ -179,10 +179,10 @@ export function buildScoringChain(opts: BuildScoringChainOptions): ScoringChainR
     // so a genuine revert still surfaces as one instead of being re-asked of
     // every node in turn.
     //
-    // No client-level `batch.multicall` here, unlike the browser config: the
-    // readers call `client.multicall()` explicitly and viem already caps that
-    // action's calldata chunks at 1024 bytes by default, which is the public
-    // -node limit the browser config pins. Setting it on the client would
+    // No client-level `batch.multicall` here, unlike the browser config. The
+    // readers call `client.multicall()` explicitly, and viem already caps that
+    // action's calldata chunks at 1024 bytes by default — the same public-node
+    // limit the browser config pins by hand. Setting it on the client would
     // additionally route bare `readContract` calls (activeMoonwell) through
     // Multicall3, which is a behaviour change rather than a transport fix.
     transport: fallback(
