@@ -7,11 +7,6 @@
   "trailingSlash": false,
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://panikrisk-scoring-production.up.railway.app/api/:path*" },
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "host", "value": "dashboard.panik.fi" }],
-      "destination": "/admin.html"
-    },
     { "source": "/app", "destination": "/app.html" },
     { "source": "/founding", "destination": "/founding.html" },
     { "source": "/early-access", "destination": "/founding.html" },

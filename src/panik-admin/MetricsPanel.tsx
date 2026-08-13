@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * The dashboard: five figures describing what PANIK is watching right now.
- * Served at dashboard.panik.fi, which is the same bundle behind the same admin
- * gate (vercel.json routes that host to /admin.html).
+ * The first panel of the admin console at /admin, behind the same gate as every
+ * other panel there.
  *
  * ── TWO LABELS THAT ARE DELIBERATELY NOT WHAT WAS ASKED FOR ───────────────
  * "TVL" is rendered as "Collateral monitored". PANIK is non-custodial: this

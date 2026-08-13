@@ -128,8 +128,8 @@ export default function App() {
           ) : (
             <>
               {/* Read-only, so it sits above the controls: an operator opening
-                  dashboard.panik.fi wants the figures, and everything below
-                  this line changes something. */}
+                  the console wants the figures first, and everything below this
+                  line changes something. */}
               <MetricsPanel session={session} onSignedOut={forget} />
               {/* First of the controls, and deliberately: it is the only one
                   here that changes what every user of the app is looking at
