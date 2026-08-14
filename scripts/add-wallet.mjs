@@ -2,6 +2,12 @@
  * Add wallet(s) to the watch registry.
  * Usage: node --env-file=.env scripts/add-wallet.mjs 0xabc... [label]
  * (no args = add the predefined multi-protocol test wallets)
+ *
+ * Writes a SELF-SUBSCRIPTION, not a registry row. Since the watchlist migration
+ * `watched_wallets` is derived — a wallet is is_active iff some subscription
+ * references it — so an insert straight into the registry is a row the next
+ * sync of that wallet silently deactivates. Test wallets have no owner, so they
+ * own themselves, exactly like the seed cohort the migration backfilled.
  */
 import pg from "pg";
 
@@ -21,9 +27,13 @@ await c.connect();
 
 for (const [wallet, label] of wallets) {
   const r = await c.query(
-    "insert into public.watched_wallets (wallet, risk_profile, label) values ($1, 'moderate', $2) on conflict (wallet) do nothing returning wallet",
+    `insert into public.watch_subscriptions (owner_wallet, watched_wallet, risk_profile, label)
+     values ($1, $1, 'moderate', $2)
+     on conflict (owner_wallet, watched_wallet) do nothing
+     returning watched_wallet`,
     [wallet, label],
   );
+  await c.query("select public.watchlist_sync_registry($1)", [wallet]);
   console.log(r.rowCount ? `added:   ${wallet}` : `exists:  ${wallet}`);
 }
 

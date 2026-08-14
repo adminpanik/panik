@@ -65,6 +65,18 @@ const MIGRATION_OBJECTS = [
       "public.watch_transitions": ["simulation_id", "simulation_label"],
       "public.score_snapshots": ["simulation_id", "simulation_hf_multiplier"],
     } },
+  // Multi-wallet watchlists. watched_wallets is DERIVED from watch_subscriptions
+  // from here on, and delivery outcomes move from watch_transitions' own columns
+  // to one row per recipient — so a database missing these two tables does not
+  // half-work, it stops alerting entirely.
+  { file: "20260814000004_watch_subscriptions",
+    tables: ["public.watch_subscriptions", "public.watch_deliveries"],
+    columns: {
+      "public.watch_subscriptions": ["owner_wallet", "watched_wallet", "risk_profile", "label"],
+      "public.watch_deliveries": [
+        "transition_id", "owner_wallet", "chat_id", "notify_channel", "notified_at", "notify_attempts",
+      ],
+    } },
 ];
 
 const dbUrl = process.env.SUPABASE_DB_URL;

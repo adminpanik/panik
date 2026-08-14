@@ -110,6 +110,141 @@ describe("WatchService", () => {
     expect(transitions).toHaveLength(0);
   });
 
+  it("scores a wallet ONCE and evaluates it against every distinct subscriber profile", async () => {
+    // 60 is outside for a conservative watcher (threshold 25) and for a
+    // moderate one (50), but within for an aggressive one (75). One chain read,
+    // three answers — that is the whole point of the watchlist split.
+    const scoreWallet = vi.fn(async (wallet: string) => [
+      { protocol: "aave_v3" as const, wallet, total: 60, band: "HIGH" as const },
+    ]);
+    const transitions: WatchTransition[] = [];
+    const service = new WatchService({
+      scoreWallet,
+      profileFor: () => "moderate",
+      profilesFor: () => ["conservative", "moderate", "aggressive"],
+      onTransition: (t) => transitions.push(t),
+    });
+    service.watch("0xABC");
+
+    await service.tick();
+
+    expect(scoreWallet).toHaveBeenCalledTimes(1);
+    expect(transitions).toHaveLength(3);
+    expect(transitions.map((t) => [t.profile, t.to])).toEqual([
+      ["conservative", "outside"],
+      ["moderate", "outside"],
+      ["aggressive", "within"],
+    ]);
+  });
+
+  it("keeps each profile's committed status separate (one must not silence the other)", async () => {
+    // 30 is outside for conservative (25) and within for moderate (50). Under
+    // the old single key, whichever profile ran first committed a status the
+    // other then read as "unchanged" and never alerted on.
+    const totals = [30, 30];
+    let call = 0;
+    const transitions: WatchTransition[] = [];
+    const service = new WatchService({
+      scoreWallet: async (wallet) => [
+        { protocol: "aave_v3", wallet, total: totals[call] ?? 30, band: "ELEVATED" },
+      ],
+      profileFor: () => "moderate",
+      profilesFor: () => ["conservative", "moderate"],
+      onTransition: (t) => transitions.push(t),
+    });
+    service.watch("0xABC");
+
+    await service.tick();
+    call = 1;
+    await service.tick(); // unchanged for both: silent
+
+    expect(transitions).toHaveLength(2);
+    expect(transitions.map((t) => [t.profile, t.to])).toEqual([
+      ["conservative", "outside"],
+      ["moderate", "within"],
+    ]);
+  });
+
+  it("seed() scoped to a profile only silences that profile", async () => {
+    const transitions: WatchTransition[] = [];
+    const service = new WatchService({
+      scoreWallet: async (wallet) => [
+        { protocol: "aave_v3", wallet, total: 60, band: "HIGH" },
+      ],
+      profileFor: () => "moderate",
+      profilesFor: () => ["conservative", "moderate"],
+      onTransition: (t) => transitions.push(t),
+    });
+    service.watch("0xABC");
+    service.seed("0xABC", "aave_v3", "outside", "moderate");
+
+    await service.tick();
+
+    // The moderate stream was already at "outside" before the restart; the
+    // conservative one had no record and reports its first observation.
+    expect(transitions.map((t) => t.profile)).toEqual(["conservative"]);
+  });
+
+  it("de-duplicates repeated profiles so one crossing is not sent twice", async () => {
+    const transitions: WatchTransition[] = [];
+    const service = new WatchService({
+      scoreWallet: async (wallet) => [
+        { protocol: "aave_v3", wallet, total: 60, band: "HIGH" },
+      ],
+      profileFor: () => "moderate",
+      profilesFor: () => ["moderate", "moderate", "moderate"],
+      onTransition: (t) => transitions.push(t),
+    });
+    service.watch("0xABC");
+
+    await service.tick();
+    expect(transitions).toHaveLength(1);
+  });
+
+  it("an empty profilesFor falls back to profileFor rather than watching nothing", async () => {
+    // Zero profiles would mean a wallet in the registry that nobody is ever
+    // evaluated for — silence dressed up as configuration.
+    const transitions: WatchTransition[] = [];
+    const service = new WatchService({
+      scoreWallet: async (wallet) => [
+        { protocol: "aave_v3", wallet, total: 60, band: "HIGH" },
+      ],
+      profileFor: () => "conservative",
+      profilesFor: () => [],
+      onTransition: (t) => transitions.push(t),
+    });
+    service.watch("0xABC");
+
+    await service.tick();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]).toMatchObject({ profile: "conservative", to: "outside" });
+  });
+
+  it("confirmTicks debounces each profile independently", async () => {
+    // 30: conservative says outside on every tick, moderate says within.
+    const transitions: WatchTransition[] = [];
+    const service = new WatchService({
+      scoreWallet: async (wallet) => [
+        { protocol: "aave_v3", wallet, total: 30, band: "ELEVATED" },
+      ],
+      profileFor: () => "moderate",
+      profilesFor: () => ["conservative", "moderate"],
+      onTransition: (t) => transitions.push(t),
+      confirmTicks: 3,
+    });
+    service.watch("0xABC");
+
+    await service.tick();
+    await service.tick();
+    expect(transitions).toHaveLength(0);
+    await service.tick();
+
+    expect(transitions.map((t) => [t.profile, t.to])).toEqual([
+      ["conservative", "outside"],
+      ["moderate", "within"],
+    ]);
+  });
+
   it("routes scoring failures to onError without killing the loop", async () => {
     const onError = vi.fn();
     const good = vi.fn(async (_wallet: string) => []);
