@@ -40,7 +40,6 @@ import {
   protocolLabel,
   truncateWallet,
 } from "../packages/scoring/src/watch/alertMessage";
-import { ALERT_THRESHOLD, warnFrom } from "../packages/scoring/src/profile";
 import type { Band, ProfileStatus, Protocol, RiskProfile } from "../packages/scoring/src/types";
 
 /** `--color-risk-*` in src/index.css. HIGH is the brand orange, by design. */
@@ -94,7 +93,14 @@ const BORDER_SUBTLE = "rgba(255,255,255,0.08)";
 
 /** Logical size. The raster is 2x this, for a screen that is always retina. */
 const WIDTH = 800;
-const HEIGHT = 420;
+/**
+ * Shorter than it was, because the card lost a line rather than gaining
+ * whitespace: the limit sub-line moved out entirely (it belongs in the message,
+ * where it has room to explain itself) and the label folded into the identity
+ * line. Keeping 420 would have left the content floating in a band of empty
+ * ground, which reads as a rendering fault rather than as restraint.
+ */
+const HEIGHT = 360;
 const SCALE = 2;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -160,7 +166,7 @@ function clip(text: string, max: number): string {
 /** The dial, drawn the way `src/panik-core/ui/RiskDial.tsx` draws it. */
 function dial(score: number, color: string): string {
   const cx = 168;
-  const cy = 210;
+  const cy = HEIGHT / 2;
   const r = 86;
   const stroke = 14;
   const circumference = 2 * Math.PI * r;
@@ -187,7 +193,7 @@ function drillChip(): string {
   // it: a card with no logo on it is not obviously ours, and "ours" is half of
   // why a reader trusts the warning.
   const x = 532;
-  const y = 44;
+  const y = 40;
   return `
   <rect x="${x}" y="${y}" width="228" height="32" rx="16" fill="rgba(245,158,11,0.12)" stroke="rgba(245,158,11,0.35)"/>
   <text x="${x + 16}" y="${y + 21}" fill="#F59E0B" font-family="Plus Jakarta Sans" font-weight="700"
@@ -200,32 +206,38 @@ export function alertCardSvg(input: AlertCardInput): string {
   const arcColor = BAND_COLOR[input.band] ?? UNKNOWN_COLOR;
   const eventColor = headlineColor(input.status, input.band);
   const headline = CARD_HEADLINE[input.status] ?? CARD_HEADLINE.approaching;
-  const limit = ALERT_THRESHOLD[input.profile];
   const mark = logo();
   const left = 330;
 
   // Everything interpolated below is escaped: the label is typed by a user and
   // the protocol name can fall back to a raw enum, and an unescaped "&" is a
   // malformed SVG that resvg refuses whole.
-  const label = input.label ? clip(input.label, 34) : null;
+  const label = input.label ? clip(input.label, 30) : null;
   const address = escapeHtml(truncateWallet(input.wallet));
   const protocol = escapeHtml(clip(protocolLabel(input.protocol), 24));
-  const profileWord = input.profile.charAt(0).toUpperCase() + input.profile.slice(1);
-  const sub =
-    input.status === "approaching"
-      ? `${profileWord} limit ${limit} · alerts warn from ${warnFrom(input.profile)}`
-      : `${profileWord} limit ${limit}`;
+
+  /**
+   * WHICH position, in one secondary line.
+   *
+   * The label used to be set large, bold and near-white directly under the
+   * headline, which gave a nickname somebody typed into a text field the
+   * typography of product vocabulary: "Simulation target" read as a PANIK term
+   * for a kind of position rather than as what this reader happens to call this
+   * wallet. Quotation marks say "your word, not ours" in a way no font size can,
+   * and secondary weight puts it back beside the protocol, which is the other
+   * half of the same fact.
+   *
+   * Two large elements per card, and no more: the dial's number and the event
+   * headline. Everything else is here to be read second.
+   */
+  const identity = label ? `"${escapeHtml(label)}" · ${protocol}` : protocol;
 
   // One vertical rhythm down the right column; y positions are stated rather
   // than accumulated so a change to one line cannot silently shift the rest.
   const brand = mark
-    ? `<image x="${left}" y="44" width="30" height="30" href="${mark}"/>
-       <text x="${left + 40}" y="66" fill="${TEXT_MUTED}" font-family="Plus Jakarta Sans" font-weight="700" font-size="17" letter-spacing="2.4">PANIK</text>`
+    ? `<image x="${left}" y="40" width="30" height="30" href="${mark}"/>
+       <text x="${left + 40}" y="62" fill="${TEXT_MUTED}" font-family="Plus Jakarta Sans" font-weight="700" font-size="17" letter-spacing="2.4">PANIK</text>`
     : "";
-  const nameRow = label
-    ? `<text x="${left}" y="228" fill="${TEXT_PRIMARY}" font-family="Plus Jakarta Sans" font-weight="700" font-size="26">${escapeHtml(label)}</text>
-       <text x="${left}" y="264" fill="${TEXT_SECONDARY}" font-family="JetBrains Mono" font-size="20">${address}</text>`
-    : `<text x="${left}" y="240" fill="${TEXT_PRIMARY}" font-family="JetBrains Mono" font-size="24">${address}</text>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${SURFACE}"/>
@@ -233,10 +245,9 @@ export function alertCardSvg(input: AlertCardInput): string {
   ${dial(input.score, arcColor)}
   ${brand}
   ${input.simulated ? drillChip() : ""}
-  <text x="${left}" y="152" fill="${eventColor}" font-family="Plus Jakarta Sans" font-weight="700" font-size="34">${escapeHtml(headline)}</text>
-  ${nameRow}
-  <text x="${left}" y="312" fill="${TEXT_SECONDARY}" font-family="Plus Jakarta Sans" font-size="22">${protocol}</text>
-  <text x="${left}" y="352" fill="${TEXT_MUTED}" font-family="Plus Jakarta Sans" font-size="19">${escapeHtml(sub)}</text>
+  <text x="${left}" y="176" fill="${eventColor}" font-family="Plus Jakarta Sans" font-weight="700" font-size="34">${escapeHtml(headline)}</text>
+  <text x="${left}" y="234" fill="${TEXT_SECONDARY}" font-family="Plus Jakarta Sans" font-size="22">${identity}</text>
+  <text x="${left}" y="276" fill="${TEXT_SECONDARY}" font-family="JetBrains Mono" font-size="22">${address}</text>
 </svg>`;
 }
 

@@ -172,10 +172,20 @@ address. All-clears do not carry it, because they advise nothing.
 **The card.** Every alert and all-clear also carries a PNG rendered in-process by
 `server/alertCard.ts` (`@resvg/resvg-js`, no browser and no third party): the
 score dial exactly as `src/panik-core/ui/RiskDial.tsx` draws it, the brand mark,
-the severity headline, the label + address, the protocol and the limit line, plus
-a `SIMULATED DRILL` chip when the transition carries a simulation. Fonts are
-vendored under `server/assets/fonts` (see the README there) because the container
-has none.
+the severity headline, one identity line and the address, plus a `SIMULATED
+DRILL` chip when the transition carries a simulation. Fonts are vendored under
+`server/assets/fonts` (see the README there) because the container has none.
+
+**Exactly two large elements: the dial's number and the event headline.** The
+identity line under them is secondary weight and carries the reader's own name
+for the wallet IN QUOTES, then the protocol (`"Simulation target" · Aave V3`, or
+just `Aave V3` when they never named it). Set large and bold, as it was first
+built, a nickname somebody typed into a text field reads as PANIK vocabulary for
+a kind of position rather than as this reader's word for this wallet; quotes say
+"your word, not ours" in a way no font size can. The limit sentence
+("conservative limit 25, and alerts warn from 15") is NOT on the card at all - it
+lives in the message body, where it has room to be the sentence that stops a LOW
+score with an alert attached from reading as a contradiction.
 
 **Two colour channels on the card, and they answer different questions.** The
 ARC is coloured by the score's BAND, exactly as the app's dial colours it - that

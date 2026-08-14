@@ -41,14 +41,25 @@ const resvgAvailable = (() => {
 })();
 
 describe("alertCardSvg", () => {
-  it("states the score, the headline, the wallet and the limit", () => {
+  it("states the score, the headline and which position it is about", () => {
     const svg = alertCardSvg(card());
     expect(svg).toContain(">15<");
     expect(svg).toContain("Nearing your risk limit");
     expect(svg).toContain("Simulation target");
     expect(svg).toContain("0x12a5...2305");
     expect(svg).toContain("Aave V3");
-    expect(svg).toContain("Conservative limit 25 · alerts warn from 15");
+  });
+
+  it("leaves the limit sentence to the message, which has room to explain it", () => {
+    // On the card it was a fourth line of small grey text under three other
+    // facts, which is noise; in the body it is the sentence that stops a LOW
+    // score with an alert attached from reading as a contradiction.
+    for (const status of ["approaching", "outside", "within"] as const) {
+      const svg = alertCardSvg(card({ status }));
+      expect(svg).not.toContain("limit 25");
+      expect(svg).not.toContain("alerts warn from");
+      expect(svg).not.toMatch(/Conservative|Moderate|Aggressive/);
+    }
   });
 
   it("colours the ARC by the band, the same one the app's dial uses", () => {
@@ -133,9 +144,9 @@ describe("alertCardSvg", () => {
   });
 
   it("says the all-clear for a recovery", () => {
-    const svg = alertCardSvg(card({ status: "within", score: 31, band: "LOW" }));
-    expect(svg).toContain("Back under your limit");
-    expect(svg).not.toContain("alerts warn from");
+    expect(alertCardSvg(card({ status: "within", score: 31, band: "LOW" }))).toContain(
+      "Back under your limit",
+    );
   });
 
   it("escapes a hostile label rather than emitting broken SVG", () => {
@@ -149,11 +160,64 @@ describe("alertCardSvg", () => {
     expect(svg).toContain("...");
     expect(svg).not.toContain("x".repeat(40));
   });
+});
 
-  it("falls back to the address alone when there is no label", () => {
+/**
+ * The label is a nickname somebody typed into a text field. Setting it large,
+ * bold and near-white under the headline gave it the typography of product
+ * vocabulary - "Simulation target" read as a PANIK term for a kind of position
+ * rather than as this reader's word for this wallet.
+ */
+describe("the wallet label has no title billing", () => {
+  /** Every `<text>` on the card as {size, weight, content}. */
+  const textRuns = (svg: string) =>
+    [...svg.matchAll(/<text[^>]*?>([^<]*)<\/text>/g)].map((m) => ({
+      content: m[1]!,
+      size: Number(m[0].match(/font-size="(\d+)"/)?.[1] ?? 0),
+      bold: m[0].includes('font-weight="700"'),
+    }));
+
+  it("renders the label in quotation marks, as a given name", () => {
+    // Quotes say "your word, not ours" in a way no font size can.
+    expect(alertCardSvg(card({ label: "Simulation target" }))).toContain(
+      '"Simulation target" · Aave V3',
+    );
+  });
+
+  it("sets it at the secondary size, never the headline's", () => {
+    const runs = textRuns(alertCardSvg(card({ label: "Simulation target" })));
+    const identity = runs.find((r) => r.content.includes("Simulation target"))!;
+    const headline = runs.find((r) => r.content === "Nearing your risk limit")!;
+
+    expect(identity.size).toBe(22);
+    expect(identity.bold).toBe(false);
+    expect(headline.size).toBe(34);
+    expect(identity.size).toBeLessThan(headline.size);
+  });
+
+  it("leaves exactly two large elements: the score and the event", () => {
+    const large = textRuns(alertCardSvg(card({ label: "Simulation target" })))
+      .filter((r) => r.size >= 30)
+      .map((r) => r.content);
+    expect(large.sort()).toEqual(["15", "Nearing your risk limit"]);
+  });
+
+  it("drops to the protocol alone when the wallet was never named", () => {
     const svg = alertCardSvg(card({ label: null }));
+    const identity = textRuns(svg).find((r) => r.content.includes("Aave V3"))!;
+    // No empty quotes standing in for the name nobody gave it.
+    expect(identity.content).toBe("Aave V3");
     expect(svg).toContain("0x12a5...2305");
     expect(svg).not.toContain("Simulation target");
+  });
+
+  it("keeps the address on its own mono line under the identity", () => {
+    const svg = alertCardSvg(card());
+    const identityAt = svg.indexOf('"Simulation target"');
+    const addressAt = svg.indexOf("0x12a5...2305");
+    expect(identityAt).toBeGreaterThan(-1);
+    expect(addressAt).toBeGreaterThan(identityAt);
+    expect(svg).toMatch(/font-family="JetBrains Mono" font-size="22">0x12a5\.\.\.2305/);
   });
 });
 
