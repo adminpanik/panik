@@ -177,6 +177,16 @@ a `SIMULATED DRILL` chip when the transition carries a simulation. Fonts are
 vendored under `server/assets/fonts` (see the README there) because the container
 has none.
 
+**Two colour channels on the card, and they answer different questions.** The
+ARC is coloured by the score's BAND, exactly as the app's dial colours it - that
+is the engine's claim about the number and the card must not restate it. The
+HEADLINE is coloured by what the EVENT means for this reader: "nearing" is always
+elevated amber, "over" is always high orange, "back under" is always low green.
+Collapsing the two shipped a green "Nearing your risk limit" - a warning in the
+colour of reassurance - for the ordinary case of a conservative reader warned at
+15, where 15 genuinely is LOW. The single exception only ever escalates: a
+CRITICAL band under "over your limit" keeps critical red.
+
 Delivery is one `sendPhoto` with the whole body as the caption. Telegram caps a
 caption at 1024 characters *after entity parsing* (`captionLength` measures what
 it counts); the widest shape the current copy can produce shows 986, so the split

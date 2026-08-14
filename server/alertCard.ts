@@ -53,6 +53,38 @@ const BAND_COLOR: Record<Band, string> = {
 /** `--color-risk-unknown`. Used when a band arrives that this table does not hold. */
 const UNKNOWN_COLOR = "#7A8699";
 
+/**
+ * TWO COLOUR CHANNELS, AND THEY ANSWER DIFFERENT QUESTIONS.
+ *
+ *   * The ARC is coloured by the score's BAND. That is the engine's claim about
+ *     the number, and it is the same claim the app's dial makes, which is why
+ *     it must not be adjusted here: a 15 is LOW, and drawing it as anything
+ *     else would mean the card and the dashboard disagree about one score.
+ *   * The HEADLINE is coloured by what the EVENT means for this reader. A
+ *     conservative user is warned at 15, and 15 is genuinely LOW - so the arc
+ *     is green and the sentence beside it is amber, because "nearing your
+ *     limit" is a warning whatever the absolute band says.
+ *
+ * Collapsing the two produced the bug this table exists to prevent: a green
+ * "Nearing your risk limit", a warning painted in the colour of reassurance.
+ * That is the one direction this product can never be wrong in.
+ *
+ * The single exception runs the other way, and only ever escalates. A CRITICAL
+ * band under "over your limit" keeps critical red rather than being toned down
+ * to the high orange, because there the band is the WORSE of the two claims and
+ * muting it would be the same mistake inverted.
+ */
+const EVENT_COLOR: Record<ProfileStatus, string> = {
+  approaching: BAND_COLOR.ELEVATED,
+  outside: BAND_COLOR.HIGH,
+  within: BAND_COLOR.LOW,
+};
+
+function headlineColor(status: ProfileStatus, band: Band): string {
+  if (status === "outside" && band === "CRITICAL") return BAND_COLOR.CRITICAL;
+  return EVENT_COLOR[status] ?? EVENT_COLOR.approaching;
+}
+
 /** `--color-surface-base`, `--color-text-*`, `--color-border-subtle`. */
 const SURFACE = "#09090B";
 const TEXT_PRIMARY = "#F8FAFC";
@@ -164,7 +196,9 @@ function drillChip(): string {
 
 /** The card as SVG. Pure and deterministic, so it is testable without a rasteriser. */
 export function alertCardSvg(input: AlertCardInput): string {
-  const color = BAND_COLOR[input.band] ?? UNKNOWN_COLOR;
+  // Arc = what the score IS. Headline = what the event MEANS. See EVENT_COLOR.
+  const arcColor = BAND_COLOR[input.band] ?? UNKNOWN_COLOR;
+  const eventColor = headlineColor(input.status, input.band);
   const headline = CARD_HEADLINE[input.status] ?? CARD_HEADLINE.approaching;
   const limit = ALERT_THRESHOLD[input.profile];
   const mark = logo();
@@ -196,10 +230,10 @@ export function alertCardSvg(input: AlertCardInput): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${SURFACE}"/>
   <rect x="0.5" y="0.5" width="${WIDTH - 1}" height="${HEIGHT - 1}" fill="none" stroke="${BORDER_SUBTLE}"/>
-  ${dial(input.score, color)}
+  ${dial(input.score, arcColor)}
   ${brand}
   ${input.simulated ? drillChip() : ""}
-  <text x="${left}" y="152" fill="${color}" font-family="Plus Jakarta Sans" font-weight="700" font-size="34">${escapeHtml(headline)}</text>
+  <text x="${left}" y="152" fill="${eventColor}" font-family="Plus Jakarta Sans" font-weight="700" font-size="34">${escapeHtml(headline)}</text>
   ${nameRow}
   <text x="${left}" y="312" fill="${TEXT_SECONDARY}" font-family="Plus Jakarta Sans" font-size="22">${protocol}</text>
   <text x="${left}" y="352" fill="${TEXT_MUTED}" font-family="Plus Jakarta Sans" font-size="19">${escapeHtml(sub)}</text>

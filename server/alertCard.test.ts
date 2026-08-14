@@ -18,6 +18,18 @@ const card = (over: Partial<AlertCardInput> = {}): AlertCardInput => ({
   ...over,
 });
 
+/**
+ * The two colour channels, read back off the SVG separately.
+ *
+ * Separately is the point: a `toContain("#10B981")` passes when the hue is
+ * ANYWHERE on the card, which is exactly how a green headline shipped beside a
+ * green arc without a test noticing.
+ */
+const arcColorOf = (svg: string): string | undefined =>
+  svg.match(/stroke="(#[0-9A-F]{6})" stroke-width="14"/i)?.[1];
+const headlineColorOf = (svg: string): string | undefined =>
+  svg.match(/<text[^>]*fill="(#[0-9A-F]{6})"[^>]*font-size="34"/i)?.[1];
+
 /** The native rasteriser ships per-platform; the SVG tests do not need it. */
 const resvgAvailable = (() => {
   try {
@@ -39,14 +51,64 @@ describe("alertCardSvg", () => {
     expect(svg).toContain("Conservative limit 25 · alerts warn from 15");
   });
 
-  it("uses the band's ramp colour, the same one the app's dial uses", () => {
-    expect(alertCardSvg(card({ band: "LOW" }))).toContain("#10B981");
-    expect(alertCardSvg(card({ band: "ELEVATED" }))).toContain("#F59E0B");
-    expect(alertCardSvg(card({ band: "HIGH" }))).toContain("#F97316");
-    expect(alertCardSvg(card({ band: "CRITICAL" }))).toContain("#F87171");
+  it("colours the ARC by the band, the same one the app's dial uses", () => {
+    for (const [band, hex] of [
+      ["LOW", "#10B981"],
+      ["ELEVATED", "#F59E0B"],
+      ["HIGH", "#F97316"],
+      ["CRITICAL", "#F87171"],
+    ] as const) {
+      expect(arcColorOf(alertCardSvg(card({ band })))).toBe(hex);
+    }
     // An unrecognised band is drawn as UNKNOWN rather than as the calmest
     // colour in the ramp: "we do not know" must never render as "you are fine".
-    expect(alertCardSvg(card({ band: "UNMEASURED" as never }))).toContain("#7A8699");
+    expect(arcColorOf(alertCardSvg(card({ band: "UNMEASURED" as never })))).toBe("#7A8699");
+  });
+
+  /**
+   * The two channels answer different questions, and the regression that made
+   * this a separate describe was a green "Nearing your risk limit": a warning
+   * painted in the colour of reassurance, because the headline had borrowed the
+   * band's hue.
+   */
+  describe("headline colour is the EVENT, not the band", () => {
+    it("warns in amber even when the score itself is LOW", () => {
+      // The exact case: a conservative reader is warned at 15, and 15 IS low.
+      const svg = alertCardSvg(card({ status: "approaching", score: 15, band: "LOW" }));
+      expect(arcColorOf(svg)).toBe("#10B981");
+      expect(headlineColorOf(svg)).toBe("#F59E0B");
+    });
+
+    it("keeps the warning amber at every band a warning can carry", () => {
+      for (const band of ["LOW", "ELEVATED", "HIGH", "CRITICAL"] as const) {
+        expect(headlineColorOf(alertCardSvg(card({ status: "approaching", band })))).toBe("#F59E0B");
+      }
+    });
+
+    it("states a breach in high orange, whatever the band underneath", () => {
+      for (const band of ["LOW", "ELEVATED", "HIGH"] as const) {
+        const svg = alertCardSvg(card({ status: "outside", band }));
+        expect(headlineColorOf(svg)).toBe("#F97316");
+        expect(arcColorOf(svg)).toBe(
+          { LOW: "#10B981", ELEVATED: "#F59E0B", HIGH: "#F97316" }[band],
+        );
+      }
+    });
+
+    it("lets CRITICAL stand on a breach, because that escalates", () => {
+      // The one exception, and it only ever runs toward MORE severe: muting a
+      // critical band to the high orange is the same mistake inverted.
+      const svg = alertCardSvg(card({ status: "outside", score: 80, band: "CRITICAL" }));
+      expect(headlineColorOf(svg)).toBe("#F87171");
+      expect(arcColorOf(svg)).toBe("#F87171");
+    });
+
+    it("sounds the all-clear in green even when the band is still elevated", () => {
+      // Back under YOUR limit is good news; the absolute band may be anything.
+      const svg = alertCardSvg(card({ status: "within", score: 44, band: "ELEVATED" }));
+      expect(headlineColorOf(svg)).toBe("#10B981");
+      expect(arcColorOf(svg)).toBe("#F59E0B");
+    });
   });
 
   it("draws the arc as score/100, clamped", () => {
