@@ -116,6 +116,10 @@ const FONT_DIR = join(HERE, "assets", "fonts");
  */
 const FONT_FILES = [
   join(FONT_DIR, "PlusJakartaSans-Bold.ttf"),
+  // The identity line is set at 500, and 500 has to EXIST: with only 400 and
+  // 700 loaded, fontdb resolves a declared 500 to one of them, so the markup
+  // would be claiming a weight the image does not have.
+  join(FONT_DIR, "PlusJakartaSans-Medium.ttf"),
   join(FONT_DIR, "PlusJakartaSans-Regular.ttf"),
   join(FONT_DIR, "JetBrainsMono-Regular.ttf"),
 ];
@@ -146,6 +150,17 @@ export interface AlertCardInput {
   protocol: Protocol;
   /** The subscriber's own name for the wallet, or null. */
   label?: string | null;
+  /**
+   * The chain this score was read from, as `ScoringChainConfig.label` spells it
+   * ("Base", "Base Sepolia").
+   *
+   * Threaded in rather than assumed, because the honest answer differs per
+   * worker: a testnet worker scores Base Sepolia, and a card that says "Base"
+   * over a Sepolia position is a false claim about where someone's money is.
+   * Omitted means the caller does not know, and the segment is then dropped -
+   * never guessed, which is the same rule the message body follows.
+   */
+  chainLabel?: string | null;
   simulated?: boolean;
 }
 
@@ -217,20 +232,29 @@ export function alertCardSvg(input: AlertCardInput): string {
   const protocol = escapeHtml(clip(protocolLabel(input.protocol), 24));
 
   /**
-   * WHICH position, in one secondary line.
+   * WHICH position, in one line: the reader's own name for the wallet, the
+   * protocol, and the chain.
    *
-   * The label used to be set large, bold and near-white directly under the
-   * headline, which gave a nickname somebody typed into a text field the
-   * typography of product vocabulary: "Simulation target" read as a PANIK term
-   * for a kind of position rather than as what this reader happens to call this
-   * wallet. Quotation marks say "your word, not ours" in a way no font size can,
-   * and secondary weight puts it back beside the protocol, which is the other
-   * half of the same fact.
+   * The label used to be set large, bold and near-white ON ITS OWN, which gave a
+   * nickname somebody typed into a text field the typography of product
+   * vocabulary: "Simulation target" read as a PANIK term for a kind of position
+   * rather than as what this reader happens to call this wallet. Quotation marks
+   * say "your word, not ours" in a way no font size can, and folding it in
+   * beside the protocol and the chain puts it back among the other two thirds of
+   * the same fact.
    *
-   * Two large elements per card, and no more: the dial's number and the event
-   * headline. Everything else is here to be read second.
+   * It is BRIGHT but not big. Primary ink and a medium weight at the same 22px
+   * as the address, against a 34px coloured headline: the size gap is what keeps
+   * the hierarchy, so lifting the colour costs nothing. Two large elements per
+   * card and no more - the dial's number and the event headline.
+   *
+   * The chain segment is dropped when the caller does not name one, rather than
+   * defaulting to the mainnet everyone assumes.
    */
-  const identity = label ? `"${escapeHtml(label)}" · ${protocol}` : protocol;
+  const chain = input.chainLabel ? escapeHtml(clip(input.chainLabel, 20)) : null;
+  const identity = [label ? `"${escapeHtml(label)}"` : null, protocol, chain]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
 
   // One vertical rhythm down the right column; y positions are stated rather
   // than accumulated so a change to one line cannot silently shift the rest.
@@ -246,7 +270,7 @@ export function alertCardSvg(input: AlertCardInput): string {
   ${brand}
   ${input.simulated ? drillChip() : ""}
   <text x="${left}" y="176" fill="${eventColor}" font-family="Plus Jakarta Sans" font-weight="700" font-size="34">${escapeHtml(headline)}</text>
-  <text x="${left}" y="234" fill="${TEXT_SECONDARY}" font-family="Plus Jakarta Sans" font-size="22">${identity}</text>
+  <text x="${left}" y="234" fill="${TEXT_PRIMARY}" font-family="Plus Jakarta Sans" font-weight="500" font-size="22">${identity}</text>
   <text x="${left}" y="276" fill="${TEXT_SECONDARY}" font-family="JetBrains Mono" font-size="22">${address}</text>
 </svg>`;
 }

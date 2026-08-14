@@ -177,12 +177,17 @@ DRILL` chip when the transition carries a simulation. Fonts are vendored under
 `server/assets/fonts` (see the README there) because the container has none.
 
 **Exactly two large elements: the dial's number and the event headline.** The
-identity line under them is secondary weight and carries the reader's own name
-for the wallet IN QUOTES, then the protocol (`"Simulation target" · Aave V3`, or
-just `Aave V3` when they never named it). Set large and bold, as it was first
-built, a nickname somebody typed into a text field reads as PANIK vocabulary for
-a kind of position rather than as this reader's word for this wallet; quotes say
-"your word, not ours" in a way no font size can. The limit sentence
+identity line under them carries the reader's own name for the wallet IN QUOTES,
+then the protocol, then the chain (`"Simulation target" · Aave V3 · Base`, or
+`Aave V3 · Base` when they never named it). It is bright but not big - primary
+ink at medium weight, at the same 22px as the address, because the SIZE gap is
+what holds the hierarchy. The chain label is threaded through from the worker's
+own `ScoringChainConfig.label` rather than assumed, so a testnet worker says
+"Base Sepolia"; a caller that names no chain gets the segment dropped, never
+defaulted. Set large and bold on its own line, as it was first built, a nickname
+somebody typed into a text field reads as PANIK vocabulary for a kind of position
+rather than as this reader's word for this wallet; quotes say "your word, not
+ours" in a way no font size can. The limit sentence
 ("conservative limit 25, and alerts warn from 15") is NOT on the card at all - it
 lives in the message body, where it has room to be the sentence that stops a LOW
 score with an alert attached from reading as a contradiction.

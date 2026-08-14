@@ -117,6 +117,13 @@ export interface DispatchDeps {
    */
   sendPhoto?(chatId: number, photo: Uint8Array, opts?: SendPhotoOptions): Promise<TelegramSendResult>;
   /**
+   * The chain this worker scores, as `ScoringChainConfig.label` spells it. Only
+   * the process that built the scoring runtime knows it, so it arrives here
+   * rather than being read from a constant - a testnet worker has to be able to
+   * say "Base Sepolia" on its cards. Absent means the card omits the segment.
+   */
+  chainLabel?: string;
+  /**
    * Where the "Open in PANIK" button points, before the `?view=` parameter.
    * Defaults to `PANIK_APP_URL` in the environment, then to the public app.
    */
@@ -383,6 +390,7 @@ async function deliver(
         wallet: transition.wallet,
         protocol: transition.protocol,
         label: extras.label ?? null,
+        chainLabel: deps.chainLabel ?? null,
         simulated: extras.simulation != null || transition.simulation != null,
       },
       deps.log,

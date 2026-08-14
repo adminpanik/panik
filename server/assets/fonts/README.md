@@ -10,9 +10,14 @@ They are the same two families the app uses (`--font-sans` / `--font-mono` in
 
 | File | Family / weight | Used for |
 |---|---|---|
-| `PlusJakartaSans-Bold.ttf` | Plus Jakarta Sans 700 | score numeral, headline, label, wordmark, drill chip |
-| `PlusJakartaSans-Regular.ttf` | Plus Jakarta Sans 400 | protocol, limit sub-line |
+| `PlusJakartaSans-Bold.ttf` | Plus Jakarta Sans 700 | score numeral, event headline, wordmark, drill chip |
+| `PlusJakartaSans-Medium.ttf` | Plus Jakarta Sans 500 | the identity line (label, protocol, chain) |
+| `PlusJakartaSans-Regular.ttf` | Plus Jakarta Sans 400 | fallback for anything unweighted |
 | `JetBrainsMono-Regular.ttf` | JetBrains Mono 400 | the wallet address |
+
+The Medium face is loaded because the card DECLARES `font-weight="500"`. With only
+400 and 700 available, fontdb resolves a declared 500 to one of them and the
+markup ends up claiming a weight the image does not have.
 
 ## Provenance and licence
 

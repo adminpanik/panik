@@ -15,6 +15,7 @@ const card = (over: Partial<AlertCardInput> = {}): AlertCardInput => ({
   wallet: "0x12a5aa0f9f0d0f0e0a0b0c0d0e0f0102030a2305",
   protocol: "aave_v3",
   label: "Simulation target",
+  chainLabel: "Base",
   ...over,
 });
 
@@ -169,30 +170,41 @@ describe("alertCardSvg", () => {
  * rather than as this reader's word for this wallet.
  */
 describe("the wallet label has no title billing", () => {
-  /** Every `<text>` on the card as {size, weight, content}. */
+  /** Every `<text>` on the card as {size, weight, colour, content}. */
   const textRuns = (svg: string) =>
     [...svg.matchAll(/<text[^>]*?>([^<]*)<\/text>/g)].map((m) => ({
       content: m[1]!,
       size: Number(m[0].match(/font-size="(\d+)"/)?.[1] ?? 0),
+      weight: Number(m[0].match(/font-weight="(\d+)"/)?.[1] ?? 400),
+      fill: m[0].match(/fill="([^"]+)"/)?.[1],
       bold: m[0].includes('font-weight="700"'),
     }));
 
   it("renders the label in quotation marks, as a given name", () => {
     // Quotes say "your word, not ours" in a way no font size can.
     expect(alertCardSvg(card({ label: "Simulation target" }))).toContain(
-      '"Simulation target" · Aave V3',
+      '"Simulation target" · Aave V3 · Base',
     );
   });
 
-  it("sets it at the secondary size, never the headline's", () => {
+  it("is bright but not big: primary ink, medium weight, the address's size", () => {
     const runs = textRuns(alertCardSvg(card({ label: "Simulation target" })));
     const identity = runs.find((r) => r.content.includes("Simulation target"))!;
     const headline = runs.find((r) => r.content === "Nearing your risk limit")!;
+    const address = runs.find((r) => r.content.includes("0x12a5"))!;
 
-    expect(identity.size).toBe(22);
+    expect(identity.fill).toBe("#F8FAFC");
+    // 500 is a face that is actually loaded (PlusJakartaSans-Medium), so the
+    // markup is not claiming a weight the image does not have.
+    expect(identity.weight).toBe(500);
     expect(identity.bold).toBe(false);
+    // The SIZE is what holds the hierarchy, so it does not move.
+    expect(identity.size).toBe(22);
+    expect(identity.size).toBe(address.size);
     expect(headline.size).toBe(34);
     expect(identity.size).toBeLessThan(headline.size);
+    // ...and the address stays the quieter of the two.
+    expect(address.fill).toBe("#94A3B8");
   });
 
   it("leaves exactly two large elements: the score and the event", () => {
@@ -202,13 +214,39 @@ describe("the wallet label has no title billing", () => {
     expect(large.sort()).toEqual(["15", "Nearing your risk limit"]);
   });
 
-  it("drops to the protocol alone when the wallet was never named", () => {
+  it("drops to protocol and chain when the wallet was never named", () => {
     const svg = alertCardSvg(card({ label: null }));
     const identity = textRuns(svg).find((r) => r.content.includes("Aave V3"))!;
     // No empty quotes standing in for the name nobody gave it.
-    expect(identity.content).toBe("Aave V3");
+    expect(identity.content).toBe("Aave V3 · Base");
     expect(svg).toContain("0x12a5...2305");
     expect(svg).not.toContain("Simulation target");
+  });
+
+  /**
+   * A card that says "Base" over a Base Sepolia position is a false claim about
+   * where somebody's money is, so the chain is threaded in from the process that
+   * built the scoring runtime rather than assumed.
+   */
+  describe("the chain segment", () => {
+    it("names the chain the worker actually scored", () => {
+      const identity = (chainLabel: string | null) =>
+        textRuns(alertCardSvg(card({ chainLabel }))).find((r) => r.content.includes("Aave V3"))!
+          .content;
+
+      expect(identity("Base")).toBe('"Simulation target" · Aave V3 · Base');
+      // The testnet worker says so, rather than borrowing mainnet's name.
+      expect(identity("Base Sepolia")).toBe('"Simulation target" · Aave V3 · Base Sepolia');
+    });
+
+    it("is dropped, not defaulted, when the caller names no chain", () => {
+      for (const chainLabel of [null, undefined, ""]) {
+        const svg = alertCardSvg(card({ chainLabel }));
+        const identity = textRuns(svg).find((r) => r.content.includes("Aave V3"))!;
+        expect(identity.content).toBe('"Simulation target" · Aave V3');
+        expect(svg).not.toContain("Base");
+      }
+    });
   });
 
   it("keeps the address on its own mono line under the identity", () => {

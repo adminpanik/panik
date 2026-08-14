@@ -570,6 +570,25 @@ describe("dispatchPending — the alert card", () => {
     expect(h.sent).toHaveLength(1);
   });
 
+  it("carries the worker's own chain label onto the card", async () => {
+    // Only this process knows which chain it scored, and a card is a picture:
+    // it cannot be re-read later, so the label has to be right on the way out.
+    // Asserted through the bytes, since three different chain segments draw
+    // three different images - a mocked renderer would only prove the mock.
+    const render = async (chainLabel?: string) => {
+      const h = harness({ pending: [delivery()], sendPhoto: ok });
+      await dispatchPending({ ...h.deps, chainLabel });
+      return h.photos[0]!.bytes;
+    };
+
+    const [none, base, sepolia] = await Promise.all([
+      render(),
+      render("Base"),
+      render("Base Sepolia"),
+    ]);
+    expect(new Set([none, base, sepolia]).size).toBe(3);
+  });
+
   it("sends text only when the deps carry no photo sender", async () => {
     const h = harness({ pending: [delivery()] });
     await dispatchPending(h.deps);
