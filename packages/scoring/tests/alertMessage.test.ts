@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  CARD_HEADLINE,
   escapeHtml,
   formatAlert,
+  formatHeadline,
   formatResolution,
+  protocolLabel,
   formatSubScores,
   formatWelcome,
   truncateWallet,
@@ -616,6 +619,84 @@ describe("the simulation marker", () => {
     const msg = alert(base, { healthFactor: 1.08 });
     expect(msg).not.toContain("Simulated");
     expect(msg).not.toContain("simulated");
+  });
+});
+
+/**
+ * A watcher is not an owner, and the message advises things only an owner can
+ * do. The app withholds every acting control in this state ("viewingWatchOnly");
+ * a chat has no controls to withhold, so it has to say so instead.
+ */
+describe("watch-only", () => {
+  const NOTE = "This wallet is watch-only: PANIK cannot act on it for you";
+
+  it("says so, under the instruction, when the reader does not own the wallet", () => {
+    const msg = alert(base, { healthFactor: 1.08, watchOnly: true });
+    expect(msg).toContain(
+      "Add collateral or repay debt to pull this back under your limit.\n" +
+        "This wallet is watch-only: PANIK cannot act on it for you - the step above is what its owner would need to take.",
+    );
+  });
+
+  it("says nothing of the kind on the reader's own position", () => {
+    expect(alert(base, { healthFactor: 1.08 })).not.toContain(NOTE);
+    expect(alert(base, { healthFactor: 1.08, watchOnly: false })).not.toContain(NOTE);
+  });
+
+  it("is plain, not bold: it qualifies the instruction rather than competing", () => {
+    const raw = formatAlert(base, { healthFactor: 1.08, watchOnly: true });
+    expect(raw).toContain(`\n${NOTE}`);
+    expect(raw).not.toContain(`<b>${NOTE}`);
+  });
+
+  it("keeps the drill footer last, after the watch-only note", () => {
+    const msg = alert(base, {
+      healthFactor: 1.08,
+      watchOnly: true,
+      simulation: { label: "Crash" },
+    });
+    const lines = msg.split("\n").filter((l) => l.trim().length > 0);
+    expect(lines[lines.length - 1]).toContain("Nothing has happened to the market.");
+    expect(lines[lines.length - 2]).toContain("watch-only");
+  });
+
+  it("never appears on an all-clear, which advises nothing", () => {
+    expect(recovery({ ...base, to: "within" }, { healthFactor: 1.9, watchOnly: true })).not.toContain(
+      NOTE,
+    );
+  });
+});
+
+/** The photo caption, for a body too long to be one. */
+describe("formatHeadline", () => {
+  it("is the subject line, alone", () => {
+    expect(formatHeadline(base, { label: "The whale" })).toBe(
+      "<b>The whale (<code>0x76f8...056f</code>) on Moonwell is over your moderate limit.</b>",
+    );
+  });
+
+  it("keeps the drill marker above it, since a caption is what a push previews", () => {
+    const headline = formatHeadline(base, { simulation: { label: "Crash" } });
+    expect(headline.split("\n")[0]).toContain("Simulated event (Crash)");
+    expect(headline).toContain("is over your moderate limit.");
+  });
+
+  it("is the opening of the message it stands in for", () => {
+    const extras = { label: "The whale", healthFactor: 1.08, why };
+    expect(formatAlert(base, extras).startsWith(formatHeadline(base, extras))).toBe(true);
+  });
+});
+
+describe("the card's vocabulary", () => {
+  it("names each status the way the card headline needs it", () => {
+    expect(CARD_HEADLINE.approaching).toBe("Nearing your risk limit");
+    expect(CARD_HEADLINE.outside).toBe("Over your risk limit");
+    expect(CARD_HEADLINE.within).toBe("Back under your limit");
+  });
+
+  it("gives the card the same protocol name the message uses", () => {
+    expect(protocolLabel("aave_v3")).toBe("Aave V3");
+    expect(alert(base, {})).toContain(protocolLabel("moonwell"));
   });
 });
 

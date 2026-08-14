@@ -90,6 +90,26 @@ const PROTOCOL_LABEL: Record<Protocol, string> = {
 };
 
 /**
+ * The protocol's name as a person reads it. Exported because the alert CARD
+ * (server/alertCard.ts) prints the same name onto an image, and a card saying
+ * "aave_v3" beside a message saying "Aave V3" is one protocol under two names.
+ */
+export function protocolLabel(protocol: Protocol): string {
+  return PROTOCOL_LABEL[protocol] ?? protocol;
+}
+
+/**
+ * The card's headline, per status. Short enough to set at 30px on an 800px
+ * image, which is why it is not the message's own subject line: that one
+ * carries the label and the address, and neither fits.
+ */
+export const CARD_HEADLINE: Record<ProfileStatus, string> = {
+  approaching: "Nearing your risk limit",
+  outside: "Over your risk limit",
+  within: "Back under your limit",
+};
+
+/**
  * Profile-relative status in plain words. `ProfileStatus` is an engine enum and
  * never reaches a user (DESIGN_SYSTEM "no internal enum values"), and these are
  * the SAME phrasings as `LIMIT_STATE` / `LIMIT_EVENT` in the app's
@@ -133,6 +153,16 @@ export interface AlertExtras {
    * whose layout is the only structure a plain-text chat has.
    */
   label?: string | null;
+  /**
+   * The reader does not own this wallet - they only watch it.
+   *
+   * The dispatcher knows, because it holds both the subscriber and the watched
+   * address. The message has to say so, because everything it advises is
+   * something only the owner can do: telling someone to repay a debt that is
+   * not theirs, with no note that it is not theirs, is the app's
+   * "viewingWatchOnly" bug moved into a chat.
+   */
+  watchOnly?: boolean;
   /** Protocol health factor; null = no debt (should not normally alert). */
   healthFactor?: number | null;
   collateralUsd?: number | null;
@@ -540,6 +570,32 @@ function simulationLine(mark: SimulationMark): string {
 }
 
 /**
+ * The note a watcher gets and an owner does not.
+ *
+ * A literal, with nothing interpolated, so it needs no escaping - and it says
+ * what PANIK cannot do rather than what the reader should do, because the honest
+ * answer to "my watched whale is about to be liquidated" is that there is
+ * nothing this product can do about it for them.
+ */
+const WATCH_ONLY_NOTE =
+  "This wallet is watch-only: PANIK cannot act on it for you - the step above is what its owner would need to take.";
+
+/**
+ * The message's opening: the drill marker when there is one, and the subject.
+ *
+ * Exists for the photo caption. Telegram caps a caption at 1024 characters, so
+ * a long body has to travel as a follow-up message, and the caption then has to
+ * carry enough to identify the position on its own. Built from the same two
+ * builders the full message uses rather than sliced off the rendered body,
+ * because slicing on a blank line makes the copy's paragraph breaks load-bearing.
+ */
+export function formatHeadline(t: WatchTransition, extras: AlertExtras = {}): string {
+  const simulation = simulationOf(t, extras);
+  const subject = b(`${subjectOf(t, extras)} is ${limitClause(t.to, t.profile)}.`);
+  return simulation ? `${simulationLine(simulation)}\n\n${subject}` : subject;
+}
+
+/**
  * Build the alert body for a transition INTO approaching/outside. Recovery
  * transitions go to `formatResolution` instead.
  */
@@ -572,6 +628,11 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
         : "Add collateral or repay debt to widen the buffer.",
     ),
   );
+
+  // Directly under the instruction, and NOT bold: it qualifies the sentence
+  // above rather than competing with it. Only on the alert - an all-clear
+  // advises nothing, so there is nothing to say the reader cannot do.
+  if (extras.watchOnly) lines.push(WATCH_ONLY_NOTE);
 
   if (simulation) {
     lines.push("");
