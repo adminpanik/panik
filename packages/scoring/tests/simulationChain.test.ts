@@ -181,17 +181,17 @@ describe("end to end: a simulated crash drives the whole protection chain", () =
     });
 
     const lines = text.split("\n");
-    // FIRST, above the siren: a push notification shows the opening characters
-    // and nothing else.
-    expect(lines[0]).toContain("SIMULATED MARKET EVENT");
+    // FIRST, above the headline: a push notification shows the opening
+    // characters and nothing else.
+    expect(lines[0]).toContain("Simulated event");
     expect(lines[0]).toContain("Crash");
     expect(text).toContain("Real market prices have not moved");
     // And last, so no crop shows the instruction without the reason.
     expect(lines[lines.length - 1]).toContain("simulated");
     // The alert is still a real alert about a real crossing.
-    // Phrased by LIMIT_STATE.outside, the same words the app uses; the header
-    // stopped being a literal so no ProfileStatus token can appear in copy.
-    expect(text).toContain("over your risk limit");
+    // Phrased by LIMIT_STATE.outside, the same words the app uses; the headline
+    // is built from the transition so no ProfileStatus token can appear in copy.
+    expect(text).toContain("over your moderate limit");
     expect(text).toContain("Health factor 0.97");
     // House style survives the addition.
     expect(text).not.toMatch(new RegExp("[" + String.fromCharCode(0x2014, 0x2013) + "]"));
@@ -211,9 +211,13 @@ describe("end to end: a simulated crash drives the whole protection chain", () =
       simulation: null,
     };
     const text = formatAlert(crossing, { healthFactor: 0.97 });
-    expect(text).not.toContain("SIMULATED");
+    expect(text).not.toContain("Simulated");
     expect(text).not.toContain("simulated");
-    expect(text.split("\n")[0]).toContain("Panik alert");
+    // The first line is the position itself, and it is the position that was
+    // NOT simulated - so the marker's absence is visible from the first words.
+    expect(text.split("\n")[0]).toBe(
+      `${WALLET.slice(0, 6)}...${WALLET.slice(-4)} on Aave V3 is over your moderate limit.`,
+    );
   });
 });
 

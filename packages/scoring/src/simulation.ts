@@ -307,8 +307,16 @@ export const SIMULATION_EXIT_NOTE =
  * build a body without this line whenever a stamp is present.
  */
 export function simulationAlertLine(mark: SimulationMark): string {
-  return `🧪 SIMULATED MARKET EVENT (${mark.label}). This alert was produced from imagined prices for a demonstration. Real market prices have not moved and your position has not actually changed.`;
+  return `Simulated event (${mark.label}) - prices in this alert are from an armed drill, not the market. Real market prices have not moved and your position has not actually changed.`;
 }
+
+/**
+ * The closing half of the bookend. The last line of an alert tells the user what
+ * to do, and under a drill that instruction answers a price which did not move,
+ * so the reason has to be the last thing read as well as the first.
+ */
+export const SIMULATION_ALERT_FOOTER =
+  "Reminder: the prices above are simulated. Nothing has happened to the market.";
 
 /**
  * "58 minutes" / "1 minute" / "under a minute". Minute granularity, no seconds:
