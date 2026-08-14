@@ -47,6 +47,31 @@ function formatCount(value: number | null): string {
 }
 
 /**
+ * How much of the total was read recently, as a ratio.
+ *
+ * Not a timestamp, because neither end of the distribution summarised it. The
+ * newest reading called all 21 positions current on the strength of one. The
+ * oldest then read "7 d old" permanently, because a single Aave leg closed
+ * on-chain keeps its final snapshot and pins the minimum to the day it closed —
+ * so the cue said the same thing whether the worker was healthy or dead.
+ *
+ * A count moves in proportion: one abandoned leg costs one of twenty-one and
+ * stays visible, and a real outage collapses the numerator.
+ */
+function readingCue(m: AdminMetrics): string | undefined {
+  if (m.positionsMonitored === 0) return "No readings yet";
+  // An older server, or the serverless mirror, returns no window: the mapper
+  // floors the absent field to 0 and the sentence would become "0 of 21 read in
+  // the last 0 min", which is not a degraded cue but a false one. Say nothing
+  // instead — the figure above it is still true, and this line is optional.
+  if (m.freshWindowMinutes <= 0) return undefined;
+  const window = `${formatCount(m.freshWindowMinutes)} min`;
+  return m.positionsFresh === m.positionsMonitored
+    ? `All ${formatCount(m.positionsMonitored)} read in the last ${window}`
+    : `${formatCount(m.positionsFresh)} of ${formatCount(m.positionsMonitored)} read in the last ${window}`;
+}
+
+/**
  * How long ago, as a bare duration, coarse on purpose: this is a freshness cue
  * and not a timestamp. Bare rather than "… ago" so one helper serves both "3
  * min old" and "go back 6 d"; a sub-minute gap is a phrase for the same reason,
@@ -97,11 +122,7 @@ export function MetricsPanel({
   // rather than folded away: a total that silently omits four positions is a
   // total the operator would quote as if it were complete.
   const unpriced = metrics ? metrics.positionsMonitored - metrics.positionsPriced : 0;
-  // Both cues are the OLDEST of their set. "Last reading 2 min ago" was true of
-  // whichever position happened to be scored most recently and said nothing
-  // about the other eighteen; the age of the worst contributor is the one that
-  // tells an operator whether the total beside it is worth quoting.
-  const staleness = elapsed(metrics?.oldestReadingAt ?? null);
+  const freshness = metrics ? readingCue(metrics) : null;
   const eventsSpan = elapsed(metrics?.txOldestAt ?? null);
 
   return (
@@ -142,9 +163,7 @@ export function MetricsPanel({
             sub={
               unpriced > 0
                 ? `${formatCount(unpriced)} of ${formatCount(metrics.positionsMonitored)} positions had no price`
-                : staleness
-                  ? `Oldest reading ${staleness} old`
-                  : undefined
+                : (freshness ?? undefined)
             }
           />
           <Stat
@@ -179,7 +198,7 @@ export function MetricsPanel({
           <Stat
             label="Positions monitored"
             value={formatCount(metrics.positionsMonitored)}
-            sub={staleness ? `Oldest reading ${staleness} old` : "No readings yet"}
+            sub={freshness ?? undefined}
           />
         </div>
       )}

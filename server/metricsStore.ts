@@ -6,7 +6,7 @@
  * function and runs unchanged inside the Express API.
  *
  * All five figures come from ONE `admin_metrics()` RPC (currently
- * supabase/migrations/20260814000003_admin_metrics_real_prices.sql — the
+ * supabase/migrations/20260814000004_admin_metrics_freshness_ratio.sql — the
  * function is replaced in place, so the newest migration touching it is the
  * live definition). The aggregation is in SQL rather than here because the
  * honest alternative is fetching every score_snapshot row over HTTP to add up
@@ -50,11 +50,17 @@ export interface AdminMetrics {
   /** Sum of latest collateral across priced positions. Null = nothing priced. */
   collateralUsd: number | null;
   /**
-   * The OLDEST of the snapshots feeding the above, not the newest. The cue
-   * exists to answer "can I trust this total", and one freshly scored position
-   * does not make the other eighteen current. Null = no snapshots at all.
+   * How many of `positionsMonitored` were read inside `freshWindowMinutes`.
+   *
+   * A ratio rather than a timestamp, because both extremes of the distribution
+   * proved useless as summaries of it: `max` called the whole total current on
+   * the strength of one position, and `min` then reported a week-old figure
+   * forever because a single closed leg keeps its final snapshot. A count moves
+   * in proportion to what actually broke.
    */
-  oldestReadingAt: string | null;
+  positionsFresh: number;
+  /** The window `positionsFresh` was counted against, from SQL, never assumed. */
+  freshWindowMinutes: number;
   /**
    * False when the Goldsky events table is missing OR has never been written
    * to. Existence alone is not readiness: the table ships in the scoring-engine
@@ -100,7 +106,8 @@ export function toMetrics(raw: unknown): AdminMetrics {
     positionsMonitored: count(r.positionsMonitored),
     positionsPriced: count(r.positionsPriced),
     collateralUsd: num(r.collateralUsd),
-    oldestReadingAt: str(r.oldestReadingAt),
+    positionsFresh: count(r.positionsFresh),
+    freshWindowMinutes: count(r.freshWindowMinutes),
     eventsReady: r.eventsReady === true,
     txCount: num(r.txCount),
     txVolumeUsd: num(r.txVolumeUsd),
