@@ -16,7 +16,16 @@
  *
  * "Transaction volume" counts lending events on WATCHED wallets. Unscoped, the
  * Goldsky table reports every Aave user on Base, which is a fact about Base
- * rather than about PANIK.
+ * rather than about PANIK. It is also not an all-time figure: retention prunes
+ * that table to 7 days, so the tiles state the span they actually cover instead
+ * of implying one the data cannot support.
+ *
+ * ── SIMULATED PRICES ARE NOT IN THESE NUMBERS ─────────────────────────────
+ * The simulator panel sits directly below this one, and a scenario armed there
+ * multiplies the collateral USD written into every snapshot it produces. The
+ * RPC filters those rows out, so "Collateral monitored" keeps reporting the
+ * market while a crash is being demonstrated. The cost is that the reading can
+ * be older than the last tick, which is what the staleness cue is for.
  *
  * Nothing here renders an unknown as a zero, and nothing renders a known zero
  * as an unknown. A missing price, an events pipeline that has never ingested
@@ -37,17 +46,22 @@ function formatCount(value: number | null): string {
   return value === null ? "…" : value.toLocaleString("en-US");
 }
 
-/** "3 minutes ago" style, coarse on purpose: this is a freshness cue. */
-function since(iso: string | null): string | null {
+/**
+ * How long ago, as a bare duration, coarse on purpose: this is a freshness cue
+ * and not a timestamp. Bare rather than "… ago" so one helper serves both "3
+ * min old" and "go back 6 d"; a sub-minute gap is a phrase for the same reason,
+ * since "0 min old" reads as a stuck clock.
+ */
+function elapsed(iso: string | null): string | null {
   if (!iso) return null;
   const ms = Date.now() - Date.parse(iso);
   if (!Number.isFinite(ms) || ms < 0) return null;
   const minutes = Math.round(ms / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 1) return "under a minute";
+  if (minutes < 60) return `${minutes} min`;
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  return `${Math.round(hours / 24)} d ago`;
+  if (hours < 24) return `${hours} hr`;
+  return `${Math.round(hours / 24)} d`;
 }
 
 export function MetricsPanel({
@@ -83,7 +97,12 @@ export function MetricsPanel({
   // rather than folded away: a total that silently omits four positions is a
   // total the operator would quote as if it were complete.
   const unpriced = metrics ? metrics.positionsMonitored - metrics.positionsPriced : 0;
-  const freshness = since(metrics?.asOf ?? null);
+  // Both cues are the OLDEST of their set. "Last reading 2 min ago" was true of
+  // whichever position happened to be scored most recently and said nothing
+  // about the other eighteen; the age of the worst contributor is the one that
+  // tells an operator whether the total beside it is worth quoting.
+  const staleness = elapsed(metrics?.oldestReadingAt ?? null);
+  const eventsSpan = elapsed(metrics?.txOldestAt ?? null);
 
   return (
     <Card tone="panel" className="mb-6">
@@ -123,8 +142,8 @@ export function MetricsPanel({
             sub={
               unpriced > 0
                 ? `${formatCount(unpriced)} of ${formatCount(metrics.positionsMonitored)} positions had no price`
-                : freshness
-                  ? `Last reading ${freshness}`
+                : staleness
+                  ? `Oldest reading ${staleness} old`
                   : undefined
             }
           />
@@ -135,17 +154,21 @@ export function MetricsPanel({
               !metrics.eventsReady
                 ? "No lending events on record yet"
                 : metrics.txUnpriced && metrics.txUnpriced > 0
-                  ? `${formatCount(metrics.txUnpriced)} events carried no USD amount`
-                  : `${formatUsd(metrics.txVolumeUsd30d)} in the last 30 days`
+                  ? `${formatCount(metrics.txUnpriced)} of ${formatCount(metrics.txCount)} events carried no USD amount`
+                  : eventsSpan
+                    ? `Events on record go back ${eventsSpan}`
+                    : undefined
             }
           />
           <Stat
             label="Transactions"
             value={metrics.eventsReady ? formatCount(metrics.txCount) : "…"}
             sub={
-              metrics.eventsReady
-                ? `${formatCount(metrics.txCount30d)} in the last 30 days`
-                : "No lending events on record yet"
+              !metrics.eventsReady
+                ? "No lending events on record yet"
+                : eventsSpan
+                  ? `Events on record go back ${eventsSpan}`
+                  : undefined
             }
           />
           <Stat
@@ -156,7 +179,7 @@ export function MetricsPanel({
           <Stat
             label="Positions monitored"
             value={formatCount(metrics.positionsMonitored)}
-            sub={freshness ? `Last reading ${freshness}` : "No readings yet"}
+            sub={staleness ? `Oldest reading ${staleness} old` : "No readings yet"}
           />
         </div>
       )}
