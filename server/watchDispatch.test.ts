@@ -21,6 +21,10 @@ interface Call {
   values: unknown[];
 }
 
+/** The message as a reader sees it. The markup itself is tested where it is the subject. */
+const plain = (message: string): string =>
+  message.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+
 /** One pending delivery, with material debt so the anti-spam gate lets it past. */
 function delivery(over: Partial<PendingDelivery> = {}): PendingDelivery {
   return {
@@ -337,7 +341,7 @@ describe("dispatchPending — whose wallet this is", () => {
     // The drain has to ASK for it, or the formatter has nothing to render.
     expect(h.calls[0]!.sql).toContain("s.label");
     expect(h.sent[0]!.text.split("\n")[0]).toBe(
-      "Simulation target (0xaaaa...1111) on Aave V3 is over your moderate limit.",
+      "<b>Simulation target (<code>0xaaaa...1111</code>) on Aave V3 is over your moderate limit.</b>",
     );
   });
 
@@ -345,8 +349,24 @@ describe("dispatchPending — whose wallet this is", () => {
     const h = harness({ pending: [delivery({ label: null })] });
     await dispatchPending(h.deps);
     expect(h.sent[0]!.text.split("\n")[0]).toBe(
-      "0xaaaa...1111 on Aave V3 is over your moderate limit.",
+      "<b><code>0xaaaa...1111</code> on Aave V3 is over your moderate limit.</b>",
     );
+  });
+
+  it("sends the body as Telegram HTML, and only these two message kinds", async () => {
+    const h = harness({ pending: [delivery()] });
+    await dispatchPending(h.deps);
+    // The formatter is the only one that escapes what it interpolates, so it is
+    // the only one allowed to be parsed.
+    expect(h.sent[0]!.opts?.parseMode).toBe("HTML");
+  });
+
+  it("escapes a hostile label instead of sending Telegram broken markup", async () => {
+    // A label is user-typed. Unescaped, this is not a styling bug: Telegram
+    // rejects the whole sendMessage and the alert is never delivered.
+    const h = harness({ pending: [delivery({ label: '<b>&"hax"</b>' })] });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.text).toContain('&lt;b&gt;&amp;"hax"&lt;/b&gt;');
   });
 
   it("never sends a message that is only advice", async () => {
@@ -388,10 +408,11 @@ describe("dispatchPending — whose wallet this is", () => {
 
     expect(h.sent).toHaveLength(2);
     for (const { text } of h.sent) {
-      expect(text).toContain("0xaaaa...1111");
-      expect(text).toContain("Aave V3");
-      expect(text).toMatch(/Risk score \d+ of 100/);
-      expect(text).not.toContain("$0");
+      const read = plain(text);
+      expect(read).toContain("0xaaaa...1111");
+      expect(read).toContain("Aave V3");
+      expect(read).toMatch(/Risk score \d+ of 100/);
+      expect(read).not.toContain("$0");
     }
   });
 
@@ -403,8 +424,8 @@ describe("dispatchPending — whose wallet this is", () => {
       ],
     });
     await dispatchPending(h.deps);
-    expect(h.sent[0]!.text).toContain("The whale (0xaaaa...1111)");
-    expect(h.sent[1]!.text).toContain("Client A (0xaaaa...1111)");
+    expect(plain(h.sent[0]!.text)).toContain("The whale (0xaaaa...1111)");
+    expect(plain(h.sent[1]!.text)).toContain("Client A (0xaaaa...1111)");
   });
 });
 
@@ -420,7 +441,10 @@ describe("dispatchPending — the simulation marker", () => {
       pending: [delivery({ simulation_id: "sim-1", simulation_label: "Crash" })],
     });
     await dispatchPending(h.deps);
-    expect(h.sent[0]!.text.split("\n")[0]).toContain("Simulated event (Crash)");
+    expect(h.sent[0]!.text.split("\n")[0]).toBe(
+      "<b>Simulated event (Crash) - prices in this alert are from an armed drill, not the market. " +
+        "Real market prices have not moved and your position has not actually changed.</b>",
+    );
   });
 
   it("still marks when only the id was persisted", async () => {
@@ -489,7 +513,9 @@ describe("the Open in PANIK button", () => {
     const h = harness({ pending: [delivery()] });
     const report = await dispatchPending({ ...h.deps, appUrl: "not a url" });
     expect(report.sent).toBe(1);
-    expect(h.sent[0]!.opts).toBeUndefined();
+    expect(h.sent[0]!.opts?.button).toBeUndefined();
+    // The send itself is untouched, parse mode and all.
+    expect(h.sent[0]!.opts?.parseMode).toBe("HTML");
   });
 });
 

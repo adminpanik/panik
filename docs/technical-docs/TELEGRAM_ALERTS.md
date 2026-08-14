@@ -11,7 +11,7 @@ This doc covers setup, the moving parts, and the anti-spam design.
 | Trigger | `packages/scoring/src/profile.ts` (`statusFor`) | pure | within / approaching / outside vs the profile threshold (25 / 50 / 75) |
 | Debounce | `packages/scoring/src/watch/loop.ts` (`WatchService.confirmTicks`) | worker | a status must hold N consecutive 60s ticks before it emits |
 | Send gate | `packages/scoring/src/watch/alertPolicy.ts` (`decideSend`) | worker | materiality + cooldown + escalation bypass + resolution rate limit |
-| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`, `formatResolution`) | worker | plain text, no emoji, hyphens only |
+| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`, `formatResolution`) | worker | Telegram HTML (`<b>`/`<code>` only), no emoji, hyphens only |
 | Worker | `scripts/watch-worker.ts` (`npm run worker`) | standalone | scores, persists transitions, dispatches |
 | Send | `server/telegram.ts` (`sendMessage`) | worker + webhook | Bot API, fetch-only |
 | Link store | `server/telegramStore.ts` | Railway api-server + Vercel fallbacks | Supabase REST, no pg/viem |
@@ -128,7 +128,17 @@ trigger strings never reach a user.
 **The message contract.** Four rules, all enforced by tests in
 `packages/scoring/tests/alertMessage.test.ts`:
 
-- **No emoji**, in any message, and no em dashes. Plain professional text.
+- **No emoji**, in any message, and no em dashes. Plain professional wording.
+- **Telegram HTML, two tags.** Alerts and all-clears are sent with
+  `parse_mode: "HTML"` and emit only `<b>` and `<code>`: the subject line bold
+  with the address in monospace, the score line's three numbers bold, the drill
+  marker and the closing instruction bold, and nothing else. Line breaks stay
+  `\n` (`<br>` is not in Telegram's whitelist and would 400). Every interpolated
+  value goes through `escapeHtml` - the wallet label is user-typed, the symbols
+  and protocol names are read off a chain, the scenario label is operator-typed,
+  and an unescaped `<` is not a styling bug but a rejected send. No other sender
+  sets a parse mode, so the webhook replies, the operator pages and the welcome
+  are all still unparsed plain text.
 - **Say whose position it is.** The first line is the subscriber's own label for
   the wallet plus the truncated address plus the protocol
   (`Simulation target (0x12a5...2305) on Aave V3 is nearing your conservative

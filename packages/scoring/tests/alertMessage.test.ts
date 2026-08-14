@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  escapeHtml,
   formatAlert,
   formatResolution,
   formatSubScores,
   formatWelcome,
   truncateWallet,
   whyNow,
+  type AlertExtras,
   type WhyNowFacts,
   type WhyNowInput,
 } from "../src/watch/alertMessage";
@@ -22,6 +24,25 @@ const base: WatchTransition = {
   to: "outside",
   simulation: null,
 };
+
+/**
+ * The message as a READER sees it: tags removed, entities resolved.
+ *
+ * Everything about the copy - the wording, the rounding, the emoji ban, the
+ * fact floor - is a claim about what reaches a person, and asserting it against
+ * the raw markup would let a tag change quietly break a copy test. The markup
+ * itself gets its own describe block below, where it is the subject.
+ */
+function plain(message: string): string {
+  return message
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+const alert = (t: WatchTransition, extras?: AlertExtras) => plain(formatAlert(t, extras));
+const recovery = (t: WatchTransition, extras?: AlertExtras) => plain(formatResolution(t, extras));
 
 // Em dash (U+2014) and en dash (U+2013) are banned by house style. Built from
 // char codes so this test file itself contains no literal long dash.
@@ -62,47 +83,47 @@ const why: WhyNowInput = { triggers: ["band:HIGH", "profile:outside", "floor:hf<
 
 describe("formatAlert", () => {
   it("contains no em dash or en dash (house style)", () => {
-    const msg = formatAlert(base, { healthFactor: 1.08, collateralUsd: 5000, borrowUsd: 2600 });
+    const msg = alert(base, { healthFactor: 1.08, collateralUsd: 5000, borrowUsd: 2600 });
     expect(LONG_DASH.test(msg)).toBe(false);
   });
 
   // The welcome was de-emojied first; the alert and the all-clear follow it.
   it("reads as plain professional text with no emoji", () => {
     const msgs = [
-      formatAlert(base, { healthFactor: 1.08, collateralUsd: 5000, borrowUsd: 2600, why }),
-      formatAlert({ ...base, to: "approaching" }, { healthFactor: 1.3, why }),
-      formatAlert(base, { simulation: { label: "Crash" }, healthFactor: 1.08, why }),
-      formatResolution({ ...base, to: "within" }, { healthFactor: 1.9, why }),
-      formatResolution({ ...base, to: "within" }, { simulation: { label: "Crash" } }),
+      alert(base, { healthFactor: 1.08, collateralUsd: 5000, borrowUsd: 2600, why }),
+      alert({ ...base, to: "approaching" }, { healthFactor: 1.3, why }),
+      alert(base, { simulation: { label: "Crash" }, healthFactor: 1.08, why }),
+      recovery({ ...base, to: "within" }, { healthFactor: 1.9, why }),
+      recovery({ ...base, to: "within" }, { simulation: { label: "Crash" } }),
     ];
     for (const m of msgs) expect(EMOJI.test(m)).toBe(false);
   });
 
   it("leads with WHICH position, by the reader's own name for it", () => {
-    const named = formatAlert(base, { label: "Simulation target", healthFactor: 1.08 });
+    const named = alert(base, { label: "Simulation target", healthFactor: 1.08 });
     expect(named.split("\n")[0]).toBe(
       "Simulation target (0x76f8...056f) on Moonwell is over your moderate limit.",
     );
     // No label: the address alone still identifies it. Never an empty paren.
-    const unnamed = formatAlert(base, { healthFactor: 1.08 });
+    const unnamed = alert(base, { healthFactor: 1.08 });
     expect(unnamed.split("\n")[0]).toBe("0x76f8...056f on Moonwell is over your moderate limit.");
     expect(unnamed).not.toContain("()");
   });
 
   it("treats a whitespace-only label as no label and collapses newlines in one", () => {
-    expect(formatAlert(base, { label: "   " }).split("\n")[0]).toBe(
+    expect(alert(base, { label: "   " }).split("\n")[0]).toBe(
       "0x76f8...056f on Moonwell is over your moderate limit.",
     );
     // A label is user-written text going into the first line of the message;
     // its newlines must not become the message's structure.
-    const messy = formatAlert(base, { label: "Cold\nwallet\t 2" });
+    const messy = alert(base, { label: "Cold\nwallet\t 2" });
     expect(messy.split("\n")[0]).toBe(
       "Cold wallet 2 (0x76f8...056f) on Moonwell is over your moderate limit.",
     );
   });
 
   it("cuts an over-long label rather than letting it push the address away", () => {
-    const msg = formatAlert(base, { label: "x".repeat(200) });
+    const msg = alert(base, { label: "x".repeat(200) });
     const headline = msg.split("\n")[0]!;
     expect(headline).toContain("... (0x76f8...056f)");
     expect(headline.indexOf("(0x76f8")).toBeLessThan(70);
@@ -111,7 +132,7 @@ describe("formatAlert", () => {
   it("explains the warn boundary instead of contradicting itself", () => {
     // The bug this replaces: "Risk score 15 / 100 (LOW), your conservative
     // limit is 25" - a low score, under the limit, with an alert attached.
-    const msg = formatAlert(
+    const msg = alert(
       { ...base, profile: "conservative", score: 15, band: "LOW", from: "within", to: "approaching" },
       {},
     );
@@ -123,25 +144,25 @@ describe("formatAlert", () => {
   });
 
   it("states no warn boundary once the limit itself is crossed", () => {
-    const msg = formatAlert(base, {});
+    const msg = alert(base, {});
     expect(msg).toContain("Risk score 58 of 100. Your moderate limit is 50.");
     expect(msg).not.toContain("warn from");
   });
 
   it("flags 'close to liquidation' below HF 1.15 and omits the HF line when null", () => {
-    const low = formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600 });
+    const low = alert(base, { healthFactor: 1.08, borrowUsd: 2600 });
     expect(low).toContain("close to liquidation");
 
-    const safeHf = formatAlert(base, { healthFactor: 1.4, borrowUsd: 2600 });
+    const safeHf = alert(base, { healthFactor: 1.4, borrowUsd: 2600 });
     expect(safeHf).toContain("Health factor 1.40.");
     expect(safeHf).not.toContain("close to liquidation");
 
-    const noHf = formatAlert(base, { healthFactor: null, borrowUsd: 0 });
+    const noHf = alert(base, { healthFactor: null, borrowUsd: 0 });
     expect(noHf).not.toContain("Health factor");
   });
 
   it("uses the approaching copy for an approaching transition", () => {
-    const msg = formatAlert(
+    const msg = alert(
       { ...base, to: "approaching", score: 44, band: "ELEVATED" },
       { healthFactor: 1.3, borrowUsd: 800 },
     );
@@ -153,13 +174,114 @@ describe("formatAlert", () => {
   // appears as a substring, which makes this check a mechanical grep.
   it("leaks no ProfileStatus enum token into the copy", () => {
     const msgs = [
-      formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600, why }),
-      formatAlert({ ...base, to: "approaching" }, { healthFactor: 1.3, borrowUsd: 800, why }),
-      formatResolution({ ...base, from: "outside", to: "within" }, { healthFactor: 1.9, borrowUsd: 800, why }),
+      alert(base, { healthFactor: 1.08, borrowUsd: 2600, why }),
+      alert({ ...base, to: "approaching" }, { healthFactor: 1.3, borrowUsd: 800, why }),
+      recovery({ ...base, from: "outside", to: "within" }, { healthFactor: 1.9, borrowUsd: 800, why }),
     ];
     for (const m of msgs) {
       expect(m).not.toMatch(/within|approaching|outside/);
     }
+  });
+});
+
+/**
+ * THE MARKUP. `parse_mode: "HTML"` means Telegram PARSES what we send, so this
+ * is not styling - it is a wire format with a whitelist, and getting it wrong
+ * does not render badly, it returns 400 and the alert is never delivered.
+ */
+describe("Telegram HTML", () => {
+  /** Every distinct tag name the message emits. */
+  const tagsIn = (message: string): string[] => [
+    ...new Set([...message.matchAll(/<\/?([a-zA-Z]+)[^>]*>/g)].map((m) => m[1]!.toLowerCase())),
+  ];
+
+  const everyShape = (): string[] => [
+    formatAlert(base, { label: "Cold wallet", healthFactor: 1.08, collateralUsd: 5000, borrowUsd: 2600, why }),
+    formatAlert({ ...base, to: "approaching" }, { healthFactor: 1.3, why }),
+    formatAlert(base, { simulation: { label: "Crash" }, healthFactor: 1.08 }),
+    formatAlert(base, {}),
+    formatResolution({ ...base, to: "within" }, { label: "Cold wallet", healthFactor: 1.9, why }),
+    formatResolution({ ...base, to: "within", from: null }, { simulation: { label: "Crash" } }),
+  ];
+
+  it("emits only <b> and <code>, the two tags it needs", () => {
+    for (const msg of everyShape()) {
+      for (const tag of tagsIn(msg)) expect(["b", "code"]).toContain(tag);
+    }
+    // And it does emit them: a whitelist test that passes on an empty set is
+    // not testing anything.
+    expect(tagsIn(everyShape()[0]!)).toContain("code");
+  });
+
+  it("keeps line breaks as newlines, never <br>", () => {
+    const msg = formatAlert(base, { healthFactor: 1.08, why });
+    expect(msg).not.toContain("<br");
+    expect(msg.split("\n").length).toBeGreaterThan(5);
+  });
+
+  it("bolds the subject and sets the address in code", () => {
+    expect(formatAlert(base, { label: "Cold wallet" }).split("\n")[0]).toBe(
+      "<b>Cold wallet (<code>0x76f8...056f</code>) on Moonwell is over your moderate limit.</b>",
+    );
+  });
+
+  it("bolds the numbers in the score line and nothing else on it", () => {
+    const line = formatAlert(
+      { ...base, profile: "conservative", score: 15, to: "approaching" },
+      {},
+    )
+      .split("\n")
+      .find((l) => l.startsWith("Risk score"))!;
+    expect(line).toBe(
+      "Risk score <b>15</b> of 100. Your conservative limit is <b>25</b>, and alerts warn from <b>15</b>.",
+    );
+  });
+
+  it("bolds the closing instruction and the drill marker, and leaves the facts alone", () => {
+    const msg = formatAlert(base, { healthFactor: 1.08, simulation: { label: "Crash" }, why });
+    const lines = msg.split("\n");
+    expect(lines[0]!.startsWith("<b>Simulated event (Crash)")).toBe(true);
+    expect(msg).toContain("<b>Add collateral or repay debt to pull this back under your limit.</b>");
+    // Restraint: bold everywhere is bold nowhere.
+    expect(msg).toContain("Health factor 1.08, which is close to liquidation.");
+    expect(msg).toContain("Why now: Liquidation is a 7.4% cbBTC drop away");
+  });
+
+  it("escapes a label that is trying to be markup", () => {
+    const hostile = '<b>&"hax"</b>';
+    const msg = formatAlert(base, { label: hostile });
+    const headline = msg.split("\n")[0]!;
+
+    // The angle brackets arrive as entities, so Telegram reads them as text.
+    // Quotes are left alone: this file emits no attributes for one to escape,
+    // and a label reading "hax" should reach the user as "hax".
+    expect(headline).toContain('&lt;b&gt;&amp;"hax"&lt;/b&gt;');
+    // The only tags on the line are the ones this file wrote.
+    expect(tagsIn(msg)).toEqual(["b", "code"]);
+    // And the user still reads exactly what they typed.
+    expect(plain(msg).split("\n")[0]).toBe(
+      `${hostile} (0x76f8...056f) on Moonwell is over your moderate limit.`,
+    );
+  });
+
+  it("escapes a chain symbol and an operator's scenario label too", () => {
+    const msg = formatAlert(base, {
+      healthFactor: 1.08,
+      simulation: { label: "Crash <2022>" },
+      why: { ...why, facts: { ...facts, scoredCollateralSymbol: "cb<B>TC" } },
+    });
+    expect(msg).toContain("Crash &lt;2022&gt;");
+    expect(msg).toContain("cb&lt;B&gt;TC");
+    expect(tagsIn(msg)).toEqual(["b", "code"]);
+  });
+
+  it("escapes ampersands once, not twice", () => {
+    // `&` first or the entities introduced by `<` and `>` get re-escaped and
+    // the reader gets `&amp;lt;`.
+    expect(escapeHtml("a & <b>")).toBe("a &amp; &lt;b&gt;");
+    expect(plain(formatAlert(base, { label: "Ben & Co <1>" })).split("\n")[0]).toBe(
+      "Ben & Co <1> (0x76f8...056f) on Moonwell is over your moderate limit.",
+    );
   });
 });
 
@@ -171,20 +293,17 @@ describe("formatAlert", () => {
  * join can take them away.
  */
 describe("the fact floor", () => {
-  const bare = { wallet: true, protocol: true, score: true };
-
   it("names the wallet, the protocol and the score with no extras at all", () => {
-    for (const msg of [formatAlert(base), formatResolution({ ...base, to: "within" })]) {
+    for (const msg of [alert(base), recovery({ ...base, to: "within" })]) {
       expect(msg).toContain("0x76f8...056f");
       expect(msg).toContain("Moonwell");
       expect(msg).toContain("Risk score 58 of 100");
       expect(msg.split("\n").filter((l) => l.trim().length > 0).length).toBeGreaterThanOrEqual(3);
     }
-    expect(Object.keys(bare)).toHaveLength(3);
   });
 
   it("keeps the floor when every optional fact is explicitly unknown", () => {
-    const msg = formatAlert(base, {
+    const msg = alert(base, {
       label: null,
       healthFactor: null,
       collateralUsd: null,
@@ -200,7 +319,7 @@ describe("the fact floor", () => {
   });
 
   it("keeps the floor when the health factor is a non-finite number", () => {
-    const msg = formatAlert(base, {
+    const msg = alert(base, {
       healthFactor: Number.POSITIVE_INFINITY,
       collateralUsd: Number.NaN,
       borrowUsd: Number.NaN,
@@ -228,12 +347,12 @@ describe("rounding", () => {
       borrowUsd: 31_426.109876,
     };
     return [
-      formatAlert({ ...base, score: 58.4444444 }, { ...extras, why: rawWhy }),
-      formatAlert({ ...base, to: "approaching" }, { ...extras, why: floorWhy }),
-      formatAlert(base, { ...extras, why: crashWhy }),
-      formatAlert(base, { ...extras, why: protocolWhy }),
-      formatAlert(base, { ...extras, why: rawWhy, simulation: { label: "Crash" } }),
-      formatResolution({ ...base, to: "within" }, { ...extras, why: rawWhy }),
+      alert({ ...base, score: 58.4444444 }, { ...extras, why: rawWhy }),
+      alert({ ...base, to: "approaching" }, { ...extras, why: floorWhy }),
+      alert(base, { ...extras, why: crashWhy }),
+      alert(base, { ...extras, why: protocolWhy }),
+      alert(base, { ...extras, why: rawWhy, simulation: { label: "Crash" } }),
+      recovery({ ...base, to: "within" }, { ...extras, why: rawWhy }),
     ];
   };
 
@@ -244,7 +363,7 @@ describe("rounding", () => {
   });
 
   it("rounds the score, the drivers, the health factor and the dollars", () => {
-    const msg = formatAlert(
+    const msg = alert(
       { ...base, score: 58.4444444 },
       {
         healthFactor: 4.531234567891234,
@@ -280,6 +399,12 @@ describe("formatWelcome", () => {
     const msg = formatWelcome(wallet);
     expect(msg.startsWith("Welcome")).toBe(true);
     expect(EMOJI.test(msg)).toBe(false);
+  });
+
+  it("stays PLAIN text, since its senders set no parse mode", () => {
+    // The webhook replies post it with no parse_mode, so markup here would
+    // reach the user as literal tags.
+    expect(formatWelcome(wallet)).not.toContain("<");
   });
 });
 
@@ -356,14 +481,14 @@ describe("whyNow", () => {
   });
 
   it("never puts a raw trigger string in the copy", () => {
-    const msg = formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600, why });
+    const msg = alert(base, { healthFactor: 1.08, borrowUsd: 2600, why });
     expect(msg).toContain("Why now:");
     expect(msg).not.toContain("floor:hf<=");
     expect(msg).not.toContain("band:");
   });
 
   it("omits the explanation entirely when the dispatcher has no facts", () => {
-    const msg = formatAlert(base, { healthFactor: 1.08, borrowUsd: 2600 });
+    const msg = alert(base, { healthFactor: 1.08, borrowUsd: 2600 });
     expect(msg).not.toContain("Why now");
     expect(msg).not.toContain("Main driver");
   });
@@ -371,7 +496,7 @@ describe("whyNow", () => {
   it("says the dominant driver ONCE, with the rest behind it", () => {
     // The old form printed the top driver in a "why now" sentence and again at
     // the head of a "risk drivers" list, at full float precision both times.
-    const msg = formatAlert(base, { why: { triggers: ["band:HIGH"], facts } });
+    const msg = alert(base, { why: { triggers: ["band:HIGH"], facts } });
     expect(msg).toContain(
       "Main driver: position health (88 of 100). Asset volatility 52, protocol risk 30, market stress 22.",
     );
@@ -379,7 +504,7 @@ describe("whyNow", () => {
   });
 
   it("keeps the drivers as context behind a named trigger", () => {
-    const msg = formatAlert(base, { healthFactor: 1.08, why });
+    const msg = alert(base, { healthFactor: 1.08, why });
     expect(msg).toContain(
       "Why now: Liquidation is a 7.4% cbBTC drop away, at a health factor of 1.08. " +
         "Risk drivers: position health 88, asset volatility 52, protocol risk 30, market stress 22.",
@@ -407,7 +532,7 @@ describe("formatResolution", () => {
   const safeFacts: WhyNowFacts = { ...facts, healthFactor: 1.9 };
 
   it("leads with the all-clear and states what changed", () => {
-    const msg = formatResolution(recovered, {
+    const msg = recovery(recovered, {
       label: "Simulation target",
       healthFactor: 1.9,
       collateralUsd: 5000,
@@ -426,26 +551,26 @@ describe("formatResolution", () => {
   });
 
   it("does not re-explain why the alert fired", () => {
-    const msg = formatResolution(recovered, { healthFactor: 1.9, why: { ...why, facts: safeFacts } });
+    const msg = recovery(recovered, { healthFactor: 1.9, why: { ...why, facts: safeFacts } });
     expect(msg).not.toContain("Why now");
   });
 
   it("omits the money line rather than printing a zero for an unknown", () => {
-    const msg = formatResolution(recovered, { healthFactor: null, collateralUsd: null, borrowUsd: null });
+    const msg = recovery(recovered, { healthFactor: null, collateralUsd: null, borrowUsd: null });
     expect(msg).not.toContain("Position $");
     expect(msg).not.toContain("Health factor");
     expect(msg).not.toContain("$0");
   });
 
   it("omits the origin clause when the position was never seen before", () => {
-    const msg = formatResolution({ ...recovered, from: null }, { healthFactor: 1.9 });
+    const msg = recovery({ ...recovered, from: null }, { healthFactor: 1.9 });
     expect(msg).toContain("What changed: this position is now under your limit.");
   });
 
   it("marks a simulated all-clear at both ends, like the alert", () => {
     // "Nothing to do" issued against a price that never moved misleads exactly
     // as much as the alert does, so the recovery carries the same bookends.
-    const msg = formatResolution(recovered, {
+    const msg = recovery(recovered, {
       healthFactor: 1.9,
       simulation: { label: "Crash" },
     });
@@ -460,7 +585,7 @@ describe("formatResolution", () => {
 
 describe("the simulation marker", () => {
   it("is the first line of a simulated alert and the last", () => {
-    const msg = formatAlert(base, { healthFactor: 1.08, simulation: { label: "Black swan" } });
+    const msg = alert(base, { healthFactor: 1.08, simulation: { label: "Black swan" } });
     const lines = msg.split("\n");
     expect(lines[0]).toBe(
       "Simulated event (Black swan) - prices in this alert are from an armed drill, not the market. " +
@@ -484,11 +609,11 @@ describe("the simulation marker", () => {
         expiresAt: 0,
       },
     };
-    expect(formatAlert(stamped, { healthFactor: 0.97 })).toContain("Simulated event (Crash)");
+    expect(alert(stamped, { healthFactor: 0.97 })).toContain("Simulated event (Crash)");
   });
 
   it("never marks a real alert", () => {
-    const msg = formatAlert(base, { healthFactor: 1.08 });
+    const msg = alert(base, { healthFactor: 1.08 });
     expect(msg).not.toContain("Simulated");
     expect(msg).not.toContain("simulated");
   });

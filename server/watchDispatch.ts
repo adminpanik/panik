@@ -405,7 +405,12 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
     // the WATCHED wallet, not the subscriber's own - a watchlist alert that
     // opens the reader's own dashboard has sent them to the wrong wallet.
     const button = viewButton(appUrl, r.wallet);
-    const result = await deps.send(chatId, text, button ? { button } : undefined);
+    // HTML, and only for these two message kinds. `formatAlert` /
+    // `formatResolution` are the only formatters that emit markup and the only
+    // ones that escape what they interpolate; the webhook replies, the operator
+    // pages and the welcome all still post plain text, where a parse mode would
+    // turn a stray angle bracket into a 400.
+    const result = await deps.send(chatId, text, { parseMode: "HTML", ...(button ? { button } : {}) });
     if (result.ok) {
       await stamp(deps, r, "telegram", r.notify_attempts + 1);
       // PROOF OF REACHABILITY. A delivery Telegram accepted is the strongest

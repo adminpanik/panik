@@ -2,8 +2,26 @@
  * Telegram alert copy for a profile-relative status transition.
  *
  * Pure + deterministic so it is unit-testable in-package; the HTTP send lives
- * in server/telegram.ts. Plain text (no MarkdownV2) so addresses, dots and
- * hyphens need no escaping. House style: hyphens only, never em dashes.
+ * in server/telegram.ts. House style: hyphens only, never em dashes.
+ *
+ * TELEGRAM HTML, and only four tags' worth of it. `formatAlert` and
+ * `formatResolution` emit `parse_mode: "HTML"` markup; the dispatcher opts in
+ * (server/watchDispatch.ts) and every other sender still posts plain text.
+ * Three rules make that safe rather than merely pretty:
+ *
+ *   * ESCAPE EVERY INTERPOLATED VALUE. `escapeHtml` runs over the wallet label
+ *     (typed by the user), the asset symbols and protocol names (read off a
+ *     chain), and the simulation label (typed by an operator). Telegram parses
+ *     the body it is sent, so an unescaped `<` in a label is not a rendering
+ *     bug - it is a malformed entity that makes Telegram reject the whole send
+ *     with a 400, and the alert is never delivered.
+ *   * ONLY `<b>` AND `<code>`. Telegram accepts a whitelist and errors on
+ *     anything outside it, so the smaller the set the fewer ways a send can
+ *     fail. It is also the design: the subject, the score line's numbers and
+ *     the closing instruction are bold, the address is monospace, and nothing
+ *     else is marked at all. Bold everywhere is bold nowhere.
+ *   * NEWLINES STAY NEWLINES. HTML mode preserves them; `<br>` is not in the
+ *     whitelist and would be a 400.
  *
  * NO EMOJI, anywhere. The pictograms this file used to carry were removed after
  * the first real delivered alert was read back: a column of coloured glyphs in
@@ -42,6 +60,21 @@ import { simulationAlertLine, SIMULATION_ALERT_FOOTER } from "../simulation";
 import type { SimulationMark } from "../simulation";
 import type { DegradableSubScores, ProfileStatus, Protocol, RiskProfile } from "../types";
 import type { WatchTransition } from "./loop";
+
+/**
+ * The three characters Telegram's HTML parser reads as markup.
+ *
+ * Deliberately not a general-purpose HTML escaper: quotes are left alone
+ * because this file emits no attributes, and a label reading `"hax"` should
+ * reach the user as `"hax"` rather than as a mouthful of entities. Order
+ * matters - `&` first, or the ampersands introduced by the other two get
+ * escaped a second time and the user reads `&amp;lt;`.
+ */
+export function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const b = (content: string): string => `<b>${content}</b>`;
 
 /** Health factor below which we explicitly flag "close to liquidation". */
 const NEAR_LIQUIDATION_HF = 1.15;
@@ -381,10 +414,15 @@ function cleanLabel(label: string | null | undefined): string | null {
  * what anyone called it.
  */
 function subjectOf(t: WatchTransition, extras: AlertExtras): string {
-  const wallet = truncateWallet(t.wallet);
+  // Monospace, because an address is a string to COMPARE, not to read: a
+  // proportional font makes 0x12a5 and 0x12ab the same shape at a glance. It
+  // sits inside the bold subject line, which Telegram has allowed since nested
+  // entities landed in Bot API 4.5.
+  const wallet = `<code>${escapeHtml(truncateWallet(t.wallet))}</code>`;
   const label = cleanLabel(extras.label);
-  const protocol = PROTOCOL_LABEL[t.protocol] ?? t.protocol;
-  return `${label ? `${label} (${wallet})` : wallet} on ${protocol}`;
+  const protocol = escapeHtml(PROTOCOL_LABEL[t.protocol] ?? t.protocol);
+  const who = label ? `${escapeHtml(label)} (${wallet})` : wallet;
+  return `${who} on ${protocol}`;
 }
 
 /**
@@ -401,9 +439,12 @@ function subjectOf(t: WatchTransition, extras: AlertExtras): string {
  */
 function scoreLine(t: WatchTransition): string {
   const limit = ALERT_THRESHOLD[t.profile];
-  const base = `Risk score ${Math.round(t.score)} of 100. Your ${t.profile} limit is ${limit}`;
+  // The three numbers are the line's whole argument, and they are what a reader
+  // scans for; the words around them are scaffolding. Nothing else in the fact
+  // block is marked, so this is where the eye lands.
+  const base = `Risk score ${b(String(Math.round(t.score)))} of 100. Your ${t.profile} limit is ${b(String(limit))}`;
   return t.to === "approaching"
-    ? `${base}, and alerts warn from ${warnFrom(t.profile)}.`
+    ? `${base}, and alerts warn from ${b(String(warnFrom(t.profile)))}.`
     : `${base}.`;
 }
 
@@ -428,10 +469,12 @@ function optionalFactLines(extras: AlertExtras): string[] {
     const symbol = extras.why?.facts.scoredCollateralSymbol;
     if (symbol !== undefined) {
       const pct = dropPct(hfValue);
+      // The symbol is read off a chain, so it is not ours and gets escaped.
+      const asset = escapeHtml(assetName(symbol));
       lines.push(
         pct === null
-          ? `Can be liquidated at today's ${assetName(symbol)} price.`
-          : `Liquidates if ${assetName(symbol)} falls ${pct}.`,
+          ? `Can be liquidated at today's ${asset} price.`
+          : `Liquidates if ${asset} falls ${pct}.`,
       );
     }
     const hf = hfValue.toFixed(2);
@@ -487,6 +530,16 @@ function simulationOf(t: WatchTransition, extras: AlertExtras): SimulationMark |
 }
 
 /**
+ * The marker, bold. `simulationAlertLine` owns the words (simulation.ts is the
+ * one place a drill is described, so the banner, the console and this cannot
+ * diverge); this owns the markup, and escapes the whole sentence because the
+ * scenario label inside it was typed by an operator.
+ */
+function simulationLine(mark: SimulationMark): string {
+  return b(escapeHtml(simulationAlertLine(mark)));
+}
+
+/**
  * Build the alert body for a transition INTO approaching/outside. Recovery
  * transitions go to `formatResolution` instead.
  */
@@ -496,10 +549,10 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
 
   const lines: string[] = [];
   if (simulation) {
-    lines.push(simulationAlertLine(simulation));
+    lines.push(simulationLine(simulation));
     lines.push("");
   }
-  lines.push(`${subjectOf(t, extras)} is ${limitClause(t.to, t.profile)}.`);
+  lines.push(b(`${subjectOf(t, extras)} is ${limitClause(t.to, t.profile)}.`));
   lines.push("");
   lines.push(scoreLine(t));
   lines.push(...optionalFactLines(extras));
@@ -508,14 +561,16 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
   const explained = extras.why ? explainLine(extras.why) : null;
   if (explained) {
     lines.push("");
-    lines.push(explained);
+    lines.push(escapeHtml(explained));
   }
 
   lines.push("");
   lines.push(
-    outside
-      ? "Add collateral or repay debt to pull this back under your limit."
-      : "Add collateral or repay debt to widen the buffer.",
+    b(
+      outside
+        ? "Add collateral or repay debt to pull this back under your limit."
+        : "Add collateral or repay debt to widen the buffer.",
+    ),
   );
 
   if (simulation) {
@@ -540,10 +595,10 @@ export function formatResolution(t: WatchTransition, extras: AlertExtras = {}): 
   const simulation = simulationOf(t, extras);
   const lines: string[] = [];
   if (simulation) {
-    lines.push(simulationAlertLine(simulation));
+    lines.push(simulationLine(simulation));
     lines.push("");
   }
-  lines.push(`${subjectOf(t, extras)} is ${limitClause(t.to, t.profile)}.`);
+  lines.push(b(`${subjectOf(t, extras)} is ${limitClause(t.to, t.profile)}.`));
   lines.push("");
   lines.push(scoreLine(t));
   lines.push(...optionalFactLines(extras));
@@ -555,7 +610,7 @@ export function formatResolution(t: WatchTransition, extras: AlertExtras = {}): 
   );
   lines.push("");
   lines.push(
-    "Nothing to do. PANIK keeps watching and will message you again if it drifts back toward your limit.",
+    b("Nothing to do. PANIK keeps watching and will message you again if it drifts back toward your limit."),
   );
   if (simulation) {
     lines.push("");

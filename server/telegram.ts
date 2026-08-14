@@ -32,6 +32,17 @@ export interface TelegramUrlButton {
 }
 
 export interface SendOptions {
+  /**
+   * OPT-IN, and the caller owns escaping.
+   *
+   * Absent means Telegram does not parse the body at all, which is why every
+   * sender that posts text it did not build - the webhook replies, the operator
+   * pages, `formatWelcome` - leaves it absent and is unaffected by any of this.
+   * Set it only for a formatter that escapes what it interpolates
+   * (`packages/scoring/src/watch/alertMessage.ts`). Sending unescaped user text
+   * under a parse mode does not render badly; Telegram returns 400 and the
+   * message is never delivered.
+   */
   parseMode?: "MarkdownV2" | "HTML";
   disablePreview?: boolean;
   /** Rendered as one inline-keyboard row holding one URL button. */

@@ -14,6 +14,7 @@ import { sendMessage } from "./telegram";
 interface SentBody {
   chat_id: number | string;
   text: string;
+  parse_mode?: string;
   reply_markup?: { inline_keyboard: Array<Array<{ text: string; url: string }>> };
   disable_web_page_preview?: boolean;
 }
@@ -42,6 +43,17 @@ describe("sendMessage", () => {
     // Absent, not null: an explicit null reply_markup is rejected by some API
     // versions, and "no key" is the documented way to say "no keyboard".
     expect("reply_markup" in bodies[0]!).toBe(false);
+    // No parse mode by default, so the senders that post text they did not
+    // build keep posting it uninterpreted. A `<` in a wallet nickname reaching
+    // an unescaped parse mode is a 400, not a styling bug.
+    expect(bodies[0]!.parse_mode).toBeUndefined();
+  });
+
+  it("parses the body as HTML only when the caller opts in", async () => {
+    const { bodies } = captureFetch();
+    await sendMessage("token-123", 101, "<b>hi</b>", { parseMode: "HTML" });
+    expect(bodies[0]!.parse_mode).toBe("HTML");
+    expect(bodies[0]!.text).toBe("<b>hi</b>");
   });
 
   it("wraps one URL button as a single-row inline keyboard", async () => {

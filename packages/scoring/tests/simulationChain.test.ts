@@ -216,7 +216,7 @@ describe("end to end: a simulated crash drives the whole protection chain", () =
     // The first line is the position itself, and it is the position that was
     // NOT simulated - so the marker's absence is visible from the first words.
     expect(text.split("\n")[0]).toBe(
-      `${WALLET.slice(0, 6)}...${WALLET.slice(-4)} on Aave V3 is over your moderate limit.`,
+      `<b><code>${WALLET.slice(0, 6)}...${WALLET.slice(-4)}</code> on Aave V3 is over your moderate limit.</b>`,
     );
   });
 });
