@@ -16,9 +16,26 @@ export interface TelegramSendResult {
   description?: string;
 }
 
+/**
+ * A single URL button under the message.
+ *
+ * Telegram's `reply_markup` accepts several mutually exclusive shapes; this is
+ * deliberately the narrowest one we have a use for (`inline_keyboard` with one
+ * row of one URL button), rather than a passthrough of arbitrary JSON. A URL
+ * button needs no callback handling, works in a one-to-one chat, and cannot
+ * change what the bot does - the worst a bad value can do is fail Telegram's
+ * own URL validation, which comes back as a 400 on the send.
+ */
+export interface TelegramUrlButton {
+  text: string;
+  url: string;
+}
+
 export interface SendOptions {
   parseMode?: "MarkdownV2" | "HTML";
   disablePreview?: boolean;
+  /** Rendered as one inline-keyboard row holding one URL button. */
+  button?: TelegramUrlButton;
   signal?: AbortSignal;
 }
 
@@ -42,6 +59,12 @@ export async function sendMessage(
         text,
         parse_mode: opts.parseMode,
         disable_web_page_preview: opts.disablePreview ?? true,
+        // Omitted entirely when there is no button: Telegram rejects a null
+        // reply_markup on some API versions, and an absent key is the
+        // documented "no keyboard" state.
+        ...(opts.button
+          ? { reply_markup: { inline_keyboard: [[{ text: opts.button.text, url: opts.button.url }]] } }
+          : {}),
       }),
       signal: opts.signal,
     });

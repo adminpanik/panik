@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import { ALERT_POLICY } from "../packages/scoring/src/params";
 import {
   dispatchPending,
+  OPEN_IN_PANIK_TEXT,
+  PANIK_APP_URL_DEFAULT,
+  viewButton,
   type DispatchDeps,
   type PendingDelivery,
 } from "./watchDispatch";
-import type { TelegramSendResult } from "./telegram";
+import type { SendOptions, TelegramSendResult } from "./telegram";
 
 const WHALE = "0xaaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
 const ANNA = "0xbbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
@@ -31,6 +34,7 @@ function delivery(over: Partial<PendingDelivery> = {}): PendingDelivery {
     to_status: "outside",
     created_at: new Date(NOW).toISOString(),
     owner_wallet: ANNA,
+    label: null,
     chat_id: "101",
     health_factor: "1.14",
     collateral_usd: "250000",
@@ -52,7 +56,7 @@ interface FakeOptions {
 
 function harness(opts: FakeOptions) {
   const calls: Call[] = [];
-  const sent: Array<{ chatId: number; text: string }> = [];
+  const sent: Array<{ chatId: number; text: string; opts?: SendOptions }> = [];
   const delivered: number[] = [];
   const blocked: number[] = [];
 
@@ -70,8 +74,8 @@ function harness(opts: FakeOptions) {
         return { rows: [], rowCount: 1 };
       }) as DispatchDeps["db"]["query"],
     },
-    send: async (chatId, text) => {
-      sent.push({ chatId, text });
+    send: async (chatId, text, sendOpts) => {
+      sent.push({ chatId, text, opts: sendOpts });
       return (await opts.send?.(chatId, text)) ?? { ok: true, status: 200 };
     },
     // No fresh score in these tests: the why-now line is omitted rather than
@@ -320,6 +324,172 @@ describe("dispatchPending — recoveries", () => {
     await dispatchPending(h.deps);
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]!.text).not.toBe("");
+  });
+});
+
+describe("dispatchPending — whose wallet this is", () => {
+  it("selects the subscription label and puts it in the message", async () => {
+    const h = harness({
+      pending: [delivery({ owner_wallet: ANNA, chat_id: "101", label: "Simulation target" })],
+    });
+    await dispatchPending(h.deps);
+
+    // The drain has to ASK for it, or the formatter has nothing to render.
+    expect(h.calls[0]!.sql).toContain("s.label");
+    expect(h.sent[0]!.text.split("\n")[0]).toBe(
+      "Simulation target (0xaaaa...1111) on Aave V3 is over your moderate limit.",
+    );
+  });
+
+  it("falls back to the address when the subscriber never named the wallet", async () => {
+    const h = harness({ pending: [delivery({ label: null })] });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.text.split("\n")[0]).toBe(
+      "0xaaaa...1111 on Aave V3 is over your moderate limit.",
+    );
+  });
+
+  it("never sends a message that is only advice", async () => {
+    // A trailer paragraph with nothing in front of it was actually delivered
+    // once. These are the two shapes that reach the formatter with the fewest
+    // facts: an ALERT is gated on a health factor (alertPolicy: no debt, no
+    // alert), so its floor is HF alone with the snapshot join otherwise empty;
+    // a RECOVERY is not gated at all, so it can arrive with nothing.
+    const h = harness({
+      pending: [
+        delivery({
+          owner_wallet: ANNA,
+          chat_id: "101",
+          label: null,
+          collateral_usd: null,
+          borrow_usd: null,
+          usd_values_unavailable: true,
+        }),
+        delivery({
+          id: "2",
+          owner_wallet: BEN,
+          chat_id: "202",
+          to_status: "within",
+          from_status: "outside",
+          score: 20,
+          band: "LOW",
+          label: null,
+          health_factor: null,
+          collateral_usd: null,
+          borrow_usd: null,
+        }),
+      ],
+      // Only the recovery needs a prior alert to be worth sending.
+      priorByChat: {
+        "202": [{ to_status: "outside", created_at: new Date(NOW - 60_000).toISOString() }],
+      },
+    });
+    await dispatchPending(h.deps);
+
+    expect(h.sent).toHaveLength(2);
+    for (const { text } of h.sent) {
+      expect(text).toContain("0xaaaa...1111");
+      expect(text).toContain("Aave V3");
+      expect(text).toMatch(/Risk score \d+ of 100/);
+      expect(text).not.toContain("$0");
+    }
+  });
+
+  it("gives two watchers of one whale their own names for it", async () => {
+    const h = harness({
+      pending: [
+        delivery({ owner_wallet: ANNA, chat_id: "101", label: "The whale" }),
+        delivery({ owner_wallet: BEN, chat_id: "202", label: "Client A" }),
+      ],
+    });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.text).toContain("The whale (0xaaaa...1111)");
+    expect(h.sent[1]!.text).toContain("Client A (0xaaaa...1111)");
+  });
+});
+
+/**
+ * The marker survived the fan-out. Worth its own test because the stamp now
+ * travels through four hops (tick score -> transition row -> drain -> extras)
+ * and a delivered alert was observed with `simulation_label` null while a
+ * scenario was armed - which this proves was not a drop on THIS path.
+ */
+describe("dispatchPending — the simulation marker", () => {
+  it("marks an alert whose transition row carries a simulation", async () => {
+    const h = harness({
+      pending: [delivery({ simulation_id: "sim-1", simulation_label: "Crash" })],
+    });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.text.split("\n")[0]).toContain("Simulated event (Crash)");
+  });
+
+  it("still marks when only the id was persisted", async () => {
+    // The label is denormalised onto the row and could be null on an older row.
+    // The id alone is enough to know the alert must not read as real.
+    const h = harness({ pending: [delivery({ simulation_id: "sim-1", simulation_label: null })] });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.text).toContain("Simulated event");
+  });
+
+  it("leaves a real alert unmarked", async () => {
+    const h = harness({ pending: [delivery()] });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.text).not.toContain("imulated");
+  });
+});
+
+describe("the Open in PANIK button", () => {
+  it("points at the WATCHED wallet, not the subscriber's own", async () => {
+    const h = harness({ pending: [delivery({ owner_wallet: ANNA, chat_id: "101" })] });
+    await dispatchPending({ ...h.deps, appUrl: "https://www.panik.fi/app" });
+
+    expect(h.sent[0]!.opts?.button).toEqual({
+      text: OPEN_IN_PANIK_TEXT,
+      url: `https://www.panik.fi/app?view=${WHALE}`,
+    });
+    expect(h.sent[0]!.opts?.button?.url).not.toContain(ANNA);
+  });
+
+  it("rides on the all-clear too", async () => {
+    const h = harness({
+      pending: [delivery({ to_status: "within", from_status: "outside", score: 20, band: "LOW" })],
+      priorByChat: {
+        "101": [{ to_status: "outside", created_at: new Date(NOW - 60_000).toISOString() }],
+      },
+    });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.opts?.button?.text).toBe(OPEN_IN_PANIK_TEXT);
+  });
+
+  it("defaults to the public app when the environment names none", () => {
+    expect(viewButton(PANIK_APP_URL_DEFAULT, WHALE)).toEqual({
+      text: OPEN_IN_PANIK_TEXT,
+      url: `https://www.panik.fi/app?view=${WHALE}`,
+    });
+  });
+
+  it("keeps a query string the configured URL already had", () => {
+    expect(viewButton("https://preview.panik.fi/app?chain=base", WHALE)?.url).toBe(
+      `https://preview.panik.fi/app?chain=base&view=${WHALE}`,
+    );
+  });
+
+  it("lowercases the wallet so the link matches the watchlist", () => {
+    expect(viewButton(PANIK_APP_URL_DEFAULT, WHALE.toUpperCase().replace("0X", "0x"))?.url).toBe(
+      `https://www.panik.fi/app?view=${WHALE}`,
+    );
+  });
+
+  it("is dropped, not guessed, when the configured URL is unusable", async () => {
+    // Telegram 400s the WHOLE send on a malformed button URL, so a fat-fingered
+    // PANIK_APP_URL must cost the button and never the alert.
+    expect(viewButton("panik.fi/app", WHALE)).toBeNull();
+    expect(viewButton("javascript:alert(1)", WHALE)).toBeNull();
+
+    const h = harness({ pending: [delivery()] });
+    const report = await dispatchPending({ ...h.deps, appUrl: "not a url" });
+    expect(report.sent).toBe(1);
+    expect(h.sent[0]!.opts).toBeUndefined();
   });
 });
 

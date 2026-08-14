@@ -523,7 +523,7 @@ function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): Al
  */
 const dispatchDeps: DispatchDeps = {
   db,
-  send: (chatId, text) => sendMessage(botToken!, chatId, text),
+  send: (chatId, text, opts) => sendMessage(botToken!, chatId, text, opts),
   whyNow: whyNowFor,
   onDelivered: (chatId) => recordDelivery(chatId, true, false),
   onBlocked: (chatId) => recordDelivery(chatId, false, true),

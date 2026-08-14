@@ -45,7 +45,7 @@ import {
 } from "../packages/scoring/src/watch/alertMessage";
 import type { WatchTransition } from "../packages/scoring/src/watch/loop";
 import type { ProfileStatus, Protocol, RiskProfile } from "../packages/scoring/src/types";
-import type { TelegramSendResult } from "./telegram";
+import type { SendOptions, TelegramSendResult, TelegramUrlButton } from "./telegram";
 
 /** The slice of `pg.Pool` this module uses. */
 export interface DispatchQueryable {
@@ -69,6 +69,15 @@ export interface PendingDelivery {
   created_at: string;
   /** The SUBSCRIBER, not the watched wallet. Alerts route to their link. */
   owner_wallet: string;
+  /**
+   * The subscriber's own name for the watched wallet, or null.
+   *
+   * Selected from the SUBSCRIPTION rather than from any wallet-level table
+   * because it belongs to the reader, not to the address: two people watching
+   * one whale call it different things, and each of them should be told about
+   * it in their own words. `alertMessage.ts` owns what happens to it.
+   */
+  label: string | null;
   chat_id: string;
   health_factor: string | null;
   collateral_usd: string | null;
@@ -91,7 +100,12 @@ export interface PendingDelivery {
 export interface DispatchDeps {
   db: DispatchQueryable;
   /** Send one message to one chat. */
-  send(chatId: number, text: string): Promise<TelegramSendResult>;
+  send(chatId: number, text: string, opts?: SendOptions): Promise<TelegramSendResult>;
+  /**
+   * Where the "Open in PANIK" button points, before the `?view=` parameter.
+   * Defaults to `PANIK_APP_URL` in the environment, then to the public app.
+   */
+  appUrl?: string;
   /**
    * The advisor's own triggers for this leg, or undefined when there is no
    * score fresh enough to be evidence. Supplied by the worker, which owns the
@@ -141,7 +155,7 @@ export interface DispatchDeps {
 export const DRAIN_SQL = `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band,
             t.from_status, t.to_status, t.created_at,
             t.simulation_id, t.simulation_label,
-            s.owner_wallet, l.chat_id,
+            s.owner_wallet, s.label, l.chat_id,
             coalesce(d.notify_attempts, 0) as notify_attempts,
             snap.health_factor, snap.collateral_usd, snap.borrow_usd,
             snap.usd_values_unavailable
@@ -165,6 +179,37 @@ export const DRAIN_SQL = `select t.id, t.wallet, t.protocol, t.risk_profile, t.s
         and coalesce(d.notify_attempts, 0) < $1
       order by t.created_at
       limit $2`;
+
+// ── the "Open in PANIK" button ──────────────────────────────────────────────
+
+/** Where the app lives when nothing in the environment says otherwise. */
+export const PANIK_APP_URL_DEFAULT = "https://www.panik.fi/app";
+
+/** The button's label. One string, so the tests and the send cannot drift. */
+export const OPEN_IN_PANIK_TEXT = "Open in PANIK";
+
+/**
+ * The deep link for one watched wallet: the app, plus the `?view=` parameter
+ * `src/panik-core/AppDemo.tsx` honours after the watchlist loads.
+ *
+ * Null rather than a best effort when the base is not an absolute http(s) URL.
+ * Telegram VALIDATES button URLs and rejects the whole `sendMessage` with a 400
+ * if one is malformed, so a fat-fingered `PANIK_APP_URL` would not degrade the
+ * button - it would silently stop every alert in the queue from being
+ * delivered. A missing button is a worse message; a rejected send is no message
+ * at all.
+ */
+export function viewButton(appUrl: string, wallet: string): TelegramUrlButton | null {
+  let base: URL;
+  try {
+    base = new URL(appUrl);
+  } catch {
+    return null;
+  }
+  if (base.protocol !== "https:" && base.protocol !== "http:") return null;
+  base.searchParams.set("view", wallet.trim().toLowerCase());
+  return { text: OPEN_IN_PANIK_TEXT, url: base.toString() };
+}
 
 /**
  * The last few messages actually SENT to THIS chat about THIS position.
@@ -285,6 +330,7 @@ export interface DispatchReport {
 }
 
 export async function dispatchPending(deps: DispatchDeps): Promise<DispatchReport> {
+  const appUrl = deps.appUrl ?? process.env.PANIK_APP_URL ?? PANIK_APP_URL_DEFAULT;
   const { rows } = await deps.db.query<PendingDelivery>(DRAIN_SQL, [
     deps.maxAttempts,
     deps.batchSize ?? 50,
@@ -343,6 +389,10 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
       simulation: null,
     };
     const extras: AlertExtras = {
+      // The reader's own name for this wallet. Straight through: the formatter
+      // owns the copy, including what a too-long or whitespace-only label
+      // becomes, so this path has no opinion beyond passing on what was stored.
+      label: r.label,
       healthFactor: r.health_factor == null ? null : Number(r.health_factor),
       collateralUsd: r.collateral_usd == null ? null : Number(r.collateral_usd),
       borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
@@ -351,7 +401,11 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
     };
     const text = recovery ? formatResolution(transition, extras) : formatAlert(transition, extras);
 
-    const result = await deps.send(chatId, text);
+    // Straight from the message to the position it is about. The button carries
+    // the WATCHED wallet, not the subscriber's own - a watchlist alert that
+    // opens the reader's own dashboard has sent them to the wrong wallet.
+    const button = viewButton(appUrl, r.wallet);
+    const result = await deps.send(chatId, text, button ? { button } : undefined);
     if (result.ok) {
       await stamp(deps, r, "telegram", r.notify_attempts + 1);
       // PROOF OF REACHABILITY. A delivery Telegram accepted is the strongest
