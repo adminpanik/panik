@@ -115,7 +115,7 @@ export class WatchlistError extends Error {
 export function parseWatchlistOps(body: unknown): { ops: WatchOp[] } | { error: string } {
   const raw = (body as { ops?: unknown } | null | undefined)?.ops;
   if (!Array.isArray(raw)) return { error: "body.ops must be an array of operations" };
-  if (raw.length === 0) return { error: "body.ops is empty — nothing to do" };
+  if (raw.length === 0) return { error: "body.ops is empty, so there is nothing to do" };
   if (raw.length > WATCHLIST_MAX_OPS) {
     return { error: `body.ops may carry at most ${WATCHLIST_MAX_OPS} operations` };
   }
@@ -171,7 +171,7 @@ export function parseWatchlistOps(body: unknown): { ops: WatchOp[] } | { error: 
       ops.push({ op: "add", wallet: target, profile: profile as RiskProfile, ...(label !== undefined ? { label: cleanLabel ?? null } : {}) });
     } else {
       if (profile === undefined && label === undefined) {
-        return { error: `${at} changes nothing — supply a profile or a label` };
+        return { error: `${at} changes nothing. Supply a profile or a label` };
       }
       ops.push({
         op: "update",
@@ -318,7 +318,7 @@ export async function applyWatchlistOps(
       // A no-op update is a caller who thinks they are watching something they
       // are not. Saying so beats returning a list that silently lacks it.
       if (!res.rowCount) {
-        throw new WatchlistError(404, `not watching ${op.wallet} — add it first`);
+        throw new WatchlistError(404, `not watching ${op.wallet}, so add it first`);
       }
     }
 
@@ -327,7 +327,7 @@ export async function applyWatchlistOps(
     if (total > WATCHLIST_MAX) {
       throw new WatchlistError(
         409,
-        `watchlist holds ${WATCHLIST_MAX} wallets at most — this change would leave ${total}`,
+        `watchlist holds ${WATCHLIST_MAX} wallets at most, and this change would leave ${total}`,
       );
     }
 
