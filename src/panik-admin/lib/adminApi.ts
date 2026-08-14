@@ -136,19 +136,22 @@ export const expireCampaign = (session: Session, id: string) =>
  * the panel renders null as the unknown glyph rather than a zero. `eventsReady`
  * is false where the Goldsky pipeline is not provisioned, which is a different
  * statement from "no transactions happened" and is shown as such.
+ *
+ * The two `*At` fields are both the OLDEST of their set, not the newest: they
+ * exist to bound how much of the figure beside them is stale, and a best-case
+ * timestamp cannot do that.
  */
 export interface AdminMetrics {
   walletsConnected: number;
   positionsMonitored: number;
   positionsPriced: number;
   collateralUsd: number | null;
-  asOf: string | null;
+  oldestReadingAt: string | null;
   eventsReady: boolean;
   txCount: number | null;
   txVolumeUsd: number | null;
   txUnpriced: number | null;
-  txCount30d: number | null;
-  txVolumeUsd30d: number | null;
+  txOldestAt: string | null;
   generatedAt: string;
 }
 

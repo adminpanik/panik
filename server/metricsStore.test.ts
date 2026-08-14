@@ -18,13 +18,12 @@ const FULL = {
   positionsMonitored: 19,
   positionsPriced: 17,
   collateralUsd: 482_300.55,
-  asOf: "2026-08-14T09:00:00Z",
+  oldestReadingAt: "2026-08-14T09:00:00Z",
   eventsReady: true,
   txCount: 640,
   txVolumeUsd: 1_204_000,
   txUnpriced: 3,
-  txCount30d: 88,
-  txVolumeUsd30d: 91_400,
+  txOldestAt: "2026-08-07T09:00:00Z",
   generatedAt: "2026-08-14T09:01:00Z",
 };
 
@@ -49,20 +48,20 @@ describe("toMetrics", () => {
       positionsMonitored: 2,
       positionsPriced: 0,
       collateralUsd: null,
-      asOf: null,
+      oldestReadingAt: null,
       eventsReady: false,
       txCount: null,
       txVolumeUsd: null,
       txUnpriced: null,
-      txCount30d: null,
-      txVolumeUsd30d: null,
+      txOldestAt: null,
       generatedAt: "2026-08-14T09:01:00Z",
     });
     expect(m.collateralUsd).toBeNull();
     expect(m.txCount).toBeNull();
     expect(m.txVolumeUsd).toBeNull();
-    expect(m.txVolumeUsd30d).toBeNull();
-    expect(m.asOf).toBeNull();
+    expect(m.txUnpriced).toBeNull();
+    expect(m.oldestReadingAt).toBeNull();
+    expect(m.txOldestAt).toBeNull();
     expect(m.eventsReady).toBe(false);
     // Counts the schema guarantees stay numbers.
     expect(m.walletsConnected).toBe(4);

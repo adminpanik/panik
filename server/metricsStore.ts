@@ -5,10 +5,12 @@
  * server/simulationStore.ts: no `pg`, so this bundles as an ESM serverless
  * function and runs unchanged inside the Express API.
  *
- * All five figures come from ONE `admin_metrics()` RPC (see
- * supabase/migrations/20260814000001_admin_metrics.sql). The aggregation is in
- * SQL rather than here because the honest alternative is fetching every
- * score_snapshot row over HTTP to add up one column.
+ * All five figures come from ONE `admin_metrics()` RPC (currently
+ * supabase/migrations/20260814000003_admin_metrics_real_prices.sql — the
+ * function is replaced in place, so the newest migration touching it is the
+ * live definition). The aggregation is in SQL rather than here because the
+ * honest alternative is fetching every score_snapshot row over HTTP to add up
+ * one column.
  *
  * WHAT THIS MODULE REFUSES TO DO: invent a zero. Every numeric field is
  * `number | null`, and null survives all the way to the console, which prints
@@ -47,8 +49,12 @@ export interface AdminMetrics {
   positionsPriced: number;
   /** Sum of latest collateral across priced positions. Null = nothing priced. */
   collateralUsd: number | null;
-  /** Most recent snapshot feeding the above. Null = no snapshots at all. */
-  asOf: string | null;
+  /**
+   * The OLDEST of the snapshots feeding the above, not the newest. The cue
+   * exists to answer "can I trust this total", and one freshly scored position
+   * does not make the other eighteen current. Null = no snapshots at all.
+   */
+  oldestReadingAt: string | null;
   /**
    * False when the Goldsky events table is missing OR has never been written
    * to. Existence alone is not readiness: the table ships in the scoring-engine
@@ -63,8 +69,12 @@ export interface AdminMetrics {
   txVolumeUsd: number | null;
   /** Events with no USD amount, so a partial volume is visibly partial. */
   txUnpriced: number | null;
-  txCount30d: number | null;
-  txVolumeUsd30d: number | null;
+  /**
+   * Oldest event still on hand, which is what the two figures above actually
+   * cover. Retention prunes this table to 7 days, so there is no all-time total
+   * to report and no 30-day subset that would differ from it.
+   */
+  txOldestAt: string | null;
   generatedAt: string;
 }
 
@@ -90,13 +100,12 @@ export function toMetrics(raw: unknown): AdminMetrics {
     positionsMonitored: count(r.positionsMonitored),
     positionsPriced: count(r.positionsPriced),
     collateralUsd: num(r.collateralUsd),
-    asOf: str(r.asOf),
+    oldestReadingAt: str(r.oldestReadingAt),
     eventsReady: r.eventsReady === true,
     txCount: num(r.txCount),
     txVolumeUsd: num(r.txVolumeUsd),
     txUnpriced: num(r.txUnpriced),
-    txCount30d: num(r.txCount30d),
-    txVolumeUsd30d: num(r.txVolumeUsd30d),
+    txOldestAt: str(r.txOldestAt),
     generatedAt: str(r.generatedAt) ?? new Date().toISOString(),
   };
 }
