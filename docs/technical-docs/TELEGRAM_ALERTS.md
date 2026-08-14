@@ -11,7 +11,7 @@ This doc covers setup, the moving parts, and the anti-spam design.
 | Trigger | `packages/scoring/src/profile.ts` (`statusFor`) | pure | within / approaching / outside vs the profile threshold (25 / 50 / 75) |
 | Debounce | `packages/scoring/src/watch/loop.ts` (`WatchService.confirmTicks`) | worker | a status must hold N consecutive 60s ticks before it emits |
 | Send gate | `packages/scoring/src/watch/alertPolicy.ts` (`decideSend`) | worker | materiality + cooldown + escalation bypass + resolution rate limit |
-| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`, `formatResolution`) | worker | plain text + emoji pictograms, hyphens only |
+| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`, `formatResolution`) | worker | plain text, no emoji, hyphens only |
 | Worker | `scripts/watch-worker.ts` (`npm run worker`) | standalone | scores, persists transitions, dispatches |
 | Send | `server/telegram.ts` (`sendMessage`) | worker + webhook | Bot API, fetch-only |
 | Link store | `server/telegramStore.ts` | Railway api-server + Vercel fallbacks | Supabase REST, no pg/viem |
@@ -116,12 +116,38 @@ ALERT, so an all-clear can never reset the clock and re-open the window. A
 position flapping over/under its limit inside one cooldown therefore produces
 two messages (one alert, one all-clear), not four.
 
-**Why now (P2 7.1).** Every alert carries a `🔎 Why now:` line naming the
-dominant trigger and the value that fired it, plus a one-line sub-score
-breakdown. Triggers are the advisor's own (`advisor/rules.ts`); `whyNow()` in
-`watch/alertMessage.ts` holds the severity order and the copy. A trigger whose
-value is unavailable falls through to the next one, so the alert says less
-rather than inventing a number, and raw trigger strings never reach a user.
+**Why now (P2 7.1).** Every alert carries ONE explanation line. When a named
+trigger fired it reads `Why now: <sentence> Risk drivers: …`; when nothing named
+fired, the reason is the dominant sub-score and the line reads `Main driver:
+asset volatility (38 of 100). Position health 7, …`. Triggers are the advisor's
+own (`advisor/rules.ts`); `whyNow()` in `watch/alertMessage.ts` holds the
+severity order and the copy. A trigger whose value is unavailable falls through
+to the next one, so the alert says less rather than inventing a number, and raw
+trigger strings never reach a user.
+
+**The message contract.** Four rules, all enforced by tests in
+`packages/scoring/tests/alertMessage.test.ts`:
+
+- **No emoji**, in any message, and no em dashes. Plain professional text.
+- **Say whose position it is.** The first line is the subscriber's own label for
+  the wallet plus the truncated address plus the protocol
+  (`Simulation target (0x12a5...2305) on Aave V3 is nearing your conservative
+  limit.`). The label comes from `watch_subscriptions.label`, selected by the
+  drain and passed as `AlertExtras.label`.
+- **Never contradict yourself.** On an `approaching` transition the score line
+  names the warn boundary (`Risk score 15 of 100. Your conservative limit is 25,
+  and alerts warn from 15.`). The number is `warnFrom(profile)` in
+  `packages/scoring/src/profile.ts`, the same function `statusFor` decides with.
+- **Round for humans, and never fall below the floor.** Scores and drivers are
+  integers, health factor two decimals, dollars whole. The subject and the score
+  line are built only from `watch_transitions` columns, so no combination of
+  missing snapshot facts can produce a message that is all advice and no facts.
+
+**Open in PANIK.** Alerts and all-clears carry a single inline-keyboard URL
+button pointing at `PANIK_APP_URL` (default `https://www.panik.fi/app`) with
+`?view=<watched wallet>`. `AppDemo` honours that parameter once the watchlist has
+loaded, and only for a wallet the reader actually watches. A `PANIK_APP_URL`
+that is not an absolute http(s) URL costs the button, never the send.
 
 ## Setup
 

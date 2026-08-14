@@ -127,6 +127,36 @@ export function useWatchlist(owner: string | null): WatchlistState {
   };
 }
 
+/**
+ * The wallet a `?view=0x…` deep link asks the Portfolio to show, or null.
+ *
+ * The Telegram alert's "Open in PANIK" button carries the WATCHED wallet
+ * (server/watchDispatch.ts), so the message and the screen it opens are about
+ * the same position - a watchlist alert that lands on the reader's own
+ * dashboard has quietly changed the subject.
+ *
+ * Every rejection is SILENT and falls back to the default view. The parameter
+ * arrives from outside the app and names a wallet: honouring one the user does
+ * not watch would let any link fetch and render an arbitrary address inside
+ * somebody's dashboard, so the list is the authority and an unknown value is
+ * simply not a request we have.
+ */
+export function viewParamWallet(
+  search: string,
+  list: readonly WatchSubscription[] | null,
+  owner: string | null,
+): string | null {
+  if (!owner) return null;
+  const raw = new URLSearchParams(search).get("view");
+  if (!raw) return null;
+  const wallet = raw.trim().toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(wallet)) return null;
+  // The bound wallet is always viewable, whether or not its self-subscription
+  // exists - that write can fail, and it is the default view regardless.
+  if (wallet === owner.trim().toLowerCase()) return wallet;
+  return subscriptionFor(list, wallet) ? wallet : null;
+}
+
 /** The subscription covering one wallet, or null when the list does not hold it. */
 export function subscriptionFor(
   list: readonly WatchSubscription[] | null,

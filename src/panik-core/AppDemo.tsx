@@ -162,7 +162,7 @@ import {
   type RiskTier,
   type ProfileResult,
 } from "./lib/profiling";
-import { subscriptionFor, useWatchlist } from "./lib/watchlist";
+import { subscriptionFor, useWatchlist, viewParamWallet } from "./lib/watchlist";
 import { WalletsPanel } from "./components/WalletsPanel";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -1527,6 +1527,30 @@ export function AppDemo() {
   // leaving it standing would show the previous owner's watched wallet under
   // the new owner's dashboard.
   useEffect(() => setViewedWalletChoice(null), [onboardedWallet]);
+
+  /**
+   * `?view=0x…`, from the "Open in PANIK" button on a Telegram alert.
+   *
+   * Applied ONCE, and only after the watchlist has been read: the parameter is
+   * only honoured for a wallet the user actually watches, and before the list
+   * arrives there is nothing to check it against. Anything else - a wallet that
+   * was removed, a malformed value, no parameter at all - leaves the default
+   * view standing without a word, because a deep link is not a place to explain
+   * a validation failure. Once is deliberate too: after this the user's own
+   * selection owns the switcher, and a re-run would keep dragging them back to
+   * the wallet the alert was about.
+   */
+  const viewParamApplied = useRef(false);
+  useEffect(() => {
+    if (viewParamApplied.current || !onboardedWallet || watchlist.subscriptions === null) return;
+    viewParamApplied.current = true;
+    const wallet = viewParamWallet(
+      window.location.search,
+      watchlist.subscriptions,
+      onboardedWallet,
+    );
+    if (wallet) setViewedWalletChoice(wallet);
+  }, [onboardedWallet, watchlist.subscriptions]);
 
   /**
    * The selection, VALIDATED against the list on every render.
