@@ -127,13 +127,36 @@ export function useWatchlist(owner: string | null): WatchlistState {
   };
 }
 
+// ── the alert deep link ──────────────────────────────────────────────────────
+//
+// Both halves of `?view=0x…&tab=advisor` live here, together, because they are
+// one link: `server/watchDispatch.ts` builds it onto the "Open PANIK Advisor"
+// button and this is the code that has to agree with it. Splitting the wallet
+// half from the tab half across two modules is how the two stop agreeing.
+
+/**
+ * The tab a deep link asks for, if this build has one by that name.
+ *
+ * The alert button asks for the ADVISOR, because the message ends in an
+ * instruction and the Advisor is the screen that sizes it.
+ */
+export function deepLinkTab<T extends string>(search: string, allowed: readonly T[]): T | null {
+  const raw = new URLSearchParams(search).get("tab");
+  if (!raw) return null;
+  const wanted = raw.trim().toLowerCase();
+  // Silently, like the wallet half: a link naming a tab this build does not
+  // have is a link from a newer or older version of the app, and the right
+  // answer to that is the screen the user would have got anyway.
+  return allowed.find((t) => t === wanted) ?? null;
+}
+
 /**
  * The wallet a `?view=0x…` deep link asks the Portfolio to show, or null.
  *
- * The Telegram alert's "Open in PANIK" button carries the WATCHED wallet
- * (server/watchDispatch.ts), so the message and the screen it opens are about
- * the same position - a watchlist alert that lands on the reader's own
- * dashboard has quietly changed the subject.
+ * The alert button carries the WATCHED wallet (server/watchDispatch.ts), so the
+ * message and the screen it opens are about the same position - a watchlist
+ * alert that lands on the reader's own dashboard has quietly changed the
+ * subject.
  *
  * Every rejection is SILENT and falls back to the default view. The parameter
  * arrives from outside the app and names a wallet: honouring one the user does

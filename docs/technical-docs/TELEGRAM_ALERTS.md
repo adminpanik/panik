@@ -13,7 +13,8 @@ This doc covers setup, the moving parts, and the anti-spam design.
 | Send gate | `packages/scoring/src/watch/alertPolicy.ts` (`decideSend`) | worker | materiality + cooldown + escalation bypass + resolution rate limit |
 | Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`, `formatResolution`) | worker | Telegram HTML (`<b>`/`<code>` only), no emoji, hyphens only |
 | Worker | `scripts/watch-worker.ts` (`npm run worker`) | standalone | scores, persists transitions, dispatches |
-| Send | `server/telegram.ts` (`sendMessage`) | worker + webhook | Bot API, fetch-only |
+| Card | `server/alertCard.ts` (`renderAlertCard`) | worker | SVG -> PNG via `@resvg/resvg-js`; never blocks a send |
+| Send | `server/telegram.ts` (`sendMessage`, `sendPhoto`) | worker + webhook | Bot API, fetch-only |
 | Link store | `server/telegramStore.ts` | Railway api-server + Vercel fallbacks | Supabase REST, no pg/viem |
 | Mint code | `/api/telegram/link` | Railway api-server (`scripts/api-server.ts`) | `api/telegram/link.ts` is the Vercel fallback (see below) |
 | Webhook | `/api/telegram/webhook` | Railway api-server | `api/telegram/webhook.ts` is the Vercel fallback; receives `/start <code>` and `/stop` |
@@ -153,11 +154,40 @@ trigger strings never reach a user.
   line are built only from `watch_transitions` columns, so no combination of
   missing snapshot facts can produce a message that is all advice and no facts.
 
-**Open in PANIK.** Alerts and all-clears carry a single inline-keyboard URL
+**Open PANIK Advisor.** Alerts and all-clears carry a single inline-keyboard URL
 button pointing at `PANIK_APP_URL` (default `https://www.panik.fi/app`) with
-`?view=<watched wallet>`. `AppDemo` honours that parameter once the watchlist has
-loaded, and only for a wallet the reader actually watches. A `PANIK_APP_URL`
-that is not an absolute http(s) URL costs the button, never the send.
+`?view=<watched wallet>&tab=advisor` - the Advisor, because the message ends in
+an instruction and the Advisor is the screen that sizes it. `AppDemo` honours
+both halves once the watchlist has loaded, applying the wallet before the tab,
+and only for a wallet the reader actually watches and a tab this build has. A
+`PANIK_APP_URL` that is not an absolute http(s) URL costs the button, never the
+send.
+
+**Watch-only.** When the subscriber is not the watched wallet's owner, the alert
+adds one plain line under the instruction saying PANIK cannot act on it for them.
+The dispatcher decides it (`owner_wallet` vs `t.wallet`, case-insensitive); it is
+the chat's version of the app withholding every acting control on a watched
+address. All-clears do not carry it, because they advise nothing.
+
+**The card.** Every alert and all-clear also carries a PNG rendered in-process by
+`server/alertCard.ts` (`@resvg/resvg-js`, no browser and no third party): the
+score dial exactly as `src/panik-core/ui/RiskDial.tsx` draws it, the brand mark,
+the severity headline, the label + address, the protocol and the limit line, plus
+a `SIMULATED DRILL` chip when the transition carries a simulation. Fonts are
+vendored under `server/assets/fonts` (see the README there) because the container
+has none.
+
+Delivery is one `sendPhoto` with the whole body as the caption. Telegram caps a
+caption at 1024 characters *after entity parsing* (`captionLength` measures what
+it counts); the widest shape the current copy can produce shows 986, so the split
+path - card captioned with `formatHeadline`, full body as an immediate follow-up
+message - is a live safety net rather than the normal case.
+
+**Nothing about the card can stop an alert.** `renderAlertCard` never throws and
+returns null on any failure; a refused or throwing upload logs and falls through
+to the existing text-only `sendMessage`. Deps without a `sendPhoto` get text, as
+every caller did before the card existed. `server/watchDispatch.test.ts` covers
+all three fallbacks.
 
 ## Setup
 

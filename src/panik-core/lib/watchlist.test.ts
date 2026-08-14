@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  deepLinkTab,
   draftCount,
   draftFromSubscriptions,
   stagedOps,
@@ -207,5 +208,26 @@ describe("viewParamWallet", () => {
 
   it("answers null before a wallet is bound", () => {
     expect(viewParamWallet(`?view=${B}`, list, null)).toBeNull();
+  });
+});
+
+describe("deepLinkTab", () => {
+  const tabs = ["compass", "watch", "advisor", "portfolio", "settings"] as const;
+
+  it("honours the tab the alert button asks for", () => {
+    expect(deepLinkTab(`?view=${B}&tab=advisor`, tabs)).toBe("advisor");
+  });
+
+  it("normalises case", () => {
+    expect(deepLinkTab("?tab=ADVISOR", tabs)).toBe("advisor");
+  });
+
+  it("ignores a tab this build does not have, and says nothing", () => {
+    // A link from a newer or older version of the app. The right answer is the
+    // screen the user would have got anyway.
+    expect(deepLinkTab("?tab=trading", tabs)).toBeNull();
+    expect(deepLinkTab("?tab=", tabs)).toBeNull();
+    expect(deepLinkTab(`?view=${B}`, tabs)).toBeNull();
+    expect(deepLinkTab("", tabs)).toBeNull();
   });
 });
