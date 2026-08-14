@@ -21,8 +21,13 @@
 #           SUPABASE_URL, SUPABASE_SECRET_KEY, DUNE_API_KEY, OPENROUTER_API_KEY,
 #           TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, VITE_TELEGRAM_BOT_USERNAME,
 #           CORS_ORIGINS (your frontend origin), [SERVE_STATIC=true]
-#   worker: TELEGRAM_BOT_TOKEN, SUPABASE_DB_URL, ALCHEMY_API_KEY_BASE_MAINNET,
-#           COINGECKO_API_KEY
+#   worker: TELEGRAM_BOT_TOKEN, SUPABASE_DB_URL, SUPABASE_URL, SUPABASE_SECRET_KEY,
+#           ALCHEMY_API_KEY_BASE_MAINNET, COINGECKO_API_KEY
+#           SUPABASE_URL + SUPABASE_SECRET_KEY are NOT optional: without them the
+#           worker runs but writes no heartbeats and has no alert ledger, so
+#           /api/health/worker reports it dead and monitor alerts are ungated.
+#           (Exactly this happened in Aug 2026 - the worker looked down for weeks
+#           while running fine, because this list used to omit the pair.)
 # SUPABASE_DB_URL's session-pooler string is auto-upgraded to 6543 by
 # transactionPoolerUrl(); no change needed.
 
