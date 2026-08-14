@@ -92,6 +92,8 @@ import {
   listSubscriptions,
   parseWatchlistOps,
   registerSelfSubscription,
+  WATCHLIST_LABEL_MAX,
+  WATCHLIST_MAX,
   WatchlistError,
 } from "../server/watchlist";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
@@ -848,6 +850,13 @@ app.post("/api/watchlist", strictLimit, async (req, res) => {
  * nickname, and requiring a signature to READ your own list would mean a wallet
  * popup on every page load. Nothing here is a credential and nothing here can
  * be written.
+ *
+ * The two LIMITS ride on the response so the browser never holds a copy of
+ * them. The management panel's counter states the cap out loud ("3 of 10
+ * watched") and its name field enforces the length, so a build-time constant in
+ * the bundle would have the UI teaching a stale number the day either moves,
+ * with nothing visibly broken. `server/watchlist.ts` owns both; this is the one
+ * place they cross to the client.
  */
 app.get("/api/watchlist", walletLimit, async (req, res) => {
   const owner = String(req.query.owner ?? "").trim().toLowerCase();
@@ -856,7 +865,12 @@ app.get("/api/watchlist", walletLimit, async (req, res) => {
     return;
   }
   try {
-    res.json({ updatedAt: Date.now(), watching: await listSubscriptions(db, owner) });
+    res.json({
+      updatedAt: Date.now(),
+      watching: await listSubscriptions(db, owner),
+      max: WATCHLIST_MAX,
+      labelMax: WATCHLIST_LABEL_MAX,
+    });
   } catch (err) {
     serverError(req, res, 502, err);
   }
