@@ -261,16 +261,13 @@ function usd(n: number | null | undefined): string | null {
  */
 export function formatWelcome(wallet: string): string {
   return [
-    "👋 Welcome to PANIK alerts.",
+    "Welcome to PANIK alerts.",
     "",
-    `🔗 This chat is now linked to wallet ${truncateWallet(wallet)}.`,
+    `This chat is linked to wallet ${truncateWallet(wallet)}.`,
     "",
-    "🛡️ I'll message you here the moment this position drifts toward its liquidation limit. Alerts are debounced and deduped, so only real risk reaches you - never spam.",
+    "You will get a message here when this position moves toward its liquidation limit, and again when it recovers. Alerts are deduplicated, so a quiet chat means nothing needs your attention.",
     "",
-    "Commands:",
-    "🔕 /stop - pause alerts anytime",
-    "",
-    "Stay safe out there. 🧡",
+    "Send /stop at any time to pause alerts.",
   ].join("\n");
 }
 

@@ -116,10 +116,10 @@ describe("formatWelcome", () => {
     expect(LONG_DASH.test(formatWelcome(wallet))).toBe(false);
   });
 
-  it("opens with the wave emoji and marks the mute command", () => {
+  it("reads as plain professional text with no emoji", () => {
     const msg = formatWelcome(wallet);
-    expect(msg.startsWith("👋")).toBe(true);
-    expect(msg).toContain("🔕 /stop");
+    expect(msg.startsWith("Welcome")).toBe(true);
+    expect(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u.test(msg)).toBe(false);
   });
 });
 
