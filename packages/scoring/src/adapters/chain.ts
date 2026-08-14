@@ -11,7 +11,7 @@ export interface PublicClientLike {
   multicall(args: {
     contracts: readonly unknown[];
     allowFailure: true;
-  }): Promise<{ status: "success" | "failure"; result?: unknown }[]>;
+  }): Promise<{ status: "success" | "failure"; result?: unknown; error?: Error }[]>;
   readContract(args: unknown): Promise<unknown>;
 }
 

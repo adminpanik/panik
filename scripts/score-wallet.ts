@@ -19,6 +19,7 @@ import {
   statusFor,
   type RiskProfile,
 } from "../packages/scoring/src/index";
+import { describeReaderError } from "../server/readerError";
 import { alchemyKeyNotice, buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 
 const wallet = process.argv[2]?.trim();
@@ -47,7 +48,7 @@ const scoringChain = buildScoringChain({
     assetRisk: new CoinGeckoProvider(process.env.COINGECKO_API_KEY ?? ""),
     systemic: new DefiLlamaProvider(),
   },
-  onReaderError: (err) => console.error(`  reader failed: ${(err as Error).message.slice(0, 160)}`),
+  onReaderError: (err) => console.error(`  reader failed: ${describeReaderError(err)}`),
   onCompoundWarn: (m) => console.warn(`  compound reader degraded: ${m}`),
 });
 
