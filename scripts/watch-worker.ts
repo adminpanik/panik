@@ -79,7 +79,7 @@ import { subscriberProfiles } from "../server/watchlist";
 import { alchemyKeyNotice, buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 import { SimulationCache, SimulationStore } from "../server/simulationStore";
 import { transactionPoolerUrl } from "../server/profileDeps";
-import { probeReachable, sendMessage } from "../server/telegram";
+import { probeReachable, sendMessage, sendPhoto } from "../server/telegram";
 import {
   AlertDispatcher,
   MemoryAlertLedger,
@@ -524,6 +524,7 @@ function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): Al
 const dispatchDeps: DispatchDeps = {
   db,
   send: (chatId, text, opts) => sendMessage(botToken!, chatId, text, opts),
+  sendPhoto: (chatId, photo, opts) => sendPhoto(botToken!, chatId, photo, opts),
   whyNow: whyNowFor,
   onDelivered: (chatId) => recordDelivery(chatId, true, false),
   onBlocked: (chatId) => recordDelivery(chatId, false, true),

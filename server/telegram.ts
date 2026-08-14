@@ -99,6 +99,98 @@ export async function sendMessage(
 }
 
 /**
+ * Telegram's cap on a photo caption, in characters AFTER entity parsing.
+ *
+ * "After parsing" is the part that matters and the part that is easy to get
+ * wrong: the `<b>` and `<code>` tags in an HTML caption are not text and do not
+ * count, so measuring the raw string would send a message to the text-only path
+ * for markup the user never sees. `captionLength` measures what Telegram counts.
+ */
+export const TELEGRAM_CAPTION_MAX = 1024;
+
+/**
+ * The visible length of an HTML caption: tags removed, entities resolved.
+ *
+ * Only the three entities `escapeHtml` can produce are resolved, because they
+ * are the only ones this codebase emits - a general HTML entity decoder here
+ * would be a second, worse parser pretending to be Telegram's.
+ */
+export function captionLength(html: string): number {
+  return html
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&").length;
+}
+
+export interface SendPhotoOptions {
+  /** HTML when `parseMode` says so. Must fit `TELEGRAM_CAPTION_MAX`. */
+  caption?: string;
+  parseMode?: "MarkdownV2" | "HTML";
+  button?: TelegramUrlButton;
+  signal?: AbortSignal;
+}
+
+/**
+ * POST sendPhoto with the image as a multipart upload.
+ *
+ * UPLOADED, not linked. The alternative is handing Telegram a URL and letting
+ * it fetch the card, which needs the card to be hosted somewhere public - and a
+ * public URL for "this wallet is about to be liquidated" is a leak with a
+ * guessable name. The bytes go straight from the renderer to Telegram.
+ *
+ * `FormData` and `Blob` are Node globals here (Node 18+), so the multipart
+ * body costs no dependency and no hand-rolled boundary. Content-Type is
+ * deliberately NOT set: fetch writes it, with the boundary it generated.
+ *
+ * Returns the same structured result as `sendMessage`, so a caller can branch
+ * on `errorCode` identically - and, more importantly, can treat a failure as
+ * "fall back to text" rather than as an exception to handle.
+ */
+export async function sendPhoto(
+  token: string,
+  chatId: number | string,
+  photo: Uint8Array,
+  opts: SendPhotoOptions = {},
+): Promise<TelegramSendResult> {
+  let res: Response;
+  try {
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    form.append("photo", new Blob([photo], { type: "image/png" }), "panik-alert.png");
+    if (opts.caption !== undefined) form.append("caption", opts.caption);
+    if (opts.parseMode) form.append("parse_mode", opts.parseMode);
+    if (opts.button) {
+      form.append(
+        "reply_markup",
+        JSON.stringify({ inline_keyboard: [[{ text: opts.button.text, url: opts.button.url }]] }),
+      );
+    }
+    res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: "POST",
+      body: form,
+      signal: opts.signal,
+    });
+  } catch (err) {
+    return { ok: false, status: 0, description: (err as Error).message };
+  }
+
+  let body: { ok?: boolean; error_code?: number; description?: string } = {};
+  try {
+    body = (await res.json()) as typeof body;
+  } catch {
+    // Non-JSON body (rare); fall back to HTTP status.
+  }
+
+  return {
+    ok: res.ok && body.ok === true,
+    status: res.status,
+    errorCode: body.error_code,
+    description: body.description,
+  };
+}
+
+/**
  * REACHABILITY PROBE. `sendChatAction` with "typing" runs Telegram's full
  * delivery permission check — it returns 403 "bot was blocked by the user" for
  * a blocked bot — while showing the user at most a typing indicator that

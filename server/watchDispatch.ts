@@ -40,12 +40,21 @@
 import { decideSend } from "../packages/scoring/src/watch/alertPolicy";
 import {
   formatAlert,
+  formatHeadline,
   formatResolution,
   type AlertExtras,
 } from "../packages/scoring/src/watch/alertMessage";
 import type { WatchTransition } from "../packages/scoring/src/watch/loop";
 import type { ProfileStatus, Protocol, RiskProfile } from "../packages/scoring/src/types";
-import type { SendOptions, TelegramSendResult, TelegramUrlButton } from "./telegram";
+import { renderAlertCard } from "./alertCard";
+import {
+  captionLength,
+  TELEGRAM_CAPTION_MAX,
+  type SendOptions,
+  type SendPhotoOptions,
+  type TelegramSendResult,
+  type TelegramUrlButton,
+} from "./telegram";
 
 /** The slice of `pg.Pool` this module uses. */
 export interface DispatchQueryable {
@@ -101,6 +110,12 @@ export interface DispatchDeps {
   db: DispatchQueryable;
   /** Send one message to one chat. */
   send(chatId: number, text: string, opts?: SendOptions): Promise<TelegramSendResult>;
+  /**
+   * Upload the alert card. OPTIONAL, and its absence is a supported state, not
+   * a degraded one: a caller that does not supply it gets text-only alerts,
+   * which is what every caller got before the card existed.
+   */
+  sendPhoto?(chatId: number, photo: Uint8Array, opts?: SendPhotoOptions): Promise<TelegramSendResult>;
   /**
    * Where the "Open in PANIK" button points, before the `?view=` parameter.
    * Defaults to `PANIK_APP_URL` in the environment, then to the public app.
@@ -186,11 +201,17 @@ export const DRAIN_SQL = `select t.id, t.wallet, t.protocol, t.risk_profile, t.s
 export const PANIK_APP_URL_DEFAULT = "https://www.panik.fi/app";
 
 /** The button's label. One string, so the tests and the send cannot drift. */
-export const OPEN_IN_PANIK_TEXT = "Open in PANIK";
+export const OPEN_IN_PANIK_TEXT = "Open PANIK Advisor";
 
 /**
- * The deep link for one watched wallet: the app, plus the `?view=` parameter
- * `src/panik-core/AppDemo.tsx` honours after the watchlist loads.
+ * The deep link for one watched wallet: the app, the `?view=` parameter
+ * `src/panik-core/AppDemo.tsx` honours after the watchlist loads, and the tab
+ * to land on.
+ *
+ * ADVISOR, not the default Portfolio. The message ends in an instruction ("add
+ * collateral or repay debt"), and the Advisor is the screen that sizes it. A
+ * button that says "open" and lands on a summary makes the reader hunt for the
+ * thing the message just told them to do.
  *
  * Null rather than a best effort when the base is not an absolute http(s) URL.
  * Telegram VALIDATES button URLs and rejects the whole `sendMessage` with a 400
@@ -208,6 +229,7 @@ export function viewButton(appUrl: string, wallet: string): TelegramUrlButton | 
   }
   if (base.protocol !== "https:" && base.protocol !== "http:") return null;
   base.searchParams.set("view", wallet.trim().toLowerCase());
+  base.searchParams.set("tab", "advisor");
   return { text: OPEN_IN_PANIK_TEXT, url: base.toString() };
 }
 
@@ -317,6 +339,74 @@ async function recordSendFailure(
   }
 }
 
+/**
+ * Send one message, with its card if a card can be had.
+ *
+ * THE CARD IS NEVER LOAD-BEARING. Three things can go wrong - the renderer
+ * returns null, the deps carry no `sendPhoto`, or Telegram refuses the upload -
+ * and all three land on the same line: send the text. A liquidation warning
+ * that did not arrive because an image renderer had a bad day is the worst
+ * trade this product could make, so the fallback is the function's structure
+ * rather than a defensive afterthought.
+ *
+ * Two shapes go out, decided by Telegram's 1024-character caption cap measured
+ * AFTER entity parsing:
+ *
+ *   * It fits: ONE message, the card with the whole body as its caption.
+ *   * It does not (a long "why now", a labelled watch-only alert): the card
+ *     captioned with the headline, then the full body as an immediate
+ *     follow-up. The FOLLOW-UP is the delivery that counts - the facts are what
+ *     was promised, and a caption that only names the position is not them.
+ */
+async function deliver(
+  deps: DispatchDeps,
+  chatId: number,
+  text: string,
+  transition: WatchTransition,
+  extras: AlertExtras,
+  button: TelegramUrlButton | null,
+): Promise<TelegramSendResult> {
+  // HTML, and only for these two message kinds. `formatAlert` /
+  // `formatResolution` are the only formatters that emit markup and the only
+  // ones that escape what they interpolate; the webhook replies, the operator
+  // pages and the welcome all still post plain text, where a parse mode would
+  // turn a stray angle bracket into a 400.
+  const opts = { parseMode: "HTML" as const, ...(button ? { button } : {}) };
+
+  if (deps.sendPhoto) {
+    const card = renderAlertCard(
+      {
+        score: transition.score,
+        band: transition.band,
+        status: transition.to,
+        profile: transition.profile,
+        wallet: transition.wallet,
+        protocol: transition.protocol,
+        label: extras.label ?? null,
+        simulated: extras.simulation != null || transition.simulation != null,
+      },
+      deps.log,
+    );
+    if (card) {
+      const fits = captionLength(text) <= TELEGRAM_CAPTION_MAX;
+      try {
+        const photo = await deps.sendPhoto(chatId, card, {
+          caption: fits ? text : formatHeadline(transition, extras),
+          ...opts,
+        });
+        if (photo.ok) return fits ? photo : await deps.send(chatId, text, opts);
+        deps.log?.error(
+          `card upload refused (status ${photo.status}); sending text: ${(photo.description ?? "").slice(0, 120)}`,
+        );
+      } catch (err) {
+        deps.log?.error(`card upload threw; sending text: ${(err as Error).message.slice(0, 120)}`);
+      }
+    }
+  }
+
+  return deps.send(chatId, text, opts);
+}
+
 /** One drain pass. Returns what it did, for the caller's logs and tests. */
 export interface DispatchReport {
   /** Deliveries the drain looked at. */
@@ -397,6 +487,10 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
       collateralUsd: r.collateral_usd == null ? null : Number(r.collateral_usd),
       borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
       simulation: r.simulation_id ? { label: r.simulation_label ?? "Simulated market event" } : null,
+      // The subscriber is not this wallet's owner, so nothing the message
+      // advises is something the reader can do. Compared here because this is
+      // the only place that holds both addresses.
+      watchOnly: r.owner_wallet.trim().toLowerCase() !== r.wallet.trim().toLowerCase(),
       why: deps.whyNow(r.wallet, r.protocol, r.risk_profile),
     };
     const text = recovery ? formatResolution(transition, extras) : formatAlert(transition, extras);
@@ -405,12 +499,7 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
     // the WATCHED wallet, not the subscriber's own - a watchlist alert that
     // opens the reader's own dashboard has sent them to the wrong wallet.
     const button = viewButton(appUrl, r.wallet);
-    // HTML, and only for these two message kinds. `formatAlert` /
-    // `formatResolution` are the only formatters that emit markup and the only
-    // ones that escape what they interpolate; the webhook replies, the operator
-    // pages and the welcome all still post plain text, where a parse mode would
-    // turn a stray angle bracket into a 400.
-    const result = await deps.send(chatId, text, { parseMode: "HTML", ...(button ? { button } : {}) });
+    const result = await deliver(deps, chatId, text, transition, extras, button);
     if (result.ok) {
       await stamp(deps, r, "telegram", r.notify_attempts + 1);
       // PROOF OF REACHABILITY. A delivery Telegram accepted is the strongest

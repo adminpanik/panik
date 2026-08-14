@@ -8,7 +8,8 @@ import {
   type DispatchDeps,
   type PendingDelivery,
 } from "./watchDispatch";
-import type { SendOptions, TelegramSendResult } from "./telegram";
+import { captionLength, TELEGRAM_CAPTION_MAX } from "./telegram";
+import type { SendOptions, SendPhotoOptions, TelegramSendResult } from "./telegram";
 
 const WHALE = "0xaaaa1111aaaa1111aaaa1111aaaa1111aaaa1111";
 const ANNA = "0xbbbb2222bbbb2222bbbb2222bbbb2222bbbb2222";
@@ -56,11 +57,14 @@ interface FakeOptions {
   /** Prior SENT messages per chat id, newest first. */
   priorByChat?: Record<string, Array<{ to_status: string; created_at: string }>>;
   send?: (chatId: number, text: string) => Promise<TelegramSendResult>;
+  /** Supply to exercise the card path. Absent = the text-only deps every caller had before it. */
+  sendPhoto?: (chatId: number, photo: Uint8Array, opts?: SendPhotoOptions) => Promise<TelegramSendResult>;
 }
 
 function harness(opts: FakeOptions) {
   const calls: Call[] = [];
   const sent: Array<{ chatId: number; text: string; opts?: SendOptions }> = [];
+  const photos: Array<{ chatId: number; bytes: number; opts?: SendPhotoOptions }> = [];
   const delivered: number[] = [];
   const blocked: number[] = [];
 
@@ -82,6 +86,14 @@ function harness(opts: FakeOptions) {
       sent.push({ chatId, text, opts: sendOpts });
       return (await opts.send?.(chatId, text)) ?? { ok: true, status: 200 };
     },
+    ...(opts.sendPhoto
+      ? {
+          sendPhoto: async (chatId: number, photo: Uint8Array, photoOpts?: SendPhotoOptions) => {
+            photos.push({ chatId, bytes: photo.length, opts: photoOpts });
+            return opts.sendPhoto!(chatId, photo, photoOpts);
+          },
+        }
+      : {}),
     // No fresh score in these tests: the why-now line is omitted rather than
     // reconstructed, which is the documented cold-cache behaviour.
     whyNow: () => undefined,
@@ -109,7 +121,7 @@ function harness(opts: FakeOptions) {
       .filter((c) => c.sql.includes("(transition_id, owner_wallet, chat_id, notify_attempts)"))
       .map((c) => ({ transitionId: c.values[0], owner: c.values[1], attempts: c.values[3] }));
 
-  return { deps, calls, sent, delivered, blocked, stamps, attempts };
+  return { deps, calls, sent, photos, delivered, blocked, stamps, attempts };
 }
 
 describe("dispatchPending — fan-out", () => {
@@ -462,6 +474,147 @@ describe("dispatchPending — the simulation marker", () => {
   });
 });
 
+/**
+ * The card rides along, and never gets in the way. Every test here exists
+ * because the alternative to it is a liquidation warning that did not arrive.
+ */
+describe("dispatchPending — the alert card", () => {
+  const ok = async () => ({ ok: true, status: 200 });
+
+  it("sends ONE photo message carrying the whole body as its caption", async () => {
+    const h = harness({ pending: [delivery({ label: "The whale" })], sendPhoto: ok });
+    await dispatchPending(h.deps);
+
+    expect(h.photos).toHaveLength(1);
+    expect(h.photos[0]!.chatId).toBe(101);
+    expect(h.photos[0]!.bytes).toBeGreaterThan(10_000);
+    expect(h.photos[0]!.opts?.parseMode).toBe("HTML");
+    expect(h.photos[0]!.opts?.button?.text).toBe(OPEN_IN_PANIK_TEXT);
+    expect(plain(h.photos[0]!.opts?.caption ?? "")).toContain("Risk score 62 of 100");
+    // The whole message fit, so there is nothing left to follow up with.
+    expect(h.sent).toHaveLength(0);
+  });
+
+  it("splits into caption + follow-up when the body exceeds the caption cap", async () => {
+    // Every real shape measures well under 1024 today; this drives the branch
+    // with a body that does not, which is what a longer why-now rule or a wide
+    // asset symbol would produce.
+    const long = "y".repeat(1200);
+    const h = harness({
+      pending: [delivery({ label: "The whale" })],
+      sendPhoto: ok,
+    });
+    await dispatchPending({
+      ...h.deps,
+      whyNow: () => ({
+        triggers: ["collateral:unpriced"],
+        facts: {
+          healthFactor: 1.14,
+          scoredCollateralSymbol: long,
+          subScores: { positionHealth: 88, assetRisk: 52, protocolSafety: 30, systemicRisk: 22 },
+          protocol: "aave_v3",
+          profile: "moderate",
+        },
+      }),
+    });
+
+    // The caption identifies the position; the follow-up carries the facts.
+    expect(captionLength(h.photos[0]!.opts?.caption ?? "")).toBeLessThanOrEqual(
+      TELEGRAM_CAPTION_MAX,
+    );
+    expect(plain(h.photos[0]!.opts?.caption ?? "")).toBe(
+      "The whale (0xaaaa...1111) on Aave V3 is over your moderate limit.",
+    );
+    expect(h.sent).toHaveLength(1);
+    expect(plain(h.sent[0]!.text)).toContain("Risk score 62 of 100");
+  });
+
+  it("marks a simulated card as a drill, on the image", async () => {
+    const h = harness({
+      pending: [delivery({ simulation_id: "sim-1", simulation_label: "Crash" })],
+      sendPhoto: ok,
+    });
+    await dispatchPending(h.deps);
+    // The card is a PNG by the time it reaches here, so the drill is asserted
+    // through the SVG the same inputs produce (server/alertCard.test.ts covers
+    // the marker itself); what this pins is that the flag was passed at all.
+    expect(h.photos).toHaveLength(1);
+    expect(plain(h.photos[0]!.opts?.caption ?? "")).toContain("Simulated event (Crash)");
+  });
+
+  it("FALLS BACK to text when the photo upload is refused", async () => {
+    const h = harness({
+      pending: [delivery()],
+      sendPhoto: async () => ({ ok: false, status: 400, description: "IMAGE_PROCESS_FAILED" }),
+    });
+
+    const report = await dispatchPending(h.deps);
+
+    // The alert still went out, still counts as delivered, and the failure is
+    // a log line rather than a lost warning.
+    expect(report).toEqual({ considered: 1, sent: 1, suppressed: 0, failed: 0 });
+    expect(h.sent).toHaveLength(1);
+    expect(plain(h.sent[0]!.text)).toContain("Risk score 62 of 100");
+    expect(h.delivered).toEqual([101]);
+  });
+
+  it("FALLS BACK to text when the photo upload throws", async () => {
+    const h = harness({
+      pending: [delivery()],
+      sendPhoto: async () => {
+        throw new Error("socket hang up");
+      },
+    });
+    const report = await dispatchPending(h.deps);
+    expect(report.sent).toBe(1);
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("sends text only when the deps carry no photo sender", async () => {
+    const h = harness({ pending: [delivery()] });
+    await dispatchPending(h.deps);
+    expect(h.photos).toHaveLength(0);
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("still reports a 403 as blocked when the fallback text is refused too", async () => {
+    const h = harness({
+      pending: [delivery()],
+      sendPhoto: async () => ({ ok: false, status: 400, description: "no" }),
+      send: async () => ({ ok: false, status: 403, errorCode: 403, description: "blocked" }),
+    });
+    await dispatchPending(h.deps);
+    expect(h.blocked).toEqual([101]);
+    expect(h.stamps()).toEqual([
+      { transitionId: "1", owner: ANNA, chatId: 101, channel: "blocked", attempts: 1 },
+    ]);
+  });
+});
+
+describe("dispatchPending — watch-only", () => {
+  it("tells a watcher that PANIK cannot act on this wallet", async () => {
+    const h = harness({ pending: [delivery({ owner_wallet: ANNA, wallet: WHALE })] });
+    await dispatchPending(h.deps);
+    expect(plain(h.sent[0]!.text)).toContain(
+      "This wallet is watch-only: PANIK cannot act on it for you",
+    );
+  });
+
+  it("says nothing of the kind on the subscriber's own position", async () => {
+    const h = harness({ pending: [delivery({ owner_wallet: WHALE, wallet: WHALE })] });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.text).not.toContain("watch-only");
+  });
+
+  it("compares the two addresses case-insensitively", async () => {
+    const h = harness({
+      pending: [delivery({ owner_wallet: WHALE.toUpperCase().replace("0X", "0x"), wallet: WHALE })],
+    });
+    await dispatchPending(h.deps);
+    expect(h.sent[0]!.text).not.toContain("watch-only");
+  });
+});
+
 describe("the Open in PANIK button", () => {
   it("points at the WATCHED wallet, not the subscriber's own", async () => {
     const h = harness({ pending: [delivery({ owner_wallet: ANNA, chat_id: "101" })] });
@@ -469,7 +622,7 @@ describe("the Open in PANIK button", () => {
 
     expect(h.sent[0]!.opts?.button).toEqual({
       text: OPEN_IN_PANIK_TEXT,
-      url: `https://www.panik.fi/app?view=${WHALE}`,
+      url: `https://www.panik.fi/app?view=${WHALE}&tab=advisor`,
     });
     expect(h.sent[0]!.opts?.button?.url).not.toContain(ANNA);
   });
@@ -488,20 +641,25 @@ describe("the Open in PANIK button", () => {
   it("defaults to the public app when the environment names none", () => {
     expect(viewButton(PANIK_APP_URL_DEFAULT, WHALE)).toEqual({
       text: OPEN_IN_PANIK_TEXT,
-      url: `https://www.panik.fi/app?view=${WHALE}`,
+      url: `https://www.panik.fi/app?view=${WHALE}&tab=advisor`,
     });
   });
 
   it("keeps a query string the configured URL already had", () => {
     expect(viewButton("https://preview.panik.fi/app?chain=base", WHALE)?.url).toBe(
-      `https://preview.panik.fi/app?chain=base&view=${WHALE}`,
+      `https://preview.panik.fi/app?chain=base&view=${WHALE}&tab=advisor`,
     );
   });
 
   it("lowercases the wallet so the link matches the watchlist", () => {
     expect(viewButton(PANIK_APP_URL_DEFAULT, WHALE.toUpperCase().replace("0X", "0x"))?.url).toBe(
-      `https://www.panik.fi/app?view=${WHALE}`,
+      `https://www.panik.fi/app?view=${WHALE}&tab=advisor`,
     );
+  });
+
+  it("lands on the Advisor, which is the screen the message's instruction lives on", () => {
+    expect(viewButton(PANIK_APP_URL_DEFAULT, WHALE)?.text).toBe("Open PANIK Advisor");
+    expect(viewButton(PANIK_APP_URL_DEFAULT, WHALE)?.url).toContain("tab=advisor");
   });
 
   it("is dropped, not guessed, when the configured URL is unusable", async () => {

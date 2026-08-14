@@ -9,7 +9,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sendMessage } from "./telegram";
+import { captionLength, sendMessage, sendPhoto, TELEGRAM_CAPTION_MAX } from "./telegram";
 
 interface SentBody {
   chat_id: number | string;
@@ -71,5 +71,78 @@ describe("sendMessage", () => {
     captureFetch({ ok: false, error_code: 403, description: "bot was blocked by the user" });
     const res = await sendMessage("token-123", 101, "hello");
     expect(res).toMatchObject({ ok: false, errorCode: 403 });
+  });
+});
+
+/** Captures a multipart body as a plain map, which is all these tests assert on. */
+function captureForm(response: unknown = { ok: true }) {
+  const forms: FormData[] = [];
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", async (url: string, init: { body: FormData; headers?: unknown }) => {
+    urls.push(url);
+    forms.push(init.body);
+    // Content-Type must be left to fetch: setting it by hand loses the boundary
+    // and Telegram cannot parse the parts.
+    expect(init.headers).toBeUndefined();
+    return { ok: true, status: 200, json: async () => response } as unknown as Response;
+  });
+  return { forms, urls };
+}
+
+describe("sendPhoto", () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+
+  it("uploads the bytes as multipart, with the caption and the button", async () => {
+    const { forms, urls } = captureForm();
+    const res = await sendPhoto("token-123", 101, png, {
+      caption: "<b>hi</b>",
+      parseMode: "HTML",
+      button: { text: "Open PANIK Advisor", url: "https://www.panik.fi/app?view=0xabc&tab=advisor" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(urls[0]).toBe("https://api.telegram.org/bottoken-123/sendPhoto");
+    const form = forms[0]!;
+    expect(form.get("chat_id")).toBe("101");
+    expect(form.get("caption")).toBe("<b>hi</b>");
+    expect(form.get("parse_mode")).toBe("HTML");
+    expect(JSON.parse(form.get("reply_markup") as string)).toEqual({
+      inline_keyboard: [
+        [{ text: "Open PANIK Advisor", url: "https://www.panik.fi/app?view=0xabc&tab=advisor" }],
+      ],
+    });
+    const photo = form.get("photo") as File;
+    expect(photo.type).toBe("image/png");
+    expect(photo.size).toBe(png.length);
+  });
+
+  it("omits the optional parts rather than sending empty ones", async () => {
+    const { forms } = captureForm();
+    await sendPhoto("token-123", 101, png);
+    expect(forms[0]!.get("caption")).toBeNull();
+    expect(forms[0]!.get("parse_mode")).toBeNull();
+    expect(forms[0]!.get("reply_markup")).toBeNull();
+  });
+
+  it("returns a structured refusal instead of throwing", async () => {
+    captureForm({ ok: false, error_code: 403, description: "bot was blocked" });
+    expect(await sendPhoto("token-123", 101, png)).toMatchObject({ ok: false, errorCode: 403 });
+
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("socket hang up");
+    });
+    expect(await sendPhoto("token-123", 101, png)).toMatchObject({ ok: false, status: 0 });
+  });
+});
+
+describe("captionLength", () => {
+  it("counts what Telegram counts: the text, not the markup", () => {
+    // Telegram's 1024 cap is "after entities parsing", so measuring the raw
+    // string would push short messages onto the follow-up path over tags the
+    // reader never sees.
+    expect(captionLength("<b>abc</b>")).toBe(3);
+    expect(captionLength("a &amp; b &lt;c&gt;")).toBe(9); // "a & b <c>"
+    expect(captionLength("plain")).toBe(5);
+    expect(TELEGRAM_CAPTION_MAX).toBe(1024);
   });
 });
