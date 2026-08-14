@@ -48,6 +48,7 @@ import {
   scoringChainWire,
   type ScoringChainRuntime,
 } from "../server/scoringChain";
+import { describeReaderError } from "../server/readerError";
 import {
   SimulationCache,
   SimulationStore,
@@ -157,7 +158,7 @@ const scoringChains = buildScoringChains({
   env: process.env,
   providers,
   onReaderError: (err) =>
-    console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
+    console.error(`reader failed (other protocols continue): ${describeReaderError(err)}`),
   onCompoundWarn: (m) => console.warn(`compound reader degraded: ${m}`),
   simulation: () => simulations?.current() ?? null,
 });

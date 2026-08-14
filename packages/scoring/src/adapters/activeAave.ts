@@ -171,7 +171,16 @@ export class AaveActiveReader {
 
     const account = first[0];
     if (!account || account.status !== "success") {
-      throw new Error(`Aave getUserAccountData failed for ${wallet}`);
+      // `allowFailure: true` returns the transport error per call instead of
+      // throwing it, so this message was the ONLY thing the log ever saw and it
+      // named a wallet rather than a reason. A 429 from an exhausted RPC quota
+      // and a genuine revert are the same sentence without the cause attached,
+      // and the operator has to tell them apart to know whether to act.
+      const cause = account?.status === "failure" ? account.error : undefined;
+      throw new Error(
+        `Aave getUserAccountData failed for ${wallet}: ${cause?.message ?? "no result returned"}`,
+        { cause },
+      );
     }
     // Tuple order: collateral, debt, availableBorrows, liquidationThreshold,
     // ltv, healthFactor. Both threshold slots are bps of collateral VALUE, so

@@ -70,6 +70,7 @@ import {
   type RiskProfile,
   type WatchTransition,
 } from "../packages/scoring/src/index";
+import { describeReaderError } from "../server/readerError";
 import { alchemyKeyNotice, buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 import { SimulationCache, SimulationStore } from "../server/simulationStore";
 import { transactionPoolerUrl } from "../server/profileDeps";
@@ -195,7 +196,7 @@ const scoringChain = buildScoringChain({
   alchemyKey: alchemy.key,
   providers,
   onReaderError: (err) =>
-    console.error(`reader failed (other protocols continue): ${(err as Error).message.slice(0, 120)}`),
+    console.error(`reader failed (other protocols continue): ${describeReaderError(err)}`),
   onCompoundWarn: (m) => console.warn(`compound reader degraded: ${m}`),
   simulation: () => simulations?.current() ?? null,
 });
