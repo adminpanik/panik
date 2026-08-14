@@ -33,7 +33,7 @@ import { createSiweMessage } from "viem/siwe";
 export const SIWE_CHAIN_ID = 8453;
 
 /** Every wallet-scoped write, and the proof each one demands. */
-export const OWNERSHIP_ACTIONS = ["wallet-register", "telegram-link"] as const;
+export const OWNERSHIP_ACTIONS = ["wallet-register", "telegram-link", "watchlist-manage"] as const;
 export type OwnershipAction = (typeof OWNERSHIP_ACTIONS)[number];
 
 /** The `Resources:` URN the server matches exactly. */
@@ -49,6 +49,12 @@ export function actionResource(action: OwnershipAction): string {
 export const ACTION_STATEMENT: Record<OwnershipAction, string> = {
   "wallet-register": "Register this wallet for PANIK liquidation monitoring.",
   "telegram-link": "Link this wallet to a Telegram account so PANIK can send it liquidation alerts.",
+  // Names the POWER, not the mechanism. One signature covers a whole batch of
+  // add / edit / remove operations, so it has to read as "change my list",
+  // never as "add one wallet" — a user who signed the narrower sentence would
+  // not have consented to the removal that rode in on the same proof.
+  "watchlist-manage":
+    "Update the list of wallets PANIK watches for you, and the alert level for each.",
 };
 
 export interface OwnershipMessageParams {

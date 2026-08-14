@@ -87,6 +87,13 @@ import { adminAuthGate } from "../server/adminAuth";
 import { adminBearerGate } from "../server/adminGate";
 import { MetricsStore } from "../server/metricsStore";
 import { verifyWalletOwnership } from "../server/walletAuth";
+import {
+  applyWatchlistOps,
+  listSubscriptions,
+  parseWatchlistOps,
+  registerSelfSubscription,
+  WatchlistError,
+} from "../server/watchlist";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
 import { SupabaseDelegationStore } from "../server/exitDelegationStore";
 import { ViemExitChainReader } from "../server/exitChain";
@@ -756,6 +763,15 @@ app.get("/api/auth/nonce", strictLimit, async (req, res) => {
   }
 });
 
+/** A WatchlistError → its own status; anything else → the generic handler. */
+function watchlistError(req: express.Request, res: express.Response, err: unknown): void {
+  if (err instanceof WatchlistError) {
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
+  serverError(req, res, 500, err);
+}
+
 /**
  * Register the caller's OWN wallet for monitoring (onboarding). Replaces the
  * browser's direct rpc/register_watched_wallet call, which the publishable key
@@ -763,9 +779,16 @@ app.get("/api/auth/nonce", strictLimit, async (req, res) => {
  * raises their alert threshold from 25 to 75 and mutes their liquidation
  * warnings, and unbounded inserts add wallets the worker polls every 60s.
  *
+ * Since watchlists it is a SELF-SUBSCRIPTION rather than a registry row, and it
+ * goes through the same core the batch endpoint uses (server/watchlist.ts). That
+ * closes the two footguns the old RPC carried: it can no longer resurrect a
+ * wallet the user had removed (it creates exactly one subscription, and the
+ * registry is re-derived from what exists afterwards), and it no longer stamps
+ * 'onboarded user' over a label the user chose — it passes no label at all.
+ *
  * Ownership signature bound to the "wallet-register" action + strict per-IP
- * limit; the RPC runs over the service connection, which the migration's revoke
- * does not (and must not) touch.
+ * limit. The response carries the resulting list so the client never has to
+ * guess what the write did.
  */
 app.post("/api/wallets/register", strictLimit, async (req, res) => {
   const proof = await verifyWalletOwnership(req.body, "wallet-register");
@@ -774,13 +797,68 @@ app.post("/api/wallets/register", strictLimit, async (req, res) => {
     return;
   }
   // Normalized before it reaches SQL — the profile selects alert thresholds.
-  // (The function clamps unknown values too; this keeps the two ends honest.)
   const profile = riskProfileParam(req.body?.profile);
   try {
-    await db.query("select public.register_watched_wallet($1, $2)", [proof.wallet, profile]);
-    res.json({ ok: true });
+    const watching = await registerSelfSubscription(db, proof.wallet, profile);
+    res.json({ ok: true, watching });
   } catch (err) {
-    serverError(req, res, 500, err);
+    watchlistError(req, res, err);
+  }
+});
+
+/**
+ * Change the caller's watchlist: a batch of add / update / remove operations
+ * behind ONE ownership proof.
+ *
+ * ONE signature per batch, not per wallet. A user replacing their list should
+ * approve "update the list of wallets PANIK watches for you" once, and every op
+ * in the batch is applied in a single transaction — a half-applied list is a
+ * user looking at wallets they did not ask for, or missing ones they did.
+ *
+ * The proof's owner IS the owner_wallet; the body cannot name a different one.
+ * That is the whole auth model here: `watched_wallet` may be any address (that
+ * is the feature — you can watch a wallet you do not control), but who the
+ * alerts go to is decided by a signature, never by a field.
+ *
+ * strictLimit rather than walletLimit: one request per batch, and every request
+ * mints rows the worker then polls every 60s.
+ */
+app.post("/api/watchlist", strictLimit, async (req, res) => {
+  const proof = await verifyWalletOwnership(req.body, "watchlist-manage");
+  if (!proof.ok) {
+    res.status(proof.status).json({ error: proof.error });
+    return;
+  }
+  const parsed = parseWatchlistOps(req.body);
+  if ("error" in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    const watching = await applyWatchlistOps(db, proof.wallet, parsed.ops);
+    res.json({ ok: true, watching });
+  } catch (err) {
+    watchlistError(req, res, err);
+  }
+});
+
+/**
+ * One owner's watchlist. Unsigned by decision: the list holds addresses and the
+ * owner's own labels for them, all of which are public chain data plus a
+ * nickname, and requiring a signature to READ your own list would mean a wallet
+ * popup on every page load. Nothing here is a credential and nothing here can
+ * be written.
+ */
+app.get("/api/watchlist", walletLimit, async (req, res) => {
+  const owner = String(req.query.owner ?? "").trim().toLowerCase();
+  if (!isEvmAddress(owner)) {
+    res.status(400).json({ error: "invalid EVM wallet address" });
+    return;
+  }
+  try {
+    res.json({ updatedAt: Date.now(), watching: await listSubscriptions(db, owner) });
+  } catch (err) {
+    serverError(req, res, 502, err);
   }
 });
 
@@ -885,12 +963,24 @@ app.get("/api/history", walletLimit, async (req, res) => {
       return;
     }
     const [alerts, snapshots] = await Promise.all([
+      // The delivery chip comes from the SELF-OWNER's delivery row when there
+      // is one, and falls back to the legacy per-transition columns otherwise
+      // (rows written before watch_deliveries existed still carry their outcome
+      // there). This surface is "what happened to MY wallet", so the self-owner
+      // is the only recipient it can honestly speak for: a transition delivered
+      // solely to a third-party watcher reads as still queued here, which is
+      // both the truthful answer for this reader and the one that does not
+      // disclose that somebody else is watching them.
       db.query(
-        `select protocol, risk_profile, score, band, from_status, to_status,
-                notify_channel, notified_at, created_at
-           from public.watch_transitions
-          where wallet = $1
-          order by created_at desc
+        `select t.protocol, t.risk_profile, t.score, t.band, t.from_status, t.to_status,
+                coalesce(d.notify_channel, t.notify_channel) as notify_channel,
+                coalesce(d.notified_at,    t.notified_at)    as notified_at,
+                t.created_at
+           from public.watch_transitions t
+           left join public.watch_deliveries d
+             on d.transition_id = t.id and d.owner_wallet = t.wallet
+          where t.wallet = $1
+          order by t.created_at desc
           limit 50`,
         [wallet],
       ),
