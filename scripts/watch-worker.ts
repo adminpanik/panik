@@ -7,15 +7,19 @@
  *      same ActiveAdapter the dev api-server uses, debounced by confirmTicks,
  *      and persists a watch_transitions row (notified_at NULL) on a confirmed
  *      profile-relative status change, plus a score_snapshots row on
- *      change / 15-min heartbeat.
- *   2. Dispatch loop @15s drains the unnotified queue, applies the anti-spam
- *      gate (materiality / cooldown / escalation), sends Telegram, and stamps
- *      notified_at + notify_channel. A recovery row sends the all-clear
- *      (formatResolution) instead of an alert, rate-limited by the same gate.
- *      Delivery attempts are BOUNDED (NOTIFY_MAX_ATTEMPTS): the drain reads a
- *      fixed batch, so rows Telegram will never accept — a 400 for a chat that
- *      no longer exists — used to hold that batch against every other user's
- *      alerts for as long as the worker ran.
+ *      change / 15-min heartbeat. A wallet is scored ONCE however many people
+ *      watch it; the resulting total is evaluated against each DISTINCT
+ *      subscriber profile, so ten watchers cost one chain read and at most
+ *      three status comparisons.
+ *   2. Dispatch loop @15s drains the pending DELIVERIES (server/watchDispatch.ts),
+ *      applies the anti-spam gate (materiality / cooldown / escalation) per
+ *      CHAT, sends Telegram, and stamps a watch_deliveries row. A recovery row
+ *      sends the all-clear (formatResolution) instead of an alert, rate-limited
+ *      by the same gate. Delivery attempts are BOUNDED (NOTIFY_MAX_ATTEMPTS)
+ *      per recipient: the drain reads a fixed batch, so rows Telegram will
+ *      never accept — a 400 for a chat that no longer exists — used to hold
+ *      that batch against every other user's alerts for as long as the worker
+ *      ran, and used to retire one transition for every watcher at once.
  *   3. Relayer loop @30s (Phase 4.A) offers every scored position to
  *      server/exitRelayer.ts, which submits a delegated exit when the user's
  *      SIGNED trigger has fired. IT SHIPS DISARMED: RELAYER_ENABLED defaults
@@ -59,9 +63,8 @@ import {
   DefiLlamaProvider,
   WatchService,
   adviseLeg,
-  decideSend,
-  formatAlert,
-  formatResolution,
+  // decideSend / formatAlert / formatResolution moved with the drain into
+  // server/watchDispatch.ts.
   statusFor,
   type ActiveScore,
   type AlertExtras,
@@ -71,6 +74,8 @@ import {
   type WatchTransition,
 } from "../packages/scoring/src/index";
 import { describeReaderError } from "../server/readerError";
+import { dispatchPending, type DispatchDeps } from "../server/watchDispatch";
+import { subscriberProfiles } from "../server/watchlist";
 import { alchemyKeyNotice, buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 import { SimulationCache, SimulationStore } from "../server/simulationStore";
 import { transactionPoolerUrl } from "../server/profileDeps";
@@ -232,7 +237,22 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
 }
 
 // ── shared state ────────────────────────────────────────────────────────────
+/**
+ * The registry's single derived profile per wallet: the STRICTEST any
+ * subscriber asked for (see watchlist_sync_registry). Read by the consumers
+ * that need one number for a wallet — the coverage sweep's `atRisk` flag, and
+ * the fallback when a wallet has no subscription rows at all. Alert evaluation
+ * does NOT use it; that is `profilesByWallet`.
+ */
 const profileByWallet = new Map<string, RiskProfile>();
+/**
+ * Every DISTINCT profile among a wallet's subscribers, at most three.
+ *
+ * This is what makes ten watchers cost one scoring pass: the wallet is scored
+ * once and the resulting total is compared against each distinct threshold,
+ * producing one transition stream per (wallet, protocol, profile).
+ */
+const profilesByWallet = new Map<string, RiskProfile[]>();
 /**
  * Full ActiveScore per `${wallet}:${protocol}`, STAMPED with the tick that read
  * it.
@@ -261,12 +281,37 @@ function key(wallet: string, protocol: Protocol): string {
 }
 
 // ── wallet registry ─────────────────────────────────────────────────────────
-interface WatchedRow { wallet: string; risk_profile: RiskProfile; label: string | null }
+interface WatchedRow {
+  wallet: string;
+  risk_profile: RiskProfile;
+  label: string | null;
+  /** Every distinct profile among this wallet's subscribers (Postgres text[]). */
+  profiles: string[] | null;
+}
 
+/**
+ * The active registry, plus the profiles its subscribers asked for.
+ *
+ * `watched_wallets` is still the registry — it is what says a wallet is polled
+ * at all, and the ops console and admin metrics read it. What changed is that
+ * one wallet can now be watched by several people at different thresholds, so
+ * the thing that drives ALERT evaluation is the aggregated subscriber list, not
+ * the registry's own (derived, strictest-wins) `risk_profile` column.
+ *
+ * A left join, not an inner one: a registry row with no subscription is a state
+ * the migration's backfill rules out, but if one ever appears the honest answer
+ * is to keep watching it under its own column rather than to silently stop.
+ */
 async function loadWatched(): Promise<WatchedRow[]> {
   return withRetry("watched_wallets query", async () => {
     const { rows } = await db.query<WatchedRow>(
-      "select wallet, risk_profile, label from public.watched_wallets where is_active order by created_at",
+      `select w.wallet, w.risk_profile, w.label,
+              array_remove(array_agg(distinct s.risk_profile), null) as profiles
+         from public.watched_wallets w
+         left join public.watch_subscriptions s on s.watched_wallet = w.wallet
+        where w.is_active
+        group by w.wallet, w.risk_profile, w.label, w.created_at
+        order by w.created_at`,
     );
     return rows;
   });
@@ -278,12 +323,14 @@ function syncWatched(service: WatchService, rows: WatchedRow[]): void {
     const w = r.wallet.toLowerCase();
     service.watch(w);
     profileByWallet.set(w, r.risk_profile);
+    profilesByWallet.set(w, subscriberProfiles(r.profiles, r.risk_profile));
   }
   // Drop wallets no longer active.
   for (const w of [...profileByWallet.keys()]) {
     if (!active.has(w)) {
       service.unwatch(w);
       profileByWallet.delete(w);
+      profilesByWallet.delete(w);
     }
   }
 }
@@ -378,6 +425,7 @@ const service = new WatchService({
     return scores;
   },
   profileFor: (wallet) => profileByWallet.get(wallet.toLowerCase()) ?? "moderate",
+  profilesFor: (wallet) => profilesByWallet.get(wallet.toLowerCase()) ?? [],
   onTransition: (t) => void persistTransition(t),
   onError: (err, wallet) =>
     console.error(`score failed for ${wallet}: ${(err as Error).message.slice(0, 100)}`),
@@ -385,108 +433,59 @@ const service = new WatchService({
   confirmTicks: ALERT_POLICY.confirmTicks,
 });
 
-/** Seed last committed status from the persisted transition tail (restart dedupe). */
+/**
+ * Seed last committed status from the persisted transition tail (restart dedupe).
+ *
+ * Per (wallet, protocol, PROFILE), because that is the grain the in-memory state
+ * now keeps and the grain `watch_transitions` has always stored. Collapsing the
+ * profile here would seed one subscriber's status over another's and re-fire, or
+ * suppress, the first observation after every restart.
+ */
 async function seedLastStatus(): Promise<void> {
-  const { rows } = await db.query<{ wallet: string; protocol: Protocol; to_status: ProfileStatus }>(
-    `select distinct on (wallet, protocol) wallet, protocol, to_status
+  const { rows } = await db.query<{
+    wallet: string;
+    protocol: Protocol;
+    risk_profile: RiskProfile;
+    to_status: ProfileStatus;
+  }>(
+    `select distinct on (wallet, protocol, risk_profile)
+            wallet, protocol, risk_profile, to_status
        from public.watch_transitions
-      order by wallet, protocol, created_at desc`,
+      order by wallet, protocol, risk_profile, created_at desc`,
   );
-  for (const r of rows) service.seed(r.wallet, r.protocol, r.to_status);
+  for (const r of rows) service.seed(r.wallet, r.protocol, r.to_status, r.risk_profile);
   console.log(`seeded ${rows.length} prior statuses`);
 }
 
 // ── dispatch loop ─────────────────────────────────────────────────────────────
-interface PendingRow {
-  id: string;
-  wallet: string;
-  protocol: Protocol;
-  risk_profile: RiskProfile;
-  score: number;
-  band: WatchTransition["band"];
-  from_status: ProfileStatus | null;
-  to_status: ProfileStatus;
-  created_at: string;
-  chat_id: string;
-  health_factor: string | null;
-  collateral_usd: string | null;
-  borrow_usd: string | null;
-  usd_values_unavailable: boolean | null;
-  /**
-   * Read from the TRANSITION, not from the latest snapshot, and that choice is
-   * the correctness of the marker. The snapshot join is "what does this
-   * position look like now"; these two columns are "what produced this
-   * crossing". A scenario cleared in the seconds between the crossing and the
-   * dispatch would, on the snapshot's evidence, send an unmarked alert about a
-   * price that had never moved.
-   */
-  simulation_id: string | null;
-  simulation_label: string | null;
-  /** Sends already spent on this row. See NOTIFY_MAX_ATTEMPTS. */
-  notify_attempts: number;
-}
+//
+// The drain itself lives in server/watchDispatch.ts. One confirmed transition
+// now owes a message to EVERY subscriber watching that wallet at that profile,
+// and the two behaviours most likely to regress — the fan-out and the per-chat
+// cooldown — are exactly the ones that fail silently in both directions (a
+// missed warning, or the same person messaged five times about one whale). This
+// file boots a process on import, so nothing in it can be unit-tested; the drain
+// moved somewhere a test can reach it, and what stays here is the three things
+// only the process has: the pool, the bot token, and the in-memory score cache.
 
 /**
- * How many sends one alert row gets before the queue gives up on it.
+ * How many sends one DELIVERY gets before the queue gives up on it.
  *
  * Eight, at the 15s dispatch cadence, is about two minutes of retrying — long
  * enough to ride out a 429 burst or a Telegram 5xx, short enough that a row
  * Telegram will NEVER accept cannot hold a batch slot for the rest of time.
  *
- * The 403 branch below is still separate and still immediate: a blocked user is
- * a KNOWN terminal state and there is nothing to learn from seven more tries.
- * This cap is for the failures we cannot classify — 400 "chat not found" being
- * the one that actually wedged the queue, because it is permanent and does not
- * announce itself as such.
+ * PER DELIVERY, not per transition, and that is the watchlist change: under the
+ * old shape one watcher whose chat had been deleted burned the transition's
+ * whole budget and retired the alert for everyone else watching that wallet.
+ *
+ * The 403 branch in the drain is still separate and still immediate: a blocked
+ * user is a KNOWN terminal state and there is nothing to learn from seven more
+ * tries. This cap is for the failures we cannot classify — 400 "chat not found"
+ * being the one that actually wedged the queue, because it is permanent and
+ * does not announce itself as such.
  */
 const NOTIFY_MAX_ATTEMPTS = 8;
-
-async function stamp(id: string, channel: string): Promise<void> {
-  await db.query(
-    "update public.watch_transitions set notified_at = now(), notify_channel = $2 where id = $1",
-    [id, channel],
-  );
-}
-
-/**
- * Record a failed send, and retire the row once it has had its attempts.
- *
- * `undeliverable` is stamped through the same two columns every other
- * non-delivery uses, so the drain skips the row and /api/history can still tell
- * it apart from a delivery: only `telegram` means Telegram accepted it. Nothing
- * here renders as delivered, and nothing here is silent — a retired alert is a
- * user who was not warned, which is worth a line in the log whatever the cause.
- */
-async function recordSendFailure(row: PendingRow, reason: string): Promise<void> {
-  const attempts = (row.notify_attempts ?? 0) + 1;
-  try {
-    if (attempts >= NOTIFY_MAX_ATTEMPTS) {
-      await db.query(
-        `update public.watch_transitions
-            set notify_attempts = $2, notified_at = now(), notify_channel = 'undeliverable'
-          where id = $1`,
-        [row.id, attempts],
-      );
-      console.error(
-        `alert ${row.id} (${row.wallet}:${row.protocol}) undeliverable after ${attempts} attempts: ${reason}`.slice(
-          0,
-          200,
-        ),
-      );
-      return;
-    }
-    await db.query("update public.watch_transitions set notify_attempts = $2 where id = $1", [
-      row.id,
-      attempts,
-    ]);
-  } catch (err) {
-    // The counter failing to persist is itself worth saying out loud: it is the
-    // only thing standing between a permanent failure and an infinite retry.
-    console.error(
-      `attempt counter update failed for alert ${row.id}: ${(err as Error).message.slice(0, 120)}`,
-    );
-  }
-}
 
 /**
  * The advisor's own triggers for this leg, plus the facts that phrase them, so
@@ -499,6 +498,10 @@ async function recordSendFailure(row: PendingRow, reason: string): Promise<void>
  * A score too old to be evidence is treated exactly like a cold map: omitted.
  * "Why now" is a claim about the moment of the crossing, and explaining it with
  * facts from before an outage is worse than not explaining it at all.
+ *
+ * The PROFILE is the SUBSCRIBER's, not the wallet's. The same crossing sent to a
+ * conservative watcher and to an aggressive one is phrased against each one's
+ * own thresholds, because that is what each of them asked to be told about.
  */
 function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): AlertExtras["why"] {
   const entry = lastScored.get(key(wallet, protocol));
@@ -510,120 +513,23 @@ function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): Al
   };
 }
 
-async function dispatchPending(): Promise<void> {
-  const { rows } = await db.query<PendingRow>(
-    `select t.id, t.wallet, t.protocol, t.risk_profile, t.score, t.band,
-            t.from_status, t.to_status, t.created_at, t.notify_attempts,
-            t.simulation_id, t.simulation_label, l.chat_id,
-            s.health_factor, s.collateral_usd, s.borrow_usd, s.usd_values_unavailable
-       from public.watch_transitions t
-       join public.telegram_links l on l.wallet = t.wallet and l.enabled
-       left join lateral (
-         select health_factor, collateral_usd, borrow_usd, usd_values_unavailable
-           from public.score_snapshots s
-          where s.wallet = t.wallet and s.protocol = t.protocol
-          order by created_at desc limit 1
-       ) s on true
-      where t.notified_at is null
-      order by t.created_at
-      limit 50`,
-  );
-
-  for (const r of rows) {
-    // The last few SENT messages, newest first. A recovery is rate-limited
-    // against the last message of either kind (so one all-clear per alert is the
-    // ceiling), while an alert still measures its cooldown from the last ALERT -
-    // an all-clear must not reset the clock and re-open the cooldown.
-    const prior = await db.query<{ to_status: ProfileStatus; created_at: string }>(
-      `select to_status, created_at from public.watch_transitions
-        where wallet = $1 and protocol = $2 and notify_channel = 'telegram'
-        order by created_at desc limit 5`,
-      [r.wallet, r.protocol],
-    );
-    const recovery = r.to_status === "within";
-    const priorRow = recovery
-      ? prior.rows[0]
-      : prior.rows.find((p) => p.to_status !== "within");
-
-    const decision = decideSend({
-      toStatus: r.to_status,
-      createdAt: new Date(r.created_at).getTime(),
-      healthFactor: r.health_factor == null ? null : Number(r.health_factor),
-      borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
-      // Degraded USD means the dust gate is UNEVALUABLE, not failed — waive it.
-      usdValuesUnavailable: r.usd_values_unavailable === true,
-      prior: priorRow
-        ? { toStatus: priorRow.to_status, createdAt: new Date(priorRow.created_at).getTime() }
-        : null,
-    });
-
-    if (decision !== "send") {
-      await stamp(r.id, decision);
-      continue;
-    }
-
-    const transition: WatchTransition = {
-      wallet: r.wallet,
-      protocol: r.protocol,
-      profile: r.risk_profile,
-      score: r.score,
-      band: r.band,
-      // The row's own record of where the position came from, not the last
-      // thing we happened to SEND. A wallet whose prior alert was suppressed
-      // would otherwise be described as moving from a status it never left.
-      from: r.from_status,
-      to: r.to_status,
-      // The stamp itself is not recoverable from a row (it carries
-      // multipliers and an expiry the table does not keep), so the marker
-      // travels as `extras.simulation`, which asks only for what WAS
-      // persisted. `formatAlert` refuses to build an unmarked body once
-      // either is set, which makes "a simulated alert says so" a property of
-      // the message builder rather than of this caller remembering.
-      simulation: null,
-    };
-    const extras: AlertExtras = {
-      healthFactor: r.health_factor == null ? null : Number(r.health_factor),
-      collateralUsd: r.collateral_usd == null ? null : Number(r.collateral_usd),
-      borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
-      simulation: r.simulation_id
-        ? { label: r.simulation_label ?? "Simulated market event" }
-        : null,
-      why: whyNowFor(r.wallet, r.protocol, r.risk_profile),
-    };
-    const text = recovery
-      ? formatResolution(transition, extras)
-      : formatAlert(transition, extras);
-
-    const result = await sendMessage(botToken!, Number(r.chat_id), text);
-    if (result.ok) {
-      await stamp(r.id, "telegram");
-      // PROOF OF REACHABILITY. A delivery Telegram accepted is the strongest
-      // evidence the bot can still reach this user, and stamping it here is
-      // what lets the status API stop claiming coverage it has not verified in
-      // a week (server/telegramReach.ts).
-      await recordDelivery(Number(r.chat_id), true, false);
-    } else if (result.errorCode === 403) {
-      // User blocked the bot / deleted the chat: terminal. Disable + stop retrying.
-      await recordDelivery(Number(r.chat_id), false, true);
-      await stamp(r.id, "blocked");
-      console.error(`telegram 403 for chat ${r.chat_id}; link disabled`);
-    } else {
-      // Everything else (429, 5xx, network, and Telegram's 400s for a chat that
-      // does not exist) leaves notified_at null for the next poll, but no longer
-      // forever: the attempt counter is what turns "retry until it works" into
-      // "retry until it clearly will not". A 400 is permanent and indistinguishable
-      // from a transient failure at this layer, and fifty of them used to hold the
-      // whole batch — every user's alerts included.
-      console.error(
-        `telegram send failed (status ${result.status}, attempt ${r.notify_attempts + 1}/${NOTIFY_MAX_ATTEMPTS}): ${result.description ?? ""}`.slice(
-          0,
-          200,
-        ),
-      );
-      await recordSendFailure(r, `HTTP ${result.status} ${result.description ?? ""}`);
-    }
-  }
-}
+/**
+ * What the drain cannot own: the pool, the bot, the score cache, and the
+ * reachability stamp.
+ *
+ * `recordDelivery` is a hoisted function declaration defined further down (it
+ * belongs with the monitoring core that also calls it); this object is only
+ * READ inside an interval callback, long after module evaluation.
+ */
+const dispatchDeps: DispatchDeps = {
+  db,
+  send: (chatId, text) => sendMessage(botToken!, chatId, text),
+  whyNow: whyNowFor,
+  onDelivered: (chatId) => recordDelivery(chatId, true, false),
+  onBlocked: (chatId) => recordDelivery(chatId, false, true),
+  maxAttempts: NOTIFY_MAX_ATTEMPTS,
+  log: { error: (message: string) => console.error(message) },
+};
 
 // ── monitoring core (Phase 4.B) ──────────────────────────────────────────────
 //
@@ -1212,7 +1118,7 @@ async function main(): Promise<void> {
   setInterval(() => void runTick(), TICK_MS);
   setInterval(
     () =>
-      void dispatchPending()
+      void dispatchPending(dispatchDeps)
         .then(() => beat("dispatch", DISPATCH_MS))
         .catch((e) => console.error(`dispatch error: ${(e as Error).message.slice(0, 120)}`)),
     DISPATCH_MS,
