@@ -28,6 +28,7 @@ import {
   X,
   ChevronDown,
   Plus,
+  WalletCards,
 } from "lucide-react";
 import {
   assetLoanToValue,
@@ -46,6 +47,7 @@ import {
   LOAN_TO_VALUE_UNAVAILABLE_HINT,
   PROTOCOL_LABEL,
   RISK_CHIP,
+  RISK_PROFILES,
   RISK_SCORE_NAME,
   RISK_TEXT,
   sameAssetDepegNote,
@@ -160,6 +162,8 @@ import {
   type RiskTier,
   type ProfileResult,
 } from "./lib/profiling";
+import { subscriptionFor, useWatchlist } from "./lib/watchlist";
+import { WalletsPanel } from "./components/WalletsPanel";
 import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
@@ -622,9 +626,6 @@ const VAULT_PRESETS: VaultPreset[] = [
     riskStatus: "ELEVATED",
   }
 ];
-
-/** The three Compass risk profiles, as a table so the toggle is one map. */
-const RISK_PROFILES = ["conservative", "moderate", "aggressive"] as const;
 
 /**
  * What the 30d APY sparkline was drawing, as one clause.
@@ -1499,7 +1500,100 @@ export function AppDemo() {
   // no wallet got four skeleton cards and "Live feed unavailable" forever. That
   // dead end is what the first-run invitation replaces.
   const boundMode = Boolean(onboardedWallet);
-  const ownLive = useWalletPositions(onboardedWallet, selectedRiskProfile, chainMode);
+
+  /**
+   * The wallets PANIK watches FOR the bound wallet, and the panel that changes
+   * them.
+   *
+   * Read here rather than inside the panel because three surfaces need it and
+   * only one of them is the panel: the Portfolio switcher lists it, the Compass
+   * header reads the bound wallet's own subscribed profile out of it to tell the
+   * truth about what the toggle does, and the panel edits it. One read, one
+   * source, and a save updates all three at once.
+   */
+  const watchlist = useWatchlist(onboardedWallet);
+  const [walletsPanelOpen, setWalletsPanelOpen] = useState(false);
+
+  /**
+   * Which watched wallet the Portfolio is SHOWING. Null means the bound one.
+   *
+   * Viewing is not identity. `onboardedWallet` stays the owner, the signer and
+   * the address alerts are sent for, whatever is selected here — the two were
+   * one variable until this, which is why the distinction is worth a second
+   * name rather than a reassignment.
+   */
+  const [viewedWalletChoice, setViewedWalletChoice] = useState<string | null>(null);
+  // A new bound wallet is a new list, so the old selection cannot survive it:
+  // leaving it standing would show the previous owner's watched wallet under
+  // the new owner's dashboard.
+  useEffect(() => setViewedWalletChoice(null), [onboardedWallet]);
+
+  /**
+   * The selection, VALIDATED against the list on every render.
+   *
+   * A choice is only honoured while the wallet is still watched. Removing a
+   * wallet in the panel while the Portfolio is showing it would otherwise leave
+   * the dashboard fetching an address the user just deleted, and the fall back
+   * to the bound wallet is the only state that is always true.
+   */
+  const viewedWallet = useMemo(() => {
+    if (!onboardedWallet) return null;
+    const choice = viewedWalletChoice?.toLowerCase();
+    if (!choice) return onboardedWallet;
+    const stillWatched = (watchlist.subscriptions ?? []).some(
+      (s) => s.wallet.toLowerCase() === choice,
+    );
+    return stillWatched ? choice : onboardedWallet;
+  }, [onboardedWallet, viewedWalletChoice, watchlist.subscriptions]);
+
+  /**
+   * The dashboard is showing a wallet the user does not own.
+   *
+   * Everything that ACTS on a wallet is withheld in this state. Watching an
+   * address you do not control is the feature; offering to close its positions
+   * is a button that cannot work, and a product that renders it has told the
+   * reader something false about what it can do for them.
+   */
+  const viewingWatchOnly =
+    viewedWallet !== null &&
+    onboardedWallet !== null &&
+    viewedWallet.toLowerCase() !== onboardedWallet.toLowerCase();
+
+  /**
+   * The alert level the bound wallet is actually SUBSCRIBED at, or null when we
+   * have not read the list. Null renders no claim: the Compass hint below it
+   * exists to state a fact, and "we could not reach your watchlist" is not one.
+   */
+  const subscribedProfile = subscriptionFor(watchlist.subscriptions, onboardedWallet)?.profile ?? null;
+
+  /**
+   * What the Portfolio switcher may show, bound wallet first.
+   *
+   * The bound wallet is in the list WHETHER OR NOT it is subscribed. Its
+   * self-subscription is created at onboarding and that write can fail (a
+   * pasted address cannot sign), so deriving the options from the watchlist
+   * alone would drop the user's own dashboard out of the picker in exactly the
+   * case where they most need to find it again.
+   */
+  const portfolioWalletOptions = useMemo(() => {
+    if (!onboardedWallet) return [] as { wallet: string; name: string }[];
+    const bound = onboardedWallet.toLowerCase();
+    const named = (wallet: string, label: string | null, own: boolean) => ({
+      wallet,
+      // The label AND the address: a name alone cannot be checked against a
+      // wallet, and an address alone is not what anyone called it.
+      name: `${label ? `${label} · ` : ""}${truncateAddress(wallet)}${own ? " · your wallet" : ""}`,
+    });
+    const out = [named(bound, subscriptionFor(watchlist.subscriptions, bound)?.label ?? null, true)];
+    for (const s of watchlist.subscriptions ?? []) {
+      const wallet = s.wallet.toLowerCase();
+      if (wallet === bound) continue;
+      out.push(named(wallet, s.label, false));
+    }
+    return out;
+  }, [onboardedWallet, watchlist.subscriptions]);
+
+  const ownLive = useWalletPositions(viewedWallet, selectedRiskProfile, chainMode);
 
   /**
    * Coverage is a property of the chain being read, and the API is the only
@@ -1544,9 +1638,11 @@ export function AppDemo() {
     [coveredProtocols],
   );
 
-  // AI Advisor (Phase 2): live report for the onboarded wallet. Null while
+  // AI Advisor (Phase 2): live report for the wallet being VIEWED. Null while
   // offline or pre-onboarding - the tab keeps its Coming-Soon fallback then.
-  const advisorLive = useAdvisor(onboardedWallet, selectedRiskProfile, chainMode);
+  // On a watched wallet the report is read-only; see `watchOnlyNote` at the
+  // render, and `portfolioExitActions` below, which it also feeds.
+  const advisorLive = useAdvisor(viewedWallet, selectedRiskProfile, chainMode);
 
   /**
    * The Advisor's EXIT / REDUCE recommendations, keyed by protocol, for the
@@ -1814,8 +1910,11 @@ export function AppDemo() {
     };
   }, [selectedRiskBreakdownPreset, compassLive, poolYields]);
 
-  // Portfolio history: alert feed + score series for the bound wallet.
-  const historyWallet = onboardedWallet;
+  // Portfolio history: alert feed + score series for the wallet being VIEWED,
+  // which is the bound one unless the switcher says otherwise. The three
+  // portfolio feeds move together on purpose: a positions list for one wallet
+  // beside an alert log for another is two wallets presented as one.
+  const historyWallet = viewedWallet;
   const { history: walletHistory, offline: historyFeedDown } = useWalletHistory(historyWallet);
   /**
    * The same three-way split the position feed gets, for the same reason. An
@@ -2561,6 +2660,45 @@ export function AppDemo() {
               </span>
               <RefreshCw className="w-3 h-3 shrink-0 text-text-muted group-hover:text-text-primary transition-colors" />
             </button>
+
+            {/* The list of wallets PANIK watches, beside the chip naming the
+                one it is bound to: the reader is already thinking about which
+                wallet here, and the two facts ("this is you" / "these are the
+                ones being watched") belong next to each other.
+
+                Not a sixth tab. The nav holds five flat destinations and one of
+                them is already called Watch; this is a panel over the content,
+                the same shape as the risk breakdown.
+
+                The count is stated only once the list has been read. A "0"
+                standing in for "we have not asked yet" is the same unknown
+                rendered as a zero the dashboard cards are careful not to
+                print, and here it would read as "PANIK is watching nothing". */}
+            {boundMode && (
+              <button
+                type="button"
+                onClick={() => setWalletsPanelOpen(true)}
+                title="Wallets PANIK watches for you"
+                aria-label={
+                  watchlist.subscriptions
+                    ? `Wallets, ${watchlist.subscriptions.length} watched`
+                    : "Wallets"
+                }
+                className="flex shrink-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer"
+              >
+                <WalletCards className="w-3.5 h-3.5 shrink-0 text-text-muted" aria-hidden="true" />
+                {/* The word goes at `sm`, not the control: at 390 the header
+                    already carries a tier chip, the wallet chip and this, and
+                    the glyph plus its accessible name is the honest way to give
+                    up width without giving up the destination. */}
+                <span className="hidden sm:inline">Wallets</span>
+                {watchlist.subscriptions && (
+                  <span className="rounded-full bg-white/10 px-1.5 tabular-nums">
+                    {watchlist.subscriptions.length}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
         </header>
 
@@ -2599,6 +2737,38 @@ export function AppDemo() {
                     ))}
                   </div>
                 </div>
+
+                {/* What this toggle does NOT do, said only when it matters.
+
+                    It moves the thresholds every screen is READ against; it does
+                    not touch the level PANIK actually alerts your wallet at,
+                    which lives in a signed subscription. That gap was silent:
+                    someone could switch to conservative, watch the whole app
+                    re-band around them, and still be alerted at the moderate
+                    level they signed up with.
+
+                    The fix is a sentence and a link, NOT a signature prompt on
+                    the toggle. A wallet popup fired by a display control is the
+                    opposite trade - it makes browsing cost consent.
+
+                    Rendered only when the two genuinely differ AND the
+                    subscription has been read. A watchlist we could not reach
+                    says nothing about what anyone is subscribed at, and a hint
+                    guessed from the toggle's own value would be the invented
+                    fact this is here to remove. */}
+                {subscribedProfile !== null && subscribedProfile !== selectedRiskProfile && (
+                  <p className="text-xs font-sans leading-relaxed text-text-secondary">
+                    Alerts for your wallet still use the {subscribedProfile} level. Choosing another
+                    here changes what you see, not when PANIK warns you.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setWalletsPanelOpen(true)}
+                      className="cursor-pointer font-bold text-text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
+                    >
+                      Change it in Wallets
+                    </button>
+                  </p>
+                )}
 
                 {/* Why the testnet catalog is short. Without this line, one
                     card standing where eight were reads as a loading failure
@@ -2808,9 +2978,19 @@ export function AppDemo() {
                         {/* Sentence case, and two words. The uppercase
                             letter-spaced style was retired everywhere else in
                             the app, and "SCORED ON-CHAIN" was provenance the
-                            score's own InfoTip states properly. */}
+                            score's own InfoTip states properly.
+
+                            Three readings, not two: the positions source follows
+                            the Portfolio switcher, and "Your position" over a
+                            watched wallet's leg would name the wrong owner on
+                            the one screen whose numbers are somebody's real
+                            money. */}
                         <span className="block text-xs font-sans text-text-muted mb-1">
-                          {watchingOwnPosition ? "Your position" : "Simulated market"}
+                          {watchingOwnPosition
+                            ? viewingWatchOnly
+                              ? "Watched position"
+                              : "Your position"
+                            : "Simulated market"}
                         </span>
                         <button
                           id="watch-market-selector"
@@ -3396,8 +3576,17 @@ export function AppDemo() {
                 {advisorLive.report ? (
                   <AdvisorPanel
                     report={advisorLive.report}
-                    onExit={(prefill) => setExitPrefill(prefill)}
-                    onOpen={(plan) => setOpenFlowPlan(plan)}
+                    onExit={viewingWatchOnly ? undefined : (prefill) => setExitPrefill(prefill)}
+                    onOpen={viewingWatchOnly ? undefined : (plan) => setOpenFlowPlan(plan)}
+                    /* The Advisor follows whichever wallet the Portfolio is
+                       showing, so on a watched one it is reading somebody
+                       else's positions. The note is what turns that from a
+                       missing button into a stated fact. */
+                    watchOnlyNote={
+                      viewingWatchOnly && viewedWallet
+                        ? `This report is about ${truncateAddress(viewedWallet)}, a wallet you watch. PANIK cannot act on it, so no action is offered here.`
+                        : undefined
+                    }
                   />
                 ) : advisorLive.offline ? (
                   /* `problem`, and it must not resemble the card below it. A
@@ -3491,8 +3680,34 @@ export function AppDemo() {
                 ) : (
                 <>
                 <div className="border-b border-border-subtle pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-3">
                     <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">DeFi Portfolio</h1>
+                    {/* Which watched wallet this page is about.
+
+                        Only when there is a choice to make. With one wallet on
+                        the list the control has exactly one option, which is a
+                        picker that cannot pick — and it would sit beside the
+                        heading on every dashboard implying the page could be
+                        showing something else.
+
+                        A `select`, not a tab strip: the list runs to ten and
+                        this is a chooser, not a set of destinations. It carries
+                        its own label because the heading beside it names the
+                        page, not the control. */}
+                    {portfolioWalletOptions.length > 1 && (
+                      <select
+                        value={viewedWallet ?? ""}
+                        onChange={(e) => setViewedWalletChoice(e.target.value)}
+                        aria-label="Which watched wallet to show"
+                        className="h-9 max-w-full cursor-pointer rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-xs text-text-primary"
+                      >
+                        {portfolioWalletOptions.map((opt) => (
+                          <option key={opt.wallet} value={opt.wallet}>
+                            {opt.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   {/* Primary action: opening positions lives in Compass; this is
                       the pointer Portfolio was missing (UX journey fix).
@@ -3504,12 +3719,32 @@ export function AppDemo() {
                       Plus is the honest glyph here because the outcome really
                       is "a position that did not exist now does"; an arrow
                       would have promised navigation and a sparkle would have
-                      promised nothing at all. */}
-                  <Button onClick={() => setActiveTab("compass")} className="shrink-0">
-                    <Plus className="h-3.5 w-3.5" />
-                    Open position
-                  </Button>
+                      promised nothing at all.
+
+                      Withheld while a watched wallet is on screen. The open it
+                      leads to would be YOURS, on a page describing somebody
+                      else's money, and a page that offers to add a position to
+                      the list it is showing is making a promise about that
+                      list. */}
+                  {!viewingWatchOnly && (
+                    <Button onClick={() => setActiveTab("compass")} className="shrink-0">
+                      <Plus className="h-3.5 w-3.5" />
+                      Open position
+                    </Button>
+                  )}
                 </div>
+
+                {/* What is and is not true of a wallet you only watch, once, at
+                    the top, rather than as a caveat on each control that is
+                    missing. The second clause is the one nobody would guess:
+                    switching the view does not move where alerts go, because
+                    the subscription belongs to the wallet that signed for it. */}
+                {viewingWatchOnly && viewedWallet && (
+                  <p className="text-xs font-sans leading-relaxed text-text-secondary">
+                    Showing {truncateAddress(viewedWallet)}, a wallet you watch. PANIK cannot act on
+                    it, so exits are not offered here. Alerts still go to {truncateAddress(onboardedWallet ?? "")}.
+                  </p>
+                )}
 
                 {/* STATE 3 of 4 — we reached the feed and this wallet holds
                     nothing. "clear", not "problem": that is good news and it is
@@ -3518,14 +3753,24 @@ export function AppDemo() {
                     open positions" empty state directly below this one, so the
                     same fact arrived twice in two different wordings. */}
                 {portfolioEmpty && (
+                  /* Two readings of one fact, because the invitation only
+                     applies to one of them: "open your first one" on a wallet
+                     the reader does not control is an instruction they cannot
+                     follow, aimed at money that is not theirs. */
                   <EmptyState
                     tone="clear"
                     title="No positions yet"
-                    hint={`We read this wallet and found no open lending positions. Browse risk-scored opportunities matched to your ${selectedRiskProfile} profile to open your first one.`}
+                    hint={
+                      viewingWatchOnly
+                        ? "We read this wallet and found no open lending positions. PANIK keeps watching it and raises an alert if one appears and drifts toward liquidation."
+                        : `We read this wallet and found no open lending positions. Browse risk-scored opportunities matched to your ${selectedRiskProfile} profile to open your first one.`
+                    }
                     action={
-                      <Button variant="quiet" onClick={() => setActiveTab("compass")}>
-                        Explore Compass →
-                      </Button>
+                      viewingWatchOnly ? undefined : (
+                        <Button variant="quiet" onClick={() => setActiveTab("compass")}>
+                          Explore Compass →
+                        </Button>
+                      )
                     }
                   />
                 )}
@@ -3837,8 +4082,14 @@ export function AppDemo() {
                       highlightKey={highlightedPositionKey}
                       offline={portfolioFeedDown}
                       chain={ownLive.chain}
-                      exitActions={portfolioExitActions}
-                      onExit={(prefill) => setExitPrefill(prefill)}
+                      /* No exit control at all on a wallet the user does not
+                         own, rather than a disabled one: `exitControlState`'s
+                         two "why not" sentences are about the chain and about
+                         the flow being wired in, and neither is the reason
+                         here. A row with no action is the honest shape when the
+                         action was never available to offer. */
+                      exitActions={viewingWatchOnly ? undefined : portfolioExitActions}
+                      onExit={viewingWatchOnly ? undefined : (prefill) => setExitPrefill(prefill)}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
                         setSelectedLivePositionKey(`${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`);
@@ -4334,6 +4585,48 @@ export function AppDemo() {
           )}
         </AnimatePresence>
 
+        {/* 4. SLIDE-OUT PANEL FOR THE WATCHLIST.
+
+            The risk breakdown's shape, deliberately: both are a reading-and-
+            editing surface opened over the page you were on, and the app should
+            not have two ways of covering itself. It lives inside the content
+            column for the same reason that one does, so the sidebar stays
+            reachable and the nav never disappears behind a modal.
+
+            Gated on a bound wallet: the list belongs to an owner, and there is
+            no owner before onboarding. */}
+        <AnimatePresence>
+          {walletsPanelOpen && onboardedWallet && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setWalletsPanelOpen(false)}
+                className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+              />
+              <motion.div
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", damping: 26, stiffness: 220 }}
+                className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
+              >
+                <WalletsPanel
+                  owner={onboardedWallet}
+                  state={watchlist}
+                  getProof={getProof}
+                  /* The user's own answer from onboarding, as the default for a
+                     wallet they have not thought about a level for yet. */
+                  defaultProfile={selectedRiskProfile}
+                  viewedWallet={viewedWallet}
+                  onClose={() => setWalletsPanelOpen(false)}
+                />
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
       </div>
 
       {/* 3. MOBILE NAV — a bottom tab bar, not a drawer.
@@ -4460,9 +4753,15 @@ export function AppDemo() {
         />
       )}
 
-      {/* Advisor popup (Phase 2) - fires on action changes / market shifts */}
+      {/* Advisor popup (Phase 2) - fires on action changes / market shifts.
+
+          Silent while a watched wallet is on screen. The popup's whole shape is
+          an interruption offering an action, and the action here would be
+          exiting a position the reader does not hold: the panel can afford to
+          state that and withhold the button, a popup that arrives uninvited
+          cannot. */}
       <AdvisorPopup
-        report={advisorLive.report}
+        report={viewingWatchOnly ? null : advisorLive.report}
         onExit={(prefill) => setExitPrefill(prefill)}
         onOpen={(plan) => setOpenFlowPlan(plan)}
         onView={() => setActiveTab("advisor")}

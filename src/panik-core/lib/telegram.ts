@@ -211,8 +211,13 @@ function describeFailure(err: unknown): { error: string; severity: MonitoringSev
  * raises these as ProviderNotFoundError / ConnectorNotFoundError; the message
  * test is a fallback for the versions that only set one of the two, and is used
  * ONLY to classify — the string itself never reaches the screen.
+ *
+ * Exported for `lib/watchlist.ts`, which needs the same three-way split and
+ * must not own a second copy of it: these predicates encode which wagmi/viem
+ * shapes mean what, and a copy that missed `ConnectorNotConnectedError` would
+ * silently reclassify one whole failure mode into the generic sentence.
  */
-function noWalletAvailable(err: unknown): boolean {
+export function noWalletAvailable(err: unknown): boolean {
   const e = err as { name?: string; message?: string };
   return (
     e?.name === "ProviderNotFoundError" ||
@@ -223,7 +228,7 @@ function noWalletAvailable(err: unknown): boolean {
 }
 
 /** User dismissed the wallet prompt (EIP-1193 4001, or viem's wrapper). */
-function rejectedSignature(err: unknown): boolean {
+export function rejectedSignature(err: unknown): boolean {
   const e = err as { name?: string; code?: number; message?: string };
   return e?.code === 4001 || e?.name === "UserRejectedRequestError" || /rejected|denied/i.test(e?.message ?? "");
 }

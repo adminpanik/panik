@@ -629,19 +629,29 @@ function RecommendationCard({
   rec,
   onExit,
   onOpen,
+  readOnly = false,
 }: {
   rec: AdvisorRecommendation;
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
   onOpen?: (plan: AdvisorOpenPlan) => void;
+  /** This report is about a wallet the reader watches but cannot act on. */
+  readOnly?: boolean;
 }) {
   const routes = routesFor(rec);
   /**
    * Whether this card offers a control, which is also whether the action chip
    * would be repeating a button label. `ActionButton` renders nothing for
    * WATCH, HOLD and MOVE, and nothing for an OPEN with no plan attached.
+   *
+   * `readOnly` folds in HERE rather than at the button, and that is the whole
+   * reason it is one flag: with no button, the verb becomes the only statement
+   * of the verdict on the card, so the chip has to come back. Suppressing the
+   * button alone would leave an EXIT leg reading as prose with nothing naming
+   * the recommendation.
    */
   const hasAction =
-    rec.action === "EXIT" || rec.action === "REDUCE" || (rec.action === "OPEN" && !!rec.openPlan);
+    !readOnly &&
+    (rec.action === "EXIT" || rec.action === "REDUCE" || (rec.action === "OPEN" && !!rec.openPlan));
   /**
    * Whether this leg is one the user should act on today, which is the only
    * kind of card that earns a band chip. See the chip itself, below.
@@ -772,9 +782,11 @@ function RecommendationCard({
 function OpportunityCard({
   rec,
   onOpen,
+  readOnly = false,
 }: {
   rec: AdvisorRecommendation;
   onOpen?: (plan: AdvisorOpenPlan) => void;
+  readOnly?: boolean;
 }) {
   const plan = rec.openPlan;
   if (!plan) return null;
@@ -812,7 +824,11 @@ function OpportunityCard({
           `w-full` flex item now rather than a column beside the button: it
           cannot be given a narrow track, at 380px or at any other width. */}
       <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-border-subtle pt-3">
-        <ActionButton rec={rec} onOpen={onOpen} />
+        {/* An opportunity sized from somebody else's portfolio, opened with the
+            reader's own money, is two wallets in one plan. The figures still
+            say what the Advisor found; only the button that would act on them
+            is withheld. */}
+        {readOnly ? null : <ActionButton rec={rec} onOpen={onOpen} />}
         <Reasoning rec={rec} />
       </div>
     </Card>
@@ -874,9 +890,25 @@ export interface AdvisorPanelProps {
   report: AdvisorReport;
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
   onOpen?: (plan: AdvisorOpenPlan) => void;
+  /**
+   * Set when this report is about a wallet the reader only WATCHES, and the
+   * sentence saying so.
+   *
+   * The note and the suppression are one prop rather than two, because they are
+   * one decision: a caller could otherwise hide the buttons without explaining
+   * the gap, or explain a gap that is not there. The reading half of the card
+   * is unchanged - the whole point of watching an address is being told what is
+   * happening to it.
+   *
+   * Not `onExit === undefined`. That already means something else here
+   * ("the transaction flow is not wired in on this surface", per
+   * `exitControlState`), and it renders a DISABLED button whose hover would
+   * then name the wrong reason.
+   */
+  watchOnlyNote?: string;
 }
 
-export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
+export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorPanelProps) {
   const chainMode = useChainMode();
   const { overall, recommendations, opportunities, walletInsights } = report;
 
@@ -895,8 +927,23 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
         : "No past liquidations.")
     : null;
 
+  const readOnly = watchOnlyNote !== undefined;
+
   return (
     <div className="space-y-6">
+      {/* Whose wallet this report is about, and what the reader may do with it,
+          before the first verdict rather than as a gap they notice later. The
+          reading half of the panel is unchanged: being told what is happening to
+          an address is the whole point of watching it. */}
+      {watchOnlyNote && (
+        <Card className="flex items-start gap-3">
+          <Eye className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
+          <p className="min-w-0 flex-1 text-sm font-sans leading-relaxed text-text-secondary">
+            {watchOnlyNote}
+          </p>
+        </Card>
+      )}
+
       {/* The verdict for the whole wallet. Container stays neutral - the icon
           is the one hued element, which is the treatment the Portfolio
           aggregate card already uses for exactly this job, and it is absent
@@ -925,7 +972,9 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
       {recommendations.length > 0 ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h3 className="text-sm font-sans font-semibold text-text-primary">Your positions</h3>
+            <h3 className="text-sm font-sans font-semibold text-text-primary">
+              {readOnly ? "Positions on this wallet" : "Your positions"}
+            </h3>
             {/* Once, for the section, instead of a pill beside every exit
                 button on every card. The chain you are signing on is a property
                 of the selected network, not of a position, and the flow the
@@ -941,6 +990,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
               rec={rec}
               onExit={onExit}
               onOpen={onOpen}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -967,6 +1017,7 @@ export function AdvisorPanel({ report, onExit, onOpen }: AdvisorPanelProps) {
                 key={`${rec.protocol}-${rec.openPlan?.collateralSymbol}`}
                 rec={rec}
                 onOpen={onOpen}
+                readOnly={readOnly}
               />
             ))}
             <SeeAllInCompass />

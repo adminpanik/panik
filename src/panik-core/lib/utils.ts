@@ -405,6 +405,23 @@ export const RISK_TEXT: Record<Band, string> = {
 };
 
 /**
+ * The three alert levels, in the order every picker lists them.
+ *
+ * Here rather than in `AppDemo`, because it is no longer one surface's toggle:
+ * the Compass header, the Wallets panel's per-row picker and its add form all
+ * offer the same three choices, and the localStorage guard in `AppDemo` reads
+ * the same tuple to decide whether a stored value is one of them. Three copies
+ * of a three-string list is how one of them ends up ordered differently, or
+ * missing the profile the engine gained.
+ *
+ * A PROFILE IS NOT A RISK BAND. It selects the threshold a wallet is measured
+ * against (`ALERT_THRESHOLD` in packages/scoring), so it never takes a colour
+ * from the risk ramp: "conservative" is a setting, not a verdict, and painting
+ * it green would make the calmest setting look like the safest position.
+ */
+export const RISK_PROFILES = ["conservative", "moderate", "aggressive"] as const;
+
+/**
  * The score's visible name. One name, every surface: the Compass breakdown
  * panel, the Watch simulator, the Portfolio aggregate card and its history, and
  * `riskScoreLabel`'s accessible name in `ui/RiskDial`. Watch called it a "risk
