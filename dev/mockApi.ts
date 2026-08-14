@@ -46,6 +46,22 @@ import {
   scenarioByKey,
   type MarketSimulation,
 } from "../packages/scoring/src/simulation";
+/**
+ * The watchlist's REAL request parser and its real limits, for the same reason
+ * the band rule above is the real one: the panel's error line renders whatever
+ * the API says, and a mock with its own wording would let that line be verified
+ * against a sentence production never sends. Only the storage is faked.
+ *
+ * `parseWatchlistOps` is the pure half of `server/watchlist.ts` — no pg, no
+ * network — so importing it here costs nothing at vite-serve time.
+ */
+import {
+  parseWatchlistOps,
+  WATCHLIST_LABEL_MAX,
+  WATCHLIST_MAX,
+  type WatchOp,
+  type WatchSubscription,
+} from "../server/watchlist";
 
 /**
  * localStorage the dashboard reads. Seeded from the page itself rather than by
@@ -171,6 +187,105 @@ function simulatedPositions(sim: MarketSimulation): typeof MOCK_POSITIONS {
   });
 }
 
+// ── /api/watchlist ───────────────────────────────────────────────────────────
+
+/**
+ * A second address the fixture owner watches but does not control, so the
+ * management panel and the Portfolio switcher both have something real to do
+ * offline. It is a watch-only wallet by construction: `/api/positions` answers
+ * only for MOCK_WALLET, so selecting this one shows an empty portfolio, which
+ * is the honest answer for an address the fixture holds no positions for.
+ */
+const MOCK_WATCHED_WALLET = "0x9b1f4c7e2a6d8035bf4e1c9a7d2b6f3018e4a5c7";
+
+const nowIso = () => new Date().toISOString();
+
+/**
+ * The mock's whole watchlist, keyed by owner, and MUTABLE: the panel's point is
+ * that a save changes the list, so a fixture that answered the same rows after
+ * a POST would demo the opposite of the feature. It lives for as long as the
+ * dev server does; restarting vite resets it to the seed.
+ */
+const watchlists = new Map<string, WatchSubscription[]>();
+
+function watchlistFor(owner: string): WatchSubscription[] {
+  const existing = watchlists.get(owner);
+  if (existing) return existing;
+  // Only the fixture owner is seeded. Any other address starts empty, which is
+  // the same rule /api/positions follows: a typo shows as nothing watched, not
+  // as somebody else's list.
+  const seeded: WatchSubscription[] =
+    owner === MOCK_WALLET
+      ? [
+          { wallet: MOCK_WALLET, profile: "moderate", label: "Mock dev wallet", createdAt: nowIso(), updatedAt: nowIso() },
+          { wallet: MOCK_WATCHED_WALLET, profile: "conservative", label: "Cold storage", createdAt: nowIso(), updatedAt: nowIso() },
+        ]
+      : [];
+  watchlists.set(owner, seeded);
+  return seeded;
+}
+
+/**
+ * Apply a parsed batch in memory, in the order `applyWatchlistOps` documents:
+ * every mutation, THEN the cap, then the resulting list. Checking the cap first
+ * would let "remove one, add two" pass on the pre-batch count, which is the
+ * arithmetic the real transaction is ordered to defeat — and a mock that
+ * disagreed with it would make the panel's cap state untestable here.
+ *
+ * All-or-nothing, like the transaction: the working copy is only published once
+ * every op has been applied and the cap still holds.
+ */
+function applyMockOps(owner: string, ops: WatchOp[]): { watching: WatchSubscription[] } | { status: number; error: string } {
+  const next = watchlistFor(owner).map((s) => ({ ...s }));
+  for (const op of ops) {
+    const at = next.findIndex((s) => s.wallet === op.wallet);
+    if (op.op === "remove") {
+      if (at >= 0) next.splice(at, 1);
+      continue;
+    }
+    const labelGiven = Object.prototype.hasOwnProperty.call(op, "label");
+    const label = labelGiven ? ((op as { label?: string | null }).label ?? null) : null;
+    if (op.op === "add") {
+      if (at >= 0) {
+        next[at] = {
+          ...next[at],
+          profile: op.profile,
+          label: labelGiven ? label : next[at].label,
+          updatedAt: nowIso(),
+        };
+      } else {
+        next.push({ wallet: op.wallet, profile: op.profile, label, createdAt: nowIso(), updatedAt: nowIso() });
+      }
+      continue;
+    }
+    // An update to a wallet the owner does not watch is the caller believing
+    // they watch something they do not, and the real endpoint says so.
+    if (at < 0) return { status: 404, error: `not watching ${op.wallet}, so add it first` };
+    next[at] = {
+      ...next[at],
+      profile: op.profile ?? next[at].profile,
+      label: labelGiven ? label : next[at].label,
+      updatedAt: nowIso(),
+    };
+  }
+  if (next.length > WATCHLIST_MAX) {
+    return {
+      status: 409,
+      error: `watchlist holds ${WATCHLIST_MAX} wallets at most, and this change would leave ${next.length}`,
+    };
+  }
+  watchlists.set(owner, next);
+  return { watching: next };
+}
+
+/**
+ * PANIK_MOCK_WATCHLIST_DOWN=1 makes the read fail, so the panel's "we could not
+ * load this" state can be seen without unplugging anything. Same idiom as
+ * PANIK_MOCK_SIM: the degraded path is the one a UI is least likely to get
+ * right and the hardest to reach by accident.
+ */
+const watchlistDown = () => process.env.PANIK_MOCK_WATCHLIST_DOWN === "1";
+
 /** Route table: pathname -> body. Returning undefined means "not mine". */
 function handle(url: URL): unknown {
   const profile = url.searchParams.get("profile") ?? "moderate";
@@ -259,12 +374,70 @@ export function mockApi(mode: string): Plugin[] {
             `\n     ${MOCK_WALLET}\n`,
         );
         server.middlewares.use((req, res, next) => {
-          if (!req.url?.startsWith("/api/") || req.method !== "GET") return next();
-          const body = handle(new URL(req.url, "http://localhost"));
+          if (!req.url?.startsWith("/api/")) return next();
+          const url = new URL(req.url, "http://localhost");
+
+          const send = (status: number, body: unknown) => {
+            res.statusCode = status;
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Cache-Control", "no-store");
+            res.end(JSON.stringify(body));
+          };
+
+          /* The watchlist is the one route with a WRITE and with per-request
+             statuses, so it is handled here rather than in `handle`, which is a
+             pathname -> 200 body table by design. */
+          if (url.pathname === "/api/watchlist") {
+            if (watchlistDown()) return send(502, { error: "mock watchlist is switched off" });
+            if (req.method === "GET") {
+              const owner = (url.searchParams.get("owner") ?? "").trim().toLowerCase();
+              if (!/^0x[0-9a-f]{40}$/.test(owner)) {
+                return send(400, { error: "invalid EVM wallet address" });
+              }
+              return send(200, {
+                updatedAt: Date.now(),
+                watching: watchlistFor(owner),
+                max: WATCHLIST_MAX,
+                labelMax: WATCHLIST_LABEL_MAX,
+              });
+            }
+            if (req.method === "POST") {
+              const chunks: Buffer[] = [];
+              req.on("data", (c: Buffer) => chunks.push(c));
+              req.on("end", () => {
+                let body: unknown = null;
+                try {
+                  body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "null");
+                } catch {
+                  return send(400, { error: "body is not JSON" });
+                }
+                /* NO SIGNATURE CHECK, and it has to be said out loud: mock mode
+                   has no nonce store and a headless browser has no wallet to
+                   sign with, so the proof is accepted unread. The OWNER
+                   therefore comes off the body here, which is precisely what the
+                   real endpoint refuses to do — there, the proof's signer is the
+                   owner and the body cannot name one. Nothing in this file is a
+                   trust boundary; it never ships (`apply: 'serve'`). */
+                const owner = String(
+                  (body as { owner?: unknown } | null)?.owner ?? MOCK_WALLET,
+                )
+                  .trim()
+                  .toLowerCase();
+                const parsed = parseWatchlistOps(body);
+                if ("error" in parsed) return send(400, { error: parsed.error });
+                const applied = applyMockOps(owner, parsed.ops);
+                if ("error" in applied) return send(applied.status, { error: applied.error });
+                return send(200, { ok: true, watching: applied.watching });
+              });
+              return;
+            }
+            return send(405, { error: "method not allowed" });
+          }
+
+          if (req.method !== "GET") return next();
+          const body = handle(url);
           if (body === undefined) return next(); // e.g. /api/health -> real proxy
-          res.setHeader("Content-Type", "application/json");
-          res.setHeader("Cache-Control", "no-store");
-          res.end(JSON.stringify(body));
+          send(200, body);
         });
       },
       transformIndexHtml: {
