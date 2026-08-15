@@ -6,6 +6,7 @@
 import React, { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { HelpCircle } from "lucide-react";
+import { LAYER } from "../ui";
 
 /**
  * Plain-language metric tooltip (UX research backlog #1: every metric gets a
@@ -20,6 +21,16 @@ import { HelpCircle } from "lucide-react";
  * focus, the portal and the viewport flip either way — the alternative was a
  * native `title`, which cannot be focused, cannot be styled, and does not
  * appear for a keyboard user at all.
+ *
+ * THE HIT AREA IS 24px AND THE GLYPH IS NOT. This is a focusable element, so
+ * WCAG 2.2 SC 2.5.8 applies to it, and it was a 12x12 target — measured, twelve
+ * of them on the Watch tab alone. The fix is a centred 24x24 pseudo-element
+ * rather than padding, because padding would make the ANCHOR 24px and shove the
+ * label it sits beside: the glyph has to stay 12px next to 12px type, and only
+ * the area a finger has to find gets bigger. `::before` participates in hit
+ * testing and takes no layout space, which is exactly the pair of properties
+ * needed. It is centred so it grows symmetrically over whitespace rather than
+ * over the words in front of it.
  */
 export function InfoTip(props: { text: string; className?: string; children?: React.ReactNode }) {
   const anchor = useRef<HTMLSpanElement>(null);
@@ -38,7 +49,7 @@ export function InfoTip(props: { text: string; className?: string; children?: Re
       ref={anchor}
       tabIndex={0}
       aria-label={props.text}
-      className={`inline-flex align-middle ${props.className ?? ""}`}
+      className={`relative inline-flex align-middle before:absolute before:top-1/2 before:left-1/2 before:h-6 before:w-6 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[''] ${props.className ?? ""}`}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}
@@ -51,7 +62,7 @@ export function InfoTip(props: { text: string; className?: string; children?: Re
         createPortal(
           <span
             role="tooltip"
-            className={`fixed z-[300] w-60 -translate-x-1/2 pointer-events-none ${pos.below ? "" : "-translate-y-full"}`}
+            className={`fixed ${LAYER.tip} w-60 -translate-x-1/2 pointer-events-none ${pos.below ? "" : "-translate-y-full"}`}
             style={{ left: pos.x, top: pos.below ? pos.y + 6 : pos.y - 6 }}
           >
             {/* 12px, not 11px. A tooltip is a paragraph a user opened on
