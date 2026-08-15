@@ -11,9 +11,10 @@ This doc covers setup, the moving parts, and the anti-spam design.
 | Trigger | `packages/scoring/src/profile.ts` (`statusFor`) | pure | within / approaching / outside vs the profile threshold (25 / 50 / 75) |
 | Debounce | `packages/scoring/src/watch/loop.ts` (`WatchService.confirmTicks`) | worker | a status must hold N consecutive 60s ticks before it emits |
 | Send gate | `packages/scoring/src/watch/alertPolicy.ts` (`decideSend`) | worker | materiality + cooldown + escalation bypass + resolution rate limit |
-| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`, `formatResolution`) | worker | plain text + emoji pictograms, hyphens only |
+| Message copy | `packages/scoring/src/watch/alertMessage.ts` (`formatAlert`, `formatResolution`) | worker | Telegram HTML (`<b>`/`<code>` only), no emoji, hyphens only |
 | Worker | `scripts/watch-worker.ts` (`npm run worker`) | standalone | scores, persists transitions, dispatches |
-| Send | `server/telegram.ts` (`sendMessage`) | worker + webhook | Bot API, fetch-only |
+| Card | `server/alertCard.ts` (`renderAlertCard`) | worker | SVG -> PNG via `@resvg/resvg-js`; never blocks a send |
+| Send | `server/telegram.ts` (`sendMessage`, `sendPhoto`) | worker + webhook | Bot API, fetch-only |
 | Link store | `server/telegramStore.ts` | Railway api-server + Vercel fallbacks | Supabase REST, no pg/viem |
 | Mint code | `/api/telegram/link` | Railway api-server (`scripts/api-server.ts`) | `api/telegram/link.ts` is the Vercel fallback (see below) |
 | Webhook | `/api/telegram/webhook` | Railway api-server | `api/telegram/webhook.ts` is the Vercel fallback; receives `/start <code>` and `/stop` |
@@ -116,12 +117,124 @@ ALERT, so an all-clear can never reset the clock and re-open the window. A
 position flapping over/under its limit inside one cooldown therefore produces
 two messages (one alert, one all-clear), not four.
 
-**Why now (P2 7.1).** Every alert carries a `🔎 Why now:` line naming the
-dominant trigger and the value that fired it, plus a one-line sub-score
-breakdown. Triggers are the advisor's own (`advisor/rules.ts`); `whyNow()` in
-`watch/alertMessage.ts` holds the severity order and the copy. A trigger whose
-value is unavailable falls through to the next one, so the alert says less
-rather than inventing a number, and raw trigger strings never reach a user.
+**Why now (P2 7.1).** Every alert carries ONE explanation line. When a named
+trigger fired it reads `Why now: <sentence> Risk drivers: …`; when nothing named
+fired, the reason is the dominant sub-score and the line reads `Main driver:
+asset volatility (38 of 100). Position health 7, …`. Triggers are the advisor's
+own (`advisor/rules.ts`); `whyNow()` in `watch/alertMessage.ts` holds the
+severity order and the copy. A trigger whose value is unavailable falls through
+to the next one, so the alert says less rather than inventing a number, and raw
+trigger strings never reach a user.
+
+**The message contract.** Four rules, all enforced by tests in
+`packages/scoring/tests/alertMessage.test.ts`:
+
+- **No emoji**, in any message, and no em dashes. Plain professional wording.
+- **Telegram HTML, two tags.** Alerts and all-clears are sent with
+  `parse_mode: "HTML"` and emit only `<b>` and `<code>`: the subject line bold
+  with the address in monospace, the score line's three numbers bold, the drill
+  marker and the closing instruction bold, and nothing else. Line breaks stay
+  `\n` (`<br>` is not in Telegram's whitelist and would 400). Every interpolated
+  value goes through `escapeHtml` - the wallet label is user-typed, the symbols
+  and protocol names are read off a chain, the scenario label is operator-typed,
+  and an unescaped `<` is not a styling bug but a rejected send. No other sender
+  sets a parse mode, so the webhook replies, the operator pages and the welcome
+  are all still unparsed plain text.
+- **Say whose position it is.** The first line is the subscriber's own label for
+  the wallet plus the truncated address plus the protocol
+  (`Simulation target (0x12a5...2305) on Aave V3 is nearing your conservative
+  limit.`). The label comes from `watch_subscriptions.label`, selected by the
+  drain and passed as `AlertExtras.label`.
+- **Never contradict yourself.** On an `approaching` transition the score line
+  names the warn boundary (`Risk score 15 of 100. Your conservative limit is 25,
+  and alerts warn from 15.`). The number is `warnFrom(profile)` in
+  `packages/scoring/src/profile.ts`, the same function `statusFor` decides with.
+- **Round for humans, and never fall below the floor.** Scores and drivers are
+  integers, health factor two decimals, dollars whole. The subject and the score
+  line are built only from `watch_transitions` columns, so no combination of
+  missing snapshot facts can produce a message that is all advice and no facts.
+
+**Open PANIK Advisor.** Alerts and all-clears carry a single inline-keyboard URL
+button pointing at `PANIK_APP_URL` (default `https://www.panik.fi/app`) with
+`?view=<watched wallet>&tab=advisor` - the Advisor, because the message ends in
+an instruction and the Advisor is the screen that sizes it. `AppDemo` honours
+both halves once the watchlist has loaded, applying the wallet before the tab,
+and only for a wallet the reader actually watches and a tab this build has. A
+`PANIK_APP_URL` that is not an absolute http(s) URL costs the button, never the
+send.
+
+**Watch-only.** When the subscriber is not the watched wallet's owner, the alert
+adds one plain line under the instruction saying PANIK cannot act on it for them.
+The dispatcher decides it (`owner_wallet` vs `t.wallet`, case-insensitive); it is
+the chat's version of the app withholding every acting control on a watched
+address. All-clears do not carry it, because they advise nothing.
+
+**The card.** Every alert and all-clear also carries a PNG rendered in-process by
+`server/alertCard.ts` (`@resvg/resvg-js`, no browser and no third party): the
+score dial exactly as `src/panik-core/ui/RiskDial.tsx` draws it, the brand mark,
+the severity headline, one identity line and the address, plus a `SIMULATED
+DRILL` chip when the transition carries a simulation. Fonts are vendored under
+`server/assets/fonts` (see the README there) because the container has none.
+
+**Exactly two large elements: the dial's number and the event headline.** Under
+them the identity stack, three lines:
+
+```
+"Simulation target"     the reader's own name for it, in quotes. Omitted entirely
+                        when they never gave one - never empty quotes.
+Aave V3 - Base          what it actually is. The chain segment is dropped, never
+                        defaulted, when the caller names no chain.
+
+0x12a5...2305           the address, mono and quieter, after a wider gap
+```
+
+The first two lines are bright but not big - primary ink at medium weight, at the
+same 22px as the address, because the SIZE gap is what holds the hierarchy. The
+wider gap before the address is structure, not decoration: the first two lines
+are what the position is CALLED, the third is what identifies it. The whole stack
+is centred in the room under the headline, computed from whether the name line
+exists, so both variants are deliberate rather than one being the other with a
+hole in it.
+
+This replaced a single joined line, which read well for "Cold wallet" and broke
+for "My extremely long-term leveraged cbBTC position": one line cannot both keep
+a user-typed name intact and guarantee the protocol beside it stays on the card.
+Each line is now truncated to `CARD_CONTENT_WIDTH` by `clipToWidth`, which
+measures with a four-bucket per-character estimate (rounded UP - over-estimating
+costs a character, under-estimating runs off the edge). The name is clipped
+BEFORE its quotes go on, so a truncated one still closes.
+
+The chain label is threaded through from the worker's own
+`ScoringChainConfig.label` rather than assumed, so a testnet worker says "Base
+Sepolia". Set large and bold on its own line, as it was first built, a nickname
+somebody typed into a text field reads as PANIK vocabulary for a kind of position
+rather than as this reader's word for this wallet; quotes say "your word, not
+ours" in a way no font size can. The limit sentence
+("conservative limit 25, and alerts warn from 15") is NOT on the card at all - it
+lives in the message body, where it has room to be the sentence that stops a LOW
+score with an alert attached from reading as a contradiction.
+
+**Two colour channels on the card, and they answer different questions.** The
+ARC is coloured by the score's BAND, exactly as the app's dial colours it - that
+is the engine's claim about the number and the card must not restate it. The
+HEADLINE is coloured by what the EVENT means for this reader: "nearing" is always
+elevated amber, "over" is always high orange, "back under" is always low green.
+Collapsing the two shipped a green "Nearing your risk limit" - a warning in the
+colour of reassurance - for the ordinary case of a conservative reader warned at
+15, where 15 genuinely is LOW. The single exception only ever escalates: a
+CRITICAL band under "over your limit" keeps critical red.
+
+Delivery is one `sendPhoto` with the whole body as the caption. Telegram caps a
+caption at 1024 characters *after entity parsing* (`captionLength` measures what
+it counts); the widest shape the current copy can produce shows 986, so the split
+path - card captioned with `formatHeadline`, full body as an immediate follow-up
+message - is a live safety net rather than the normal case.
+
+**Nothing about the card can stop an alert.** `renderAlertCard` never throws and
+returns null on any failure; a refused or throwing upload logs and falls through
+to the existing text-only `sendMessage`. Deps without a `sendPhoto` get text, as
+every caller did before the card existed. `server/watchDispatch.test.ts` covers
+all three fallbacks.
 
 ## Setup
 

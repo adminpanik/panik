@@ -11,10 +11,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  deepLinkTab,
   draftCount,
   draftFromSubscriptions,
   stagedOps,
   subscriptionFor,
+  viewParamWallet,
   type WatchDraftRow,
   type WatchSubscription,
 } from "./watchlist";
@@ -166,5 +168,66 @@ describe("subscriptionFor", () => {
     // The Compass hint hangs off this: "we could not read your watchlist" must
     // not render as "your subscribed profile is the one you are looking at".
     expect(subscriptionFor(null, A)).toBeNull();
+  });
+});
+
+/**
+ * The `?view=` deep link, which arrives from OUTSIDE the app: it is the tail of
+ * the "Open in PANIK" button on a Telegram alert (server/watchDispatch.ts).
+ */
+describe("viewParamWallet", () => {
+  const list = [sub(B, "moderate", "The whale")];
+
+  it("honours a wallet the owner watches", () => {
+    expect(viewParamWallet(`?view=${B}`, list, A)).toBe(B);
+  });
+
+  it("accepts the bound wallet even without a self-subscription row", () => {
+    // That write can fail (a pasted address cannot sign), and the bound wallet
+    // is the default view regardless.
+    expect(viewParamWallet(`?view=${A}`, list, A)).toBe(A);
+    expect(viewParamWallet(`?view=${A}`, null, A)).toBe(A);
+  });
+
+  it("normalises case, since the button lowercases and a user may not", () => {
+    expect(viewParamWallet(`?view=0x${"B".repeat(40)}`, list, A)).toBe(B);
+  });
+
+  it("ignores a wallet that is not on the list", () => {
+    // The parameter comes from a link. Honouring an arbitrary address would let
+    // one render somebody else's position inside this dashboard.
+    expect(viewParamWallet(`?view=0x${"c".repeat(40)}`, list, A)).toBeNull();
+  });
+
+  it("ignores a malformed or absent value, and says nothing about it", () => {
+    expect(viewParamWallet("?view=not-an-address", list, A)).toBeNull();
+    expect(viewParamWallet("?view=", list, A)).toBeNull();
+    expect(viewParamWallet("?tab=compass", list, A)).toBeNull();
+    expect(viewParamWallet("", list, A)).toBeNull();
+  });
+
+  it("answers null before a wallet is bound", () => {
+    expect(viewParamWallet(`?view=${B}`, list, null)).toBeNull();
+  });
+});
+
+describe("deepLinkTab", () => {
+  const tabs = ["compass", "watch", "advisor", "portfolio", "settings"] as const;
+
+  it("honours the tab the alert button asks for", () => {
+    expect(deepLinkTab(`?view=${B}&tab=advisor`, tabs)).toBe("advisor");
+  });
+
+  it("normalises case", () => {
+    expect(deepLinkTab("?tab=ADVISOR", tabs)).toBe("advisor");
+  });
+
+  it("ignores a tab this build does not have, and says nothing", () => {
+    // A link from a newer or older version of the app. The right answer is the
+    // screen the user would have got anyway.
+    expect(deepLinkTab("?tab=trading", tabs)).toBeNull();
+    expect(deepLinkTab("?tab=", tabs)).toBeNull();
+    expect(deepLinkTab(`?view=${B}`, tabs)).toBeNull();
+    expect(deepLinkTab("", tabs)).toBeNull();
   });
 });

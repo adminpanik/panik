@@ -79,7 +79,7 @@ import { subscriberProfiles } from "../server/watchlist";
 import { alchemyKeyNotice, buildScoringChain, resolveAlchemyKey } from "../server/scoringChain";
 import { SimulationCache, SimulationStore } from "../server/simulationStore";
 import { transactionPoolerUrl } from "../server/profileDeps";
-import { probeReachable, sendMessage } from "../server/telegram";
+import { probeReachable, sendMessage, sendPhoto } from "../server/telegram";
 import {
   AlertDispatcher,
   MemoryAlertLedger,
@@ -523,7 +523,12 @@ function whyNowFor(wallet: string, protocol: Protocol, profile: RiskProfile): Al
  */
 const dispatchDeps: DispatchDeps = {
   db,
-  send: (chatId, text) => sendMessage(botToken!, chatId, text),
+  send: (chatId, text, opts) => sendMessage(botToken!, chatId, text, opts),
+  sendPhoto: (chatId, photo, opts) => sendPhoto(botToken!, chatId, photo, opts),
+  // The chain these scores were actually read from. This process is the only
+  // one that knows, and a card that says "Base" over a Sepolia position is a
+  // false claim about where somebody's money is.
+  chainLabel: scoringChain.config.label,
   whyNow: whyNowFor,
   onDelivered: (chatId) => recordDelivery(chatId, true, false),
   onBlocked: (chatId) => recordDelivery(chatId, false, true),
