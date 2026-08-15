@@ -205,7 +205,7 @@ In `src/panik-core/ui/`. **Use these instead of hand-rolling equivalents.**
 
 | | |
 |---|---|
-| `Card` | tones: `raised` (default), `panel`, `sunken` |
+| `Card` | tones: `raised` (default), `panel`, `sunken`, plus `lead` — see below |
 | `Stat` | label + value + optional sub. Renders correctly with no sub |
 | `Button` | `primary` (neutral fill) and `quiet` (ghost). No gradients, ever |
 | `RiskChip` | the band as a tinted pill. Wraps `RISK_CHIP` in `lib/utils.ts` |
@@ -213,6 +213,39 @@ In `src/panik-core/ui/`. **Use these instead of hand-rolling equivalents.**
 | `EmptyState` | **two tones, see below** |
 | `Skeleton` | loading placeholder that reserves layout |
 | `TabPanel` | the ARIA tabpanel wrapper |
+| `Listbox` | the app's ONE dropdown. **See below** |
+| `LAYER` / `SCRIM` | every z-index and every backdrop in the app, in `ui/overlay.ts` |
+
+`Card`'s `lead` tone is `raised` with a functional edge, for the one card a screen leads
+with. **At most one per screen**, or "the thing to read here" stops meaning anything. It
+is a tone rather than a `border-border-strong` on the call site because that loses to the
+tone's own `border-border-subtle` at equal specificity, and which rule Tailwind emits last
+is not something a caller can see.
+
+### `Listbox` is the only dropdown, and the reason is keyboard support
+
+It is the WAI-ARIA select-only combobox: roving `aria-activedescendant`, arrows with
+Home/End and scroll pinning, Enter to commit, Escape / Tab / outside-press to dismiss, the
+panel's edge measured on open, and focus that never leaves the trigger. The consumer
+supplies the trigger's content and skin, each row's content and skin, and a row's
+accessible name where its markers are invisible to a screen reader. The panel's own box is
+not a prop.
+
+The second dropdown in this app was a `<button>` and a `<ul>` with no key handler at all,
+on the screen where a reader compares four positions before acting on one. Building a
+third by hand would reproduce that.
+
+### Overlays pick a rung, never a number
+
+`LAYER` in `ui/overlay.ts`: chrome 30, popover 50, banner 100, scrim 200, sheet 210, modal
+220, tip 300. The rule is that a surface the READER opened sits above a notice the APP
+raised. Nine hand-picked z-indexes produced the opposite: at 390 the alerts-inactive banner
+covered an open sheet's heading and close control, and it outranked the exit flow. If no
+rung fits, that is a conversation about the ladder.
+
+`SCRIM` is the one backdrop. Four modals hardcoded `bg-black/70` or `/80` with three
+different blurs while the sheet used the surface token, so the app dimmed itself four ways
+depending on which button you pressed.
 
 `RISK_CHIP` in `lib/utils.ts` is **the single place a band becomes pixels.** Do not write
 `bg-risk-*/10 text-risk-* border-risk-*/25` by hand. A hand-rolled copy shipped a chip
