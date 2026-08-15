@@ -19,7 +19,6 @@ import {
   marketContextMissing,
   PROTOCOL_LABEL,
   RISK_CHIP,
-  RISK_TEXT,
   USD_UNAVAILABLE_HINT,
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
@@ -211,14 +210,19 @@ export function LivePositions({
             const key = positionKey(p);
             const highlighted = key === highlightKey;
             /**
-             * The Advisor rations its severity glyph to the legs it is telling you
-             * to act on (EXIT / REDUCE). This list has no action column, so the
-             * equivalent is the band the row already carries: anything above LOW
-             * is a position with something to decide about. No new threshold is
-             * invented here, and none is needed - the dial beside it is drawn from
-             * the same `p.band`.
+             * The marker rations itself to the legs measured OUTSIDE the user's
+             * risk limit, which is `profileStatus` and is a different fact from
+             * the band: the band is how exposed the position is in the absolute,
+             * the limit state is whether that reading has crossed the level this
+             * user asked to be told about. The clause at the end of line 3 states
+             * it in words; this is the same fact made findable in a scan of four
+             * rows. No new threshold is invented, the engine sets it.
+             *
+             * It used to fire on `p.band !== "LOW"`, which is the quantity the
+             * DIAL on the same row already carries - the band drawn twice, once
+             * as an arc and once as a hue on a glyph beside it.
              */
-            const actionable = p.band !== "LOW";
+            const actionable = p.profileStatus !== "within";
             const action = exitActions?.[p.protocol];
             return (
               <li
@@ -254,31 +258,25 @@ export function LivePositions({
                     <span className="truncate text-xs font-sans text-text-secondary">
                       {p.scoredCollateralSymbol}
                     </span>
-                    {/* Severity, on the line that identifies the position, and
-                        the same element the Advisor puts there so the two
-                        surfaces read as one system: same Lucide triangle, same
-                        14px, same hue source. This is the ramp doing the job it
-                        exists for - a band is a measurement - and it is not the
-                        ramp making a claim about an action or a number.
-
-                        Hue from `RISK_TEXT`, the band table beside `RISK_CHIP`.
-                        Never a local band -> colour map: a second copy of that
-                        table is how scores 50-74 once rendered in critical red.
+                    {/* "This one has crossed your limit", on the line that
+                        identifies the position. NEUTRAL INK, and that is the
+                        point of it: the risk ramp on this screen is spent on the
+                        four dials plus the aggregate glyph, which is the whole
+                        budget DESIGN_SYSTEM.md sets for Portfolio, and this
+                        glyph took `RISK_TEXT[p.band]` on top of a dial drawn
+                        from the same `p.band` inches away. Measured, that put
+                        eleven risk-hued elements on the tab against a documented
+                        five. Shape is findability; hue is a claim, and the claim
+                        was already made by the dial.
 
                         `aria-hidden`, because `RiskDial` on the rail already
-                        announces "PANIK risk score 75 of 100, CRITICAL". Colour
-                        is not the only carrier either: the dial's numeral, the
-                        drop-to-liquidation sentence and the limit clause all say
-                        it in text.
-
-                        A row can carry this AND a `risk-unknown` marker on line
-                        2, and both stay. They answer different questions - how
-                        exposed this position is, versus which inputs we could
-                        not read - they sit on different lines, and the grey one
-                        is deliberately not a band. */}
+                        announces "PANIK risk score 75 of 100, CRITICAL" and the
+                        limit clause on line 3 is read out in full. Nothing here
+                        is carried by colour, which is what SC 1.4.1 asks and
+                        what a neutral glyph satisfies by construction. */}
                     {actionable && (
                       <AlertTriangle
-                        className={`h-3.5 w-3.5 shrink-0 self-center ${RISK_TEXT[p.band]}`}
+                        className="h-3.5 w-3.5 shrink-0 self-center text-text-secondary"
                         aria-hidden="true"
                       />
                     )}

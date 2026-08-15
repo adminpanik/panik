@@ -477,9 +477,14 @@ function handle(url: URL): unknown {
       // mode has no Telegram bot to link against.
       return { linked: false };
     case "/api/prospective":
+      // The USD amounts travel with the query, as they do to the real endpoint:
+      // the health factor is a function of them, and answering with a constant
+      // made the Watch simulator's own sliders unable to move it.
       return mockProspective(
         url.searchParams.get("protocol") ?? "",
         url.searchParams.get("symbol") ?? "",
+        Number(url.searchParams.get("collateralUsd") ?? 0),
+        Number(url.searchParams.get("borrowUsd") ?? 0),
       );
     case "/api/exit/delegations":
       // The live-permit query (Phase 2.C). Mock mode has no executor to read a

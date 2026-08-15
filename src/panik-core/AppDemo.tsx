@@ -34,7 +34,6 @@ import {
   assetLoanToValue,
   bandOfScore,
   calculateDynamicPosition,
-  demoMaxLtv,
   depegAwareOutlook,
   formatCompactUsd,
   formatCurrency,
@@ -42,6 +41,7 @@ import {
   formatUsd,
   liquidationOutlook,
   type LiquidationOutlook,
+  listedLiquidationThreshold,
   loanToValuePct,
   LOAN_TO_VALUE_HINT,
   LOAN_TO_VALUE_UNAVAILABLE_HINT,
@@ -51,7 +51,9 @@ import {
   RISK_SCORE_NAME,
   RISK_TEXT,
   sameAssetDepegNote,
+  simulatedHealthFactor,
   truncateAddress,
+  UNLISTED_MARKET_HINT,
 } from "./lib/utils";
 /**
  * The user's alert level, from the engine rather than a literal. A VALUE import
@@ -2398,18 +2400,23 @@ export function AppDemo() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [watchDropOpen]);
 
-  // Calculate dynamic maths based on sliders
-  // We check if it is USD backing vs ETH backing to pass safe arguments to the calculator
-  const calculateResult = () => {
-    // If protocol is Aave V3 or Moonwell, we support official maths
-    const protocolName: "Aave V3" | "Moonwell" = (activeMarket.protocol === "Aave V3") ? "Aave V3" : "Moonwell";
-    return calculateDynamicPosition(
-      protocolName,
+  /**
+   * The offline fallback score, for the minutes `/api/prospective` is
+   * unreachable. It is handed the market's REAL identity now — label and
+   * collateral symbol — because the health factor it reports is measured
+   * against the engine's listed threshold for that pair. The old call narrowed
+   * every protocol that was not Aave to "Moonwell" before a 0.82 / 0.78 literal
+   * decided the ratio, so a Morpho position was measured with Moonwell's name
+   * and neither protocol's parameter.
+   */
+  const calculateResult = () =>
+    calculateDynamicPosition(
+      activeMarket.protocol,
+      activeMarket.collateralSymbol,
       collateralAmount,
       borrowUsd,
-      assetPrice
+      assetPrice,
     );
-  };
 
   // Scenario helpers (#3): one-tap price presets before free-form sliders.
   const scenarioPrice = (pct: number) => {
@@ -2499,7 +2506,20 @@ export function AppDemo() {
     activeMarket.collateralAsset,
     sameAssetMarket,
   );
-  const watchMaxLtvPct = Math.round(demoMaxLtv(activeMarket.protocol) * 100);
+  /**
+   * The loan-to-value parameters the ENGINE lists for the market being
+   * simulated, or null when this build holds none for it. Both facts under the
+   * loan-to-value row are its figures now; the row used to state "Aave V3
+   * liquidates above 82%" from a literal keyed only by protocol, which is not
+   * the level Aave liquidates cbBTC (78%) or wstETH (79%) at.
+   *
+   * Null is also the state `/api/prospective` refuses to score, so an unlisted
+   * market has no health factor to state either and the rows say so rather than
+   * printing a ratio measured against a threshold nobody listed.
+   */
+  const watchLimits = assetLoanToValue(activeMarket.protocol, activeMarket.collateralSymbol);
+  const watchMarketUnlisted =
+    listedLiquidationThreshold(activeMarket.protocol, activeMarket.collateralSymbol) === null;
   const watchLiqPrice = positionState.liquidationPrice;
   /**
    * Dropped whole on a same-asset market with a drop to state, which is exactly
@@ -2738,12 +2758,19 @@ export function AppDemo() {
                 the profile is set by the onboarding quiz, so the chip that
                 names it is the control that reopens it. */}
             {riskTier && (
-              <span className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}>
+              /* The vertical padding is on the BUTTON, not on this wrapper.
+                 With `py-1` here the chip measured 92x26 while the only thing
+                 anyone can press inside it measured 53x16, which is under the
+                 24px floor SC 2.5.8 sets. Moving the same padding one level in
+                 gives the control a 24px hit area and leaves the chip the
+                 height it already was, so nothing about how quiet it looks
+                 changes. */
+              <span className={`flex shrink-0 items-center gap-1.5 pl-2.5 pr-2 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}>
                 <button
                   type="button"
                   onClick={() => setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")}
                   title="Change your risk profile"
-                  className="cursor-pointer hover:text-text-primary transition-colors"
+                  className="inline-flex min-h-6 cursor-pointer items-center pr-0.5 hover:text-text-primary transition-colors"
                 >
                   {RISK_TIER_LABELS[riskTier]}
                 </button>
@@ -2855,6 +2882,26 @@ export function AppDemo() {
             outside the scroller so neither can be scrolled out of frame. */}
         {readOnlySession && <ReadOnlyBanner onSignIn={signInThisBrowser} busy={session.busy} />}
         {session.note && <SessionNote text={session.note} onDismiss={session.dismissNote} />}
+
+        {/* Advisor notice (Phase 2) - fires on action changes / market shifts.
+
+            In this band, with the other session-level notices, rather than
+            floating over the bottom-right corner: measured at 1440 the floating
+            panel covered two Alert history rows and "See all 12 alerts" on load,
+            and there is no corner of a scrolling page a fixed panel does not sit
+            on top of something in.
+
+            Silent while a watched wallet is on screen. Its whole shape is an
+            interruption offering an action, and the action here would be exiting
+            a position the reader does not hold: the panel can afford to state
+            that and withhold the button, a notice that arrives uninvited
+            cannot. */}
+        <AdvisorPopup
+          report={viewingWatchOnly ? null : advisorLive.report}
+          onExit={(prefill) => setExitPrefill(prefill)}
+          onOpen={(plan) => setOpenFlowPlan(plan)}
+          onView={() => setActiveTab("advisor")}
+        />
 
         {/* PAGE VIEWS SWITCH */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
@@ -3384,16 +3431,28 @@ export function AppDemo() {
                             overrode the engine's own switch and printed a drop
                             for a position that is liquidatable now. */}
                         <BreakdownRow
-                          label={watchLiquidationRow.label}
-                          hint={watchLiquidationRow.hint}
-                          value={watchOutlook.strip}
-                          note={watchDropSub || undefined}
+                          label={watchMarketUnlisted ? "Liquidation risk" : watchLiquidationRow.label}
+                          hint={
+                            watchMarketUnlisted
+                              ? UNLISTED_MARKET_HINT
+                              : watchLiquidationRow.hint
+                          }
+                          value={watchMarketUnlisted ? "Not measured" : watchOutlook.strip}
+                          note={watchMarketUnlisted ? undefined : watchDropSub || undefined}
                         />
                         <BreakdownRow
                           label="Loan to value"
                           hint={`${LOAN_TO_VALUE_HINT} The closer this gets to the protocol's maximum, the smaller your cushion before liquidation.`}
                           value={watchLtvPct === null ? "No collateral" : `${watchLtvPct}%`}
-                          note={`${activeMarket.protocol} liquidates above ${watchMaxLtvPct}%`}
+                          /* The engine's listed figure for THIS asset, or no
+                             clause at all. A protocol-wide literal here said
+                             Aave liquidates cbBTC above 82% when Aave lists
+                             it at 78%. */
+                          note={
+                            watchLimits === null
+                              ? undefined
+                              : `${activeMarket.protocol} can liquidate from ${watchLimits.liquidationPct}%`
+                          }
                         />
                         {/* The token amount only where it says something the
                             dollars do not. At a simulated price of $1 the two
@@ -3436,7 +3495,7 @@ export function AppDemo() {
                   <Card tone="raised" className="space-y-3">
                     <span className="flex items-center gap-1 text-xs font-sans font-semibold text-text-muted">
                       Price scenarios
-                      <InfoTip text="Crash and black-swan magnitudes mirror the backtest event set. The HF preview on each row is an estimate; the headline score uses the live engine." />
+                      <InfoTip text="Crash and black-swan magnitudes mirror the backtest event set. Each row states how much further the collateral could fall from that price before liquidation, measured with the same liquidation threshold the score uses; hover it for the exact health factor." />
                     </span>
                     {/* A same-asset market gets the reason instead of the chips.
                         Run against USDC collateral and USDC debt, the four
@@ -3472,10 +3531,34 @@ export function AppDemo() {
                     >
                       {PRICE_SCENARIOS.map((s) => {
                         const price = scenarioPrice(s.pct);
-                        const maxLTV = demoMaxLtv(activeMarket.protocol);
-                        const estHf = borrowUsd > 0 ? (collateralAmount * price * maxLTV) / borrowUsd : Infinity;
+                        /* The ENGINE's health factor for this row's price, from
+                           `estimateHealthFactor` against the threshold `MARKETS`
+                           lists for this exact pair. It used to be a second copy
+                           of collateral x LT / debt run against a 0.82 / 0.78
+                           literal keyed only by protocol, so these rows and the
+                           card beside them stated two different health factors
+                           for one position. Null here is a market we hold no
+                           parameters for, and the row then states nothing. */
+                        const estHf = simulatedHealthFactor(
+                          activeMarket.protocol,
+                          activeMarket.collateralSymbol,
+                          collateralAmount * price,
+                          borrowUsd,
+                        );
                         const active = activeScenario === s.key;
-                        const liquidated = Number.isFinite(estHf) && estHf < 1;
+                        /* The price-drop buffer, not the ratio, in the wording
+                           every other surface uses for a health factor:
+                           `liquidationOutlook` converts it with the engine's own
+                           `1 - 1/HF` and rounds it with the engine's own policy,
+                           and the exact ratio stays one hover away. "HF ~1.46"
+                           was the last raw ratio left in the product. */
+                        const outlook = liquidationOutlook(estHf, activeMarket.collateralAsset);
+                        const consequence =
+                          estHf === null
+                            ? null
+                            : outlook.stripNote === null
+                              ? `${outlook.statValue} to liquidation`
+                              : outlook.statValue;
                         // Each of these renders twice per row, once visibly and
                         // once in the accessible name. Formatted once so the
                         // two cannot round the same number differently, and so
@@ -3484,7 +3567,6 @@ export function AppDemo() {
                         const priceText = formatCurrency(price);
                         const magnitude =
                           s.pct === 0 ? s.note : `${s.note}, ${Math.round(s.pct * 100)}%`;
-                        const hfText = estHf.toFixed(2);
                         return (
                           <button
                             key={s.key}
@@ -3494,14 +3576,9 @@ export function AppDemo() {
                                same reason the toggle above carries one: flattened
                                without separators this row announces as
                                "Current$2,000market priceHF ~1.46". */
-                            aria-label={[
-                              s.label,
-                              priceText,
-                              magnitude,
-                              borrowUsd > 0
-                                ? (liquidated ? "liquidated" : `health factor about ${hfText}`)
-                                : null,
-                            ].filter(Boolean).join(", ")}
+                            aria-label={[s.label, priceText, magnitude, consequence]
+                              .filter(Boolean)
+                              .join(", ")}
                             onClick={() => applyScenario(s.key, s.pct)}
                             className={`block w-full cursor-pointer border-l-2 py-3 pl-3 pr-1 text-left transition-colors ${
                               active
@@ -3525,20 +3602,28 @@ export function AppDemo() {
                               <span className="text-xs font-sans text-text-muted tabular-nums">
                                 {magnitude}
                               </span>
-                              {borrowUsd > 0 && (
-                                /* No hue, on either branch. "Liquidated" was the
-                                   one coloured verdict left on this tab, and at
-                                   a -20% stress it is three rows of it at once,
-                                   which is not the handful the ramp is rationed
-                                   to; the word already says the whole thing
-                                   without help, and the band the reader should
-                                   act on is the chip on the score. The HF
+                              {consequence !== null && (
+                                /* No hue, on either branch. "Liquidatable now"
+                                   was the one coloured verdict left on this tab,
+                                   and at a -20% stress it is three rows of it at
+                                   once, which is not the handful the ramp is
+                                   rationed to; the words already say the whole
+                                   thing without help, and the band the reader
+                                   should act on is the chip on the score. The
                                    preview beside it used to run its own
                                    green/amber/red ramp cut at 1.3, a fourth set
                                    of thresholds on a screen that already had
-                                   three. */
-                                <span className="shrink-0 text-xs font-sans font-semibold tabular-nums text-text-secondary">
-                                  {liquidated ? "Liquidated" : `HF ~${hfText}`}
+                                   three.
+
+                                   `title` rather than an InfoTip: the tip's
+                                   anchor cannot wrap and this column is ~280px,
+                                   which is the same call the position rows make
+                                   for the same clause. */
+                                <span
+                                  title={outlook.hover}
+                                  className="shrink-0 cursor-help text-xs font-sans font-semibold tabular-nums text-text-secondary"
+                                >
+                                  {consequence}
                                 </span>
                               )}
                             </span>
@@ -4926,20 +5011,6 @@ export function AppDemo() {
           }}
         />
       )}
-
-      {/* Advisor popup (Phase 2) - fires on action changes / market shifts.
-
-          Silent while a watched wallet is on screen. The popup's whole shape is
-          an interruption offering an action, and the action here would be
-          exiting a position the reader does not hold: the panel can afford to
-          state that and withhold the button, a popup that arrives uninvited
-          cannot. */}
-      <AdvisorPopup
-        report={viewingWatchOnly ? null : advisorLive.report}
-        onExit={(prefill) => setExitPrefill(prefill)}
-        onOpen={(plan) => setOpenFlowPlan(plan)}
-        onView={() => setActiveTab("advisor")}
-      />
 
       {/* First-run onboarding tooltip tour */}
       {currentTourStep && (

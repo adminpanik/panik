@@ -16,6 +16,7 @@ import type { AdvisorAction, Band, LiveProtocol, ProfileStatus } from "./live";
  */
 import {
   drawdownToLiquidation,
+  estimateHealthFactor,
   formatDrawdownPct,
 } from "../../../packages/scoring/src/prospective";
 /**
@@ -71,25 +72,66 @@ const PROTOCOL_ID: Record<(typeof PROTOCOL_LABEL)[LiveProtocol], LiveProtocol> =
 };
 
 /**
- * Max borrow LTV for the WATCH simulator, as a fraction.
- *
- * NOT the engine's number, and the last surfaces still reading it are the Watch
- * simulator's price-scenario previews in `AppDemo` plus
- * `calculateDynamicPosition` below, which feeds them. `MARKETS` in
- * `packages/scoring` holds the real per-asset parameters and disagrees with
- * both of these (Aave WETH 0.80 and wstETH 0.75, Morpho 0.86, Compound V3 WETH
- * 0.78).
- *
- * The Open-position modal moved off it in issue #61 and now reads
- * `assetLoanToValue`. Watch cannot follow in the same change: it is keyed by
- * protocol with no collateral symbol in the signature, so per-asset parameters
- * mean a new argument at every call site inside `AppDemo`, which a concurrent
- * branch is editing. Deleting this function is the last step of that follow-up,
- * not of this one.
+ * `MARKETS` read through a protocol LABEL, which is the only protocol id a UI
+ * surface holds. Null for a label this build does not know and for a market it
+ * lists no parameters for; the two are the same answer to the caller, which is
+ * that there is nothing here to compute with.
  */
-export function demoMaxLtv(protocol: string): number {
-  // Aave is the slightly higher blue-chip parameter; everything else shares one.
-  return protocol === "Aave V3" ? 0.82 : 0.78;
+function listedMarket(protocolLabel: string, collateralSymbol: string) {
+  const protocol = PROTOCOL_ID[protocolLabel as (typeof PROTOCOL_LABEL)[LiveProtocol]];
+  if (protocol === undefined) return null;
+  return marketParams(protocol, collateralSymbol);
+}
+
+/**
+ * The liquidation threshold `MARKETS` lists for one asset on one protocol, as
+ * the engine's own fraction, or null when this build holds no listing for the
+ * pair.
+ *
+ * It replaces `demoMaxLtv`, a protocol-keyed 0.82 / 0.78 pair that was not the
+ * engine's parameter and was not any protocol's either: Aave lists cbBTC at
+ * 0.78 and wstETH at 0.79, Morpho at 0.86, Compound V3 WETH at 0.84. The Watch
+ * simulator's price-scenario rows ran that literal through their own copy of
+ * the health-factor formula while the card beside them printed the engine's, so
+ * one position stated two health factors on one screen (measured on the mock
+ * fixture: "HF ~1.00" beside "Health factor 1.22").
+ *
+ * A fraction rather than `assetLoanToValue`'s whole percent, because this feeds
+ * arithmetic and that one feeds a sentence. Rounding to 78% first and dividing
+ * afterwards is how the figure in the sentence and the figure in the ratio
+ * would drift apart again.
+ */
+export function listedLiquidationThreshold(
+  protocolLabel: string,
+  collateralSymbol: string,
+): number | null {
+  return listedMarket(protocolLabel, collateralSymbol)?.liquidationThreshold ?? null;
+}
+
+/**
+ * The health factor a hypothetical position would start at, from the engine's
+ * formula and the engine's listed threshold.
+ *
+ * Mapping and delegating, never a second copy of `collateral × LT / debt`:
+ * `estimateHealthFactor` is the one place that division lives, and this adds
+ * only the market lookup a browser surface cannot do for itself. Two
+ * implementations of one ratio is precisely what put two health factors for one
+ * position on the Watch tab.
+ *
+ * Null for a market this build holds no parameters for AND for a position with
+ * no debt, which callers must already be able to tell apart from context: the
+ * engine refuses to score an unlisted market at all, so a surface that can
+ * reach one has to say so on its own account.
+ */
+export function simulatedHealthFactor(
+  protocolLabel: string,
+  collateralSymbol: string,
+  collateralValueUsd: number,
+  borrowValueUsd: number,
+): number | null {
+  const threshold = listedLiquidationThreshold(protocolLabel, collateralSymbol);
+  if (threshold === null) return null;
+  return estimateHealthFactor(collateralValueUsd, borrowValueUsd, threshold);
 }
 
 /**
@@ -134,9 +176,7 @@ export function assetLoanToValue(
   protocolLabel: string,
   collateralSymbol: string,
 ): AssetLoanToValue | null {
-  const protocol = PROTOCOL_ID[protocolLabel as (typeof PROTOCOL_LABEL)[LiveProtocol]];
-  if (protocol === undefined) return null;
-  const params = marketParams(protocol, collateralSymbol);
+  const params = listedMarket(protocolLabel, collateralSymbol);
   if (params === null) return null;
   // The engine tolerates the proxy marker; a sentence a user reads does not.
   const symbol = collateralSymbol.replace(" (proxy)", "");
@@ -162,6 +202,18 @@ export function assetLoanToValue(
  * which is that we do not hold this market's parameters, so the simulation
  * covers the deposit alone.
  */
+/**
+ * What the simulator says about a liquidation distance it cannot measure.
+ *
+ * A market this build lists no parameters for has no liquidation threshold, and
+ * a health factor is that threshold divided through: there is no ratio to
+ * state, so the row states that instead of a percentage measured against an
+ * invented one. Distinct from "no debt", which is a real answer to the same
+ * question, and the reason the two never share a sentence.
+ */
+export const UNLISTED_MARKET_HINT =
+  "We do not hold the liquidation threshold this market lists, so there is no distance to liquidation to measure. The amounts below are still exactly what you set.";
+
 export const LOAN_TO_VALUE_UNAVAILABLE_LABEL = "Borrow limits unavailable";
 export const LOAN_TO_VALUE_UNAVAILABLE_HINT =
   "We do not hold the loan-to-value limits this market lists, so there is no borrowing ceiling to simulate against. This preview covers the deposit only.";
@@ -193,32 +245,47 @@ export function loanToValuePct(debtUsd: number, collateralUsd: number): number |
 }
 
 /**
- * Calculates a DeFi position health factor and PANIK risk score.
- * Formula models general lending logic:
- * Max LTV is assumed to be 80% (0.80).
- * Health Factor = (Collateral * Max LTV) / Borrow
+ * The Watch simulator's OFFLINE fallback: a PANIK-shaped score for a
+ * hypothetical position, for the minutes when `/api/prospective` cannot be
+ * reached. The live engine replaces every field of it when the API is up.
+ *
+ * The health factor it reports is NOT part of the fallback. It is the engine's
+ * (`simulatedHealthFactor`, so the engine's formula against the engine's listed
+ * threshold), because the tab renders that number beside the price-scenario
+ * rows which state it too, and the two used to be computed twice from two
+ * different loan-to-value constants. Only the SCORE below is local arithmetic.
+ *
+ * `graded` is a separate variable for the same reason: the curve is fitted over
+ * health factors between 1 and 10 and has nothing to say outside that, so it
+ * clamps its input, and the clamp must not reach the figure the tab prints. A
+ * position with no debt has no health factor at all, which is the `null` the
+ * engine uses and the value this returns.
  */
 export function calculateDynamicPosition(
-  protocol: "Aave V3" | "Moonwell",
+  protocol: (typeof PROTOCOL_LABEL)[LiveProtocol],
+  collateralSymbol: string,
   collateral: number,
   borrow: number,
   collateralPrice: number
 ): PositionState {
-  const maxLTV = demoMaxLtv(protocol);
   const collateralValueUsd = (collateral * collateralPrice);
   const borrowValueUsd = borrow;
-  
+  const threshold = listedLiquidationThreshold(protocol, collateralSymbol);
+
   // Calculate LTV
   const currentLTV = collateralValueUsd > 0 ? (borrowValueUsd / collateralValueUsd) : 0;
-  
-  // Calculate health factor
-  // Health Factor = (Collateral Value * Max LTV) / Borrow Value
-  let healthFactor = 100; // default if no borrow
-  if (borrowValueUsd > 0) {
-    healthFactor = (collateralValueUsd * maxLTV) / borrowValueUsd;
-    // Cap or floor health factor for sanity
-    healthFactor = Math.max(0.1, Math.min(9.99, healthFactor));
-  }
+
+  const healthFactor = simulatedHealthFactor(
+    protocol,
+    collateralSymbol,
+    collateralValueUsd,
+    borrowValueUsd,
+  );
+  // No debt and no listing both leave the curve below without an input. The
+  // score it then gives is the one this function has always given a position
+  // with nothing borrowed against it; the health factor stays null either way,
+  // so nothing invented reaches the screen.
+  const graded = healthFactor === null ? 100 : Math.max(0.1, Math.min(9.99, healthFactor));
 
   // Calculate PANIK Risk Score (0 - 100)
   // Higher risk score means worse health.
@@ -226,17 +293,17 @@ export function calculateDynamicPosition(
   // When health factor reaches 2.5+, risk score is low (e.g. 15).
   // When health factor is near 1.1, risk score is highly critical (above 75).
   let riskScore = 0;
-  if (healthFactor <= 1.0) {
-    riskScore = Math.round(85 + (1.0 - healthFactor) * 15);
-  } else if (healthFactor < 1.5) {
+  if (graded <= 1.0) {
+    riskScore = Math.round(85 + (1.0 - graded) * 15);
+  } else if (graded < 1.5) {
     // 1.0 to 1.5 is High Risk
-    riskScore = Math.round(50 + ((1.5 - healthFactor) / 0.5) * 35);
-  } else if (healthFactor < 2.5) {
+    riskScore = Math.round(50 + ((1.5 - graded) / 0.5) * 35);
+  } else if (graded < 2.5) {
     // 1.5 to 2.5 is Elevated
-    riskScore = Math.round(25 + ((2.5 - healthFactor) / 1.0) * 25);
+    riskScore = Math.round(25 + ((2.5 - graded) / 1.0) * 25);
   } else {
     // 2.5 to 10 is Low
-    riskScore = Math.round(Math.max(5, 25 - ((healthFactor - 2.5) / 7.5) * 20));
+    riskScore = Math.round(Math.max(5, 25 - ((graded - 2.5) / 7.5) * 20));
   }
 
   riskScore = Math.min(100, Math.max(0, riskScore));
@@ -251,12 +318,14 @@ export function calculateDynamicPosition(
     status = "ELEVATED";
   }
 
-  // Dynamically calculate dynamic liquidation price of ETH
-  // Borrow Value = Collateral ETH * LiquidationPrice * Max LTV
-  // Liquidation Price = Borrow Value / (Collateral ETH * Max LTV)
+  // The collateral price at which the health factor reaches 1.0, from the same
+  // listed threshold the health factor itself was measured with:
+  //   borrow = collateral qty x price x LT   ->   price = borrow / (qty x LT)
+  // Zero when there is nothing to divide by or no listed threshold to divide
+  // with; the caller renders that as a withheld figure, never as "$0".
   const collateralQty = collateral;
-  const liquidationPrice = collateralQty > 0 
-    ? Math.round(borrowValueUsd / (collateralQty * maxLTV)) 
+  const liquidationPrice = collateralQty > 0 && threshold !== null
+    ? Math.round(borrowValueUsd / (collateralQty * threshold))
     : 0;
 
   // Breakdowns
