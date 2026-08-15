@@ -163,10 +163,16 @@ import {
   type RiskTier,
   type ProfileResult,
 } from "./lib/profiling";
-import { deepLinkTab, subscriptionFor, useWatchlist, viewParamWallet } from "./lib/watchlist";
+import {
+  deepLinkTab,
+  subscriptionFor,
+  useWatchlist,
+  viewableWallets,
+  viewParamWallet,
+} from "./lib/watchlist";
 import { useSession } from "./lib/session";
 import { WalletsPanel } from "./components/WalletsPanel";
-import { WalletSelector, type WalletChoice } from "./components/WalletSelector";
+import { WalletSelector } from "./components/WalletSelector";
 import {
   ReadOnlyBanner,
   SessionCard,
@@ -1598,6 +1604,7 @@ export function AppDemo() {
   useEffect(() => {
     if (viewParamApplied.current || !onboardedWallet || watchlist.subscriptions === null) return;
     viewParamApplied.current = true;
+    // What a link may name is `viewableWallets`'s list; this only checks it.
     const wallet = viewParamWallet(
       window.location.search,
       watchlist.subscriptions,
@@ -1618,6 +1625,8 @@ export function AppDemo() {
    * wallet in the panel while the Portfolio is showing it would otherwise leave
    * the dashboard fetching an address the user just deleted, and the fall back
    * to the bound wallet is the only state that is always true.
+   *
+   * The list of what may be shown is `viewableWallets`'s, not this memo's.
    */
   const viewedWallet = useMemo(() => {
     if (!onboardedWallet) return null;
@@ -1649,32 +1658,11 @@ export function AppDemo() {
    */
   const subscribedProfile = subscriptionFor(watchlist.subscriptions, onboardedWallet)?.profile ?? null;
 
-  /**
-   * What the Portfolio switcher may show, bound wallet first.
-   *
-   * The bound wallet is in the list WHETHER OR NOT it is subscribed. Its
-   * self-subscription is created at onboarding and that write can fail (a
-   * pasted address cannot sign), so deriving the options from the watchlist
-   * alone would drop the user's own dashboard out of the picker in exactly the
-   * case where they most need to find it again.
-   */
-  const portfolioWalletOptions = useMemo(() => {
-    if (!onboardedWallet) return [] as WalletChoice[];
-    const bound = onboardedWallet.toLowerCase();
-    const out: WalletChoice[] = [
-      {
-        wallet: bound,
-        label: subscriptionFor(watchlist.subscriptions, bound)?.label ?? null,
-        own: true,
-      },
-    ];
-    for (const s of watchlist.subscriptions ?? []) {
-      const wallet = s.wallet.toLowerCase();
-      if (wallet === bound) continue;
-      out.push({ wallet, label: s.label, own: false });
-    }
-    return out;
-  }, [onboardedWallet, watchlist.subscriptions]);
+  /** What the Portfolio switcher may show. The rule lives in `viewableWallets`. */
+  const portfolioWalletOptions = useMemo(
+    () => viewableWallets(onboardedWallet, watchlist.subscriptions),
+    [onboardedWallet, watchlist.subscriptions],
+  );
 
   const ownLive = useWalletPositions(viewedWallet, selectedRiskProfile, chainMode);
 
@@ -3859,14 +3847,11 @@ export function AppDemo() {
                         A listbox, not a tab strip: the list runs to ten and this
                         is a chooser, not a set of destinations. It carries its
                         own label because the heading beside it names the page,
-                        not the control. It also carries the watch-only note,
-                        because that note is about the thing this control
-                        selected. */}
-                    {portfolioWalletOptions.length > 1 && viewedWallet && onboardedWallet && (
+                        not the control. */}
+                    {portfolioWalletOptions.length > 1 && viewedWallet && (
                       <WalletSelector
                         options={portfolioWalletOptions}
                         value={viewedWallet}
-                        ownerWallet={onboardedWallet}
                         onChange={setViewedWalletChoice}
                       />
                     )}

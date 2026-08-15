@@ -15,65 +15,38 @@
  * WHAT THE ROWS CARRY, and why each is not colour. The selected row is marked
  * with a check (SC 1.4.1: never state anything by hue alone, and the tinted
  * background here is the second signal, not the first). The owner's row wears
- * the same neutral chip WalletsPanel gives it, so one wallet does not have two
- * names for the same fact across two surfaces. Every other row is watch-only by
- * construction and wears the eye.
+ * `Chip`, literally the marker WalletsPanel gives it, so one wallet does not
+ * have two names for the same fact across two surfaces. Every other row is
+ * watch-only by construction and wears the eye.
  *
  * NO RISK HUE ANYWHERE. Which wallet you are looking at is not a risk band, and
  * the eye is an informational glyph: `text-muted`, like every other one.
  */
 
-import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown, Eye } from "lucide-react";
 import { truncateAddress } from "../lib/utils";
+import type { WalletChoice } from "../lib/watchlist";
+import { Chip } from "../ui";
 import { InfoTip } from "./InfoTip";
 
-export interface WalletChoice {
-  /** Lowercased address. */
-  wallet: string;
-  /** What the user called it on the watchlist, or null when unnamed. */
-  label: string | null;
-  /** The bound wallet: the owner, the signer, and where alerts go. */
-  own: boolean;
-}
-
 export interface WalletSelectorProps {
+  /** Built by `viewableWallets`, which is the authority on what may be shown. */
   options: WalletChoice[];
   /** The wallet currently shown, already validated against `options`. */
   value: string;
-  /**
-   * The bound wallet, for the watch-only note.
-   *
-   * Passed in rather than read off `options.find(o => o.own)` at the call site's
-   * convenience: the note names the address alerts are actually sent to, and
-   * that is a fact about the session, not about this list.
-   */
-  ownerWallet: string;
   onChange: (wallet: string) => void;
 }
 
 /**
- * What is and is not true of a wallet you only watch.
- *
- * The three facts the header used to state as a standing sentence under the
- * page title. Two of them are answers to a question nobody asks twice (PANIK
- * cannot act on it) and the third is the one nobody would guess (switching the
- * view does not move where alerts go, because the subscription belongs to the
- * wallet that signed for it). That is the `InfoTip` case exactly: valuable on
- * request, noise on every glance.
+ * The panel's width, and it is `w-72` on the `<ul>` below written as a number.
+ * THE TWO TRAVEL TOGETHER: this is what decides which edge the panel hangs
+ * from, and it is read before the panel exists, so it cannot be measured off
+ * the element. Change one and change the other in the same edit.
  */
-export function watchOnlyNote(ownerWallet: string): string {
-  return (
-    "A wallet you watch, not one you control. PANIK cannot act on it, so exits are not " +
-    `offered here. Alerts still go to ${truncateAddress(ownerWallet)}.`
-  );
-}
+const PANEL_W = 288;
 
-/** The neutral marker WalletsPanel already gives the owner's row. */
-const CHIP =
-  "shrink-0 rounded-sm border border-border-subtle bg-white/[0.04] px-2 py-0.5 text-2xs font-sans font-bold text-text-muted";
-
-export function WalletSelector({ options, value, ownerWallet, onChange }: WalletSelectorProps) {
+export function WalletSelector({ options, value, onChange }: WalletSelectorProps) {
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
   const triggerId = `${baseId}-trigger`;
@@ -84,9 +57,14 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
   const list = useRef<HTMLUListElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
 
+  const target = value.toLowerCase();
+  // The one guard, and it is here rather than at every read of `selected`:
+  // `value` arrives pre-validated against `options` (AppDemo falls back to the
+  // bound wallet the moment a selection stops being watched), so a miss is a
+  // caller bug and the first row is the honest thing to draw while it lasts.
   const selectedIndex = Math.max(
     0,
-    options.findIndex((o) => o.wallet === value.toLowerCase()),
+    options.findIndex((o) => o.wallet === target),
   );
   /**
    * The row the arrow keys are on, which is NOT the selection. Moving through a
@@ -98,7 +76,7 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
   const [activeIndex, setActiveIndex] = useState(selectedIndex);
 
   const selected = options[selectedIndex];
-  const viewingWatchOnly = selected !== undefined && !selected.own;
+  const viewingWatchOnly = !selected.own;
 
   /**
    * Which edge of the trigger the panel hangs from.
@@ -113,37 +91,52 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
    */
   const [alignRight, setAlignRight] = useState(false);
 
-  const openAt = (i: number) => {
-    setActiveIndex(i);
+  /**
+   * Opening is one event, so it decides everything about the panel at once:
+   * where the arrow keys start and which edge it hangs from. The trigger is on
+   * screen and measurable right here, so the anchor's box is read before the
+   * panel exists rather than after a layout effect has already painted it on
+   * the wrong side.
+   */
+  const openList = () => {
+    setActiveIndex(selectedIndex);
+    const box = wrap.current?.getBoundingClientRect();
+    if (box) {
+      // 16px of gutter on both sides, the page's own narrowest padding. Falls
+      // back to the left anchor when the panel fits at neither edge, which is
+      // the honest answer on a viewport narrower than the panel.
+      const room = document.documentElement.clientWidth - 16;
+      setAlignRight(box.left + PANEL_W > room && box.right - PANEL_W >= 16);
+    }
     setOpen(true);
   };
 
   const commit = (i: number) => {
-    const choice = options[i];
-    if (choice) onChange(choice.wallet);
+    onChange(options[i].wallet);
     setOpen(false);
   };
 
-  // Measured before paint, so an opened panel never renders on the wrong edge
-  // and then jumps to the other one.
-  useLayoutEffect(() => {
-    if (!open) return;
-    const panel = list.current;
-    const anchor = wrap.current;
-    if (!panel || !anchor) return;
-    const box = anchor.getBoundingClientRect();
-    const width = panel.offsetWidth;
-    // 16px of gutter on both sides, the page's own narrowest padding. Falls
-    // back to the left anchor when the panel fits at neither edge, which is
-    // the honest answer on a viewport narrower than the panel.
-    const room = document.documentElement.clientWidth - 16;
-    setAlignRight(box.left + width > room && box.right - width >= 16);
-  }, [open]);
+  /**
+   * The active row, and the scroll that keeps it visible.
+   *
+   * Both together, because they are one act: eleven wallets is more than the
+   * panel's `max-h-72` shows, and an arrow key that moves a highlight out of
+   * frame has moved it nowhere the reader can see. The rows are all mounted,
+   * so the element at `next` is already there to scroll to.
+   */
+  const moveTo = (next: number) => {
+    setActiveIndex(next);
+    list.current?.children[next]?.scrollIntoView({ block: "nearest" });
+  };
 
+  // The one thing a keypress cannot do: the panel does not exist yet when
+  // `openList` runs, so the row it opened on is put in view once it does.
+  // Deliberately NOT keyed on `activeIndex` - `moveTo` owns every move after
+  // this, and re-running here would scroll twice per press.
   useEffect(() => {
     if (!open) return;
-    document.getElementById(optionId(activeIndex))?.scrollIntoView({ block: "nearest" });
-  }, [open, activeIndex]);
+    list.current?.children[selectedIndex]?.scrollIntoView({ block: "nearest" });
+  }, [open]);
 
   /**
    * Anywhere outside closes, which is the whole job a backdrop element would do
@@ -179,26 +172,26 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
     if (!open) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
-        openAt(selectedIndex);
+        openList();
       }
       return;
     }
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        setActiveIndex((i) => Math.min(options.length - 1, i + 1));
+        moveTo(Math.min(options.length - 1, activeIndex + 1));
         break;
       case "ArrowUp":
         e.preventDefault();
-        setActiveIndex((i) => Math.max(0, i - 1));
+        moveTo(Math.max(0, activeIndex - 1));
         break;
       case "Home":
         e.preventDefault();
-        setActiveIndex(0);
+        moveTo(0);
         break;
       case "End":
         e.preventDefault();
-        setActiveIndex(options.length - 1);
+        moveTo(options.length - 1);
         break;
       case "Enter":
       case " ":
@@ -234,7 +227,7 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
         <button
           id={triggerId}
           type="button"
-          onClick={() => (open ? setOpen(false) : openAt(selectedIndex))}
+          onClick={() => (open ? setOpen(false) : openList())}
           onKeyDown={onKey}
           role="combobox"
           aria-haspopup="listbox"
@@ -249,7 +242,7 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
              control and takes the decorative edge. */
           className="flex h-9 max-w-full cursor-pointer items-center gap-2 rounded-md border border-border-strong bg-surface-raised px-3 font-sans text-xs transition-colors hover:bg-surface-overlay"
         >
-          <WalletName wallet={selected?.wallet ?? value} label={selected?.label ?? null} />
+          <WalletName wallet={selected.wallet} label={selected.label} />
           <ChevronDown
             aria-hidden="true"
             className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`}
@@ -266,11 +259,12 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
             // focusable, so without this the browser drops focus on the body
             // and the reader's next Tab starts from the top of the document.
             onMouseDown={(e) => e.preventDefault()}
-            /* `w-72` is 288px: at a 390px viewport the trigger sits at the
-               content column's left margin and the panel ends at 304px, so it
-               cannot push the page wide. `overlay` is the token for a popover;
-               `border-subtle` because this edge is decoration around content,
-               not the boundary of a control. */
+            /* `w-72` is `PANEL_W`, and the two travel together: at a 390px
+               viewport the trigger sits at the content column's left margin
+               and the panel ends at 304px, so it cannot push the page wide.
+               `overlay` is the token for a popover; `border-subtle` because
+               this edge is decoration around content, not the boundary of a
+               control. */
             className={`absolute top-full z-50 mt-2 max-h-72 w-72 overflow-y-auto rounded-md border border-border-subtle bg-surface-overlay py-1 shadow-2xl ${alignRight ? "right-0" : "left-0"}`}
           >
             {options.map((o, i) => {
@@ -290,18 +284,25 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
                      chip is decoration to it and the glyph is `aria-hidden`. */
                   aria-label={`${spoken}, ${o.own ? "your wallet" : "watch only"}`}
                   onClick={() => commit(i)}
-                  onMouseEnter={() => setActiveIndex(i)}
-                  className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 transition-colors ${
+                  /* Two highlights, one look, and they are not the same thing.
+                     The pointer's is `hover:` and stays in CSS: it follows the
+                     mouse and nothing in React needs to know where that is.
+                     `activeIndex` is the KEYBOARD's row, which is also what
+                     `aria-activedescendant` points at, so letting the mouse
+                     write it would have a stray pointer move silently
+                     redirect what Enter commits. */
+                  className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 transition-colors hover:bg-white/[0.06] ${
                     i === activeIndex ? "bg-white/[0.06]" : ""
                   }`}
                 >
                   <WalletName wallet={o.wallet} label={o.label} />
                   {o.own ? (
-                    <span className={CHIP}>Your wallet</span>
+                    <Chip>Your wallet</Chip>
                   ) : (
-                    <span className="flex shrink-0 items-center" title="A wallet you watch">
-                      <Eye aria-hidden="true" className="h-3.5 w-3.5 text-text-muted" />
-                    </span>
+                    /* No `title`: the glyph is decoration for a fact the row's
+                       own `aria-label` already states, and a second hover
+                       wording is a second thing to keep true. */
+                    <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                   )}
                   {/* Reserved either way, so committing a different row does not
                       reflow the list under the pointer. */}
@@ -315,11 +316,11 @@ export function WalletSelector({ options, value, ownerWallet, onChange }: Wallet
         )}
       </div>
 
-      {/* The watch-only note, on the glyph rather than as a paragraph under the
-          heading. `InfoTip` puts the whole sentence on the wrapper's
-          `aria-label` and makes it focusable, so the fact is not hover-only. */}
+      {/* The marker, not an essay: the full watch-only explanation lives in the
+          Wallets panel and on the alerts themselves. `InfoTip` keeps it
+          focusable, so the fact is not hover-only. */}
       {viewingWatchOnly && (
-        <InfoTip text={watchOnlyNote(ownerWallet)}>
+        <InfoTip text="Watch-only">
           <Eye className="h-4 w-4 shrink-0 cursor-help text-text-muted transition-colors hover:text-text-primary" />
         </InfoTip>
       )}
@@ -343,8 +344,11 @@ function WalletName({ wallet, label }: { wallet: string; label: string | null })
         <span className="truncate font-sans text-xs font-bold text-text-primary">{name}</span>
       )}
       {/* Mono is reserved for hexadecimal, and this is the only hexadecimal in
-          the control. */}
+          the control. The whole address on hover, as the Wallets panel does
+          it: 42 characters is not something a reader checks by reading, it is
+          something they check by comparing the ends. */}
       <span
+        title={wallet}
         className={`shrink-0 font-mono text-xs ${name ? "text-text-muted" : "text-text-primary"}`}
       >
         {truncateAddress(wallet)}
