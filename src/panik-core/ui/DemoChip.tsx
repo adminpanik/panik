@@ -1,4 +1,5 @@
 import React from "react";
+import { Chip } from "./Chip";
 
 /**
  * The word "Demo", where a surface is showing something that is not the real
@@ -23,18 +24,14 @@ import React from "react";
  * Distinct from `SimulationChip` on purpose: that one means "this figure came
  * from a simulated PRICE", a claim about the market rather than about what the
  * product is doing.
+ *
+ * A preset over `Chip`: the word and the default hover are the product
+ * decision here, the eleven utilities that draw a neutral marker are not.
  */
 export function DemoChip({
   title = "Opens the demo simulator; nothing is signed and no funds move.",
 }: {
   title?: string;
 } = {}) {
-  return (
-    <span
-      title={title}
-      className="text-2xs font-sans text-text-muted bg-white/[0.04] px-2.5 py-0.5 rounded-sm border border-border-subtle flex items-center font-bold"
-    >
-      Demo
-    </span>
-  );
+  return <Chip title={title}>Demo</Chip>;
 }

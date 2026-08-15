@@ -16,6 +16,7 @@ import {
   draftFromSubscriptions,
   stagedOps,
   subscriptionFor,
+  viewableWallets,
   viewParamWallet,
   type WatchDraftRow,
   type WatchSubscription,
@@ -168,6 +169,34 @@ describe("subscriptionFor", () => {
     // The Compass hint hangs off this: "we could not read your watchlist" must
     // not render as "your subscribed profile is the one you are looking at".
     expect(subscriptionFor(null, A)).toBeNull();
+  });
+});
+
+/**
+ * What the Portfolio switcher offers. It is the same authority `viewParamWallet`
+ * checks a link against, so the two are tested side by side.
+ */
+describe("viewableWallets", () => {
+  it("puts the bound wallet first, with the label its own subscription carries", () => {
+    expect(viewableWallets(A, [sub(B, "moderate", "The whale"), sub(A, "conservative", "Main")])).toEqual([
+      { wallet: A, label: "Main", own: true },
+      { wallet: B, label: "The whale", own: false },
+    ]);
+  });
+
+  it("offers the bound wallet even with no self-subscription and no list at all", () => {
+    // The self-subscription is written at onboarding and that write can fail (a
+    // pasted address cannot sign). Dropping the user's own dashboard out of the
+    // picker there is exactly the case where they most need to find it again.
+    expect(viewableWallets(A, null)).toEqual([{ wallet: A, label: null, own: true }]);
+    expect(viewableWallets("0x" + "A".repeat(40), [sub(B, "moderate", null)])).toEqual([
+      { wallet: A, label: null, own: true },
+      { wallet: B, label: null, own: false },
+    ]);
+  });
+
+  it("offers nothing before a wallet is bound", () => {
+    expect(viewableWallets(null, [sub(B, "moderate", "The whale")])).toEqual([]);
   });
 });
 

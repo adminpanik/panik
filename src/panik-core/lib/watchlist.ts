@@ -180,6 +180,50 @@ export function viewParamWallet(
   return subscriptionFor(list, wallet) ? wallet : null;
 }
 
+/** One row of the Portfolio's wallet switcher. */
+export interface WalletChoice {
+  /** Lowercased address. */
+  wallet: string;
+  /** What the user called it on the watchlist, or null when unnamed. */
+  label: string | null;
+  /** The bound wallet: the owner, the signer, and where alerts go. */
+  own: boolean;
+}
+
+/**
+ * Every wallet the Portfolio may be pointed at, bound wallet first.
+ *
+ * THIS IS THE LIST AUTHORITY, and it lives beside `viewParamWallet` because
+ * the two answer the same question from different directions: this one builds
+ * what the switcher offers, that one decides whether a `?view=` link names
+ * something offerable. A deep link that resolves to a wallet the picker does
+ * not carry is a dashboard the user cannot switch back out of.
+ *
+ * The bound wallet is included WHETHER OR NOT it is subscribed. Its
+ * self-subscription is created at onboarding and that write can fail (a pasted
+ * address cannot sign), so deriving the options from the watchlist alone would
+ * drop the user's own dashboard out of the picker in exactly the case where
+ * they most need to find it again.
+ */
+export function viewableWallets(
+  owner: string | null,
+  list: readonly WatchSubscription[] | null,
+): WalletChoice[] {
+  if (!owner) return [];
+  const bound = owner.trim().toLowerCase();
+  const out: WalletChoice[] = [
+    { wallet: bound, label: subscriptionFor(list, bound)?.label ?? null, own: true },
+  ];
+  for (const s of list ?? []) {
+    const wallet = s.wallet.trim().toLowerCase();
+    // The owner's own subscription is already the first row and carries its
+    // label; appending it again would offer the same dashboard twice.
+    if (wallet === bound) continue;
+    out.push({ wallet, label: s.label, own: false });
+  }
+  return out;
+}
+
 /** The subscription covering one wallet, or null when the list does not hold it. */
 export function subscriptionFor(
   list: readonly WatchSubscription[] | null,

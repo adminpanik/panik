@@ -163,9 +163,16 @@ import {
   type RiskTier,
   type ProfileResult,
 } from "./lib/profiling";
-import { deepLinkTab, subscriptionFor, useWatchlist, viewParamWallet } from "./lib/watchlist";
+import {
+  deepLinkTab,
+  subscriptionFor,
+  useWatchlist,
+  viewableWallets,
+  viewParamWallet,
+} from "./lib/watchlist";
 import { useSession } from "./lib/session";
 import { WalletsPanel } from "./components/WalletsPanel";
+import { WalletSelector } from "./components/WalletSelector";
 import {
   ReadOnlyBanner,
   SessionCard,
@@ -1597,6 +1604,7 @@ export function AppDemo() {
   useEffect(() => {
     if (viewParamApplied.current || !onboardedWallet || watchlist.subscriptions === null) return;
     viewParamApplied.current = true;
+    // What a link may name is `viewableWallets`'s list; this only checks it.
     const wallet = viewParamWallet(
       window.location.search,
       watchlist.subscriptions,
@@ -1617,6 +1625,8 @@ export function AppDemo() {
    * wallet in the panel while the Portfolio is showing it would otherwise leave
    * the dashboard fetching an address the user just deleted, and the fall back
    * to the bound wallet is the only state that is always true.
+   *
+   * The list of what may be shown is `viewableWallets`'s, not this memo's.
    */
   const viewedWallet = useMemo(() => {
     if (!onboardedWallet) return null;
@@ -1648,32 +1658,11 @@ export function AppDemo() {
    */
   const subscribedProfile = subscriptionFor(watchlist.subscriptions, onboardedWallet)?.profile ?? null;
 
-  /**
-   * What the Portfolio switcher may show, bound wallet first.
-   *
-   * The bound wallet is in the list WHETHER OR NOT it is subscribed. Its
-   * self-subscription is created at onboarding and that write can fail (a
-   * pasted address cannot sign), so deriving the options from the watchlist
-   * alone would drop the user's own dashboard out of the picker in exactly the
-   * case where they most need to find it again.
-   */
-  const portfolioWalletOptions = useMemo(() => {
-    if (!onboardedWallet) return [] as { wallet: string; name: string }[];
-    const bound = onboardedWallet.toLowerCase();
-    const named = (wallet: string, label: string | null, own: boolean) => ({
-      wallet,
-      // The label AND the address: a name alone cannot be checked against a
-      // wallet, and an address alone is not what anyone called it.
-      name: `${label ? `${label} · ` : ""}${truncateAddress(wallet)}${own ? " · your wallet" : ""}`,
-    });
-    const out = [named(bound, subscriptionFor(watchlist.subscriptions, bound)?.label ?? null, true)];
-    for (const s of watchlist.subscriptions ?? []) {
-      const wallet = s.wallet.toLowerCase();
-      if (wallet === bound) continue;
-      out.push(named(wallet, s.label, false));
-    }
-    return out;
-  }, [onboardedWallet, watchlist.subscriptions]);
+  /** What the Portfolio switcher may show. The rule lives in `viewableWallets`. */
+  const portfolioWalletOptions = useMemo(
+    () => viewableWallets(onboardedWallet, watchlist.subscriptions),
+    [onboardedWallet, watchlist.subscriptions],
+  );
 
   const ownLive = useWalletPositions(viewedWallet, selectedRiskProfile, chainMode);
 
@@ -3855,23 +3844,16 @@ export function AppDemo() {
                         heading on every dashboard implying the page could be
                         showing something else.
 
-                        A `select`, not a tab strip: the list runs to ten and
-                        this is a chooser, not a set of destinations. It carries
-                        its own label because the heading beside it names the
-                        page, not the control. */}
-                    {portfolioWalletOptions.length > 1 && (
-                      <select
-                        value={viewedWallet ?? ""}
-                        onChange={(e) => setViewedWalletChoice(e.target.value)}
-                        aria-label="Which watched wallet to show"
-                        className="h-9 max-w-full cursor-pointer rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-xs text-text-primary"
-                      >
-                        {portfolioWalletOptions.map((opt) => (
-                          <option key={opt.wallet} value={opt.wallet}>
-                            {opt.name}
-                          </option>
-                        ))}
-                      </select>
+                        A listbox, not a tab strip: the list runs to ten and this
+                        is a chooser, not a set of destinations. It carries its
+                        own label because the heading beside it names the page,
+                        not the control. */}
+                    {portfolioWalletOptions.length > 1 && viewedWallet && (
+                      <WalletSelector
+                        options={portfolioWalletOptions}
+                        value={viewedWallet}
+                        onChange={setViewedWalletChoice}
+                      />
                     )}
                   </div>
                   {/* Primary action: opening positions lives in Compass; this is
@@ -3898,18 +3880,6 @@ export function AppDemo() {
                     </Button>
                   )}
                 </div>
-
-                {/* What is and is not true of a wallet you only watch, once, at
-                    the top, rather than as a caveat on each control that is
-                    missing. The second clause is the one nobody would guess:
-                    switching the view does not move where alerts go, because
-                    the subscription belongs to the wallet that signed for it. */}
-                {viewingWatchOnly && viewedWallet && (
-                  <p className="text-xs font-sans leading-relaxed text-text-secondary">
-                    Showing {truncateAddress(viewedWallet)}, a wallet you watch. PANIK cannot act on
-                    it, so exits are not offered here. Alerts still go to {truncateAddress(onboardedWallet ?? "")}.
-                  </p>
-                )}
 
                 {/* STATE 3 of 4 — we reached the feed and this wallet holds
                     nothing. "clear", not "problem": that is good news and it is
