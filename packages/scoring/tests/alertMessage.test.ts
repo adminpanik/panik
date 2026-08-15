@@ -188,6 +188,115 @@ describe("formatAlert", () => {
 });
 
 /**
+ * THE PHONE. An alert is read on a handset at roughly forty characters a line,
+ * and the first one delivered to a real one arrived as four fact sentences with
+ * nothing between them: at that width the block wraps into a paragraph of
+ * numbers, and working out where one fact ends and the next begins is not work
+ * a reader should be doing while their position is being liquidated.
+ *
+ * The bullet is the fix, and its discipline is that it marks the FACTS and
+ * nothing else - a message where every line carries one is a message with no
+ * structure at all, which is the wall of text again with dots on it.
+ */
+describe("the fact block is a list", () => {
+  /** U+2022 and a space. Not a hyphen (the house dash) and not an asterisk (Markdown). */
+  const BULLET = "• ";
+  const factLines = (msg: string) => msg.split("\n").filter((l) => l.startsWith(BULLET));
+  const paragraphs = (msg: string) =>
+    msg.split("\n").filter((l) => l.trim().length > 0 && !l.startsWith(BULLET));
+
+  const extras: AlertExtras = {
+    label: "Cold wallet",
+    healthFactor: 1.08,
+    collateralUsd: 5000,
+    borrowUsd: 2600,
+    why,
+  };
+
+  it("gives every fact its own bulleted line", () => {
+    expect(factLines(alert(base, extras))).toEqual([
+      "• Risk score 58 of 100. Your moderate limit is 50.",
+      "• Liquidates if cbBTC falls 7.4%.",
+      "• Health factor 1.08, which is close to liquidation.",
+      "• Position $5,000 collateral and $2,600 debt.",
+    ]);
+  });
+
+  it("marks them with U+2022, not a dash and not an asterisk", () => {
+    const marks = new Set(factLines(alert(base, extras)).map((l) => l.codePointAt(0)));
+    expect([...marks]).toEqual([0x2022]);
+  });
+
+  it("leaves the subject, the explanation and the instruction as paragraphs", () => {
+    const [subject, explanation, instruction, ...extra] = paragraphs(alert(base, extras));
+    expect(subject).toBe("Cold wallet (0x76f8...056f) on Moonwell is over your moderate limit.");
+    expect(explanation!.startsWith("Why now:")).toBe(true);
+    expect(instruction).toBe("Add collateral or repay debt to pull this back under your limit.");
+    expect(extra).toEqual([]);
+  });
+
+  it("leaves the dominant-driver explanation unbulleted too", () => {
+    const msg = alert(base, { ...extras, why: { triggers: ["band:HIGH"], facts } });
+    expect(paragraphs(msg).some((p) => p.startsWith("Main driver:"))).toBe(true);
+    for (const line of factLines(msg)) expect(line).not.toContain("Main driver");
+  });
+
+  it("keeps the drill marker, the watch-only note and the drill footer as paragraphs", () => {
+    const msg = alert(base, { ...extras, watchOnly: true, simulation: { label: "Crash" } });
+    const paras = paragraphs(msg);
+    expect(paras[0]!.startsWith("Simulated event (Crash)")).toBe(true);
+    expect(paras.some((p) => p.startsWith("This wallet is watch-only"))).toBe(true);
+    expect(paras[paras.length - 1]!.startsWith("Reminder:")).toBe(true);
+    for (const line of factLines(msg)) {
+      expect(line).not.toContain("Simulated");
+      expect(line).not.toContain("watch-only");
+    }
+  });
+
+  it("sets the list off with blank lines and keeps it contiguous", () => {
+    const lines = alert(base, extras).split("\n");
+    const marked = lines.map((l) => l.startsWith(BULLET));
+    const first = marked.indexOf(true);
+    const last = marked.lastIndexOf(true);
+    expect(lines[first - 1]).toBe("");
+    expect(lines[last + 1]).toBe("");
+    // No paragraph interleaved between two facts: one block, not two lists.
+    expect(marked.slice(first, last + 1).every(Boolean)).toBe(true);
+  });
+
+  it("drops the bullet with the fact rather than rendering an empty one", () => {
+    // The fact-omission rule wearing a dot would be the zero-for-unknown bug:
+    // a marker advertising a fact we do not hold.
+    const bare = alert(base, { healthFactor: null, collateralUsd: null, borrowUsd: null });
+    expect(factLines(bare)).toEqual(["• Risk score 58 of 100. Your moderate limit is 50."]);
+    for (const msg of [bare, alert(base, extras)]) {
+      expect(msg).not.toMatch(/•\s*$/m);
+    }
+  });
+
+  it("shapes the all-clear the same way, under its own headline", () => {
+    const msg = recovery(
+      { ...base, from: "outside", to: "within", score: 31, band: "LOW" },
+      { ...extras, healthFactor: 1.9, borrowUsd: 1200 },
+    );
+    expect(factLines(msg)).toEqual([
+      "• Risk score 31 of 100. Your moderate limit is 50.",
+      "• Liquidates if cbBTC falls 47%.",
+      "• Health factor 1.90.",
+      "• Position $5,000 collateral and $1,200 debt.",
+    ]);
+    expect(paragraphs(msg).some((p) => p.startsWith("What changed:"))).toBe(true);
+    for (const line of factLines(msg)) expect(line).not.toContain("What changed");
+  });
+
+  it("keeps the caption's headline free of the list it precedes", () => {
+    // `formatHeadline` stands in for the body when the caption cap is hit, and
+    // it is the subject alone - a bullet there would be a list of one.
+    expect(formatHeadline(base, extras)).not.toContain("•");
+  });
+});
+
+/**
  * THE MARKUP. `parse_mode: "HTML"` means Telegram PARSES what we send, so this
  * is not styling - it is a wire format with a whitelist, and getting it wrong
  * does not render badly, it returns 400 and the alert is never delivered.
@@ -234,9 +343,11 @@ describe("Telegram HTML", () => {
       {},
     )
       .split("\n")
-      .find((l) => l.startsWith("Risk score"))!;
+      .find((l) => l.includes("Risk score"))!;
+    // The bullet is the line's own marker, outside the markup: it is text, not
+    // an entity, so it cannot be a fifth tag sneaking past the whitelist.
     expect(line).toBe(
-      "Risk score <b>15</b> of 100. Your conservative limit is <b>25</b>, and alerts warn from <b>15</b>.",
+      "• Risk score <b>15</b> of 100. Your conservative limit is <b>25</b>, and alerts warn from <b>15</b>.",
     );
   });
 

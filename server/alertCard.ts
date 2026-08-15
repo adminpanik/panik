@@ -272,6 +272,35 @@ function dial(score: number, color: string): string {
 }
 
 /**
+ * The drill chip's word, and the room it needs.
+ *
+ * ONE WORD, because the chip is a TAG and not a sentence. "SIMULATED DRILL" in
+ * a 228px pill was, on a real phone, the widest amber object on the card and
+ * visually heavier than the brand lockup it sits opposite - which inverts the
+ * hierarchy: what a reader must recognise first is whose warning this is, and
+ * only then that this particular one is a rehearsal. The full explanation is not
+ * lost, it is where it always belonged: the message says "Simulated event
+ * (label) - prices in this alert are from an armed drill, not the market", both
+ * above the body and again in the footer, where there is room to say it once
+ * properly rather than to shout an abbreviation.
+ */
+const DRILL_LABEL = "DRILL";
+const DRILL_SIZE = 14;
+const DRILL_TRACKING = 1.2;
+/** Breathing room either side of the word inside the pill. */
+const DRILL_PAD = 14;
+/**
+ * Wide enough for the word and no wider. DERIVED, not typed: the 228 this
+ * replaces was measured for a longer label, and a pill still sized for text it
+ * no longer holds is exactly how the chip came to outweigh the logo.
+ */
+export const DRILL_CHIP_WIDTH = Math.round(
+  estimateTextWidth(DRILL_LABEL, DRILL_SIZE) + DRILL_LABEL.length * DRILL_TRACKING + DRILL_PAD * 2,
+);
+/** The chip's right edge, level with the card's other right-hand margin. */
+const DRILL_CHIP_RIGHT = 760;
+
+/**
  * The drill chip. On the CARD as well as in the text, because the card is what
  * a push notification previews: a marker that only exists in the body reaches
  * the reader after they have already believed the picture.
@@ -280,12 +309,12 @@ function drillChip(): string {
   // Right-aligned, so it sits opposite the brand lockup rather than replacing
   // it: a card with no logo on it is not obviously ours, and "ours" is half of
   // why a reader trusts the warning.
-  const x = 532;
+  const x = DRILL_CHIP_RIGHT - DRILL_CHIP_WIDTH;
   const y = 40;
   return `
-  <rect x="${x}" y="${y}" width="228" height="32" rx="16" fill="rgba(245,158,11,0.12)" stroke="rgba(245,158,11,0.35)"/>
-  <text x="${x + 16}" y="${y + 21}" fill="#F59E0B" font-family="Plus Jakarta Sans" font-weight="700"
-        font-size="14" letter-spacing="1.2">SIMULATED DRILL</text>`;
+  <rect x="${x}" y="${y}" width="${DRILL_CHIP_WIDTH}" height="32" rx="16" fill="rgba(245,158,11,0.12)" stroke="rgba(245,158,11,0.35)"/>
+  <text x="${x + DRILL_PAD}" y="${y + 21}" fill="#F59E0B" font-family="Plus Jakarta Sans" font-weight="700"
+        font-size="${DRILL_SIZE}" letter-spacing="${DRILL_TRACKING}">${DRILL_LABEL}</text>`;
 }
 
 /** The card as SVG. Pure and deterministic, so it is testable without a rasteriser. */

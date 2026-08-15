@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   alertCardSvg,
   CARD_CONTENT_WIDTH,
+  DRILL_CHIP_WIDTH,
   estimateTextWidth,
   renderAlertCard,
   type AlertCardInput,
@@ -159,8 +160,48 @@ describe("alertCardSvg", () => {
   });
 
   it("marks a drill on the card itself, not only in the body", () => {
-    expect(alertCardSvg(card({ simulated: true }))).toContain("SIMULATED DRILL");
-    expect(alertCardSvg(card())).not.toContain("SIMULATED");
+    expect(alertCardSvg(card({ simulated: true }))).toContain(">DRILL<");
+    expect(alertCardSvg(card())).not.toContain("DRILL");
+  });
+
+  /**
+   * The chip is a TAG, and it has to look like one. Carrying "SIMULATED DRILL"
+   * in a 228px pill it was the widest amber object on the card and read as
+   * heavier than the brand lockup opposite it, which inverts the order a reader
+   * needs: whose warning this is first, that this one is a rehearsal second.
+   *
+   * Nothing is lost by shortening it. The full sentence lives in the message,
+   * which says "Simulated event (label) - prices in this alert are from an armed
+   * drill, not the market" above the body and repeats the reminder in the
+   * footer; `alertMessage.test.ts` holds that copy to both ends.
+   */
+  describe("the drill chip is subordinate to the lockup", () => {
+    /** The chip rect: the only one on the card's top edge. */
+    const chip = (svg: string) => {
+      const m = svg.match(/<rect x="(\d+)" y="40" width="(\d+)" height="32"/)!;
+      return { x: Number(m[1]), width: Number(m[2]) };
+    };
+
+    /**
+     * The brand lockup, measured with the renderer's own estimator: the 30px
+     * mark, the 40px offset to the wordmark, and "PANIK" at 17px tracked 2.4.
+     */
+    const LOCKUP_WIDTH = 40 + estimateTextWidth("PANIK", 17) + "PANIK".length * 2.4;
+
+    it("is sized to the word it carries, not to the one it used to", () => {
+      const { x, width } = chip(alertCardSvg(card({ simulated: true })));
+      expect(width).toBe(DRILL_CHIP_WIDTH);
+      // The word plus its tracking fits inside, with padding to spare.
+      expect(estimateTextWidth("DRILL", 14) + "DRILL".length * 1.2).toBeLessThan(width);
+      // Still flush with the card's right margin, so it reads as placed.
+      expect(x + width).toBe(760);
+    });
+
+    it("is narrower than the brand lockup it sits opposite", () => {
+      expect(DRILL_CHIP_WIDTH).toBeLessThan(LOCKUP_WIDTH);
+      // And materially smaller than the pill it replaces, rather than trimmed.
+      expect(DRILL_CHIP_WIDTH).toBeLessThan(228 / 2);
+    });
   });
 
   it("keeps the brand mark on a drill card too", () => {
