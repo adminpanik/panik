@@ -114,6 +114,7 @@ import { InfoTip } from "./components/InfoTip";
 import {
   Button,
   Card,
+  Chip,
   DemoChip,
   EmptyState,
   Listbox,
@@ -701,11 +702,20 @@ const FALLBACK_SCORE_NOTE =
  * a CRITICAL market's band at 60% opacity — the one card on the page most worth
  * reading clearly was the faintest. Which section it is in already says it is
  * out of profile; the dial's job is to say how far.
+ *
+ * `lead` is the opposite end of the same axis, and it is why the other cards
+ * settled a step. Eight cards at one weight is a page with no answer on it: the
+ * reader has to compare eight dials before the screen has told them anything.
+ * The emphasis is SURFACE, BORDER and a type step, never more hue - the dial is
+ * still the only coloured thing on any of these cards, and the lead's own claim
+ * is a neutral `Chip`.
  */
 function MarketCard({
   preset,
   poolYield,
   muted = false,
+  lead = false,
+  leadNote,
   opensDemo,
   scoreFromFallback,
   onBreakdown,
@@ -715,6 +725,10 @@ function MarketCard({
   preset: VaultPreset;
   poolYield: PoolYield | null;
   muted?: boolean;
+  /** The section's one emphasised card. See the docblock, and `compassLead`. */
+  lead?: boolean;
+  /** What the lead card CLAIMS, in the words of the thing that measured it. */
+  leadNote?: string;
   /**
    * This card's open would land in the DEMO simulator rather than a real
    * transaction. Comes from the same predicate the click routes on, so the
@@ -738,17 +752,37 @@ function MarketCard({
   return (
     <div
       onClick={onBreakdown}
-      className={`flex cursor-pointer flex-col gap-3 rounded-lg border border-border-subtle p-5 transition-colors hover:border-border-strong ${
-        muted
-          ? "bg-surface-raised/25 hover:bg-surface-raised/45"
-          : "bg-surface-raised/60 hover:bg-surface-overlay/70"
+      /* Three depths, in the order the reader should meet them: the lead, the
+         rest of its section, and the section that is out of profile. `strong` on
+         the lead's edge is the only functional border on the grid, and it is the
+         one card whose edge is doing a job. */
+      className={`flex cursor-pointer flex-col gap-3 rounded-lg border p-5 transition-colors hover:border-border-strong ${
+        lead
+          ? "border-border-strong bg-surface-raised/80 hover:bg-surface-overlay/90"
+          : muted
+            ? "border-border-subtle bg-surface-raised/25 hover:bg-surface-raised/45"
+            : "border-border-subtle bg-surface-raised/45 hover:bg-surface-overlay/60"
       }`}
     >
+      {/* The claim, in a neutral marker, above the identity it is about. It is
+          the one sentence this grid was missing: eight scored markets and
+          nothing saying which one the profile actually points at. */}
+      {lead && leadNote && (
+        <div className="flex">
+          <Chip>{leadNote}</Chip>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-sans font-bold text-text-primary">
+            {/* One type step on the lead, which is the emphasis a card can
+                carry without spending hue or breaking the grid's rhythm. */}
+            <h3
+              className={`truncate font-sans font-bold text-text-primary ${
+                lead ? "text-base" : "text-sm"
+              }`}
+            >
               {preset.protocol}
             </h3>
             <span className="block truncate text-xs font-sans text-text-secondary">
@@ -811,8 +845,12 @@ function MarketCard({
         {trend ?? "30-day yield history unavailable"}
       </p>
 
+      {/* `mt-auto`, so every card in a row puts its actions on the same line
+          whatever is above them. Grid items already stretch to the tallest card,
+          and the lead is now taller than the rest by a marker; without this the
+          three buttons in a row sit at three different heights. */}
       <div
-        className="mt-1 flex items-center justify-between gap-3 border-t border-border-subtle pt-3"
+        className="mt-auto flex items-center justify-between gap-3 border-t border-border-subtle pt-3"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2">
@@ -862,6 +900,8 @@ function MarketSection({
   emptyTitle,
   emptyHint,
   muted = false,
+  leadId,
+  leadNote,
   poolYields,
   opensReal,
   scoreFromFallback,
@@ -871,6 +911,10 @@ function MarketSection({
 }: {
   heading: string;
   presets: VaultPreset[];
+  /** The one card this section emphasises, if it has one. See `compassLead`. */
+  leadId?: string;
+  /** What that card claims. Travels with the id so neither can appear alone. */
+  leadNote?: string;
   /** Whether an empty section is STATED rather than dropped. See its caller. */
   statesEmpty: boolean;
   emptyTitle: string;
@@ -917,6 +961,8 @@ function MarketSection({
               preset={preset}
               poolYield={poolYields?.[preset.id] ?? null}
               muted={muted}
+              lead={preset.id === leadId}
+              leadNote={leadNote}
               opensDemo={!opensReal(preset)}
               scoreFromFallback={scoreFromFallback(preset)}
               onBreakdown={() => onBreakdown(preset)}
@@ -2720,6 +2766,31 @@ export function AppDemo() {
   const recommended = compassCatalog.filter((p) => inProfile(p.baseRisk));
   const outside = compassCatalog.filter((p) => !inProfile(p.baseRisk));
   /**
+   * The one market this page leads with, and the ONE claim the data supports.
+   *
+   * There is no fit, match or rank anywhere in the compass payload: `/api/compass`
+   * serves an id, a composite, a band and the four sub-scores per market
+   * (`CompassLiveScore`), and `VAULT_PRESETS` adds a listed fallback score and an
+   * APY. A "best match for you" would therefore be a ranking this component
+   * invented, which is exactly the thing the data-honesty rule forbids.
+   *
+   * So the lead is the lowest PANIK score among the markets that scored INSIDE
+   * the selected profile, and the card says that in those words rather than
+   * implying a recommendation engine that does not exist. It is arithmetic the
+   * reader can check against the seven dials beside it.
+   *
+   * Null below two cards: "the lowest of one" is a claim with no content, and a
+   * section with one card in it has already led with it.
+   */
+  const compassLead =
+    recommended.length > 1
+      ? recommended.reduce((best, p) => (p.baseRisk < best.baseRisk ? p : best))
+      : null;
+  /** The lead first, because position is half of what makes it the lead. */
+  const recommendedOrdered = compassLead
+    ? [compassLead, ...recommended.filter((p) => p.id !== compassLead.id)]
+    : recommended;
+  /**
    * Whether an empty Compass section is STATED rather than dropped.
    *
    * Only while the catalog holds something: with NOTHING openable the tab says
@@ -3137,7 +3208,12 @@ export function AppDemo() {
                     enough; "can be opened there" would be false on mainnet. */}
                 <MarketSection
                   heading={`Recommended for your ${selectedRiskProfile} profile`}
-                  presets={recommended}
+                  presets={recommendedOrdered}
+                  leadId={compassLead?.id}
+                  /* The measurement, not a verdict: this app does not rank
+                     markets for a person, and saying it did would be the
+                     invented fact the data-honesty rule is about. */
+                  leadNote="Lowest risk in this profile"
                   statesEmpty={statesEmptySections}
                   emptyTitle={`No ${CHAIN_MODE_LABEL[chainMode]} market scores inside this profile`}
                   /* A measured fact rather than a guess: an empty section is
