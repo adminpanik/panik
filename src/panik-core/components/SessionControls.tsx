@@ -60,56 +60,24 @@ export interface SignInButtonProps {
   busy: boolean;
   onClick: () => void;
   variant?: "primary" | "outline";
-  /**
-   * Render as a header chip instead of a button, matching the wallet and
-   * Wallets controls it sits between. The header's chips are their own visual
-   * language and a primitive Button among them reads as a different kind of
-   * thing; what must not fork is the LABEL, which is why one component owns
-   * both shapes.
-   */
-  chip?: boolean;
 }
 
 /**
- * The one control that asks for a `session-start` signature, in the three
- * places it is offered.
+ * The one control that asks for a `session-start` signature, in the two places
+ * it is offered: the read-only banner and Settings' account card.
  *
- * The label is the reason this is a component and not three buttons. What is
+ * The label is the reason this is a component and not two buttons. What is
  * being offered genuinely differs by state, "stay signed in" for a visitor who
  * is nobody yet and "sign in with wallet" for a reader the server can name but
- * not vouch for, and three hand-typed copies of that ternary is how one of them
- * ends up saying the wrong thing about what pressing it does.
+ * not vouch for, and hand-typed copies of that ternary are how one of them ends
+ * up saying the wrong thing about what pressing it does.
  */
-export function SignInButton({
-  scope,
-  busy,
-  onClick,
-  variant = "outline",
-  chip = false,
-}: SignInButtonProps) {
+export function SignInButton({ scope, busy, onClick, variant = "outline" }: SignInButtonProps) {
   const label = busy
     ? "Sign in wallet..."
     : scope === "readonly"
       ? "Sign in with wallet"
       : "Stay signed in";
-
-  if (chip) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={busy}
-        title="Sign once so PANIK recognises this browser next time. Free, no transaction."
-        aria-label="Stay signed in on this browser"
-        className="flex shrink-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <KeyRound className="w-3.5 h-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-        {/* The word drops at 390px the same way the Wallets label does, with
-            the accessible name carrying the meaning. */}
-        <span className="hidden sm:inline">{label}</span>
-      </button>
-    );
-  }
 
   return (
     <Button variant={variant} onClick={onClick} disabled={busy}>

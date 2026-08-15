@@ -178,14 +178,12 @@ import {
   viewParamWallet,
 } from "./lib/watchlist";
 import { useSession } from "./lib/session";
+import { accountGateBlocks, useAccountSession } from "./lib/account";
+import { AccountGate } from "./components/AccountGate";
+import { AccountMenu } from "./components/AccountMenu";
 import { WalletsPanel } from "./components/WalletsPanel";
 import { WalletSelector } from "./components/WalletSelector";
-import {
-  ReadOnlyBanner,
-  SessionCard,
-  SessionNote,
-  SignInButton,
-} from "./components/SessionControls";
+import { ReadOnlyBanner, SessionCard, SessionNote } from "./components/SessionControls";
 import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
@@ -1584,6 +1582,17 @@ export function AppDemo() {
   const session = useSession();
 
   /**
+   * The ACCOUNT: the closed beta's outer layer, and a different question from
+   * the one above.
+   *
+   * `session` answers "which wallet may this browser be shown". This answers
+   * "who is signed in to PANIK, and has the beta let them in yet". Neither
+   * authorizes the other: an account never names a wallet, and every
+   * wallet-scoped write below still signs its own action-bound proof.
+   */
+  const accountState = useAccountSession();
+
+  /**
    * Adopt the identity the server vouched for, WITHOUT outranking a connected
    * wallet. A connected wallet is the only one the exit flow can act on, so it
    * stays the winner; the session fills the gap for a reader who has not
@@ -2873,6 +2882,27 @@ export function AppDemo() {
     );
   }
 
+  /**
+   * The closed-beta gate: sign in, then a voucher, then the app.
+   *
+   * AN ALERT LINK BYPASSES IT, and that is the whole reason this condition is
+   * not simply `accountGateBlocks(...)`. A liquidation warning goes to whoever
+   * asked for it, and a person who taps one may have no PANIK account at all;
+   * putting a sign-in wall in front of a `?sid=` reader would break the one
+   * message this product exists to deliver, at the moment it matters. The
+   * read-only session already says what that reader may do (the banner under
+   * the header), and it is a server-issued scope rather than anything this
+   * browser asserted, so it is not a way around the beta: it grants sight of
+   * one wallet and no writes.
+   *
+   * It runs AFTER the session boot above, so `readOnlySession` is already
+   * settled and a single-use `?sid=` has already been traded and stripped.
+   * Every hook has run, so this early return cannot reorder them.
+   */
+  if (!readOnlySession && accountGateBlocks(accountState)) {
+    return <AccountGate account={accountState} note={session.note} />;
+  }
+
   return (
     <>
     {/* Onboarding overlay. First run: mandatory (no cancel). Every other way in
@@ -3087,19 +3117,25 @@ export function AppDemo() {
               </button>
             )}
 
-            {/* The offer to be remembered, where a signed-out returning user
-                will actually meet it.
+            {/* WHO IS SIGNED IN, which is now an account rather than a browser.
+                It replaces the "Stay signed in" chip that used to sit here.
 
-                Only when there is a wallet to sign with and no session to
-                replace: a read-only reader is offered the same thing by the
-                banner under this header, and two identical buttons on one
-                screen would be the app asking twice.
+                That chip offered the SIWE `session-start` signature, and the
+                offer has not gone anywhere: it is on the read-only banner under
+                this header and in Settings' account card, which is where a
+                deliberate, rare action belongs. What it stopped being is the
+                first identity in the header, because past the gate above there
+                is always an account and the wallet session is a detail of how
+                one wallet is read.
 
-                Never automatic. Declining costs nothing and leaves the app
-                exactly as it behaved before sessions existed, so this is a
-                chip, not a modal, and there is no dismissal to remember. */}
-            {onboardedWallet && session.session === null && (
-              <SignInButton scope="none" busy={session.busy} onClick={signInThisBrowser} chip />
+                Absent for a read-only reader, who has no account by
+                construction: they arrived on an alert link. */}
+            {accountState.account && (
+              <AccountMenu
+                account={accountState.account}
+                busy={accountState.busy}
+                onSignOut={() => void accountState.signOut()}
+              />
             )}
           </div>
         </header>
