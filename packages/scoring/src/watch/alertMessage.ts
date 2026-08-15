@@ -76,6 +76,28 @@ export function escapeHtml(value: string): string {
 
 const b = (content: string): string => `<b>${content}</b>`;
 
+/**
+ * The fact block is a LIST, and on a phone it has to look like one.
+ *
+ * The first alert read back on a real handset was four fact sentences stacked
+ * with no marker between them, which at a phone's ~40-character wrap is not four
+ * facts - it is a paragraph of numbers, and the reader has to re-find where each
+ * one starts. A leading bullet gives every fact an unambiguous left edge that
+ * survives wrapping, which is the whole job.
+ *
+ * U+2022, not a hyphen and not an asterisk: the hyphen is already the house
+ * dash and would read as punctuation inside the sentence it prefixes, and an
+ * asterisk is Markdown syntax sitting in an HTML-parsed message. It is also not
+ * an emoji - the pictograms this file banned were coloured glyphs standing in
+ * for meaning, and a bullet carries none: it is the same mark before every line
+ * whatever the news is, which is precisely why it is safe.
+ *
+ * ONLY the facts get one. The subject, the explanation, the instruction and the
+ * footers are paragraphs, and bulleting them too would flatten the structure
+ * back into one undifferentiated list.
+ */
+const bullet = (line: string): string => `• ${line}`;
+
 /** Health factor below which we explicitly flag "close to liquidation". */
 const NEAR_LIQUIDATION_HF = 1.15;
 
@@ -481,7 +503,9 @@ function scoreLine(t: WatchTransition): string {
 /**
  * The optional facts: the price-drop buffer, the health factor and the position
  * size. Every omission is deliberate - a line whose value is unknown is
- * dropped, never filled with a zero.
+ * dropped, never filled with a zero. The bullet is added by the caller, so a
+ * dropped fact takes its marker with it: there is no empty bullet advertising a
+ * fact we do not hold, which would be the zero-for-unknown bug wearing a dot.
  *
  * Optional is the operative word. Nothing here is load-bearing, which is what
  * makes the facts-empty message impossible: `subjectOf` and `scoreLine` above
@@ -610,8 +634,11 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
   }
   lines.push(b(`${subjectOf(t, extras)} is ${limitClause(t.to, t.profile)}.`));
   lines.push("");
-  lines.push(scoreLine(t));
-  lines.push(...optionalFactLines(extras));
+  // The score line is bulleted with the rest: it is a fact of exactly the same
+  // kind as the three below it, and one unmarked sentence at the head of a
+  // bulleted list reads as a mistake rather than as a distinction.
+  lines.push(bullet(scoreLine(t)));
+  lines.push(...optionalFactLines(extras).map(bullet));
 
   // Why this alert, now. Sits directly under the facts it cites.
   const explained = extras.why ? explainLine(extras.why) : null;
@@ -661,8 +688,10 @@ export function formatResolution(t: WatchTransition, extras: AlertExtras = {}): 
   }
   lines.push(b(`${subjectOf(t, extras)} is ${limitClause(t.to, t.profile)}.`));
   lines.push("");
-  lines.push(scoreLine(t));
-  lines.push(...optionalFactLines(extras));
+  // Same fact block, same bullets: the all-clear and the alert are one message
+  // shape under two headlines, and a reader should not have to re-learn it.
+  lines.push(bullet(scoreLine(t)));
+  lines.push(...optionalFactLines(extras).map(bullet));
   lines.push("");
   lines.push(
     t.from === null || t.from === "within"
