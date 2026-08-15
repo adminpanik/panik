@@ -148,12 +148,20 @@ describe("no session authorizes a write", () => {
     expect(SERVER_SRC.match(/req\.headers\.cookie/g)).toHaveLength(1);
   });
 
-  it("all four session routes are strict-tiered", () => {
-    // They mint rows, burn rows, or are an unauthenticated guess at a
-    // credential. None is a cheap cached GET.
+  it("mint, revoke and exchange are strict-tiered; the read is not", () => {
+    // Mint, revoke and exchange create rows, burn rows, or are an
+    // unauthenticated guess at a credential - strict. The READ runs on every
+    // SPA boot and reveals nothing mintable, so it sits at the standard
+    // wallet class; strict there would rate-limit the app's own startup for
+    // a shared-IP office or a dev machine with a few tabs.
     for (const key of SESSION_ROUTES) {
       const route = ALL.find((r) => r.key === key)!;
-      expect(route.body, `${key} is not strictLimit`).toContain("strictLimit");
+      if (key === "get /api/session") {
+        expect(route.body, `${key} must stay at walletLimit`).toContain("walletLimit");
+        expect(route.body, `${key} must not be strict`).not.toContain("strictLimit");
+      } else {
+        expect(route.body, `${key} is not strictLimit`).toContain("strictLimit");
+      }
     }
   });
 
