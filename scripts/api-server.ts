@@ -830,7 +830,10 @@ app.post("/api/session", strictLimit, async (req, res) => {
  * expired. The client cannot tell them apart, and should not: the difference is
  * only ever useful to someone guessing tokens.
  */
-app.get("/api/session", strictLimit, async (req, res) => {
+// walletLimit, not strictLimit: the SPA reads the session on every boot, and a
+// shared-IP office or a dev machine with a few tabs would burn 10/min instantly.
+// Reads reveal nothing mintable; mint/revoke/exchange stay strict.
+app.get("/api/session", walletLimit, async (req, res) => {
   try {
     const identity = await readSession(db, presentedToken(req));
     if (!identity) {
