@@ -483,8 +483,12 @@ export function LivePositions({
                 {/* Right rail — the score, and nothing else. It is as wide as
                     the dial (44px), which is why the control that used to sit
                     under it had to be icon-only; that control is now a labelled
-                    button in the row's action bar. */}
-                <div className="flex shrink-0 flex-col items-center gap-2">
+                    button in the row's action bar.
+
+                    `shrink-0` is on the wrapper rather than left to the dial:
+                    the dial carries its own, but it arrives wrapped in
+                    `InfoTip`, whose anchor does not. */}
+                <div className="shrink-0">
                   <RiskDial score={p.total} band={p.band} subScores={p.subScores} />
                 </div>
               </li>
