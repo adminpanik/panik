@@ -4,7 +4,7 @@
  *
  * How the app covers itself: one ladder, and one scrim.
  *
- * THE PROBLEM THIS FIXES. There were eight z-indexes in `panik-core`, invented
+ * THE PROBLEM THIS FIXES. There were nine z-indexes in `panik-core`, invented
  * one at a time (30, 50, 90, 100, 150, 200, 210, 300, 9998), and the order they
  * produced was not the order anybody meant. The alerts-inactive banner sat at
  * 210 while both slide-ins sat at 50, so at a 390px viewport the banner covered
