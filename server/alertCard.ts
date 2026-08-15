@@ -103,6 +103,41 @@ const WIDTH = 800;
 const HEIGHT = 360;
 const SCALE = 2;
 
+/**
+ * The right column: where it starts, and how much room it has.
+ *
+ * `CARD_CONTENT_WIDTH` is what every line on that column must fit inside, and
+ * it is exported because the truncation tests assert against it rather than
+ * against a number they retype.
+ */
+const CONTENT_LEFT = 330;
+/**
+ * Right margin. Generous, because the width estimate below is an estimate: the
+ * padding is the slack that keeps a slightly-under-measured line off the edge
+ * rather than one pixel inside it.
+ */
+const CONTENT_RIGHT_PAD = 56;
+export const CARD_CONTENT_WIDTH = WIDTH - CONTENT_LEFT - CONTENT_RIGHT_PAD;
+
+/** Type sizes. The identity lines share the address's size on purpose. */
+const HEADLINE_SIZE = 34;
+const IDENTITY_SIZE = 22;
+
+/**
+ * The identity stack's rhythm, in baseline offsets.
+ *
+ * The gap before the address is bigger than the one inside the name/platform
+ * pair, and that is the structure rather than decoration: the first two lines
+ * are what the reader CALLS this position, and the third is what it actually
+ * IS. Grouping by spacing says so without a label or a rule.
+ */
+const HEADLINE_BASELINE = 168;
+const IDENTITY_STEP = 32;
+const ADDRESS_GAP = 48;
+/** Rough cap height and descender at `IDENTITY_SIZE`, for centring the stack. */
+const CAP = 16;
+const DESCENDER = 5;
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FONT_DIR = join(HERE, "assets", "fonts");
 
@@ -165,17 +200,55 @@ export interface AlertCardInput {
 }
 
 /**
- * Cut a string to something that will not run off the card.
+ * Advance width of one character, as a fraction of the font size.
  *
- * Character counting rather than text measurement, because measuring needs the
- * font metrics and the whole point of this module is that it does the cheap
- * thing reliably. The budgets below were read off the rendered PNGs at each
- * size; they are conservative, so a wide string is trimmed slightly early
- * rather than colliding with the edge.
+ * An ESTIMATE, and deliberately so: the exact answer needs the font's `hmtx`
+ * table, and parsing a TTF to place one line of text would make the renderer's
+ * failure surface bigger than the thing it renders. Four buckets get within a
+ * few percent for Latin text at these sizes, and every one of them is rounded
+ * UP rather than down - the cost of over-estimating is a label clipped one
+ * character early, and the cost of under-estimating is a name running off the
+ * edge of the card, which is the bug this exists to prevent.
  */
-function clip(text: string, max: number): string {
+function charWidth(ch: string): number {
+  if (" .,:;'`|!ijltfrI[]()".includes(ch)) return 0.32;
+  if ("mwMW@%".includes(ch)) return 0.92;
+  if (ch >= "A" && ch <= "Z") return 0.68;
+  return 0.58;
+}
+
+/** Estimated rendered width of `text`, in px, at `fontSize`. */
+export function estimateTextWidth(text: string, fontSize: number): number {
+  let em = 0;
+  for (const ch of text) em += charWidth(ch);
+  return em * fontSize;
+}
+
+/**
+ * Cut a string so its rendered width fits `maxWidth`, with an ellipsis when it
+ * had to give something up.
+ *
+ * Width rather than character count, which is what the joined single line got
+ * wrong: "Simulation target" and "My extremely long-term leveraged cbBTC
+ * position" are both "a label", and a budget in characters cannot tell a narrow
+ * one from a wide one. The ellipsis is measured too, so the result including
+ * its three dots is what fits.
+ */
+export function clipToWidth(text: string, fontSize: number, maxWidth: number): string {
   const t = text.replace(/\s+/g, " ").trim();
-  return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}...`;
+  if (estimateTextWidth(t, fontSize) <= maxWidth) return t;
+
+  const ellipsis = "...";
+  const budget = maxWidth - estimateTextWidth(ellipsis, fontSize);
+  let width = 0;
+  let cut = 0;
+  for (const ch of t) {
+    const next = width + charWidth(ch) * fontSize;
+    if (next > budget) break;
+    width = next;
+    cut += ch.length;
+  }
+  return `${t.slice(0, cut).trimEnd()}${ellipsis}`;
 }
 
 /** The dial, drawn the way `src/panik-core/ui/RiskDial.tsx` draws it. */
@@ -222,39 +295,72 @@ export function alertCardSvg(input: AlertCardInput): string {
   const eventColor = headlineColor(input.status, input.band);
   const headline = CARD_HEADLINE[input.status] ?? CARD_HEADLINE.approaching;
   const mark = logo();
-  const left = 330;
-
-  // Everything interpolated below is escaped: the label is typed by a user and
-  // the protocol name can fall back to a raw enum, and an unescaped "&" is a
-  // malformed SVG that resvg refuses whole.
-  const label = input.label ? clip(input.label, 30) : null;
-  const address = escapeHtml(truncateWallet(input.wallet));
-  const protocol = escapeHtml(clip(protocolLabel(input.protocol), 24));
+  const left = CONTENT_LEFT;
 
   /**
-   * WHICH position, in one line: the reader's own name for the wallet, the
-   * protocol, and the chain.
+   * WHICH position, STACKED: the reader's own name for it, then what it is,
+   * then the address.
    *
-   * The label used to be set large, bold and near-white ON ITS OWN, which gave a
-   * nickname somebody typed into a text field the typography of product
-   * vocabulary: "Simulation target" read as a PANIK term for a kind of position
-   * rather than as what this reader happens to call this wallet. Quotation marks
-   * say "your word, not ours" in a way no font size can, and folding it in
-   * beside the protocol and the chain puts it back among the other two thirds of
-   * the same fact.
+   *   "Wallet name"        their word for it - only when they gave one
+   *   Aave V3 - Base       what it actually is
+   *                        (a gap, because the address is a different KIND of
+   *   0x12a5...2305         fact: the other two are how it gets referred to)
    *
-   * It is BRIGHT but not big. Primary ink and a medium weight at the same 22px
-   * as the address, against a 34px coloured headline: the size gap is what keeps
-   * the hierarchy, so lifting the colour costs nothing. Two large elements per
-   * card and no more - the dial's number and the event headline.
+   * It replaced a single joined line ("name - protocol - chain"), which read
+   * well for "Cold wallet" and broke for "My extremely long-term leveraged
+   * cbBTC position": one line cannot both keep a user-typed name intact and
+   * guarantee the protocol beside it stays on the card. Stacking turns the
+   * long-name case into a truncation problem on ONE line instead of a layout
+   * problem for all three.
    *
-   * The chain segment is dropped when the caller does not name one, rather than
-   * defaulting to the mainnet everyone assumes.
+   * The quotation marks stay. They say "your word, not ours" in a way no font
+   * size can, which is the whole reason the label could be demoted off its own
+   * headline in the first place.
+   *
+   * BRIGHT BUT NOT BIG: primary ink at medium weight, at the same size as the
+   * address, against a 34px coloured headline. The size gap is what holds the
+   * hierarchy, so the colour costs nothing - two large elements per card, the
+   * dial's number and the event headline, and no more.
    */
-  const chain = input.chainLabel ? escapeHtml(clip(input.chainLabel, 20)) : null;
-  const identity = [label ? `"${escapeHtml(label)}"` : null, protocol, chain]
-    .filter((part): part is string => part !== null)
-    .join(" · ");
+  // Everything interpolated is escaped: the label is typed by a user and the
+  // protocol can fall back to a raw enum, and an unescaped "&" is a malformed
+  // SVG that resvg refuses whole. Escaping happens AFTER clipping, so a cut can
+  // never land inside an entity.
+  const address = escapeHtml(truncateWallet(input.wallet));
+  const chain = input.chainLabel?.trim()
+    ? clipToWidth(input.chainLabel, IDENTITY_SIZE, CARD_CONTENT_WIDTH)
+    : null;
+  const platform = escapeHtml(
+    clipToWidth(
+      chain ? `${protocolLabel(input.protocol)} - ${chain}` : protocolLabel(input.protocol),
+      IDENTITY_SIZE,
+      CARD_CONTENT_WIDTH,
+    ),
+  );
+  // The NAME is clipped and the quotes go on afterwards, so a truncated label
+  // still closes: clipping the already-quoted string eats the closing quote and
+  // leaves a dangling one, which reads as a broken card rather than as a name.
+  const quotes = estimateTextWidth('""', IDENTITY_SIZE);
+  const name = input.label?.trim()
+    ? `"${escapeHtml(clipToWidth(input.label, IDENTITY_SIZE, CARD_CONTENT_WIDTH - quotes))}"`
+    : null;
+
+  /**
+   * The stack, centred in the room left under the headline, so BOTH variants
+   * are deliberate: dropping the name line must not leave the two that remain
+   * hanging off the top of a half-empty card.
+   */
+  const stackHeight = CAP + (name ? IDENTITY_STEP : 0) + ADDRESS_GAP + DESCENDER;
+  const first = Math.round(
+    HEADLINE_BASELINE + (HEIGHT - HEADLINE_BASELINE - stackHeight) / 2 + CAP,
+  );
+  const identityLine = (y: number, content: string) =>
+    `<text x="${left}" y="${y}" fill="${TEXT_PRIMARY}" font-family="Plus Jakarta Sans" font-weight="500" font-size="${IDENTITY_SIZE}">${content}</text>`;
+
+  const nameLine = name ? identityLine(first, name) : "";
+  const platformBaseline = name ? first + IDENTITY_STEP : first;
+  const platformLine = identityLine(platformBaseline, platform);
+  const addressY = platformBaseline + ADDRESS_GAP;
 
   // One vertical rhythm down the right column; y positions are stated rather
   // than accumulated so a change to one line cannot silently shift the rest.
@@ -269,9 +375,10 @@ export function alertCardSvg(input: AlertCardInput): string {
   ${dial(input.score, arcColor)}
   ${brand}
   ${input.simulated ? drillChip() : ""}
-  <text x="${left}" y="176" fill="${eventColor}" font-family="Plus Jakarta Sans" font-weight="700" font-size="34">${escapeHtml(headline)}</text>
-  <text x="${left}" y="234" fill="${TEXT_PRIMARY}" font-family="Plus Jakarta Sans" font-weight="500" font-size="22">${identity}</text>
-  <text x="${left}" y="276" fill="${TEXT_SECONDARY}" font-family="JetBrains Mono" font-size="22">${address}</text>
+  <text x="${left}" y="${HEADLINE_BASELINE}" fill="${eventColor}" font-family="Plus Jakarta Sans" font-weight="700" font-size="${HEADLINE_SIZE}">${escapeHtml(headline)}</text>
+  ${nameLine}
+  ${platformLine}
+  <text x="${left}" y="${addressY}" fill="${TEXT_SECONDARY}" font-family="JetBrains Mono" font-size="${IDENTITY_SIZE}">${address}</text>
 </svg>`;
 }
 

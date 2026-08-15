@@ -176,15 +176,37 @@ the severity headline, one identity line and the address, plus a `SIMULATED
 DRILL` chip when the transition carries a simulation. Fonts are vendored under
 `server/assets/fonts` (see the README there) because the container has none.
 
-**Exactly two large elements: the dial's number and the event headline.** The
-identity line under them carries the reader's own name for the wallet IN QUOTES,
-then the protocol, then the chain (`"Simulation target" · Aave V3 · Base`, or
-`Aave V3 · Base` when they never named it). It is bright but not big - primary
-ink at medium weight, at the same 22px as the address, because the SIZE gap is
-what holds the hierarchy. The chain label is threaded through from the worker's
-own `ScoringChainConfig.label` rather than assumed, so a testnet worker says
-"Base Sepolia"; a caller that names no chain gets the segment dropped, never
-defaulted. Set large and bold on its own line, as it was first built, a nickname
+**Exactly two large elements: the dial's number and the event headline.** Under
+them the identity stack, three lines:
+
+```
+"Simulation target"     the reader's own name for it, in quotes. Omitted entirely
+                        when they never gave one - never empty quotes.
+Aave V3 - Base          what it actually is. The chain segment is dropped, never
+                        defaulted, when the caller names no chain.
+
+0x12a5...2305           the address, mono and quieter, after a wider gap
+```
+
+The first two lines are bright but not big - primary ink at medium weight, at the
+same 22px as the address, because the SIZE gap is what holds the hierarchy. The
+wider gap before the address is structure, not decoration: the first two lines
+are what the position is CALLED, the third is what identifies it. The whole stack
+is centred in the room under the headline, computed from whether the name line
+exists, so both variants are deliberate rather than one being the other with a
+hole in it.
+
+This replaced a single joined line, which read well for "Cold wallet" and broke
+for "My extremely long-term leveraged cbBTC position": one line cannot both keep
+a user-typed name intact and guarantee the protocol beside it stays on the card.
+Each line is now truncated to `CARD_CONTENT_WIDTH` by `clipToWidth`, which
+measures with a four-bucket per-character estimate (rounded UP - over-estimating
+costs a character, under-estimating runs off the edge). The name is clipped
+BEFORE its quotes go on, so a truncated one still closes.
+
+The chain label is threaded through from the worker's own
+`ScoringChainConfig.label` rather than assumed, so a testnet worker says "Base
+Sepolia". Set large and bold on its own line, as it was first built, a nickname
 somebody typed into a text field reads as PANIK vocabulary for a kind of position
 rather than as this reader's word for this wallet; quotes say "your word, not
 ours" in a way no font size can. The limit sentence

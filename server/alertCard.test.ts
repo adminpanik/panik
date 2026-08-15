@@ -5,7 +5,32 @@
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { alertCardSvg, renderAlertCard, type AlertCardInput } from "./alertCard";
+import {
+  alertCardSvg,
+  CARD_CONTENT_WIDTH,
+  estimateTextWidth,
+  renderAlertCard,
+  type AlertCardInput,
+} from "./alertCard";
+
+/** Every `<text>` on the card as {content, position, size, weight, colour}. */
+const textRuns = (svg: string) =>
+  [...svg.matchAll(/<text[^>]*?>([^<]*)<\/text>/g)].map((m) => ({
+    content: m[1]!,
+    y: Number(m[0].match(/ y="(\d+)"/)?.[1] ?? 0),
+    size: Number(m[0].match(/font-size="(\d+)"/)?.[1] ?? 0),
+    weight: Number(m[0].match(/font-weight="(\d+)"/)?.[1] ?? 400),
+    fill: m[0].match(/fill="([^"]+)"/)?.[1],
+    bold: m[0].includes('font-weight="700"'),
+  }));
+
+/**
+ * The identity stack in render order: the name line (when there is one) and the
+ * platform line. Identified by their treatment rather than by their content, so
+ * the tests below are asserting what the card DOES rather than restating it.
+ */
+const identityLines = (svg: string) =>
+  textRuns(svg).filter((r) => r.size === 22 && r.weight === 500);
 
 const card = (over: Partial<AlertCardInput> = {}): AlertCardInput => ({
   score: 15,
@@ -156,6 +181,8 @@ describe("alertCardSvg", () => {
     expect(svg).not.toContain("<tspan>");
   });
 
+  // Width-based truncation has its own describe below; this is the crude guard
+  // that a runaway label never reaches the SVG at all.
   it("clips a label that would run off the card", () => {
     const svg = alertCardSvg(card({ label: "x".repeat(200) }));
     expect(svg).toContain("...");
@@ -170,39 +197,28 @@ describe("alertCardSvg", () => {
  * rather than as this reader's word for this wallet.
  */
 describe("the wallet label has no title billing", () => {
-  /** Every `<text>` on the card as {size, weight, colour, content}. */
-  const textRuns = (svg: string) =>
-    [...svg.matchAll(/<text[^>]*?>([^<]*)<\/text>/g)].map((m) => ({
-      content: m[1]!,
-      size: Number(m[0].match(/font-size="(\d+)"/)?.[1] ?? 0),
-      weight: Number(m[0].match(/font-weight="(\d+)"/)?.[1] ?? 400),
-      fill: m[0].match(/fill="([^"]+)"/)?.[1],
-      bold: m[0].includes('font-weight="700"'),
-    }));
-
   it("renders the label in quotation marks, as a given name", () => {
     // Quotes say "your word, not ours" in a way no font size can.
-    expect(alertCardSvg(card({ label: "Simulation target" }))).toContain(
-      '"Simulation target" · Aave V3 · Base',
-    );
+    const lines = identityLines(alertCardSvg(card({ label: "Simulation target" })));
+    expect(lines[0]!.content).toBe('"Simulation target"');
   });
 
   it("is bright but not big: primary ink, medium weight, the address's size", () => {
     const runs = textRuns(alertCardSvg(card({ label: "Simulation target" })));
-    const identity = runs.find((r) => r.content.includes("Simulation target"))!;
+    const name = runs.find((r) => r.content.includes("Simulation target"))!;
     const headline = runs.find((r) => r.content === "Nearing your risk limit")!;
     const address = runs.find((r) => r.content.includes("0x12a5"))!;
 
-    expect(identity.fill).toBe("#F8FAFC");
+    expect(name.fill).toBe("#F8FAFC");
     // 500 is a face that is actually loaded (PlusJakartaSans-Medium), so the
     // markup is not claiming a weight the image does not have.
-    expect(identity.weight).toBe(500);
-    expect(identity.bold).toBe(false);
+    expect(name.weight).toBe(500);
+    expect(name.bold).toBe(false);
     // The SIZE is what holds the hierarchy, so it does not move.
-    expect(identity.size).toBe(22);
-    expect(identity.size).toBe(address.size);
+    expect(name.size).toBe(22);
+    expect(name.size).toBe(address.size);
     expect(headline.size).toBe(34);
-    expect(identity.size).toBeLessThan(headline.size);
+    expect(name.size).toBeLessThan(headline.size);
     // ...and the address stays the quieter of the two.
     expect(address.fill).toBe("#94A3B8");
   });
@@ -214,13 +230,57 @@ describe("the wallet label has no title billing", () => {
     expect(large.sort()).toEqual(["15", "Nearing your risk limit"]);
   });
 
-  it("drops to protocol and chain when the wallet was never named", () => {
-    const svg = alertCardSvg(card({ label: null }));
-    const identity = textRuns(svg).find((r) => r.content.includes("Aave V3"))!;
-    // No empty quotes standing in for the name nobody gave it.
-    expect(identity.content).toBe("Aave V3 · Base");
-    expect(svg).toContain("0x12a5...2305");
-    expect(svg).not.toContain("Simulation target");
+  /**
+   * Three stacked lines, and the order is the argument: what the reader CALLS
+   * it, what it IS, and then - after a wider gap, because it is a different
+   * kind of fact - the address that identifies it.
+   */
+  describe("the identity stack", () => {
+    it("stacks name, then platform, then address", () => {
+      const [name, platform] = identityLines(alertCardSvg(card()));
+      const address = textRuns(alertCardSvg(card())).find((r) => r.content.includes("0x12a5"))!;
+
+      expect(name!.content).toBe('"Simulation target"');
+      expect(platform!.content).toBe("Aave V3 - Base");
+      expect(name!.y).toBeLessThan(platform!.y);
+      expect(platform!.y).toBeLessThan(address.y);
+      // The address is set apart, not merely next: its gap is the wider one.
+      expect(address.y - platform!.y).toBeGreaterThan(platform!.y - name!.y);
+    });
+
+    it("separates platform from chain with a hyphen, not a middot", () => {
+      const [, platform] = identityLines(alertCardSvg(card({ protocol: "compound_v3" })));
+      expect(platform!.content).toBe("Compound V3 - Base");
+      expect(alertCardSvg(card())).not.toContain("·");
+    });
+
+    it("drops the name line entirely when the wallet was never named", () => {
+      for (const label of [null, undefined, "   "]) {
+        const lines = identityLines(alertCardSvg(card({ label })));
+        // No empty quotes standing in for the name nobody gave it.
+        expect(lines).toHaveLength(1);
+        expect(lines[0]!.content).toBe("Aave V3 - Base");
+      }
+    });
+
+    it("centres BOTH variants, so neither reads as a layout accident", () => {
+      const spread = (svg: string) => {
+        const runs = textRuns(svg);
+        const headline = runs.find((r) => r.size === 34)!;
+        const address = runs.find((r) => r.content.includes("0x12a5"))!;
+        const stackTop = identityLines(svg)[0]!.y;
+        // Room above the stack (from the headline) vs below it (to the card
+        // edge). Neither variant may hang off the top of an empty half-card.
+        return { above: stackTop - headline.y, below: 360 - address.y };
+      };
+
+      for (const label of ["Simulation target", null]) {
+        const { above, below } = spread(alertCardSvg(card({ label })));
+        expect(above).toBeGreaterThan(30);
+        expect(below).toBeGreaterThan(30);
+        expect(Math.abs(above - below)).toBeLessThan(30);
+      }
+    });
   });
 
   /**
@@ -229,21 +289,19 @@ describe("the wallet label has no title billing", () => {
    * built the scoring runtime rather than assumed.
    */
   describe("the chain segment", () => {
-    it("names the chain the worker actually scored", () => {
-      const identity = (chainLabel: string | null) =>
-        textRuns(alertCardSvg(card({ chainLabel }))).find((r) => r.content.includes("Aave V3"))!
-          .content;
+    const platformOf = (chainLabel: string | null | undefined) =>
+      identityLines(alertCardSvg(card({ chainLabel })))[1]!.content;
 
-      expect(identity("Base")).toBe('"Simulation target" · Aave V3 · Base');
+    it("names the chain the worker actually scored", () => {
+      expect(platformOf("Base")).toBe("Aave V3 - Base");
       // The testnet worker says so, rather than borrowing mainnet's name.
-      expect(identity("Base Sepolia")).toBe('"Simulation target" · Aave V3 · Base Sepolia');
+      expect(platformOf("Base Sepolia")).toBe("Aave V3 - Base Sepolia");
     });
 
     it("is dropped, not defaulted, when the caller names no chain", () => {
-      for (const chainLabel of [null, undefined, ""]) {
+      for (const chainLabel of [null, undefined, "", "   "]) {
         const svg = alertCardSvg(card({ chainLabel }));
-        const identity = textRuns(svg).find((r) => r.content.includes("Aave V3"))!;
-        expect(identity.content).toBe('"Simulation target" · Aave V3');
+        expect(identityLines(svg)[1]!.content).toBe("Aave V3");
         expect(svg).not.toContain("Base");
       }
     });
@@ -256,6 +314,51 @@ describe("the wallet label has no title billing", () => {
     expect(identityAt).toBeGreaterThan(-1);
     expect(addressAt).toBeGreaterThan(identityAt);
     expect(svg).toMatch(/font-family="JetBrains Mono" font-size="22">0x12a5\.\.\.2305/);
+  });
+
+  /**
+   * THE REASON THIS IS STACKED. A single joined line read well for "Cold
+   * wallet" and broke for a name someone actually typed.
+   */
+  describe("long names are cut, not allowed off the card", () => {
+    const LONG = "My extremely long-term leveraged cbBTC position";
+
+    it("truncates with an ellipsis and stays inside the content width", () => {
+      const [name] = identityLines(alertCardSvg(card({ label: LONG })));
+      expect(name!.content).not.toContain("position");
+      expect(name!.content).toContain("...");
+      expect(estimateTextWidth(name!.content, 22)).toBeLessThanOrEqual(CARD_CONTENT_WIDTH);
+    });
+
+    it("still closes the quote it opened", () => {
+      // Clipping the already-quoted string eats the closing quote and leaves a
+      // dangling one, which reads as a broken card rather than as a name.
+      const [name] = identityLines(alertCardSvg(card({ label: LONG })));
+      expect(name!.content.startsWith('"')).toBe(true);
+      expect(name!.content.endsWith('"')).toBe(true);
+      expect(name!.content).toBe('"My extremely long-term leverage..."');
+    });
+
+    it("holds the line for a 60-character name and a wide all-caps one", () => {
+      for (const label of ["x".repeat(60), "W".repeat(60), "MMMM WWWW MMMM WWWW MMMM"]) {
+        const [name] = identityLines(alertCardSvg(card({ label })));
+        expect(name!.content).toContain("...");
+        expect(estimateTextWidth(name!.content, 22)).toBeLessThanOrEqual(CARD_CONTENT_WIDTH);
+      }
+    });
+
+    it("leaves a name that already fits completely alone", () => {
+      const [name] = identityLines(alertCardSvg(card({ label: "Cold wallet" })));
+      expect(name!.content).toBe('"Cold wallet"');
+      expect(name!.content).not.toContain("...");
+    });
+
+    it("cuts the platform line too, so a long chain name cannot escape either", () => {
+      const [, platform] = identityLines(
+        alertCardSvg(card({ chainLabel: "A Chain With A Preposterously Long Name" })),
+      );
+      expect(estimateTextWidth(platform!.content, 22)).toBeLessThanOrEqual(CARD_CONTENT_WIDTH);
+    });
   });
 });
 
