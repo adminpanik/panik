@@ -47,6 +47,7 @@ import {
 import type { WatchTransition } from "../packages/scoring/src/watch/loop";
 import type { ProfileStatus, Protocol, RiskProfile } from "../packages/scoring/src/types";
 import { renderAlertCard } from "./alertCard";
+import { mintDeepLinkToken } from "./sessionStore";
 import {
   captionLength,
   TELEGRAM_CAPTION_MAX,
@@ -226,8 +227,19 @@ export const OPEN_IN_PANIK_TEXT = "Open PANIK Advisor";
  * button - it would silently stop every alert in the queue from being
  * delivered. A missing button is a worse message; a rejected send is no message
  * at all.
+ *
+ * `sid` is an optional single-use deep-link token (server/sessionStore.ts). It
+ * lets the reader land already recognised, instead of being asked to connect a
+ * wallet by the very message that just told them their position is in trouble.
+ * OPTIONAL IS THE POINT: null produces exactly the URL this function produced
+ * before sessions existed, which is what the alert falls back to when minting
+ * fails.
  */
-export function viewButton(appUrl: string, wallet: string): TelegramUrlButton | null {
+export function viewButton(
+  appUrl: string,
+  wallet: string,
+  sid: string | null = null,
+): TelegramUrlButton | null {
   let base: URL;
   try {
     base = new URL(appUrl);
@@ -237,7 +249,33 @@ export function viewButton(appUrl: string, wallet: string): TelegramUrlButton | 
   if (base.protocol !== "https:" && base.protocol !== "http:") return null;
   base.searchParams.set("view", wallet.trim().toLowerCase());
   base.searchParams.set("tab", "advisor");
+  if (sid) base.searchParams.set("sid", sid);
   return { text: OPEN_IN_PANIK_TEXT, url: base.toString() };
+}
+
+/**
+ * Mint this alert's deep-link token, or null if anything at all goes wrong.
+ *
+ * THE ALERT IS SACRED AND THE TOKEN IS NOT. Everything about this call is
+ * best-effort: an unreachable database, a constraint we did not anticipate, a
+ * transition id the table will not take. All of it lands on the same line —
+ * log, return null, send the button WITHOUT the sid. The reader then gets the
+ * alert and a sign-in prompt, which is the pre-session experience and a
+ * perfectly good one; the alternative is a liquidation warning that never
+ * arrived because a convenience feature had a bad day.
+ *
+ * Bound to `owner_wallet` — the SUBSCRIBER this delivery is for, not the
+ * watched wallet. See server/sessionStore.ts.
+ */
+async function mintViewToken(deps: DispatchDeps, row: PendingDelivery): Promise<string | null> {
+  try {
+    return await mintDeepLinkToken(deps.db, row.owner_wallet, row.id);
+  } catch (err) {
+    deps.log?.error(
+      `deep-link token mint failed for alert ${row.id} -> ${row.owner_wallet}; sending button without sid: ${(err as Error).message.slice(0, 120)}`,
+    );
+    return null;
+  }
 }
 
 /**
@@ -505,8 +543,9 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
 
     // Straight from the message to the position it is about. The button carries
     // the WATCHED wallet, not the subscriber's own - a watchlist alert that
-    // opens the reader's own dashboard has sent them to the wrong wallet.
-    const button = viewButton(appUrl, r.wallet);
+    // opens the reader's own dashboard has sent them to the wrong wallet - and
+    // a single-use token that signs the SUBSCRIBER in read-only on arrival.
+    const button = viewButton(appUrl, r.wallet, await mintViewToken(deps, r));
     const result = await deliver(deps, chatId, text, transition, extras, button);
     if (result.ok) {
       await stamp(deps, r, "telegram", r.notify_attempts + 1);
