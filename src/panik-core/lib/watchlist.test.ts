@@ -11,6 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  canActOnViewedWallet,
   deepLinkTab,
   draftCount,
   draftFromSubscriptions,
@@ -204,6 +205,37 @@ describe("viewableWallets", () => {
  * The `?view=` deep link, which arrives from OUTSIDE the app: it is the tail of
  * the "Open in PANIK" button on a Telegram alert (server/watchDispatch.ts).
  */
+describe("canActOnViewedWallet", () => {
+  it("allows the action when the shown wallet is the connected one", () => {
+    expect(canActOnViewedWallet(A, A)).toBe(true);
+  });
+
+  it("ignores capitalisation, because an EVM address does", () => {
+    expect(canActOnViewedWallet(A.toUpperCase(), A)).toBe(true);
+    expect(canActOnViewedWallet(` ${A} `, A.toUpperCase())).toBe(true);
+  });
+
+  it("withholds the action on a wallet that is merely watched", () => {
+    expect(canActOnViewedWallet(B, A)).toBe(false);
+  });
+
+  it("withholds it when no wallet is connected, however the dashboard got one", () => {
+    // The pasted-address case: the dashboard is showing the user's OWN wallet
+    // and there is still no key that could sign an exit for it.
+    expect(canActOnViewedWallet(A, null)).toBe(false);
+    expect(canActOnViewedWallet(A, undefined)).toBe(false);
+  });
+
+  it("withholds it before a wallet is bound at all", () => {
+    expect(canActOnViewedWallet(null, A)).toBe(false);
+    expect(canActOnViewedWallet(null, null)).toBe(false);
+  });
+
+  it("treats an empty string as no wallet rather than as a match", () => {
+    expect(canActOnViewedWallet("", "")).toBe(false);
+  });
+});
+
 describe("viewParamWallet", () => {
   const list = [sub(B, "moderate", "The whale")];
 

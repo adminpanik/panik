@@ -85,7 +85,7 @@ interface LivePositionsProps {
    * disagree with the Advisor tab the moment the engine sized a REDUCE instead.
    */
   exitActions?: Record<string, { label: string; prefill: ExitPrefill } | undefined>;
-  /** Runs the action above. Absent disables the control rather than hiding it. */
+  /** Runs the action above. Absent means no exit control is offered at all. */
   onExit?: (prefill: ExitPrefill) => void;
   /**
    * `positionKey` of the row an alert just pointed at, or null for none. The row
@@ -104,10 +104,18 @@ export function LivePositions({
   onExit,
   highlightKey,
 }: LivePositionsProps) {
-  // Shared with the Advisor card, so the same control cannot be live on one
-  // surface and dead on the other. Disabled with the reason on hover, not
-  // hidden — a control that vanishes teaches nothing about why.
-  const { enabled: exitEnabled, hint: exitDisabledHint } = exitControlState(onExit, useChainMode());
+  /**
+   * Whether an exit could be signed from here at all.
+   *
+   * The same predicate the Advisor card reads, so the two surfaces cannot
+   * disagree about whether the action is available. What differs is what they
+   * do with the answer, and deliberately: the Advisor is a page of advice, so
+   * an unavailable action stays on screen with its reason on hover. A position
+   * row is a scanning surface, and a row led by a large grey plate that cannot
+   * fire is a dead primary on the money path. Here the control is WITHHELD, and
+   * its presence is the whole statement that pressing it works.
+   */
+  const { enabled: exitEnabled } = exitControlState(onExit, useChainMode());
   const provenance = chainProvenance(chain);
   /**
    * One ref, attached to the highlighted row only. Refs are set during commit,
@@ -223,7 +231,10 @@ export function LivePositions({
              * as an arc and once as a hue on a glyph beside it.
              */
             const actionable = p.profileStatus !== "within";
-            const action = exitActions?.[p.protocol];
+            // Both terms, resolved once: the engine has to have named an action
+            // AND it has to be pressable. A row that satisfies only the first
+            // renders no exit control rather than a dead one.
+            const exitAction = exitEnabled ? exitActions?.[p.protocol] : undefined;
             return (
               <li
                 key={key}
@@ -414,64 +425,71 @@ export function LivePositions({
                     , {status}
                   </p>
 
-                  {/* Line 4 — the way out, on the rows that have one.
+                  {/* Line 4 — what this row lets you DO, as one action bar.
 
-                      Only where the ENGINE named an action for this protocol, so
-                      a row never offers a door the Advisor is not also pointing
-                      at, and the label is the Advisor's ("Execute exit" /
-                      "Reduce position") rather than a second vocabulary for the
-                      same two outcomes.
+                      EVERY row carries the stress test, and it is the only
+                      control here that is always live. It used to be a 26px
+                      icon-only button stacked under the dial on the right rail,
+                      where it was the quietest thing on a row whose loudest
+                      thing was a disabled plate: the one control that worked
+                      looked like a decoration beside the one that did not. It
+                      keeps the eye as its icon for the reason the rail version
+                      had it - this button lands on Watch, and Watch wears the
+                      eye in the nav - but the icon is now labelling a word
+                      rather than standing in for one.
 
-                      The SAME treatment as the Advisor's control - `lg` primary,
-                      14px label on the near-white plate - because it is the same
-                      action opening the same modal with the same prefill. It was
-                      briefly a quieter `outline` here on the theory that the
-                      dashboard should not compete with the Advisor for the one
-                      obvious next step; that traded a real cost for a
-                      hypothetical one. Two visual weights for one action teaches
-                      a user that they are two different things, and the moment
-                      they look different someone has to work out which is the
-                      real one. `Button` accepts no risk band either way, so
-                      matching the Advisor costs nothing from the risk ramp. */}
-                  {action && (
-                    <div className="mt-2">
-                      <Button
-                        size="lg"
-                        onClick={exitEnabled ? () => onExit?.(action.prefill) : undefined}
-                        disabled={!exitEnabled}
-                        title={exitEnabled ? undefined : exitDisabledHint}
-                      >
-                        {action.label}
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
+                      The exit is offered ONLY where it can fire. Three facts
+                      have to hold and none of them is this component's to
+                      decide: the ENGINE named an action for this protocol (so a
+                      row never offers a door the Advisor is not also pointing
+                      at, with the Advisor's own label and prefill rather than a
+                      second vocabulary for the same two outcomes), the caller
+                      passed a handler for a wallet a connected key can sign for,
+                      and the selected chain can settle the transaction. When all
+                      three hold it takes the Advisor's own treatment - `lg`
+                      primary, 14px label on the near-white plate - because it is
+                      the same action opening the same modal with the same
+                      prefill. `Button` accepts no risk band, so being the loudest
+                      control on the row costs nothing from the risk ramp.
+
+                      When they do not hold there is no button, not a greyed one.
+                      A disabled primary is the largest element on the row
+                      asserting an action the product cannot perform, and the
+                      hover that explained why was reachable by neither a phone
+                      nor a keyboard. */}
+                  {(exitAction || onStressTest) && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {exitAction && (
+                        <Button size="lg" onClick={() => onExit?.(exitAction.prefill)}>
+                          {exitAction.label}
+                          <ArrowRight className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {onStressTest && (
+                        <Button
+                          variant="outline"
+                          size="lg"
+                          onClick={() => onStressTest(p)}
+                          aria-label={`Stress-test the ${PROTOCOL_LABEL[p.protocol]} position in Watch`}
+                        >
+                          <Eye className="h-4 w-4" />
+                          Stress test
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
 
-                {/* Right rail — the score and the one thing you can do about
-                    it, grouped because "this is 75" and "simulate 75 under a
-                    price move" are one thought.
+                {/* Right rail — the score, and nothing else. It is as wide as
+                    the dial (44px), which is why the control that used to sit
+                    under it had to be icon-only; that control is now a labelled
+                    button in the row's action bar.
 
-                    Icon-only, because the rail is as wide as the dial (44px) and
-                    a 110px labelled button would take a quarter of a 390px row
-                    from the figures. It keeps its name for everyone who is not a
-                    sighted mouse user: `title` plus `aria-label`. */}
-                <div className="flex shrink-0 flex-col items-center gap-2">
+                    `shrink-0` is on the wrapper rather than left to the dial:
+                    the dial carries its own, but it arrives wrapped in
+                    `InfoTip`, whose anchor does not. */}
+                <div className="shrink-0">
                   <RiskDial score={p.total} band={p.band} subScores={p.subScores} />
-                  {onStressTest && (
-                    <Button
-                      variant="quiet"
-                      onClick={() => onStressTest(p)}
-                      title="Stress-test this position in Watch"
-                      aria-label={`Stress-test the ${PROTOCOL_LABEL[p.protocol]} position in Watch`}
-                      className="px-1.5 py-1"
-                    >
-                      {/* Eye, not sliders: this button lands on Watch, and Watch
-                          wears the eye in the nav. The icon should name where it
-                          goes, not what it does to the numbers once it arrives. */}
-                      <Eye className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
                 </div>
               </li>
             );

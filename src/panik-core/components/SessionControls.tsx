@@ -250,7 +250,10 @@ export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: Sess
     <Card tone="raised" className="space-y-3">
       <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
         <KeyRound className="w-4 h-4 text-text-primary" />
-        <h3 className="text-2xs font-sans text-text-primary font-bold">Staying signed in</h3>
+        {/* The card-heading treatment the rest of the product uses. Settings
+            was running its own at `text-2xs`, one step under everything else's
+            row content. */}
+        <h3 className="text-sm font-sans font-semibold text-text-primary">Staying signed in</h3>
       </div>
 
       {body}

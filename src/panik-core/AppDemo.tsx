@@ -166,6 +166,7 @@ import {
   type ProfileResult,
 } from "./lib/profiling";
 import {
+  canActOnViewedWallet,
   deepLinkTab,
   subscriptionFor,
   useWatchlist,
@@ -1066,6 +1067,49 @@ function ScoreBreakdownSection({ valueOf }: { valueOf: (driver: RiskDriver) => n
 }
 
 /**
+ * The app's ONE slide-in: a dimmed backdrop over the content column, and a
+ * 500px panel hung from its right edge.
+ *
+ * Two surfaces use it (the risk breakdown and Wallets) and until now each wrote
+ * the shell out by hand: the same nine utilities on the backdrop, the same
+ * eleven on the panel, the same spring, twice. They happened to agree, which is
+ * the state a duplicated contract is in right up until an edit lands on one
+ * copy. An overlay that dims on one surface and not on the other teaches a
+ * reader that the two are different kinds of thing, when they are the same
+ * thing showing different content, and nothing about either copy would have
+ * failed to make that visible.
+ *
+ * `absolute`, not `fixed`, and deliberately: it covers the CONTENT COLUMN
+ * only, so the sidebar stays lit and reachable and the reader can leave by
+ * pressing a tab rather than by finding the close control.
+ *
+ * The panel's own dismissal contract (focus on open, Escape to close) belongs
+ * to the component inside it, which is the thing that knows what closing means.
+ */
+function Sheet({ onDismiss, children }: { onDismiss: () => void; children: React.ReactNode }) {
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 0.5 }}
+        exit={{ opacity: 0 }}
+        onClick={onDismiss}
+        className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+      />
+      <motion.div
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{ type: "spring", damping: 26, stiffness: 220 }}
+        className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
+      >
+        {children}
+      </motion.div>
+    </>
+  );
+}
+
+/**
  * The risk-breakdown panel's header, body and footer.
  *
  * Its own component because the panel is a self-contained reading surface with
@@ -1652,6 +1696,18 @@ export function AppDemo() {
     viewedWallet !== null &&
     onboardedWallet !== null &&
     viewedWallet.toLowerCase() !== onboardedWallet.toLowerCase();
+
+  /**
+   * The stricter half of the same question, and the one an EXIT has to pass.
+   *
+   * `viewingWatchOnly` compares the shown wallet against the bound one, which
+   * catches somebody else's dashboard and misses the commoner case: a wallet
+   * pasted at onboarding is the "own" wallet and still has no signer behind it.
+   * An exit is signed by the connected key, so the rule is the identity the
+   * `useAccount` binding above already states in prose. See
+   * `canActOnViewedWallet`.
+   */
+  const canActOnViewed = canActOnViewedWallet(viewedWallet, connectedWallet);
 
   /**
    * The alert level the bound wallet is actually SUBSCRIBED at, or null when we
@@ -4302,14 +4358,15 @@ export function AppDemo() {
                       highlightKey={highlightedPositionKey}
                       offline={portfolioFeedDown}
                       chain={ownLive.chain}
-                      /* No exit control at all on a wallet the user does not
-                         own, rather than a disabled one: `exitControlState`'s
-                         two "why not" sentences are about the chain and about
-                         the flow being wired in, and neither is the reason
-                         here. A row with no action is the honest shape when the
-                         action was never available to offer. */
-                      exitActions={viewingWatchOnly ? undefined : portfolioExitActions}
-                      onExit={viewingWatchOnly ? undefined : (prefill) => setExitPrefill(prefill)}
+                      /* No exit control at all unless a connected key could
+                         sign one for the wallet on screen, rather than a
+                         disabled one: `exitControlState`'s two "why not"
+                         sentences are about the chain and about the flow being
+                         wired in, and neither is the reason here. A row with no
+                         action is the honest shape when the action was never
+                         available to offer. */
+                      exitActions={canActOnViewed ? portfolioExitActions : undefined}
+                      onExit={canActOnViewed ? (prefill) => setExitPrefill(prefill) : undefined}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
                         setSelectedLivePositionKey(`${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`);
@@ -4608,13 +4665,37 @@ export function AppDemo() {
             {/* VIEW E: SETTINGS TAB (Sentry preferences + Telegram alert dispatcher) */}
             {activeTab === "settings" && (
               <TabPanel key="settings" tab="settings">
-                <div className="border-b border-border-subtle pb-3">
-                  <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide">Settings</h2>
-                </div>
+                {/* ONE settled column, centred, and no sidebar.
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Main settings column */}
-                  <div className="lg:col-span-8 space-y-6">
+                    This was a 12-column split whose right track held a single
+                    three-line privacy note. Measured at a 1440 window: the panel
+                    is 1114px, the sidebar track took 355px of it (32%) and ran
+                    853px tall to match its neighbour, so roughly 790px of the
+                    tab was permanently empty page with a hairline down the
+                    middle of it. The note belonged to the Telegram card anyway,
+                    and now sits under it.
+
+                    Settings is a stack of forms rather than a dashboard, and a
+                    form has a measure: `max-w-3xl` is 768px, within 33px of the
+                    735px these cards already rendered at, so the cards are the
+                    width they were and the slack is split evenly instead of
+                    dumped on one side. `TabPanel`'s own 1600px cap still applies
+                    above it.
+
+                    The page header is INSIDE the column rather than above it,
+                    so the heading, the rule under it and every card share one
+                    left edge. A full-width rule over an inset stack reads as
+                    two different pages joined at the top. */}
+                <div className="mx-auto w-full max-w-3xl space-y-6">
+                    {/* The other four tabs' page header, exactly: an `h1` at
+                        `text-2xl` over a hairline with `pb-5`. This tab was
+                        running its own smaller one (`h2`, `text-lg`,
+                        `tracking-wide`, `pb-3`), so moving between tabs restated
+                        the heading at two sizes with no rule saying which was
+                        which. */}
+                    <div className="border-b border-border-subtle pb-5">
+                      <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Settings</h1>
+                    </div>
 
                     {/* First, because it decides what the cards under it are
                         even about: which chain the positions, scores and exits
@@ -4648,10 +4729,10 @@ export function AppDemo() {
                         the control at all: the banner above already says why,
                         and the Settings card above it says how to fix it. */}
                     {!readOnlySession && (
-                      <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                      <Card tone="raised" className="space-y-3">
                         <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
                           <Bell className="w-4 h-4 text-text-primary" />
-                          <h3 className="flex items-center gap-1.5 text-2xs font-sans text-text-primary font-bold">
+                          <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
                             Telegram alerts
                             <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
                           </h3>
@@ -4722,6 +4803,24 @@ export function AppDemo() {
                         {telegramLink.status === "error" && telegramLink.error && (
                           <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
                         )}
+                      </Card>
+                    )}
+
+                    {/* Travels with the card it belongs to, and now sits under
+                        it rather than in a sidebar track beside it. It is a
+                        data-handling commitment about the Telegram link and the
+                        only place /stop is documented, so it is never deleted -
+                        but with that card withheld under a read-only session it
+                        would be a promise about a feature this screen is not
+                        offering, floating on its own.
+
+                        Deliberately NOT the `Card` primitive the cards above it
+                        are. It is a footnote to the card it follows, and giving
+                        it the same plate and the same padding would make it read
+                        as a fifth setting. */}
+                    {!readOnlySession && (
+                      <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
+                        We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
                       </div>
                     )}
 
@@ -4734,11 +4833,11 @@ export function AppDemo() {
                         Hidden per business-dev QA (2026-07-03) until the
                         Deleverager ships - flip SHOW_AUTO_REPAY_CARD to restore. */}
                     {SHOW_AUTO_REPAY_CARD && (
-                    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                    <Card tone="raised" className="space-y-3">
                       <div className="flex justify-between items-center border-b border-border-subtle pb-2.5">
                         <div className="flex items-center gap-2">
                           <Sliders className="w-4 h-4 text-text-primary" />
-                          <h3 className="text-2xs font-sans text-text-primary font-bold">
+                          <h3 className="text-sm font-sans font-semibold text-text-primary">
                             Emergency auto repayment
                           </h3>
                         </div>
@@ -4770,30 +4869,8 @@ export function AppDemo() {
                           className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         />
                       </div>
-                    </div>
+                    </Card>
                     )}
-                  </div>
-
-                  {/* Integration sidebar. The four-step "How to connect alerts"
-                      list that used to sit above the privacy note is gone: step
-                      1 described what pressing the Connect button already does,
-                      step 2 is the instruction Telegram itself shows, step 3
-                      restated the paragraph beside it, and step 4 restated the
-                      note below. The privacy note stays — it is a data-handling
-                      commitment and the only place /stop is documented. */}
-                  <div className="lg:col-span-4 space-y-4">
-                    {/* Travels with the card it belongs to. It is a
-                        data-handling commitment about the Telegram link and the
-                        only place /stop is documented, so it is never deleted -
-                        but with that card withheld under a read-only session it
-                        would be a promise about a feature this screen is not
-                        offering, floating on its own. */}
-                    {!readOnlySession && (
-                      <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
-                        We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
-                      </div>
-                    )}
-                  </div>
                 </div>
               </TabPanel>
             )}
@@ -4804,85 +4881,51 @@ export function AppDemo() {
         {/* 3. SLIDE-OUT PANEL FOR DETAILED RISK BREAKDOWN (Linear/Stripe style) */}
         <AnimatePresence>
           {selectedRiskBreakdownPreset && breakdownData && (
-            <>
-              {/* Overlay backdrop */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.5 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setSelectedRiskBreakdownPreset(null)}
-                className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+            <Sheet onDismiss={() => setSelectedRiskBreakdownPreset(null)}>
+              <RiskBreakdownPanel
+                preset={selectedRiskBreakdownPreset}
+                data={breakdownData}
+                opensDemo={!opensReal(selectedRiskBreakdownPreset)}
+                onClose={() => setSelectedRiskBreakdownPreset(null)}
+                onSimulate={() => {
+                  setSelectedPresetId(selectedRiskBreakdownPreset.id);
+                  setWatchSource("recommendations");
+                  setActiveTab("watch");
+                  setSelectedRiskBreakdownPreset(null);
+                }}
+                onOpen={() => requestOpenPosition(selectedRiskBreakdownPreset)}
               />
-              
-              {/* Slide-out side panel */}
-              <motion.div
-                initial={{ x: "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "100%" }}
-                transition={{ type: "spring", damping: 26, stiffness: 220 }}
-                className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
-              >
-                <RiskBreakdownPanel
-                  preset={selectedRiskBreakdownPreset}
-                  data={breakdownData}
-                  opensDemo={!opensReal(selectedRiskBreakdownPreset)}
-                  onClose={() => setSelectedRiskBreakdownPreset(null)}
-                  onSimulate={() => {
-                    setSelectedPresetId(selectedRiskBreakdownPreset.id);
-                    setWatchSource("recommendations");
-                    setActiveTab("watch");
-                    setSelectedRiskBreakdownPreset(null);
-                  }}
-                  onOpen={() => requestOpenPosition(selectedRiskBreakdownPreset)}
-                />
-              </motion.div>
-            </>
+            </Sheet>
           )}
         </AnimatePresence>
 
         {/* 4. SLIDE-OUT PANEL FOR THE WATCHLIST.
 
-            The risk breakdown's shape, deliberately: both are a reading-and-
-            editing surface opened over the page you were on, and the app should
-            not have two ways of covering itself. It lives inside the content
-            column for the same reason that one does, so the sidebar stays
-            reachable and the nav never disappears behind a modal.
+            Literally the risk breakdown's shell, not a matching copy of it:
+            both are a reading-and-editing surface opened over the page you were
+            on, and the app should not have two ways of covering itself. See
+            `Sheet`.
 
             Gated on a bound wallet: the list belongs to an owner, and there is
             no owner before onboarding. */}
         <AnimatePresence>
           {walletsPanelOpen && onboardedWallet && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.5 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setWalletsPanelOpen(false)}
-                className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+            <Sheet onDismiss={() => setWalletsPanelOpen(false)}>
+              <WalletsPanel
+                owner={onboardedWallet}
+                state={watchlist}
+                getProof={getProof}
+                /* The user's own answer from onboarding, as the default for a
+                   wallet they have not thought about a level for yet. */
+                defaultProfile={selectedRiskProfile}
+                viewedWallet={viewedWallet}
+                /* A read-only reader may see the list the alerts come from,
+                   and may not change it: every edit here ends in one
+                   `watchlist-manage` signature they cannot produce. */
+                readOnly={readOnlySession}
+                onClose={() => setWalletsPanelOpen(false)}
               />
-              <motion.div
-                initial={{ x: "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "100%" }}
-                transition={{ type: "spring", damping: 26, stiffness: 220 }}
-                className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
-              >
-                <WalletsPanel
-                  owner={onboardedWallet}
-                  state={watchlist}
-                  getProof={getProof}
-                  /* The user's own answer from onboarding, as the default for a
-                     wallet they have not thought about a level for yet. */
-                  defaultProfile={selectedRiskProfile}
-                  viewedWallet={viewedWallet}
-                  /* A read-only reader may see the list the alerts come from,
-                     and may not change it: every edit here ends in one
-                     `watchlist-manage` signature they cannot produce. */
-                  readOnly={readOnlySession}
-                  onClose={() => setWalletsPanelOpen(false)}
-                />
-              </motion.div>
-            </>
+            </Sheet>
           )}
         </AnimatePresence>
 

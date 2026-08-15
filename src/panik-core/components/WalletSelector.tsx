@@ -39,12 +39,25 @@ export interface WalletSelectorProps {
 }
 
 /**
- * The panel's width, and it is `w-72` on the `<ul>` below written as a number.
+ * The panel's width, and it is `w-80` on the `<ul>` below written as a number.
  * THE TWO TRAVEL TOGETHER: this is what decides which edge the panel hangs
  * from, and it is read before the panel exists, so it cannot be measured off
  * the element. Change one and change the other in the same edit.
+ *
+ * 320, up from 288, and the 32px buys one thing: the SELECTED row's own name.
+ * That row is the widest in the list because it is the only one wearing
+ * `Chip`, and at 288 the name track measured 69px against a 95px label, so the
+ * panel opened with "Mock dev wal…" directly under a trigger showing "Mock dev
+ * wallet" in full. A list whose job is to say which wallet you are on cannot
+ * be the one place that ellipsises it. At 320 the same track measures 103px, so
+ * the label fits; a genuinely long name still truncates, which is the correct
+ * behaviour and not this bug.
+ *
+ * It does not go wider than that. At a 390px viewport the panel hangs from the
+ * content column's 16px margin, so 320 ends at 336 and 384 (`w-96`) would end
+ * 10px past the window.
  */
-const PANEL_W = 288;
+const PANEL_W = 320;
 
 export function WalletSelector({ options, value, onChange }: WalletSelectorProps) {
   const baseId = useId();
@@ -259,13 +272,13 @@ export function WalletSelector({ options, value, onChange }: WalletSelectorProps
             // focusable, so without this the browser drops focus on the body
             // and the reader's next Tab starts from the top of the document.
             onMouseDown={(e) => e.preventDefault()}
-            /* `w-72` is `PANEL_W`, and the two travel together: at a 390px
+            /* `w-80` is `PANEL_W`, and the two travel together: at a 390px
                viewport the trigger sits at the content column's left margin
-               and the panel ends at 304px, so it cannot push the page wide.
+               and the panel ends at 336px, so it cannot push the page wide.
                `overlay` is the token for a popover; `border-subtle` because
                this edge is decoration around content, not the boundary of a
                control. */
-            className={`absolute top-full z-50 mt-2 max-h-72 w-72 overflow-y-auto rounded-md border border-border-subtle bg-surface-overlay py-1 shadow-2xl ${alignRight ? "right-0" : "left-0"}`}
+            className={`absolute top-full z-50 mt-2 max-h-72 w-80 overflow-y-auto rounded-md border border-border-subtle bg-surface-overlay py-1 shadow-2xl ${alignRight ? "right-0" : "left-0"}`}
           >
             {options.map((o, i) => {
               const isSelected = i === selectedIndex;
