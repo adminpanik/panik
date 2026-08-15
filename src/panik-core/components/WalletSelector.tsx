@@ -29,7 +29,7 @@
  */
 
 import React from "react";
-import { Check, ChevronDown, Eye } from "lucide-react";
+import { Check, Eye } from "lucide-react";
 import { truncateAddress } from "../lib/utils";
 import type { WalletChoice } from "../lib/watchlist";
 import { Chip, Listbox } from "../ui";
@@ -80,15 +80,7 @@ export function WalletSelector({ options, value, onChange }: WalletSelectorProps
            panel is a container rather than a control and takes the decorative
            edge. */
         triggerClassName="flex h-9 max-w-full cursor-pointer items-center gap-2 rounded-md border border-border-strong bg-surface-raised px-3 font-sans text-xs transition-colors hover:bg-surface-overlay"
-        renderTrigger={(open) => (
-          <>
-            <WalletName wallet={selected.wallet} label={selected.label} />
-            <ChevronDown
-              aria-hidden="true"
-              className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`}
-            />
-          </>
-        )}
+        trigger={<WalletName wallet={selected.wallet} label={selected.label} />}
         /* The row's three facts as one string, because a screen reader gets the
            chip and the eye as nothing otherwise: the chip is decoration to it
            and the glyph is `aria-hidden`. */

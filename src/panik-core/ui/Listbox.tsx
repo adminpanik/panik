@@ -13,35 +13,33 @@
  * all. It also carried its own copy of the outside-click effect, which is the
  * state a duplicated contract is in right up until one copy gets a fix.
  *
- * WHAT THE MECHANISM IS, all of which the consumers get for free:
- *   - focus never leaves the trigger. `aria-activedescendant` points at the row
- *     the arrows are on, so a screen reader is told the row while the visible
- *     focus ring stays on the control the reader is standing on. Moving focus
- *     into the panel instead would draw the global `:focus-visible` ring around
- *     a 320px floating box after a MOUSE click, announcing something the reader
- *     already knows.
- *   - the active row is NOT the selection. Arrowing through a list must not
- *     change what the page shows on every press: on Watch each step would
- *     reseed the simulator, so a reader passing two markets to reach a third
- *     would watch the panel rebuild twice on the way. Enter (or Space) commits.
- *   - arrows, Home and End, each pinned into view with `scrollIntoView`, since
- *     a highlight moved out of frame has moved somewhere the reader cannot see.
- *   - Escape closes; Tab closes WITHOUT preventDefault, so the reader leaves
- *     forwards rather than being trapped or dropped at the top of the document;
- *     a mousedown anywhere outside closes.
- *   - the panel's edge is MEASURED on open, not guessed at in a breakpoint. Both
- *     triggers sit after a heading, so their left edge moves with the text above
- *     them: on a phone a left-hung panel is the only one that fits, and once the
- *     sidebar appears the same panel would run past the window.
+ * The keyboard contract it implements is listed in docs/DESIGN_SYSTEM.md. Two
+ * pieces of it are decisions rather than the spec, and they are the two a future
+ * edit is likeliest to undo:
+ *
+ * FOCUS NEVER LEAVES THE TRIGGER. `aria-activedescendant` points at the row the
+ * arrows are on, so a screen reader is told the row while the visible focus ring
+ * stays on the control the reader is standing on. Moving focus into the panel
+ * instead would draw the global `:focus-visible` ring around a 320px floating
+ * box after a MOUSE click, announcing something the reader already knows. It
+ * also makes the active row NOT the selection: arrowing must not reseed the
+ * simulator on every press, so Enter (or Space) commits.
+ *
+ * THE PANEL'S EDGE IS MEASURED on open, not guessed at in a breakpoint. Both
+ * triggers sit after a heading, so their left edge moves with the text above
+ * them: on a phone a left-hung panel is the only one that fits, and once the
+ * sidebar appears the same panel would run past the window.
  *
  * WHAT THE CONSUMER OWNS: the trigger's content and skin, and each row's content
  * and skin. Those genuinely differ (one lists wallets with a check, the other
  * markets with a band chip), and pretending otherwise would mean one of them
- * rendering a row it did not want. Everything else, including the panel's own
- * box, is decided here so the two lists cannot drift apart again.
+ * rendering a row it did not want. Everything else - the panel's own box, and
+ * the chevron that says which way it opens - is decided here so the two lists
+ * cannot drift apart again.
  */
 
 import React, { useEffect, useId, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { LAYER } from "./overlay";
 
 /**
@@ -79,7 +77,13 @@ export interface ListboxProps {
   /** The current value's row, and where the arrow keys start on open. */
   selectedIndex: number;
   onCommit: (index: number) => void;
-  renderTrigger: (open: boolean) => React.ReactNode;
+  /**
+   * What the trigger SAYS: the current value, in the consumer's own words. The
+   * chevron is not part of it, because "there is a list behind this" is the
+   * control's fact rather than the value's, and the two consumers had already
+   * drawn it at two sizes.
+   */
+  trigger: React.ReactNode;
   triggerClassName: string;
   renderOption: (index: number, state: ListboxOptionState) => React.ReactNode;
   optionClassName: (state: ListboxOptionState) => string;
@@ -98,7 +102,7 @@ export function Listbox({
   count,
   selectedIndex,
   onCommit,
-  renderTrigger,
+  trigger,
   triggerClassName,
   renderOption,
   optionClassName,
@@ -221,10 +225,9 @@ export function Listbox({
         setOpen(false);
         break;
       case "Tab":
-        // No preventDefault: see the header.
+        // No preventDefault: the reader leaves forwards rather than being
+        // trapped or dropped at the top of the document.
         setOpen(false);
-        break;
-      default:
         break;
     }
   };
@@ -247,7 +250,17 @@ export function Listbox({
         aria-labelledby={`${labelId} ${triggerId}`}
         className={triggerClassName}
       >
-        {renderTrigger(open)}
+        {trigger}
+        {/* The one mark that says this control has a list behind it, and it
+            points where the list will appear. `aria-hidden`: `role="combobox"`
+            and `aria-expanded` are what state this to a screen reader, and a
+            glyph repeating it would be read as a second thing. */}
+        <ChevronDown
+          aria-hidden="true"
+          className={`h-4 w-4 shrink-0 text-text-muted transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
       </button>
 
       {open && (
@@ -260,9 +273,8 @@ export function Listbox({
           // focusable, so without this the browser drops focus on the body and
           // the reader's next Tab starts from the top of the document.
           onMouseDown={(e) => e.preventDefault()}
-          /* `w-80` is `PANEL_W`, and the two travel together. `overlay` is the
-             token for a popover; `border-subtle` because this edge is decoration
-             around content, not the boundary of a control. */
+          /* `overlay` is the token for a popover; `border-subtle` because this
+             edge is decoration around content, not the boundary of a control. */
           className={`absolute top-full ${LAYER.popover} mt-2 max-h-72 w-80 overflow-y-auto rounded-md border border-border-subtle bg-surface-overlay py-1 shadow-2xl ${
             alignRight ? "right-0" : "left-0"
           }`}
@@ -277,13 +289,9 @@ export function Listbox({
                 aria-selected={state.selected}
                 aria-label={optionLabel?.(i)}
                 onClick={() => commit(i)}
-                /* Two highlights, one look, and they are not the same thing.
-                   The pointer's is `hover:` and stays in CSS: it follows the
-                   mouse and nothing in React needs to know where that is.
-                   `active` is the KEYBOARD's row, which is also what
-                   `aria-activedescendant` points at, so letting the mouse write
-                   it would have a stray pointer move silently redirect what
-                   Enter commits. */
+                /* The pointer's highlight stays in CSS (`hover:`). Letting the
+                   mouse write `active` would have a stray pointer move silently
+                   redirect what Enter commits. */
                 className={optionClassName(state)}
               >
                 {renderOption(i, state)}

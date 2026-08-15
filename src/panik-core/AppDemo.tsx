@@ -26,7 +26,6 @@ import {
   CheckCircle,
   FileText,
   X,
-  ChevronDown,
   Plus,
   WalletCards,
 } from "lucide-react";
@@ -3449,17 +3448,11 @@ export function AppDemo() {
                           selectedIndex={marketSelectedIndex}
                           onCommit={(i) => marketChoices[i].commit()}
                           triggerClassName="group flex items-center gap-2 cursor-pointer"
-                          renderTrigger={(open) => (
-                            <>
-                              <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide group-hover:text-text-muted transition-colors">
-                                {activeMarket.protocol} · {activeMarket.assetPair}
-                              </h2>
-                              <ChevronDown
-                                aria-hidden="true"
-                                className={`w-4 h-4 text-text-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-                              />
-                            </>
-                          )}
+                          trigger={
+                            <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide group-hover:text-text-muted transition-colors">
+                              {activeMarket.protocol} · {activeMarket.assetPair}
+                            </h2>
+                          }
                           /* The selected row keeps its left rail, which is the
                              marker this list has always used for "this is the
                              one you are on". The keyboard's row takes the same
