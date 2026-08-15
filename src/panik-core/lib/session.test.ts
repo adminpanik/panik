@@ -175,7 +175,7 @@ describe("exchangeAlertLink", () => {
   it("posts the token and returns the read-only session", async () => {
     const calls = mockFetch([{ body: READONLY }]);
     const result = await exchangeAlertLink("tok_123");
-    expect(result).toEqual({ ok: true, session: READONLY, error: null });
+    expect(result).toEqual({ session: READONLY, error: null });
     expect(calls[0]).toMatchObject({
       url: "/api/session/exchange",
       method: "POST",
@@ -188,22 +188,22 @@ describe("exchangeAlertLink", () => {
       { ok: false, status: 401, body: { error: "alert link is no longer valid — open PANIK from a fresh alert" } },
     ]);
     const result = await exchangeAlertLink("tok_123");
-    expect(result.ok).toBe(false);
+    expect(result.session).toBeNull();
     expect(result.error).toBe("Alert link is no longer valid, open PANIK from a fresh alert.");
   });
 
   it("does not claim the link was stale when the request never landed", async () => {
     mockFetch([{ throws: true }]);
     const result = await exchangeAlertLink("tok_123");
-    expect(result.ok).toBe(false);
+    expect(result.session).toBeNull();
     expect(result.error).toContain("could not be reached");
   });
 
-  it("reports acceptance even when the body was not a session", async () => {
+  it("reports neither a session nor an error when the body was not a session", async () => {
     // The cookie is set by then, so the boot must fall through to the read
     // rather than treat this as a failure.
     mockFetch([{ body: { ok: true } }]);
-    expect(await exchangeAlertLink("tok_123")).toEqual({ ok: true, session: null, error: null });
+    expect(await exchangeAlertLink("tok_123")).toEqual({ session: null, error: null });
   });
 });
 

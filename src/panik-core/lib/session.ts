@@ -29,13 +29,17 @@
  * revocation.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { noWalletAvailable, OwnershipError, rejectedSignature, type GetProof } from "./telegram";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  isEvmAddress,
+  noWalletAvailable,
+  OwnershipError,
+  rejectedSignature,
+  type GetProof,
+} from "./telegram";
 
 /** How the server knows who this browser is. Never a write permission. */
 export type SessionScope = "full" | "readonly";
-
-const SCOPES: readonly SessionScope[] = ["full", "readonly"];
 
 /** What GET /api/session answers when it can vouch for the caller. */
 export interface Session {
@@ -89,22 +93,17 @@ export function searchWithoutSid(search: string): string {
 // ── talking to the API ──────────────────────────────────────────────────────
 
 /**
- * A session out of a response body, or null.
- *
- * Every field is checked because every field is rendered: the scope decides
- * which controls a reader is offered and the wallet decides whose money is on
- * screen, so a malformed body has to read as "not signed in" rather than as a
- * session with an `undefined` wallet in it.
+ * A session out of a response body, or null when any field is missing or wrong.
+ * Every field is rendered, so a half-believed body would put an undefined
+ * wallet or an invented expiry on screen.
  */
 function asSession(body: unknown): Session | null {
   const wire = body as { wallet?: unknown; scope?: unknown; expiresAt?: unknown } | null;
-  const wallet = typeof wire?.wallet === "string" ? wire.wallet.trim().toLowerCase() : "";
-  const scope = wire?.scope;
-  const expiresAt = wire?.expiresAt;
-  if (!/^0x[0-9a-f]{40}$/.test(wallet)) return null;
-  if (typeof scope !== "string" || !SCOPES.includes(scope as SessionScope)) return null;
+  const { wallet, scope, expiresAt } = wire ?? {};
+  if (typeof wallet !== "string" || !isEvmAddress(wallet)) return null;
+  if (scope !== "full" && scope !== "readonly") return null;
   if (typeof expiresAt !== "string" || expiresAt.length === 0) return null;
-  return { wallet, scope: scope as SessionScope, expiresAt };
+  return { wallet: wallet.trim().toLowerCase(), scope, expiresAt };
 }
 
 /**
@@ -131,13 +130,9 @@ export function readableServerError(raw: unknown, fallback: string): string {
 
 /**
  * Who does the server say this browser is? Null for every answer that is not a
- * live session.
- *
- * A 401 and an unreachable API collapse into the same null on purpose: both
- * leave the visitor with the signed-out app, which is what every visitor got
- * before sessions existed, and neither is ever rendered as a claim. Nothing on
- * screen says "you are signed out" as a statement of fact; the app simply asks
- * for a wallet, which it can always honestly do.
+ * live session, INCLUDING an unreachable API: both leave the visitor with the
+ * signed-out app, and neither is ever rendered as a claim that they are signed
+ * out.
  */
 export async function fetchSession(): Promise<Session | null> {
   try {
@@ -149,12 +144,15 @@ export async function fetchSession(): Promise<Session | null> {
   }
 }
 
-/** What POST /api/session/exchange did with the token we presented. */
+/**
+ * What POST /api/session/exchange did with the token we presented. A session
+ * means it worked; an error means it did not. Neither means the server accepted
+ * the token but answered with something this client could not read, which falls
+ * through to the identity read.
+ */
 export interface ExchangeResult {
-  /** The server accepted the token. The cookie is set even if the body was odd. */
-  ok: boolean;
   session: Session | null;
-  /** Present only when `ok` is false. Safe to render. */
+  /** Safe to render. */
   error: string | null;
 }
 
@@ -164,9 +162,9 @@ const STALE_LINK =
 /**
  * Trade an alert link's token for a read-only session.
  *
- * Single-use server-side, so this is called ONCE per page load and never
- * retried: a second attempt with the same token is guaranteed to fail and would
- * replace a working session with an error message.
+ * NO RETRY, EVER. The token is single-use server-side, so a second attempt is
+ * guaranteed to fail, and its refusal would land on top of the session the
+ * first attempt had just established.
  */
 export async function exchangeAlertLink(token: string): Promise<ExchangeResult> {
   try {
@@ -176,14 +174,13 @@ export async function exchangeAlertLink(token: string): Promise<ExchangeResult> 
       body: JSON.stringify({ token }),
     });
     const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-    if (!res.ok) return { ok: false, session: null, error: readableServerError(body?.error, STALE_LINK) };
-    return { ok: true, session: asSession(body), error: null };
+    if (!res.ok) return { session: null, error: readableServerError(body?.error, STALE_LINK) };
+    return { session: asSession(body), error: null };
   } catch {
     // The request never landed, so the token may or may not have been spent.
     // "This link is stale" would be a guess; "we could not reach PANIK" is what
     // we know.
     return {
-      ok: false,
       session: null,
       error: "PANIK could not be reached to open that alert link. Try again in a moment.",
     };
@@ -240,13 +237,10 @@ function describeSignInFailure(err: unknown): string {
 }
 
 /**
- * Sign out: revoke server-side and clear the cookie.
- *
- * Returns whether the server confirmed it, because the caller must not report a
- * sign-out that did not happen. Someone pressing this is often precisely the
- * person who believes a copy of that cookie is somewhere it should not be, and
- * telling them it is gone when the revocation failed is the one answer this
- * button cannot give.
+ * Sign out: revoke server-side and clear the cookie. Returns whether the server
+ * confirmed it, because the caller must not report a sign-out that did not
+ * happen to the person who pressed the button precisely because they think a
+ * copy of that cookie is somewhere it should not be.
  */
 export async function endSession(): Promise<boolean> {
   try {
@@ -297,7 +291,7 @@ export async function bootSession(
       replaceSearch(searchWithoutSid(search));
     }
   }
-  if (traded?.ok && traded.session) return { session: traded.session, note: null };
+  if (traded?.session) return { session: traded.session, note: null };
   const session = await fetchSession();
   return { session, note: session === null ? (traded?.error ?? null) : null };
 }
@@ -308,6 +302,8 @@ export type SessionStatus = "checking" | "resolved";
 export interface SessionState {
   status: SessionStatus;
   session: Session | null;
+  /** A sign-in or sign-out is in flight, and the controls that start one say so. */
+  busy: boolean;
   /**
    * One line about the session itself: a stale alert link, a declined
    * signature, a sign-out that did not land. One surface for all three, because
@@ -335,67 +331,63 @@ export function useSession(): SessionState {
   const [status, setStatus] = useState<SessionStatus>("checking");
   const [session, setSession] = useState<Session | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const booted = useRef(false);
-  /**
-   * Whether this component is still mounted, as a ref that is REARMED on every
-   * effect run.
-   *
-   * A plain `let cancelled` closed over by the effect deadlocks the app under
-   * StrictMode, and it did: run one starts the boot, the immediate cleanup sets
-   * cancelled, run two is skipped by the guard above, and the in-flight boot
-   * then resolves into a closure that has been told to discard its answer. The
-   * status stays `checking` forever and the whole app is a skeleton. Rearming
-   * here is what makes the second run adopt the first run's request.
-   */
-  const mounted = useRef(true);
 
   useEffect(() => {
-    mounted.current = true;
-    if (!booted.current) {
-      booted.current = true;
-      void (async () => {
-        const result = await bootSession(window.location.search, (next) => {
-          window.history.replaceState(
-            null,
-            "",
-            `${window.location.pathname}${next}${window.location.hash}`,
-          );
-        });
-        if (!mounted.current) return;
-        setSession(result.session);
-        setNote(result.note);
-        setStatus("resolved");
-      })();
-    }
-    return () => {
-      mounted.current = false;
-    };
+    if (booted.current) return;
+    booted.current = true;
+    void (async () => {
+      const result = await bootSession(window.location.search, (next) => {
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${next}${window.location.hash}`,
+        );
+      });
+      setSession(result.session);
+      setNote(result.note);
+      setStatus("resolved");
+    })();
   }, []);
 
-  const signIn = useCallback(async (wallet: string, getProof: GetProof) => {
-    const result = await startSession(wallet, getProof);
-    if (!result.ok) {
-      setNote(result.error);
-      return;
-    }
-    setNote(null);
-    // The POST's own body when it parsed, and a re-read when it did not: the
-    // cookie is set either way, and inventing a scope or an expiry to fill the
-    // gap would put a made-up date in the Settings card.
-    setSession(result.session ?? (await fetchSession()));
-  }, []);
+  const signIn = useCallback(
+    async (wallet: string, getProof: GetProof) => {
+      if (busy) return;
+      setBusy(true);
+      const result = await startSession(wallet, getProof);
+      if (result.ok) {
+        setNote(null);
+        // The POST's own body when it parsed, and a re-read when it did not:
+        // the cookie is set either way, and inventing a scope or an expiry to
+        // fill the gap would put a made-up date in the Settings card.
+        setSession(result.session ?? (await fetchSession()));
+      } else {
+        setNote(result.error);
+      }
+      setBusy(false);
+    },
+    [busy],
+  );
 
   const signOut = useCallback(async () => {
-    if (!(await endSession())) {
+    if (busy) return false;
+    setBusy(true);
+    const done = await endSession();
+    if (done) {
+      setNote(null);
+      setSession(null);
+    } else {
       setNote("PANIK could not sign this browser out. Check your connection and try again.");
-      return false;
     }
-    setNote(null);
-    setSession(null);
-    return true;
-  }, []);
+    setBusy(false);
+    return done;
+  }, [busy]);
 
   const dismissNote = useCallback(() => setNote(null), []);
 
-  return { status, session, note, dismissNote, signIn, signOut };
+  return useMemo(
+    () => ({ status, session, busy, note, dismissNote, signIn, signOut }),
+    [status, session, busy, note, dismissNote, signIn, signOut],
+  );
 }
