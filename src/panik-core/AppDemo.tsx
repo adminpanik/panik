@@ -772,11 +772,7 @@ function MarketCard({
       {/* The claim, in a neutral marker, above the identity it is about. It is
           the one sentence this grid was missing: eight scored markets and
           nothing saying which one the profile actually points at. */}
-      {lead && leadNote && (
-        <div className="flex">
-          <Chip>{leadNote}</Chip>
-        </div>
-      )}
+      {lead && leadNote && <Chip className="self-start">{leadNote}</Chip>}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
