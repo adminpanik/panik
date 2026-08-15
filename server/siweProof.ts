@@ -42,12 +42,20 @@ export const SIWE_CHAIN_ID = 8453;
  * exactly the same and must not be reimplemented; it is NOT a licence for a
  * session to stand in for one of the other three. Every write endpoint still
  * demands its own action's proof, per request.
+ *
+ * `account-wallet-link` is a write too, and it is the one that needs TWO
+ * credentials rather than one: the signature says which wallet, and a Supabase
+ * account bearer says which account (server/accountAuth.ts). Neither is
+ * sufficient. It has its own action URN for the usual reason — a user who
+ * signed "register this wallet for monitoring" did not consent to having that
+ * address attached to somebody's account.
  */
 export const OWNERSHIP_ACTIONS = [
   "wallet-register",
   "telegram-link",
   "watchlist-manage",
   "session-start",
+  "account-wallet-link",
 ] as const;
 export type OwnershipAction = (typeof OWNERSHIP_ACTIONS)[number];
 
@@ -76,6 +84,10 @@ export const ACTION_STATEMENT: Record<OwnershipAction, string> = {
   // not: each of the three sentences above still costs its own signature.
   "session-start":
     "Stay signed in to PANIK on this browser. This does not approve any changes to your wallets or alerts.",
+  // Names the ACCOUNT, because that is the new thing this signature does. The
+  // user is not being asked to start monitoring or to change an alert; they are
+  // being asked to attach an address to the PANIK account they signed in to.
+  "account-wallet-link": "Add this wallet to your PANIK account.",
 };
 
 export interface OwnershipMessageParams {

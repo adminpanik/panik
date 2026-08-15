@@ -78,6 +78,14 @@ import {
   operatorWebhookSink,
 } from "../server/monitorAlerts";
 import { CampaignStore } from "../server/campaignStore";
+import { AccountStore } from "../server/accountStore";
+import {
+  isMember,
+  requireAccount,
+  requireMember,
+  type AccountContext,
+} from "../server/accountAuth";
+import { linkAccountWallet, redeemVoucher, VOUCHER_REFUSALS } from "../server/accounts";
 import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
@@ -1804,6 +1812,143 @@ app.post("/api/try/access", strictLimit, async (req, res) => {
   }
 });
 
+// ── Accounts (closed beta) ─────────────────────────────────────────────────
+//
+// Identity is a Supabase Auth user; the SPA carries its access token as a
+// bearer and server/accountAuth.ts resolves it against /auth/v1/user.
+//
+// AN ACCOUNT IS NOT A MEMBERSHIP. Signing in creates an auth user and nothing
+// else. Everything except GET /api/account sits behind requireMember, which
+// 403s "closed beta - a voucher code is needed" until a voucher has been
+// redeemed. GET /api/account is the deliberate exception: the SPA has to be
+// able to render the screen that asks for a code, and it cannot do that if the
+// only endpoint describing the account refuses to answer.
+//
+// NOTHING HERE WEAKENS THE SIWE BOUNDARY. A bearer says which ACCOUNT is
+// calling; it never says which wallet, and it authorizes no wallet-scoped
+// write. Linking a wallet demands the account bearer AND a fresh single-use
+// ownership signature bound to its own action URN (server/accounts.ts).
+
+/**
+ * Account reads and the voucher/wallet writes.
+ *
+ * The read runs on every SPA boot for a signed-in user and is served from the
+ * 60-second identity cache plus two small indexed lookups, so it sits at the
+ * wallet class rather than strict — strict would rate-limit the app's own
+ * startup on a shared office IP. The three WRITES are strict: each one mints
+ * state, and the voucher route spends a finite campaign slot.
+ */
+const accountLimit = rateLimit({ limit: 30 * RATE_LIMIT_X });
+
+/** Everything GET /api/account reports, in one round of reads. */
+app.get("/api/account", accountLimit, requireAccount(), async (req, res) => {
+  const account = res.locals.account as AccountContext;
+  try {
+    const store = AccountStore.fromEnv();
+    const [wallets, history] = await Promise.all([
+      store.listWallets(account.userId),
+      store.membershipHistory(account.userId),
+    ]);
+    res.json({
+      account: { userId: account.userId, email: account.email },
+      // `member` is stated rather than left for the client to derive from the
+      // status string: one place decides what counts (server/accountStore.ts
+      // isLiveMembership), and a browser must never be the one applying it.
+      member: isMember(account.membership),
+      membership: account.membership,
+      // Every grant this account has held, so the UI can say "your trial ended
+      // on the 3rd" instead of rendering the same empty state as a stranger.
+      history,
+      wallets,
+      // The code that let them in, surfaced so support can match a person to a
+      // printed card without an admin round trip.
+      voucherCode: account.membership?.voucherCode ?? null,
+    });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * Redeem a voucher. Reuses the panik-try campaign machinery verbatim — the
+ * atomic slot guard and the attempt log live in redeem_campaign_code and are
+ * not reimplemented here (server/accounts.ts explains why at length).
+ *
+ * requireAccount, NOT requireMember: this is the one write a non-member must be
+ * able to make, since it is how they stop being one.
+ */
+app.post("/api/account/voucher", strictLimit, requireAccount(), async (req, res) => {
+  const account = res.locals.account as AccountContext;
+  if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
+  try {
+    const result = await redeemVoucher(
+      {
+        store: AccountStore.fromEnv(),
+        campaigns: CampaignStore.fromEnv(),
+        ip: clientIp(req),
+        userAgent: userAgent(req.headers),
+      },
+      // The email is the VERIFIED one from the bearer, never a body field, so
+      // the campaign roster gains a real identity rather than a typed string.
+      { userId: account.userId, email: account.email, code: (req.body ?? {}).code },
+    );
+    if (result.outcome === "success" || result.outcome === "already_member") {
+      res.json({ ok: true, outcome: result.outcome, membership: result.membership ?? null });
+      return;
+    }
+    res.status(result.outcome === "invalid" ? 400 : 409).json({
+      ok: false,
+      outcome: result.outcome,
+      error: VOUCHER_REFUSALS[result.outcome],
+    });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * Attach a wallet to the account. BOTH proofs are required: the bearer says
+ * which account, the signature says which wallet. See server/accounts.ts for
+ * what dropping either one costs.
+ */
+app.post("/api/account/wallets", strictLimit, requireAccount(), requireMember, async (req, res) => {
+  const account = res.locals.account as AccountContext;
+  try {
+    const store = AccountStore.fromEnv();
+    const result = await linkAccountWallet({ store }, account.userId, req.body);
+    if (result.outcome !== "linked") {
+      res.status(result.status ?? 400).json({ error: result.error });
+      return;
+    }
+    // The whole list comes back, so the client never has to guess what the
+    // write did — same contract as /api/watchlist and /api/wallets/register.
+    res.json({ ok: true, wallet: result.wallet, wallets: await store.listWallets(account.userId) });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * Detach one of the account's own wallets. No signature: removing an
+ * association the account itself created takes away access rather than granting
+ * it, and the user_id filter in the DELETE is what makes "own only" true — a
+ * caller naming a stranger's address deletes nothing and is told 404.
+ */
+app.delete("/api/account/wallets/:wallet", strictLimit, requireAccount(), requireMember, async (req, res) => {
+  const account = res.locals.account as AccountContext;
+  try {
+    const store = AccountStore.fromEnv();
+    const removed = await store.unlinkWallet(account.userId, String(req.params.wallet ?? ""));
+    if (!removed) {
+      res.status(404).json({ error: "that wallet is not linked to your account" });
+      return;
+    }
+    res.json({ ok: true, wallets: await store.listWallets(account.userId) });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
 async function adminCampaigns(req: express.Request, res: express.Response): Promise<void> {
   if (!requireAdmin(req, res)) return;
   if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
@@ -1999,6 +2144,36 @@ async function adminMetrics(req: express.Request, res: express.Response): Promis
   }
 }
 
+/**
+ * The account roster: every Supabase Auth user, with its membership, the COUNT
+ * of wallets it has proven, and whether any of them reaches Telegram.
+ *
+ * Behind the same admin gate as the rest, and no PII beyond the email — no
+ * wallet addresses, no chat ids, no IPs. "How many accounts are in the beta and
+ * are they reachable" is an operator question; "which addresses does this
+ * person hold" is a different and much more sensitive one, and this route is
+ * not the place to answer it.
+ *
+ * Paginated because GoTrue's admin listing is: ?page=1&perPage=50, capped at
+ * ROSTER_PAGE_MAX. It reports no total, so `hasMore` means "the page came back
+ * full" rather than an invented count.
+ */
+async function adminUsers(req: express.Request, res: express.Response): Promise<void> {
+  if (!requireAdmin(req, res)) return;
+  if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
+  try {
+    res.json(
+      await AccountStore.fromEnv().listAccounts({
+        page: Number(req.query.page ?? 1),
+        perPage: Number(req.query.perPage ?? 50),
+      }),
+    );
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+}
+
+app.get("/api/admin/users", adminLimit, adminBearerGate, adminUsers);
 app.get("/api/admin/metrics", adminLimit, adminBearerGate, adminMetrics);
 app.get("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.post("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
