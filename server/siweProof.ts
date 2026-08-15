@@ -32,8 +32,23 @@ import { createSiweMessage } from "viem/siwe";
 /** Base mainnet. The only chain PANIK monitors, so the only one a proof may name. */
 export const SIWE_CHAIN_ID = 8453;
 
-/** Every wallet-scoped write, and the proof each one demands. */
-export const OWNERSHIP_ACTIONS = ["wallet-register", "telegram-link", "watchlist-manage"] as const;
+/**
+ * Every action a wallet may prove itself for, and the proof each one demands.
+ *
+ * The first three are wallet-scoped WRITES. `session-start` is the odd one out
+ * and stays odd on purpose: it authorizes no write at all, only the minting of
+ * an identity session (server/sessionStore.ts). It rides in this union because
+ * the machinery — nonce, domain binding, exact-message re-derivation — is
+ * exactly the same and must not be reimplemented; it is NOT a licence for a
+ * session to stand in for one of the other three. Every write endpoint still
+ * demands its own action's proof, per request.
+ */
+export const OWNERSHIP_ACTIONS = [
+  "wallet-register",
+  "telegram-link",
+  "watchlist-manage",
+  "session-start",
+] as const;
 export type OwnershipAction = (typeof OWNERSHIP_ACTIONS)[number];
 
 /** The `Resources:` URN the server matches exactly. */
@@ -55,6 +70,12 @@ export const ACTION_STATEMENT: Record<OwnershipAction, string> = {
   // not have consented to the removal that rode in on the same proof.
   "watchlist-manage":
     "Update the list of wallets PANIK watches for you, and the alert level for each.",
+  // States the LIMIT as plainly as the power. A user reading "stay signed in"
+  // has every reason to assume it also means "and act on my behalf", which is
+  // the assumption that makes a stolen cookie feel like a stolen key. It does
+  // not: each of the three sentences above still costs its own signature.
+  "session-start":
+    "Stay signed in to PANIK on this browser. This does not approve any changes to your wallets or alerts.",
 };
 
 export interface OwnershipMessageParams {
