@@ -639,10 +639,14 @@ describe("the Open in PANIK button", () => {
     const h = harness({ pending: [delivery({ owner_wallet: ANNA, chat_id: "101" })] });
     await dispatchPending({ ...h.deps, appUrl: "https://www.panik.fi/app" });
 
-    expect(h.sent[0]!.opts?.button).toEqual({
-      text: OPEN_IN_PANIK_TEXT,
-      url: `https://www.panik.fi/app?view=${WHALE}&tab=advisor`,
-    });
+    // The dispatched button also carries a single-use `sid` (the deep-link
+    // session token — server/watchDispatchSession.test.ts owns that behaviour),
+    // so this asserts on the wallet-routing part it is actually about.
+    expect(h.sent[0]!.opts?.button?.text).toBe(OPEN_IN_PANIK_TEXT);
+    const url = new URL(h.sent[0]!.opts!.button!.url);
+    expect(url.origin + url.pathname).toBe("https://www.panik.fi/app");
+    expect(url.searchParams.get("view")).toBe(WHALE);
+    expect(url.searchParams.get("tab")).toBe("advisor");
     expect(h.sent[0]!.opts?.button?.url).not.toContain(ANNA);
   });
 
