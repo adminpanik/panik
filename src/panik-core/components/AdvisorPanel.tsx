@@ -29,12 +29,15 @@
  * on its row above a demoted `Details`, and TESTNET is stated once for the whole
  * panel. The button spends no hue: `Button` is a neutral fill by design.
  *
- * The SEVERITY does spend one, on purpose. An EXIT leg is a critical position
- * and a dial alone was not saying so loudly enough, so those two card types
- * carry a warning glyph in their band's hue on the identity line. That is the
- * ramp measuring a position, which is what it is for, and it is the opposite of
- * painting a verb. It is rationed to them: a WATCH or HOLD leg has no urgency to
- * signal.
+ * The URGENCY is marked by SHAPE: an EXIT or REDUCE leg carries a warning glyph
+ * on its identity line, in neutral ink, and a WATCH or HOLD leg carries none.
+ * The glyph used to take the band's hue, which painted a measurement the dial on
+ * the same card already draws; the ramp on this screen is now the four dials and
+ * the one banner that speaks for the whole wallet, and nothing else.
+ *
+ * The BANNER is what leads. It is the verdict for the wallet, so it takes the
+ * screen's only functional border and a type step above the cards, rather than
+ * being the smallest thing on a page of four large ones.
  *
  * The ways out are a LEAD plus footnotes, never a comparison. Two columns of
  * prose, one of them describing a route the app cannot sign, is the shape that
@@ -674,37 +677,30 @@ function RecommendationCard({
             <span className="truncate text-xs font-sans text-text-secondary">
               {rec.numbers.scoredCollateralSymbol}
             </span>
-            {/* The severity of the POSITION, on the line that identifies the
-                position. This is the ramp doing the job it exists for, and it
-                is not the thing the ramp is forbidden to do: a band is a
-                measurement, whereas painting `Execute exit` red would be the
-                ramp making a claim about an ACTION.
+            {/* This leg is one to act on TODAY, marked by shape on the line
+                that identifies it. Rationed to EXIT and REDUCE: a WATCH or a
+                HOLD leg gets nothing, because a card whose advice is "nothing
+                today" has no urgency to signal.
 
-                A GLYPH, not a chip. "Critical risk" in a tinted pill was the
-                word for a thing the dial two inches away already states as a
-                number and an arc, so it was a second reading of one measurement
-                carrying a fill and a border of its own. The triangle says the
-                same thing in one element and no words.
+                NEUTRAL INK, and that is the whole point of it. It used to take
+                `RISK_TEXT[band]`, which painted the band a second time on a card
+                whose `RiskDial` sits four inches away drawing the same quantity
+                as an arc and a numeral - the identical duplicate the Portfolio
+                row triangles were fixed for. What this glyph carries is the
+                ACTION, not the band, and hue is not the channel for it: shape is
+                findability, and the ramp on this screen belongs to the dials and
+                to the one banner that speaks for the whole wallet.
 
-                Hue from `RISK_TEXT`, which is the band table beside `RISK_CHIP`,
-                so CRITICAL is red and a HIGH or ELEVATED leg takes its own step
-                down the ramp. Never a literal.
+                Nothing is lost to a colour-blind reader or to a screen reader.
+                The dial announces the band, the button says the verb, and the
+                drop-to-liquidation figure states the distance in words.
 
-                `aria-hidden`, because the band is already announced: the
-                `RiskDial` beside it carries "PANIK risk score 75 of 100" in its
-                own label, and a second announcement of one fact is noise in a
-                screen reader for exactly the reason the chip was noise on
-                screen. Colour is not the only carrier either - the dial's
-                numeral, the drop-to-liquidation figure and the button's own verb
-                all say it in text.
-
-                Rationed to the legs with something worth doing about them. A
-                WATCH or a HOLD leg gets nothing: its dial already says the
-                score, and a card whose advice is "nothing today" has no urgency
-                to signal. */}
+                A GLYPH, not a chip. "Critical risk" in a tinted pill was a
+                second reading of one measurement carrying a fill and a border of
+                its own. */}
             {urgent ? (
               <AlertTriangle
-                className={`h-3.5 w-3.5 shrink-0 self-center ${RISK_TEXT[rec.numbers.band]}`}
+                className="h-3.5 w-3.5 shrink-0 self-center text-text-secondary"
                 aria-hidden="true"
               />
             ) : null}
@@ -944,24 +940,34 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
         </Card>
       )}
 
-      {/* The verdict for the whole wallet. Container stays neutral - the icon
-          is the one hued element, which is the treatment the Portfolio
-          aggregate card already uses for exactly this job, and it is absent
-          below `warning` because a glyph that is always there and only changes
-          colour is a glyph people stop seeing. */}
-      <Card tone="raised" className="flex items-start gap-3">
+      {/* The verdict for the whole wallet, and the ONE thing on this screen
+          that leads.
+
+          It did not before. It was a 14px sentence on the same surface, with the
+          same edge, as four cards two to three times its height, so the answer to
+          "what is happening to my wallet" was the quietest element on the page
+          that exists to answer it. It now takes the one functional border on the
+          screen, a type step (16px against the cards' 14px) and a glyph a size
+          up; the cards below stay where they were, which is a step down from
+          this rather than a demotion of themselves.
+
+          Container stays neutral - the icon is the one hued element, which is the
+          treatment the Portfolio aggregate card already uses for exactly this
+          job, and it is absent below `warning` because a glyph that is always
+          there and only changes colour is a glyph people stop seeing. */}
+      <Card tone="lead" className="flex items-start gap-3">
         {overall.urgency === "info" ? (
-          <Eye className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
+          <Eye className="mt-0.5 h-5 w-5 shrink-0 text-text-muted" aria-hidden="true" />
         ) : (
           <AlertTriangle
-            className={`mt-0.5 h-4 w-4 shrink-0 ${
+            className={`mt-0.5 h-5 w-5 shrink-0 ${
               overall.urgency === "critical" ? RISK_TEXT.CRITICAL : RISK_TEXT.ELEVATED
             }`}
             aria-hidden="true"
           />
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-sans leading-relaxed text-text-primary">
+          <p className="text-base font-sans leading-relaxed text-text-primary">
             {overall.headline}
             {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
           </p>

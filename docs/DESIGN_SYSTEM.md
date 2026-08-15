@@ -205,14 +205,53 @@ In `src/panik-core/ui/`. **Use these instead of hand-rolling equivalents.**
 
 | | |
 |---|---|
-| `Card` | tones: `raised` (default), `panel`, `sunken` |
+| `Card` | tones: `panel` (default), `raised`, `lead`, `set-back` — see below |
 | `Stat` | label + value + optional sub. Renders correctly with no sub |
 | `Button` | `primary` (neutral fill) and `quiet` (ghost). No gradients, ever |
+| `Chip` | a neutral marker beside a thing ("Your wallet"). No hue, no state |
+| `DemoChip` | `Chip` preset: the word "Demo" where a surface is not the real thing |
 | `RiskChip` | the band as a tinted pill. Wraps `RISK_CHIP` in `lib/utils.ts` |
 | `RiskDial` | score as an arc + numeral. Colour on the arc only |
 | `EmptyState` | **two tones, see below** |
 | `Skeleton` | loading placeholder that reserves layout |
 | `TabPanel` | the ARIA tabpanel wrapper |
+| `Listbox` | the app's ONE dropdown. **See below** |
+| `LAYER` / `SCRIM` | every z-index and every backdrop in the app, in `ui/overlay.ts` |
+
+`Card`'s `lead` tone is `raised` with a functional edge, for the one card a screen leads
+with. **At most one per screen**, or "the thing to read here" stops meaning anything.
+`set-back` is the other end: `raised` on a dimmer surface, for a tile in a section the page
+has deliberately put aside (the Compass "Outside your profile" grid). Both are tones rather
+than utilities on the call site, because a `border-border-strong` or a `bg-surface-raised/25`
+passed that way ties with the tone's own at equal specificity, and which rule Tailwind emits
+last is not something a caller can see. The Compass cards hand-rolled their own three depths
+until they did not, and the lead they drew was a different surface from the Advisor's.
+
+### `Listbox` is the only dropdown, and the reason is keyboard support
+
+It is the WAI-ARIA select-only combobox: roving `aria-activedescendant`, arrows with
+Home/End and scroll pinning, Enter to commit, Escape / Tab / outside-press to dismiss, the
+panel's edge measured on open, and focus that never leaves the trigger. The consumer
+supplies the trigger's content and skin, each row's content and skin, and a row's
+accessible name where its markers are invisible to a screen reader. The panel's own box is
+not a prop, and neither is the chevron: "there is a list behind this" is the control's
+fact, and the two consumers had already drawn it at two sizes.
+
+The second dropdown in this app was a `<button>` and a `<ul>` with no key handler at all,
+on the screen where a reader compares four positions before acting on one. Building a
+third by hand would reproduce that.
+
+### Overlays pick a rung, never a number
+
+`LAYER` in `ui/overlay.ts`: chrome 30, popover 50, banner 100, scrim 200, sheet 210, modal
+220, tip 300. The rule is that a surface the READER opened sits above a notice the APP
+raised. Nine hand-picked z-indexes produced the opposite: at 390 the alerts-inactive banner
+covered an open sheet's heading and close control, and it outranked the exit flow. If no
+rung fits, that is a conversation about the ladder.
+
+`SCRIM` is the one backdrop. Four modals hardcoded `bg-black/70` or `/80` with three
+different blurs while the sheet used the surface token, so the app dimmed itself four ways
+depending on which button you pressed.
 
 `RISK_CHIP` in `lib/utils.ts` is **the single place a band becomes pixels.** Do not write
 `bg-risk-*/10 text-risk-* border-risk-*/25` by hand. A hand-rolled copy shipped a chip
@@ -405,7 +444,11 @@ The rules that exist because a UI lied:
   component. This rule got broken *while being invoked* — a second copy of that formula was
   added to the package without checking, and the two disagreed on invalid input, reporting a
   200% price drop where the original correctly returned "unknown". Search for the formula
-  before writing it.
+  before writing it. **Thresholds are engine math too.** Compass partitioned its catalog on
+  windows written in the component (`<20` / `20-49` / `>=50` by profile) while
+  `ALERT_THRESHOLD` alerts at 25 / 50 / 75, so the grid recommended markets the watcher
+  would fire on. `fitsProfile` is the engine's own membership test and delegates to
+  `statusFor`, so the split and the alert read one boundary.
 - **One rounding rule per quantity, and it belongs with the formula.** The Advisor card once
   showed `17%` in its strip and `17.4%` in prose one click away, because the UI and the
   engine formatted the same number differently. Formatting policy for a domain value is a

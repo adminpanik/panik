@@ -14,6 +14,7 @@ import {
   type ProfileResult,
 } from "../lib/profiling";
 import { useWalletProfile, type WalletProfileData } from "../lib/profileApi";
+import { LAYER, SCRIM } from "../ui";
 
 /**
  * Address format check (purely client-side).
@@ -206,7 +207,10 @@ export function Onboarding({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md"
+          /* The app's one scrim and one overlay rung, from `ui/overlay`. This
+             was `bg-black/80 backdrop-blur-md` against the exit flow's
+             `bg-black/70 backdrop-blur-sm` and the sheet's surface token. */
+          className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4 sm:p-6 ${SCRIM}`}
         >
 
           <motion.div
@@ -496,18 +500,24 @@ function RevealStep(props: {
         )}
       </div>
 
-      {/* Data chips */}
+      {/* What was read off the chain, as labelled facts. */}
       <div className="grid grid-cols-2 gap-2 mb-1">
-        <Chip k="Chains" v={String(data.features.chainsActive)} />
-        <Chip k="Protocols" v={String(data.features.protocolsUsed)} />
-        <Chip k="Leverage" v={`${ratioPct}% borrow/deposit`} />
-        <Chip k="Liquidations" v={String(data.features.liquidations)} />
+        <Fact k="Chains" v={String(data.features.chainsActive)} />
+        <Fact k="Protocols" v={String(data.features.protocolsUsed)} />
+        <Fact k="Leverage" v={`${ratioPct}% borrow/deposit`} />
+        <Fact k="Liquidations" v={String(data.features.liquidations)} />
       </div>
     </RevealShell>
   );
 }
 
-function Chip(props: { k: string; v: string }) {
+/**
+ * A label over a figure, in a grid cell. Named `Fact` rather than `Chip`, which
+ * is what it was: `ui/Chip` is a one-line neutral marker beside something, and
+ * two different components answering to one name in one codebase is how a
+ * reader ends up importing the wrong one.
+ */
+function Fact(props: { k: string; v: string }) {
   return (
     <div className="px-3 py-2 rounded-md border border-border-subtle bg-white/[0.02]">
       <div className="text-2xs font-sans text-text-secondary">{props.k}</div>

@@ -777,12 +777,36 @@ export function formatCurrency(value: number): string {
       : abs >= 1
         ? 2
         : Math.min(4, Math.max(2, Math.ceil(-Math.log10(abs)) + 1));
-  return new Intl.NumberFormat("en-US", {
+  return usdFormatter(maximumFractionDigits).format(value);
+}
+
+/**
+ * The `Intl.NumberFormat` for a digit count, built once.
+ *
+ * The branch above resolves to one of four counts (0, 2, 3, 4), and every
+ * argument to the constructor is derived from that number, so there are four
+ * formatters this function can ever want. It was constructing a fresh one per
+ * call, which is the expensive half of `Intl` (the locale data lookup) repeated
+ * per money figure per render: the Portfolio rows, the Watch listbox and the
+ * simulator strip together call this a few dozen times a paint.
+ *
+ * A `Map` rather than four consts, because the key IS the whole configuration -
+ * nothing here can drift from `formatCurrency`'s own arithmetic the way four
+ * hand-written entries could.
+ */
+const USD_FORMATTERS = new Map<number, Intl.NumberFormat>();
+
+function usdFormatter(maximumFractionDigits: number): Intl.NumberFormat {
+  const cached = USD_FORMATTERS.get(maximumFractionDigits);
+  if (cached) return cached;
+  const made = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: Math.min(2, maximumFractionDigits),
     maximumFractionDigits,
-  }).format(value);
+  });
+  USD_FORMATTERS.set(maximumFractionDigits, made);
+  return made;
 }
 
 /**

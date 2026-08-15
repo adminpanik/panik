@@ -25,6 +25,7 @@ import { formatTokenAmount } from "../lib/exitLegs";
 import type { AdvisorOpenPlan } from "../lib/live";
 import { useProspective } from "../lib/live";
 import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
+import { LAYER, SCRIM } from "../ui";
 import {
   borrowAsset,
   buildOpenSteps,
@@ -463,8 +464,9 @@ export function OpenFlow({
   }, [executing, onClose]);
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={requestClose} />
+    <div className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4`}>
+      {/* The app's one scrim, from `ui/overlay`. */}
+      <div className={`absolute inset-0 ${SCRIM}`} onClick={requestClose} />
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

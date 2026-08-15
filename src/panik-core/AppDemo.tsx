@@ -26,7 +26,6 @@ import {
   CheckCircle,
   FileText,
   X,
-  ChevronDown,
   Plus,
   WalletCards,
 } from "lucide-react";
@@ -61,7 +60,7 @@ import {
  * `profile.ts`, whose sole import is type-only. The package barrel pulls viem
  * and must never reach a browser bundle (see lib/live.ts).
  */
-import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
+import { ALERT_THRESHOLD, fitsProfile } from "../../packages/scoring/src/profile";
 /**
  * The composite weights, from the engine for the same reason: `params.ts` has no
  * imports at all. Three surfaces on this file used to hard-code 40/25/20/15, one
@@ -114,11 +113,15 @@ import { InfoTip } from "./components/InfoTip";
 import {
   Button,
   Card,
+  Chip,
   DemoChip,
   EmptyState,
+  LAYER,
+  Listbox,
   RiskChip,
   RiskDial,
   riskScoreLabel,
+  SCRIM,
   SimulationBanner,
   Skeleton,
   Stat,
@@ -133,6 +136,7 @@ import {
   useWalletHistory,
   recommendedExitAction,
   useWalletPositions,
+  type Band,
   type LiveProtocol,
   type PoolYield,
 } from "./lib/live";
@@ -699,11 +703,20 @@ const FALLBACK_SCORE_NOTE =
  * a CRITICAL market's band at 60% opacity — the one card on the page most worth
  * reading clearly was the faintest. Which section it is in already says it is
  * out of profile; the dial's job is to say how far.
+ *
+ * `lead` is the opposite end of the same axis, and it is why the other cards
+ * settled a step. Eight cards at one weight is a page with no answer on it: the
+ * reader has to compare eight dials before the screen has told them anything.
+ * The emphasis is the BORDER, a type step and a marker, never more hue - the
+ * dial is still the only coloured thing on any of these cards, and the lead's
+ * own claim is a neutral `Chip`.
  */
 function MarketCard({
   preset,
   poolYield,
   muted = false,
+  lead = false,
+  leadNote,
   opensDemo,
   scoreFromFallback,
   onBreakdown,
@@ -713,6 +726,10 @@ function MarketCard({
   preset: VaultPreset;
   poolYield: PoolYield | null;
   muted?: boolean;
+  /** The section's one emphasised card. See the docblock, and `compassLead`. */
+  lead?: boolean;
+  /** What the lead card CLAIMS, in the words of the thing that measured it. */
+  leadNote?: string;
   /**
    * This card's open would land in the DEMO simulator rather than a real
    * transaction. Comes from the same predicate the click routes on, so the
@@ -734,19 +751,38 @@ function MarketCard({
   const apy = poolYield?.apy ?? preset.apy;
   const trend = poolYield ? apyTrendCopy(apy, poolYield.apySeries) : null;
   return (
-    <div
+    <Card
+      /* Three depths, in the order the reader should meet them: the lead, the
+         rest of its section, and the section that is out of profile. `strong` on
+         the lead's edge is the only functional border on the grid, and it is the
+         one card whose edge is doing a job.
+
+         The primitive owns all three, so this grid's lead is pixel-for-pixel the
+         Advisor's: the two were hand-typed apart at `surface-raised/80` and /50,
+         which is one screen's "the thing to read here" being a different object
+         from another's. Only the hover is left here, because it is a step up
+         from whichever base the tone set. */
+      tone={lead ? "lead" : muted ? "set-back" : "raised"}
       onClick={onBreakdown}
-      className={`flex cursor-pointer flex-col gap-3 rounded-lg border border-border-subtle p-5 transition-colors hover:border-border-strong ${
-        muted
-          ? "bg-surface-raised/25 hover:bg-surface-raised/45"
-          : "bg-surface-raised/60 hover:bg-surface-overlay/70"
+      className={`flex cursor-pointer flex-col gap-3 transition-colors hover:border-border-strong ${
+        muted ? "hover:bg-surface-raised/45" : "hover:bg-surface-overlay/60"
       }`}
     >
+      {/* The claim, in a neutral marker, above the identity it is about. It is
+          the one sentence this grid was missing: eight scored markets and
+          nothing saying which one the profile actually points at. */}
+      {lead && leadNote && <Chip className="self-start">{leadNote}</Chip>}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
           <div className="min-w-0">
-            <h3 className="truncate text-sm font-sans font-bold text-text-primary">
+            {/* One type step on the lead, which is the emphasis a card can
+                carry without spending hue or breaking the grid's rhythm. */}
+            <h3
+              className={`truncate font-sans font-bold text-text-primary ${
+                lead ? "text-base" : "text-sm"
+              }`}
+            >
               {preset.protocol}
             </h3>
             <span className="block truncate text-xs font-sans text-text-secondary">
@@ -809,8 +845,12 @@ function MarketCard({
         {trend ?? "30-day yield history unavailable"}
       </p>
 
+      {/* `mt-auto`, so every card in a row puts its actions on the same line
+          whatever is above them. Grid items already stretch to the tallest card,
+          and the lead is now taller than the rest by a marker; without this the
+          three buttons in a row sit at three different heights. */}
       <div
-        className="mt-1 flex items-center justify-between gap-3 border-t border-border-subtle pt-3"
+        className="mt-auto flex items-center justify-between gap-3 border-t border-border-subtle pt-3"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2">
@@ -833,7 +873,7 @@ function MarketCard({
           <Eye className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -860,6 +900,8 @@ function MarketSection({
   emptyTitle,
   emptyHint,
   muted = false,
+  leadId,
+  leadNote,
   poolYields,
   opensReal,
   scoreFromFallback,
@@ -869,6 +911,10 @@ function MarketSection({
 }: {
   heading: string;
   presets: VaultPreset[];
+  /** The one card this section emphasises, if it has one. See `compassLead`. */
+  leadId?: string;
+  /** What that card claims. Travels with the id so neither can appear alone. */
+  leadNote?: string;
   /** Whether an empty section is STATED rather than dropped. See its caller. */
   statesEmpty: boolean;
   emptyTitle: string;
@@ -915,6 +961,8 @@ function MarketSection({
               preset={preset}
               poolYield={poolYields?.[preset.id] ?? null}
               muted={muted}
+              lead={preset.id === leadId}
+              leadNote={leadNote}
               opensDemo={!opensReal(preset)}
               scoreFromFallback={scoreFromFallback(preset)}
               onBreakdown={() => onBreakdown(preset)}
@@ -925,6 +973,57 @@ function MarketSection({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One row of the Watch market listbox.
+ *
+ * ONE component for the two sources Watch reads (the wallet's real positions,
+ * and the Compass preset catalog), because the row is the same object seen from
+ * two sides: who runs the market, what the leg is, and what it scores. The two
+ * branches were verbatim copies differing only in the middle line, which is the
+ * shape that lets one of them quietly gain a band the other does not draw.
+ *
+ * The band lives in `RiskChip`, the one place a band becomes pixels, and the
+ * score is neutral ink beside it: a figure is not the thing that carries the
+ * hue. Nothing here states the band by colour alone - the chip's own word does.
+ */
+interface MarketChoice {
+  /**
+   * What this row IS, and the only thing selection is decided by. Both sources
+   * key by something already unique to them (a position's wallet-protocol-asset
+   * triple, a preset's id), so an index is a position in the list and never an
+   * identity.
+   */
+  key: string;
+  protocol: string;
+  /** The leg, already worded by the caller: it is a size on one source and an asset pair on the other. */
+  line: string;
+  band: Band;
+  score: number;
+  /** What picking this row does, in the words of whichever source built it. */
+  commit: () => void;
+}
+
+function MarketOptionRow({ choice, selected }: { choice: MarketChoice; selected: boolean }) {
+  return (
+    <>
+      <div className="min-w-0">
+        <span className="block text-xs font-sans text-text-muted">{choice.protocol}</span>
+        <span
+          className={`block text-sm font-sans font-semibold truncate tabular-nums ${
+            selected ? "text-text-primary" : "text-text-secondary"
+          }`}
+        >
+          {choice.line}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <RiskChip band={choice.band}>{choice.band}</RiskChip>
+        <span className="text-xs font-sans text-text-muted tabular-nums">{choice.score}</span>
+      </div>
+    </>
   );
 }
 
@@ -1085,6 +1184,11 @@ function ScoreBreakdownSection({ valueOf }: { valueOf: (driver: RiskDriver) => n
  *
  * The panel's own dismissal contract (focus on open, Escape to close) belongs
  * to the component inside it, which is the thing that knows what closing means.
+ *
+ * Its rungs come from `LAYER`, which is why it is now above the alerts-inactive
+ * banner rather than under it. At 390 that banner covered this panel's heading
+ * and its close control, and a notice the app raised on its own does not get to
+ * sit on top of the surface the reader deliberately opened.
  */
 function Sheet({ onDismiss, children }: { onDismiss: () => void; children: React.ReactNode }) {
   return (
@@ -1094,14 +1198,14 @@ function Sheet({ onDismiss, children }: { onDismiss: () => void; children: React
         animate={{ opacity: 0.5 }}
         exit={{ opacity: 0 }}
         onClick={onDismiss}
-        className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+        className={`absolute inset-0 ${SCRIM} ${LAYER.scrim} cursor-pointer`}
       />
       <motion.div
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", damping: 26, stiffness: 220 }}
-        className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
+        className={`absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] ${LAYER.sheet} flex flex-col overflow-hidden text-sm`}
       >
         {children}
       </motion.div>
@@ -1416,9 +1520,6 @@ export function AppDemo() {
   const [selectedRiskBreakdownPreset, setSelectedRiskBreakdownPreset] = useState<VaultPreset | null>(null);
   // Demo-only open-position flow (no signing; see OpenPositionModal).
   const [openPositionPreset, setOpenPositionPreset] = useState<VaultPreset | null>(null);
-  // Watch tab: market/preset selector dropdown
-  const [watchDropOpen, setWatchDropOpen] = useState<boolean>(false);
-  const watchDropRef = useRef<HTMLDivElement>(null);
 
   // ── First-time onboarding (no backend — localStorage-persisted) ──────────
   // Null means closed; the value is WHY it is open, because the three entry
@@ -2415,6 +2516,63 @@ export function AppDemo() {
    */
   const sameAssetMarket = isSameAssetMarket(activeMarket);
 
+  /**
+   * The market listbox's rows, from whichever source Watch is reading.
+   *
+   * ONE array rather than two branches inside the panel, because `Listbox`
+   * addresses a row by INDEX: "the third row" has to mean one thing, and two
+   * `.map`s over two lists cannot agree on what it is. Which list is showing is
+   * decided here, once, beside the state that decides it.
+   */
+  const marketChoices: MarketChoice[] = useMemo(
+    () =>
+      watchingOwnPosition
+        ? watchPositionMarkets.map(({ key, position, preset }) => ({
+            key,
+            protocol: preset.protocol,
+            // Never a zero standing in for a size we could not price: a degraded
+            // feed says so in words, in the slot the money would have been in.
+            line: `${preset.collateralSymbol} · ${
+              position.collateralValueUsd === null
+                ? "size unavailable (prices degraded)"
+                : `${formatCurrency(position.collateralValueUsd)} supplied`
+            }`,
+            band: preset.riskStatus,
+            score: preset.baseRisk,
+            commit: () => setSelectedLivePositionKey(key),
+          }))
+        : presetsWithLive.map((p) => ({
+            key: p.id,
+            protocol: p.protocol,
+            line: p.assetPair,
+            band: p.riskStatus,
+            score: p.baseRisk,
+            commit: () => setSelectedPresetId(p.id),
+          })),
+    // Nothing about the SELECTION, which is why the rows no longer carry a
+    // `selected` flag: a list that is rebuilt every time a reader picks a row
+    // in it is rebuilding eight objects to move one marker, and `Listbox`
+    // already derives selection from the index below. What the rows are made of
+    // is these three, and the two setters are stable.
+    [watchingOwnPosition, watchPositionMarkets, presetsWithLive],
+  );
+  /**
+   * Which row is the current value, found by the KEY the selection is held as.
+   *
+   * One `findIndex` over the load-bearing field rather than a per-row boolean
+   * that then has to be searched for anyway: the flag was a second copy of this
+   * answer, stored on every row, and one edit away from disagreeing with the
+   * state it was derived from.
+   *
+   * The same guard `WalletSelector` makes for the same reason: a miss is a
+   * caller bug, and the first row is the honest thing to open on while it lasts.
+   */
+  const selectedMarketKey = watchingOwnPosition ? selectedPositionMarket.key : selectedPresetId;
+  const marketSelectedIndex = Math.max(
+    0,
+    marketChoices.findIndex((c) => c.key === selectedMarketKey),
+  );
+
   // Simulator parameters (sliders + direct numeric inputs)
   const [collateralAmount, setCollateralAmount] = useState<number>(activePreset.defaultCollateral);
   const [borrowAmount, setBorrowAmount] = useState<number>(activePreset.defaultBorrow);
@@ -2444,17 +2602,6 @@ export function AppDemo() {
     setActiveScenario("current");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMarket.id]);
-
-  // Close Watch market dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (watchDropRef.current && !watchDropRef.current.contains(e.target as Node)) {
-        setWatchDropOpen(false);
-      }
-    };
-    if (watchDropOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [watchDropOpen]);
 
   /**
    * The offline fallback score, for the minutes `/api/prospective` is
@@ -2629,16 +2776,42 @@ export function AppDemo() {
   // routes on, so a card shown is a card that works.
   const compassCatalog =
     chainMode === "testnet" ? presetsWithLive.filter(opensReal) : presetsWithLive;
-  // One predicate per profile; `outside` is its negation by construction
-  // rather than a hand-maintained De Morgan of it.
-  const inProfile = (r: number) =>
-    selectedRiskProfile === "conservative"
-      ? r < 20
-      : selectedRiskProfile === "aggressive"
-        ? r >= 50
-        : r >= 20 && r < 50;
-  const recommended = compassCatalog.filter((p) => inProfile(p.baseRisk));
-  const outside = compassCatalog.filter((p) => !inProfile(p.baseRisk));
+  // The engine's own membership test, and `outside` is its negation by
+  // construction rather than a hand-maintained De Morgan of it.
+  //
+  // This used to be three windows written here (<20 / 20-49 / >=50 by profile)
+  // while `ALERT_THRESHOLD` alerts at 25 / 50 / 75, so the grid recommended
+  // markets the watcher would fire on and filed the two safest markets in the
+  // catalog under "Outside your profile" for an aggressive reader. `fitsProfile`
+  // is the same boundary `statusFor` decides alerts with.
+  const recommended = compassCatalog.filter((p) => fitsProfile(selectedRiskProfile, p.baseRisk));
+  const outside = compassCatalog.filter((p) => !fitsProfile(selectedRiskProfile, p.baseRisk));
+  /**
+   * The one market this page leads with, and the ONE claim the data supports.
+   *
+   * There is no fit, match or rank anywhere in the compass payload: `/api/compass`
+   * serves an id, a composite, a band and the four sub-scores per market
+   * (`CompassLiveScore`), and `VAULT_PRESETS` adds a listed fallback score and an
+   * APY. A "best match for you" would therefore be a ranking this component
+   * invented, which is exactly the thing the data-honesty rule forbids.
+   *
+   * So the lead is the lowest PANIK score among the markets that scored UNDER
+   * the profile's alert threshold (`fitsProfile`), and the card says that in
+   * those words rather than implying a recommendation engine that does not
+   * exist. It is arithmetic the reader can check against the seven dials beside
+   * it.
+   *
+   * Null below two cards: "the lowest of one" is a claim with no content, and a
+   * section with one card in it has already led with it.
+   */
+  const compassLead =
+    recommended.length > 1
+      ? recommended.reduce((best, p) => (p.baseRisk < best.baseRisk ? p : best))
+      : null;
+  /** The lead first, because position is half of what makes it the lead. */
+  const recommendedOrdered = compassLead
+    ? [compassLead, ...recommended.filter((p) => p.id !== compassLead.id)]
+    : recommended;
   /**
    * Whether an empty Compass section is STATED rather than dropped.
    *
@@ -2734,7 +2907,7 @@ export function AppDemo() {
 
       {/* 1. LEFT SIDEBAR PANEL (exactly modeled after the Figma UI) */}
       {isDesktop && (
-      <aside className="w-64 h-full shrink-0 flex flex-col justify-between border-r border-border-subtle bg-surface-base p-6 z-30">
+      <aside className={`w-64 h-full shrink-0 flex flex-col justify-between border-r border-border-subtle bg-surface-base p-6 ${LAYER.chrome}`}>
 
         {/* Sidebar Header Brand block */}
         <div className="space-y-8">
@@ -3057,9 +3230,17 @@ export function AppDemo() {
                     enough; "can be opened there" would be false on mainnet. */}
                 <MarketSection
                   heading={`Recommended for your ${selectedRiskProfile} profile`}
-                  presets={recommended}
+                  presets={recommendedOrdered}
+                  leadId={compassLead?.id}
+                  /* The measurement, not a verdict: this app does not rank
+                     markets for a person, and saying it did would be the
+                     invented fact the data-honesty rule is about. "Within your
+                     limit" is what the predicate now computes - membership is
+                     one boundary, the profile's alert threshold, so "in this
+                     profile" would name a window that no longer exists. */
+                  leadNote="Lowest risk within your limit"
                   statesEmpty={statesEmptySections}
-                  emptyTitle={`No ${CHAIN_MODE_LABEL[chainMode]} market scores inside this profile`}
+                  emptyTitle={`No ${CHAIN_MODE_LABEL[chainMode]} market scores under your risk limit`}
                   /* A measured fact rather than a guess: an empty section is
                      only stated with a non-empty catalog, so an empty
                      `recommended` puts every market in `outside`. */
@@ -3093,7 +3274,7 @@ export function AppDemo() {
                   muted
                   presets={outside}
                   statesEmpty={statesEmptySections}
-                  emptyTitle={`Every ${CHAIN_MODE_LABEL[chainMode]} market scores inside your profile`}
+                  emptyTitle={`Every ${CHAIN_MODE_LABEL[chainMode]} market scores under your risk limit`}
                   poolYields={poolYields}
                   opensReal={opensReal}
                   scoreFromFallback={scoreFromFallback}
@@ -3231,7 +3412,7 @@ export function AppDemo() {
                       {/* Market selector - mode-aware. Positions mode lists the
                           wallet's real on-chain positions; Recommendations lists
                           the Compass preset catalog. */}
-                      <div className="relative" ref={watchDropRef}>
+                      <div>
                         {/* Sentence case, and two words. The uppercase
                             letter-spaced style was retired everywhere else in
                             the app, and "SCORED ON-CHAIN" was provenance the
@@ -3249,97 +3430,43 @@ export function AppDemo() {
                               : "Your position"
                             : "Simulated market"}
                         </span>
-                        <button
-                          id="watch-market-selector"
-                          onClick={() => setWatchDropOpen(v => !v)}
-                          className="group flex items-center gap-2 cursor-pointer"
-                          aria-haspopup="listbox"
-                          aria-expanded={watchDropOpen}
-                        >
-                          <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide group-hover:text-text-muted transition-colors">
-                            {activeMarket.protocol} · {activeMarket.assetPair}
-                          </h2>
-                          <ChevronDown
-                            className={`w-4 h-4 text-text-muted group-hover:text-text-muted transition-all duration-200 ${watchDropOpen ? "rotate-180" : ""}`}
-                          />
-                        </button>
+                        {/* The app's listbox, not a second one. This was a
+                            button and a `<ul>` with no key handling at all: the
+                            list could not be opened, moved through or dismissed
+                            from a keyboard, on the screen where a reader
+                            compares four positions before acting on one. It
+                            also carried its own copy of the outside-click
+                            effect. Both are `ui/Listbox` now, which
+                            `WalletSelector` also uses, so a fix to either lands
+                            on both.
 
-                        {/* Dropdown panel */}
-                        <AnimatePresence>
-                          {watchDropOpen && (
-                            <motion.ul
-                              role="listbox"
-                              aria-label="Select market"
-                              initial={{ opacity: 0, y: -6, scale: 0.97 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                              transition={{ duration: 0.14 }}
-                              className="absolute left-0 top-full mt-2 z-50 w-80 bg-surface-raised border border-border-subtle rounded-md shadow-2xl overflow-hidden"
-                            >
-                              {watchingOwnPosition
-                                ? watchPositionMarkets.map(({ key, position, preset }) => {
-                                    const isActive = key === selectedPositionMarket?.key;
-                                    return (
-                                      <li
-                                        key={key}
-                                        role="option"
-                                        aria-selected={isActive}
-                                        onClick={() => {
-                                          setSelectedLivePositionKey(key);
-                                          setWatchDropOpen(false);
-                                        }}
-                                        className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
-                                          isActive
-                                            ? "bg-white/[0.06] border-l-2 border-l-border-strong"
-                                            : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
-                                        }`}
-                                      >
-                                        <div className="min-w-0">
-                                          <span className="block text-xs font-sans text-text-muted">{preset.protocol}</span>
-                                          <span className={`block text-sm font-sans font-semibold truncate tabular-nums ${
-                                            isActive ? "text-text-primary" : "text-text-secondary"
-                                          }`}>{preset.collateralSymbol} · {position.collateralValueUsd === null ? "size unavailable (prices degraded)" : `${formatCurrency(position.collateralValueUsd)} supplied`}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                          <RiskChip band={preset.riskStatus}>{preset.riskStatus}</RiskChip>
-                                          <span className="text-xs font-sans text-text-muted tabular-nums">{preset.baseRisk}</span>
-                                        </div>
-                                      </li>
-                                    );
-                                  })
-                                : presetsWithLive.map((p) => {
-                                    const isActive = p.id === selectedPresetId;
-                                    return (
-                                      <li
-                                        key={p.id}
-                                        role="option"
-                                        aria-selected={isActive}
-                                        onClick={() => {
-                                          setSelectedPresetId(p.id);
-                                          setWatchDropOpen(false);
-                                        }}
-                                        className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
-                                          isActive
-                                            ? "bg-white/[0.06] border-l-2 border-l-border-strong"
-                                            : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
-                                        }`}
-                                      >
-                                        <div className="min-w-0">
-                                          <span className="block text-xs font-sans text-text-muted">{p.protocol}</span>
-                                          <span className={`block text-sm font-sans font-semibold truncate ${
-                                            isActive ? "text-text-primary" : "text-text-secondary"
-                                          }`}>{p.assetPair}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                          <RiskChip band={p.riskStatus}>{p.riskStatus}</RiskChip>
-                                          <span className="text-xs font-sans text-text-muted tabular-nums">{p.baseRisk}</span>
-                                        </div>
-                                      </li>
-                                    );
-                                  })}
-                            </motion.ul>
+                            The rows are what they were: protocol, the leg, the
+                            band as a chip and the score beside it. */}
+                        <Listbox
+                          label="Which market to score"
+                          count={marketChoices.length}
+                          selectedIndex={marketSelectedIndex}
+                          onCommit={(i) => marketChoices[i].commit()}
+                          triggerClassName="group flex items-center gap-2 cursor-pointer"
+                          trigger={
+                            <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide group-hover:text-text-muted transition-colors">
+                              {activeMarket.protocol} · {activeMarket.assetPair}
+                            </h2>
+                          }
+                          /* The selected row keeps its left rail, which is the
+                             marker this list has always used for "this is the
+                             one you are on". The keyboard's row takes the same
+                             tint the pointer's does, and only a row that is
+                             neither gets the hover. */
+                          optionClassName={({ selected, active }) =>
+                            `flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors border-l-2 ${
+                              selected ? "border-l-border-strong" : "border-l-transparent"
+                            } ${selected || active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"}`
+                          }
+                          renderOption={(i, { selected }) => (
+                            <MarketOptionRow choice={marketChoices[i]} selected={selected} />
                           )}
-                        </AnimatePresence>
+                        />
                       </div>
                       <div className="flex items-center gap-2.5">
                         {/* Simulate-to-open path: the simulator is where conviction
@@ -4943,7 +5070,7 @@ export function AppDemo() {
           `env(safe-area-inset-bottom)` keeps it clear of the home indicator. */}
       {!isDesktop && (
         <div
-          className="shrink-0 border-t border-border-subtle bg-surface-base z-30"
+          className={`shrink-0 border-t border-border-subtle bg-surface-base ${LAYER.chrome}`}
           style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <NavTabs
@@ -4997,7 +5124,7 @@ export function AppDemo() {
         // risk on a wallet-connection prompt. Same words, stated calmly.
         const blocked = monitoringIssue.severity === "blocked";
         return (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[210] w-full max-w-xl px-4">
+          <div className={`fixed top-4 left-1/2 -translate-x-1/2 ${LAYER.banner} w-full max-w-xl px-4`}>
             <div
               role={blocked ? "alert" : "status"}
               className={`flex items-center gap-3 bg-surface-overlay border rounded-md px-4 py-3 shadow-2xl shadow-black/60 ${
@@ -5057,7 +5184,7 @@ export function AppDemo() {
 
       {/* First-run onboarding tooltip tour */}
       {currentTourStep && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] w-full max-w-sm px-4">
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 ${LAYER.banner} w-full max-w-sm px-4`}>
           <div className="bg-surface-raised border border-border-subtle rounded-md p-4 shadow-2xl shadow-black/60">
             <div className="flex items-center justify-between mb-2">
               <span className="text-2xs font-sans text-text-primary font-bold">

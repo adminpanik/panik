@@ -34,3 +34,25 @@ export function statusFor(profile: RiskProfile, score: number): ProfileStatus {
   if (score >= warnFrom(profile)) return "approaching";
   return "within";
 }
+
+/**
+ * Whether a scored thing BELONGS to a profile: its score is under the limit
+ * that profile alerts at.
+ *
+ * Membership is one boundary, not a window. A conservative reader is not shown
+ * a market and told "too safe for you"; the profile says where the alerts start
+ * and everything below that is theirs to pick from. `approaching` therefore
+ * fits: it is under the limit, and the point of the warning zone is that it has
+ * not been crossed yet.
+ *
+ * Exported because the Compass grid was partitioning its catalog on windows it
+ * invented (<20 / 20-49 / >=50 by profile) while the engine alerted at 25 / 50 /
+ * 75, so an aggressive reader was recommended only the markets their own limit
+ * would fire on, and the two safest markets in the catalog were filed under
+ * "Outside your profile". It delegates to `statusFor` rather than comparing
+ * against `ALERT_THRESHOLD` again, so there is still exactly one place the
+ * boundary is read and the split and the alert can never disagree.
+ */
+export function fitsProfile(profile: RiskProfile, score: number): boolean {
+  return statusFor(profile, score) !== "outside";
+}

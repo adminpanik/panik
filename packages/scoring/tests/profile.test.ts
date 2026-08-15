@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { statusFor } from "../src/profile";
+import { ALERT_THRESHOLD, fitsProfile, statusFor } from "../src/profile";
 import {
   drawdownToLiquidation,
   estimateHealthFactor,
@@ -26,6 +26,54 @@ describe("statusFor (arch §Risk Profiles / biz plan Watch table)", () => {
     ["aggressive", 75, "outside"],
   ] as const)("%s @ score %i → %s", (profile, score, status) => {
     expect(statusFor(profile, score)).toBe(status);
+  });
+});
+
+/**
+ * Membership for the Compass split, which used to be three invented windows.
+ * The boundary is the profile's own alert threshold and nothing else, so the
+ * grid cannot recommend a market the watcher would alert on.
+ */
+describe("fitsProfile (Compass recommended / outside split)", () => {
+  it.each([
+    // Under the limit, including the warning zone: still this profile's.
+    ["conservative", 0, true],
+    ["conservative", 14, true],
+    ["conservative", 15, true],
+    ["conservative", 24, true],
+    ["conservative", 25, false],
+    ["conservative", 76, false],
+    ["moderate", 8, true],
+    ["moderate", 49, true],
+    ["moderate", 50, false],
+    // The safe end belongs to every profile: an aggressive reader is not told
+    // a low-risk market is "outside" their profile.
+    ["aggressive", 8, true],
+    ["aggressive", 52, true],
+    ["aggressive", 74, true],
+    ["aggressive", 75, false],
+  ] as const)("%s @ score %i → %s", (profile, score, fits) => {
+    expect(fitsProfile(profile, score)).toBe(fits);
+  });
+
+  it.each(["conservative", "moderate", "aggressive"] as const)(
+    "%s: the boundary is the alert threshold, read from one place",
+    (profile) => {
+      const limit = ALERT_THRESHOLD[profile];
+      expect(fitsProfile(profile, limit - 1)).toBe(true);
+      expect(fitsProfile(profile, limit)).toBe(false);
+    },
+  );
+
+  it.each([
+    ["conservative", 24],
+    ["moderate", 49],
+    ["aggressive", 74],
+  ] as const)("%s: fitting is exactly 'not outside' (%i)", (profile, score) => {
+    expect(fitsProfile(profile, score)).toBe(statusFor(profile, score) !== "outside");
+    expect(fitsProfile(profile, score + 1)).toBe(
+      statusFor(profile, score + 1) !== "outside",
+    );
   });
 });
 
