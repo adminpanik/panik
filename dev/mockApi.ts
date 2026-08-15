@@ -18,6 +18,7 @@
  * proxy untouched, so e.g. /api/health still hits a real server if one is up.
  */
 
+import type { IncomingMessage } from "node:http";
 import type { Plugin } from "vite";
 import {
   MOCK_COMPASS,
@@ -62,6 +63,12 @@ import {
   type WatchOp,
   type WatchSubscription,
 } from "../server/watchlist";
+/**
+ * The scope union from the module that defines it. Re-declaring it here would
+ * let the mock keep answering with a scope the server had stopped issuing, and
+ * the whole point of this plugin is that the app cannot tell the difference.
+ */
+import type { SessionScope } from "../server/sessionStore";
 
 /**
  * localStorage the dashboard reads. Seeded from the page itself rather than by
@@ -305,14 +312,21 @@ const watchlistDown = () => process.env.PANIK_MOCK_WATCHLIST_DOWN === "1";
  * `none`, which is the previous behaviour exactly: every load is a signed-out
  * one.
  */
-type MockScope = "full" | "readonly";
-
 interface MockSession {
   token: string;
   wallet: string;
-  scope: MockScope;
+  scope: SessionScope;
   expiresAt: string;
 }
+
+/**
+ * How long each scope lasts, in days. The real numbers live in
+ * `server/sessionStore.ts` as milliseconds; what matters here is that ONE table
+ * answers for the seed, the mint and the cookie, because a mock whose row said
+ * 30 days and whose cookie said 7 would expire the browser out of a session the
+ * server still believed in.
+ */
+const DAYS: Record<SessionScope, number> = { full: 30, readonly: 7 };
 
 /** The dev server's whole session table, keyed by the token it handed out. */
 const sessions = new Map<string, MockSession>();
@@ -329,35 +343,35 @@ const MOCK_SESSION_TOKEN = "mock-session-token";
 const MOCK_SID = "mock-alert-link-token";
 const spentSids = new Set<string>();
 
-/** Mint a session and return it. Tokens are unique so a re-sign replaces. */
-function mintMockSession(wallet: string, scope: MockScope): MockSession {
+/**
+ * Mint a session and return it.
+ *
+ * `token` is an argument so the SEED can pin a known one: the middleware plants
+ * that exact value as a cookie on the document request, which is what makes
+ * "start the server signed in" one command instead of a sign-in dance. Minted
+ * tokens are unique, so a re-sign leaves the old row unreachable rather than
+ * overwriting it, exactly as a new row would server-side.
+ */
+function mintMockSession(
+  wallet: string,
+  scope: SessionScope,
+  token = `${MOCK_SESSION_TOKEN}-${sessions.size}-${Date.now()}`,
+): MockSession {
   const session: MockSession = {
-    token: `${MOCK_SESSION_TOKEN}-${sessions.size}-${Date.now()}`,
+    token,
     wallet,
     scope,
-    expiresAt: new Date(Date.now() + (scope === "full" ? 30 : 7) * 86_400_000).toISOString(),
+    expiresAt: new Date(Date.now() + DAYS[scope] * 86_400_000).toISOString(),
   };
-  sessions.set(session.token, session);
+  sessions.set(token, session);
   return session;
 }
 
-/**
- * The seeded session, and the cookie that reaches it.
- *
- * The token is fixed rather than minted so the page can be handed the cookie
- * without a round trip: `PANIK_MOCK_SESSION=full` seeds the row here and the
- * html transform below plants the matching cookie, which together are what
- * makes "reload and you are still signed in" testable in one command.
- */
-function seedSession(): MockScope | null {
+/** The session this dev server starts with, or null for a signed-out boot. */
+function seedSession(): SessionScope | null {
   const scope = process.env.PANIK_MOCK_SESSION?.trim().toLowerCase();
   if (scope !== "full" && scope !== "readonly") return null;
-  sessions.set(MOCK_SESSION_TOKEN, {
-    token: MOCK_SESSION_TOKEN,
-    wallet: MOCK_WALLET,
-    scope,
-    expiresAt: new Date(Date.now() + (scope === "full" ? 30 : 7) * 86_400_000).toISOString(),
-  });
+  mintMockSession(MOCK_WALLET, scope, MOCK_SESSION_TOKEN);
   return scope;
 }
 
@@ -380,8 +394,33 @@ function presentedSession(cookieHeader: string | undefined): MockSession | null 
  * over http on a LAN address, which `--host 0.0.0.0` invites and which is not a
  * localhost exemption.
  */
-function mockSessionCookie(token: string, days: number): string {
-  return `panik_session=${token}; Max-Age=${days * 86_400}; Path=/; HttpOnly; SameSite=Lax`;
+function mockSessionCookie(session: MockSession): string {
+  return `panik_session=${session.token}; Max-Age=${DAYS[session.scope] * 86_400}; Path=/; HttpOnly; SameSite=Lax`;
+}
+
+/**
+ * Read a request body and hand it over as JSON, or answer 400 in the API's own
+ * shape.
+ *
+ * One copy for the two POST routes. There were two, byte for byte, and the
+ * second was written by copying the first: the way that goes wrong is not that
+ * the parse drifts but that one of them grows a size cap or an encoding fix and
+ * the other does not.
+ */
+function withJsonBody(
+  req: IncomingMessage,
+  send: (status: number, body: unknown) => void,
+  use: (body: unknown) => void,
+): void {
+  const chunks: Buffer[] = [];
+  req.on("data", (c: Buffer) => chunks.push(c));
+  req.on("end", () => {
+    try {
+      use(JSON.parse(Buffer.concat(chunks).toString("utf8") || "null"));
+    } catch {
+      send(400, { error: "body is not JSON" });
+    }
+  });
 }
 
 /** Route table: pathname -> body. Returning undefined means "not mine". */
@@ -480,24 +519,23 @@ export function mockApi(mode: string): Plugin[] {
         }
 
         server.middlewares.use((req, res, next) => {
-          /* Hand the seeded session to the browser on the DOCUMENT request, so
-             the cookie is there before any script runs and stays HttpOnly. A
+          /* Hand the seeded session to the browser on the APP DOCUMENT request,
+             so the cookie is there before any script runs and stays HttpOnly. A
              seed script could not do this: production's cookie is HttpOnly by
              design, and a mock that made it readable would be exercising a
              different mechanism than the one that ships.
 
-             Only while the row is still there, so a sign-out is not undone by
-             the next reload. */
+             Scoped to /app.html for the same reason the html transform below
+             is: the landing, founding, try and admin entries have no dashboard
+             to unlock. Only while the row is still there, so a sign-out is not
+             undone by the next reload. */
+          const seeded = sessions.get(MOCK_SESSION_TOKEN);
           if (
-            seededScope &&
-            sessions.has(MOCK_SESSION_TOKEN) &&
-            !req.url?.startsWith("/api/") &&
+            seeded &&
+            req.url?.startsWith("/app.html") &&
             !presentedSession(req.headers.cookie)
           ) {
-            res.setHeader(
-              "Set-Cookie",
-              mockSessionCookie(MOCK_SESSION_TOKEN, seededScope === "full" ? 30 : 7),
-            );
+            res.setHeader("Set-Cookie", mockSessionCookie(seeded));
           }
           if (!req.url?.startsWith("/api/")) return next();
           const url = new URL(req.url, "http://localhost");
@@ -507,19 +545,6 @@ export function mockApi(mode: string): Plugin[] {
             res.setHeader("Content-Type", "application/json");
             res.setHeader("Cache-Control", "no-store");
             res.end(JSON.stringify(body));
-          };
-
-          /** The request body as JSON, or a 400 in the shape the API uses. */
-          const withJsonBody = (use: (body: unknown) => void) => {
-            const chunks: Buffer[] = [];
-            req.on("data", (c: Buffer) => chunks.push(c));
-            req.on("end", () => {
-              try {
-                use(JSON.parse(Buffer.concat(chunks).toString("utf8") || "null"));
-              } catch {
-                send(400, { error: "body is not JSON" });
-              }
-            });
           };
 
           /* The four session routes. Cookies are real here: the dev server is
@@ -544,7 +569,7 @@ export function mockApi(mode: string): Plugin[] {
 
             if (req.method !== "POST") return send(405, { error: "method not allowed" });
 
-            return withJsonBody((body) => {
+            return withJsonBody(req, send, (body) => {
               if (url.pathname === "/api/session/exchange") {
                 const token = (body as { token?: unknown } | null)?.token;
                 if (typeof token !== "string" || token !== MOCK_SID || spentSids.has(token)) {
@@ -555,8 +580,19 @@ export function mockApi(mode: string): Plugin[] {
                   });
                 }
                 spentSids.add(token);
+                // Mirrors the real route: a browser already holding a FULL
+                // session for this wallet keeps it. The token is burned either
+                // way, but handing back a 7-day readonly cookie would downgrade
+                // the signed-in user who tapped their own alert.
+                if (live && live.scope === "full" && live.wallet === MOCK_WALLET) {
+                  return send(200, {
+                    wallet: live.wallet,
+                    scope: live.scope,
+                    expiresAt: live.expiresAt,
+                  });
+                }
                 const minted = mintMockSession(MOCK_WALLET, "readonly");
-                res.setHeader("Set-Cookie", mockSessionCookie(minted.token, 7));
+                res.setHeader("Set-Cookie", mockSessionCookie(minted));
                 return send(200, {
                   wallet: minted.wallet,
                   scope: minted.scope,
@@ -571,7 +607,7 @@ export function mockApi(mode: string): Plugin[] {
               const message = (body as { message?: unknown } | null)?.message;
               const named = typeof message === "string" ? /0x[0-9a-fA-F]{40}/.exec(message) : null;
               const minted = mintMockSession((named?.[0] ?? MOCK_WALLET).toLowerCase(), "full");
-              res.setHeader("Set-Cookie", mockSessionCookie(minted.token, 30));
+              res.setHeader("Set-Cookie", mockSessionCookie(minted));
               return send(200, {
                 wallet: minted.wallet,
                 scope: minted.scope,
@@ -598,15 +634,7 @@ export function mockApi(mode: string): Plugin[] {
               });
             }
             if (req.method === "POST") {
-              const chunks: Buffer[] = [];
-              req.on("data", (c: Buffer) => chunks.push(c));
-              req.on("end", () => {
-                let body: unknown = null;
-                try {
-                  body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "null");
-                } catch {
-                  return send(400, { error: "body is not JSON" });
-                }
+              return withJsonBody(req, send, (body) => {
                 /* NO SIGNATURE CHECK, and it has to be said out loud: mock mode
                    has no nonce store and a headless browser has no wallet to
                    sign with, so the proof is accepted unread. The OWNER
@@ -625,7 +653,6 @@ export function mockApi(mode: string): Plugin[] {
                 if ("error" in applied) return send(applied.status, { error: applied.error });
                 return send(200, { ok: true, watching: applied.watching });
               });
-              return;
             }
             return send(405, { error: "method not allowed" });
           }
