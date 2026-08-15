@@ -44,6 +44,19 @@ import type {
   RegistryWallet,
   ScoringChainInfo,
 } from "../src/panik-core/lib/live";
+/**
+ * The engine's own market table and its own health-factor arithmetic, for the
+ * same reason `dev/mockApi.ts` imports the real band rule: this file runs in
+ * Node during `vite serve`, never in a browser bundle, so the deep-import
+ * discipline does not apply and a hand-rolled ratio here would be a second copy
+ * of the thing being demonstrated.
+ */
+import { marketParams } from "../packages/scoring/src/markets";
+import {
+  estimateHealthFactor,
+  liquidationDrawdown,
+} from "../packages/scoring/src/prospective";
+import type { Protocol } from "../packages/scoring/src/types";
 
 /**
  * The wallet the mock answers for. It is TYPED IN, not seeded: the app no
@@ -334,16 +347,41 @@ export const MOCK_COMPASS: CompassLiveScore[] = COMPASS.map(
 );
 
 /**
- * Prospective score for the Watch sliders. Looked up by protocol + symbol, so
- * switching market moves the number; the USD sliders do not, because sizing a
- * score is the engine's job and this file is not the engine.
+ * Prospective score for the Watch sliders.
+ *
+ * The SCORE is looked up by protocol + symbol, so switching market moves it and
+ * the sliders do not: sizing a composite needs CoinGecko and DefiLlama, which
+ * mock mode has neither of, and inventing that here would be this file
+ * pretending to be the engine.
+ *
+ * The HEALTH FACTOR is not in that category. It is one division the engine
+ * exports (`estimateHealthFactor` against the listed liquidation threshold),
+ * the real endpoint computes it from exactly these two arguments, and returning
+ * a fixture constant instead made the Watch tab unable to demo its own
+ * contract: the scored card read "Health factor 1.22" from this table while the
+ * price-scenario rows measured the sliders, so mock mode showed one position
+ * with two health factors. It is computed here for the same reason
+ * `dev/mockApi.ts` runs the real band rule.
  */
-export function mockProspective(protocol: string, symbol: string): ProspectiveLive {
+export function mockProspective(
+  protocol: string,
+  symbol: string,
+  collateralUsd: number,
+  borrowUsd: number,
+): ProspectiveLive {
   const hit =
     COMPASS.find((c) => c.protocol === protocol && c.symbol === symbol) ??
     COMPASS[4];
   const { id: _id, protocol: _protocol, symbol: _symbol, ...rest } = hit;
-  return rest;
+  const params = marketParams(protocol as Protocol, symbol);
+  // An unlisted pair is what the real endpoint throws on, so the fixture keeps
+  // its own figures rather than inventing a threshold to divide by.
+  if (params === null) return rest;
+  return {
+    ...rest,
+    healthFactor: estimateHealthFactor(collateralUsd, borrowUsd, params.liquidationThreshold),
+    liquidationDrawdown: liquidationDrawdown(collateralUsd, borrowUsd, params.liquidationThreshold),
+  };
 }
 
 // ── /api/history ───────────────────────────────────────────────────────────

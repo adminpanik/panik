@@ -7,13 +7,17 @@
 import { describe, expect, it } from "vitest";
 import {
   assetLoanToValue,
+  calculateDynamicPosition,
   liquidationOutlook,
+  listedLiquidationThreshold,
   LOAN_TO_VALUE_UNAVAILABLE_HINT,
   LOAN_TO_VALUE_UNAVAILABLE_LABEL,
   MARKET_CONTEXT_MISSING_HINT,
   MARKET_CONTEXT_MISSING_LABEL,
   marketContextMissing,
   PROTOCOL_LABEL,
+  simulatedHealthFactor,
+  UNLISTED_MARKET_HINT,
 } from "./utils";
 import type { LiveProtocol } from "./live";
 import { MARKETS } from "../../../packages/scoring/src/markets";
@@ -281,5 +285,99 @@ describe("the not-measured copy", () => {
       expect(s).not.toContain("—");
       expect(s).not.toMatch(/CoinGecko|DefiLlama|null|undefined|NaN/i);
     }
+  });
+});
+
+/**
+ * The Watch simulator used to hold a SECOND health-factor formula: its
+ * price-scenario rows ran `collateral x price x demoMaxLtv / debt` against a
+ * 0.82 / 0.78 pair keyed only by protocol, while the card beside them printed
+ * the engine's. One position, two health factors on one screen (measured on the
+ * mock fixture: "HF ~1.00" beside "Health factor 1.22").
+ *
+ * These assert the property that stops it recurring: there is one formula, it
+ * is the engine's, and it is fed the threshold the engine lists for that pair.
+ */
+describe("simulatedHealthFactor", () => {
+  it("is the engine's formula against the engine's listed threshold", () => {
+    for (const [protocol, assets] of Object.entries(MARKETS)) {
+      for (const [symbol, params] of Object.entries(assets)) {
+        const label = PROTOCOL_LABEL[protocol as LiveProtocol];
+        expect(simulatedHealthFactor(label, symbol, 128_500, 105_200)).toBe(
+          estimateHealthFactor(128_500, 105_200, params.liquidationThreshold),
+        );
+        expect(listedLiquidationThreshold(label, symbol)).toBe(params.liquidationThreshold);
+      }
+    }
+  });
+
+  it("disagrees with the protocol-keyed literal it replaced, on every asset", () => {
+    // The old helper returned 0.82 for Aave and 0.78 for everything else.
+    // Neither was any listed market's liquidation threshold.
+    const oldDemoMaxLtv = (label: string) => (label === "Aave V3" ? 0.82 : 0.78);
+    for (const [protocol, assets] of Object.entries(MARKETS)) {
+      for (const symbol of Object.keys(assets)) {
+        const label = PROTOCOL_LABEL[protocol as LiveProtocol];
+        expect(listedLiquidationThreshold(label, symbol)).not.toBe(oldDemoMaxLtv(label));
+      }
+    }
+    // The fixture position the audit measured: Aave cbBTC, $128,500 against
+    // $105,200. 0.78 is what Aave lists; 0.82 is what the literal claimed.
+    expect(simulatedHealthFactor("Aave V3", "cbBTC", 128_500, 105_200)).toBeCloseTo(0.953, 3);
+    expect((128_500 * 0.82) / 105_200).toBeCloseTo(1.002, 3);
+  });
+
+  it("has no health factor for no debt, and none for an unlisted market", () => {
+    // No debt is the engine's own null, not a 9.99 sentinel and not a zero.
+    expect(simulatedHealthFactor("Aave V3", "WETH", 50_000, 0)).toBeNull();
+    // A market this build lists no parameters for has no threshold to divide
+    // by, so it gets no ratio rather than one measured against an invented one.
+    expect(simulatedHealthFactor("Moonwell", "wstETH", 50_000, 10_000)).toBeNull();
+    expect(simulatedHealthFactor("Some New Protocol", "WETH", 50_000, 10_000)).toBeNull();
+    expect(listedLiquidationThreshold("Aave V3", "PEPE")).toBeNull();
+  });
+
+  it("resolves the engine's proxy marker, like every other market lookup", () => {
+    expect(simulatedHealthFactor("Moonwell", "WETH (proxy)", 84_200, 56_800)).toBe(
+      estimateHealthFactor(84_200, 56_800, 0.81),
+    );
+  });
+});
+
+/**
+ * `calculateDynamicPosition` is the Watch tab's OFFLINE fallback. Its score is
+ * local arithmetic by design; the health factor it reports beside that score is
+ * not, because the price-scenario rows state the same quantity.
+ */
+describe("calculateDynamicPosition", () => {
+  it("reports the engine's health factor, not the fallback curve's clamp", () => {
+    // 10 WETH at $2,000 against $1,000 of debt: far above the 9.99 the old
+    // clamp pinned every comfortable position to.
+    const state = calculateDynamicPosition("Aave V3", "WETH", 10, 1_000, 2_000);
+    expect(state.healthFactor).toBe(estimateHealthFactor(20_000, 1_000, 0.83));
+    expect(state.healthFactor!).toBeGreaterThan(9.99);
+    // ...and the score is still the fallback's, in its own band.
+    expect(state.status).toBe("LOW");
+  });
+
+  it("agrees with the scenario rows on the same position", () => {
+    const state = calculateDynamicPosition("Aave V3", "cbBTC", 2, 105_200, 64_250);
+    expect(state.healthFactor).toBe(
+      simulatedHealthFactor("Aave V3", "cbBTC", 128_500, 105_200),
+    );
+  });
+
+  it("has no health factor and no liquidation price without debt", () => {
+    const state = calculateDynamicPosition("Morpho", "cbBTC", 1, 0, 64_250);
+    expect(state.healthFactor).toBeNull();
+    expect(state.liquidationPrice).toBe(0);
+  });
+});
+
+describe("the unlisted-market copy", () => {
+  it("does not say 'no debt' about a market that cannot be measured", () => {
+    expect(UNLISTED_MARKET_HINT).not.toMatch(/no debt/i);
+    expect(UNLISTED_MARKET_HINT).not.toContain("—");
+    expect(UNLISTED_MARKET_HINT).not.toMatch(/null|undefined|NaN|liquidationThreshold/);
   });
 });
