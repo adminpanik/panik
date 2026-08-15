@@ -29,7 +29,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Undo2, WalletCards, X } from "lucide-react";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
 import { Button, EmptyState, Skeleton } from "../ui";
-import { RISK_PROFILES } from "../lib/utils";
+import { RISK_PROFILES, truncateAddress } from "../lib/utils";
 import { isEvmAddress, type GetProof } from "../lib/telegram";
 import {
   draftCount,
@@ -39,9 +39,6 @@ import {
   type WatchDraftRow,
   type WatchlistState,
 } from "../lib/watchlist";
-
-/** Address, short, for a row that also carries the full one on hover. */
-const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /** Sentence case, because the whole product is. */
 const profileLabel = (p: RiskProfile) => p.charAt(0).toUpperCase() + p.slice(1);
@@ -345,7 +342,7 @@ function WalletRow({
   readOnly: boolean;
   onChange: (change: Partial<WatchDraftRow>) => void;
 }) {
-  const name = row.label.trim() || short(row.wallet);
+  const name = row.label.trim() || truncateAddress(row.wallet);
   return (
     <li className="py-4 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-2">
@@ -357,7 +354,7 @@ function WalletRow({
           className="font-mono text-xs text-text-secondary"
           title={row.wallet}
         >
-          {short(row.wallet)}
+          {truncateAddress(row.wallet)}
         </span>
         {isOwner && (
           <span className="rounded-sm border border-border-subtle bg-white/[0.04] px-2 py-0.5 text-2xs font-sans font-bold text-text-muted">
@@ -378,7 +375,7 @@ function WalletRow({
            something to click, and there is nothing here to click. */
         <p className="mt-2 text-xs font-sans leading-relaxed text-text-secondary">
           {row.label.trim() ? `${row.label.trim()}. ` : ""}
-          Alerts at the {row.profile} level.
+          Alerts at the {profileLabel(row.profile)} level.
         </p>
       ) : row.removed ? (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -406,7 +403,7 @@ function WalletRow({
             disabled={disabled}
             onChange={(e) => onChange({ label: e.target.value })}
             placeholder="Name this wallet"
-            aria-label={`Name for ${short(row.wallet)}`}
+            aria-label={`Name for ${truncateAddress(row.wallet)}`}
             autoComplete="off"
             spellCheck={false}
             /* Same 160px floor as the add form's name field, and for the same

@@ -761,6 +761,24 @@ export function formatUsd(value: number | null): string {
 }
 
 /**
+ * An address, short: first six characters, an ellipsis, last four.
+ *
+ * ONE HELPER, because there were three, and the glyph is what gave them away:
+ * two used the ellipsis character and one used three periods, so the same
+ * wallet read as `0x4c9f…c2e9` in the header and `0x4c9f...c2e9` in the panel
+ * beside it. A reader checks an address by comparing its ends, and a
+ * punctuation change in the middle is exactly the kind of difference that makes
+ * them look twice at two renderings of one thing.
+ *
+ * Anything too short to shorten is returned whole rather than mangled: an
+ * invalid or truncated value must not come out of here looking like a valid
+ * address.
+ */
+export function truncateAddress(address: string): string {
+  return address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
+}
+
+/**
  * $36.3m / $214m / $610k style compact USD (TVL figures).
  *
  * One significant decimal, dropped when it is a zero. A pool holding $214m was

@@ -29,8 +29,6 @@ import {
   ChevronDown,
   Plus,
   WalletCards,
-  Info,
-  KeyRound,
 } from "lucide-react";
 import {
   assetLoanToValue,
@@ -53,6 +51,7 @@ import {
   RISK_SCORE_NAME,
   RISK_TEXT,
   sameAssetDepegNote,
+  truncateAddress,
 } from "./lib/utils";
 /**
  * The user's alert level, from the engine rather than a literal. A VALUE import
@@ -167,7 +166,12 @@ import {
 import { deepLinkTab, subscriptionFor, useWatchlist, viewParamWallet } from "./lib/watchlist";
 import { useSession } from "./lib/session";
 import { WalletsPanel } from "./components/WalletsPanel";
-import { SessionCard, SessionNote, ReadOnlyBanner } from "./components/SessionControls";
+import {
+  ReadOnlyBanner,
+  SessionCard,
+  SessionNote,
+  SignInButton,
+} from "./components/SessionControls";
 import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
@@ -418,8 +422,6 @@ type WatchSource = "positions" | "recommendations";
  * say it encoded a distinction nobody could see.
  */
 const TIER_BADGE = "bg-white/5 text-text-secondary border-border-subtle";
-
-const truncateAddress = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
 
 /**
  * Settings: the Emergency Auto Repayment card is hidden per business-dev QA
@@ -1426,7 +1428,6 @@ export function AppDemo() {
    * permission: every write below still signs its own action-bound proof.
    */
   const session = useSession();
-  const [sessionBusy, setSessionBusy] = useState(false);
 
   /**
    * Adopt the identity the server vouched for, WITHOUT outranking a connected
@@ -1851,18 +1852,15 @@ export function AppDemo() {
   const telegramLink = useTelegramLink(getProof);
 
   /**
-   * Sign in: one `session-start` signature for the bound wallet.
-   *
-   * Never automatic and never forced. A reader who declines keeps exactly the
-   * per-visit behaviour this app had before sessions existed, which is why the
-   * only thing a refusal produces is a dismissible line.
+   * Sign in: one `session-start` signature for the bound wallet. Never
+   * automatic and never forced, so a reader who declines keeps exactly the
+   * per-visit behaviour this app had before sessions existed and the only thing
+   * a refusal produces is a dismissible line. The in-flight flag lives in the
+   * hook (`session.busy`), beside the request it describes.
    */
-  const signInThisBrowser = useCallback(async () => {
-    if (!onboardedWallet || sessionBusy) return;
-    setSessionBusy(true);
-    await session.signIn(onboardedWallet, getProof);
-    setSessionBusy(false);
-  }, [onboardedWallet, sessionBusy, session, getProof]);
+  const signInThisBrowser = () => {
+    if (onboardedWallet) void session.signIn(onboardedWallet, getProof);
+  };
 
   /**
    * Sign out: revoke server-side, then drop what this tab restored.
@@ -1873,13 +1871,11 @@ export function AppDemo() {
    * disconnecting a wallet, and the dashboard has always followed the wallet
    * that is actually connected.
    */
-  const signOutThisBrowser = useCallback(async () => {
-    if (sessionBusy) return;
-    setSessionBusy(true);
-    const done = await session.signOut();
-    setSessionBusy(false);
-    if (done) setOnboardedWallet(null);
-  }, [sessionBusy, session]);
+  const signOutThisBrowser = () => {
+    void session.signOut().then((done) => {
+      if (done) setOnboardedWallet(null);
+    });
+  };
 
   // ── Monitoring status (the alerts this product exists to send) ───────────
   // Registration needs a signature the wallet must actually be able to produce.
@@ -2856,23 +2852,9 @@ export function AppDemo() {
 
                 Never automatic. Declining costs nothing and leaves the app
                 exactly as it behaved before sessions existed, so this is a
-                chip, not a modal, and there is no dismissal to remember. The
-                word drops at 390px the same way the Wallets label does, with
-                the accessible name carrying the meaning. */}
+                chip, not a modal, and there is no dismissal to remember. */}
             {onboardedWallet && session.session === null && (
-              <button
-                type="button"
-                onClick={() => void signInThisBrowser()}
-                disabled={sessionBusy}
-                title="Sign once so PANIK recognises this browser next time. Free, no transaction."
-                aria-label="Stay signed in on this browser"
-                className="flex shrink-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <KeyRound className="w-3.5 h-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-                <span className="hidden sm:inline">
-                  {sessionBusy ? "Sign in wallet..." : "Stay signed in"}
-                </span>
-              </button>
+              <SignInButton scope="none" busy={session.busy} onClick={signInThisBrowser} chip />
             )}
           </div>
         </header>
@@ -2882,9 +2864,7 @@ export function AppDemo() {
             note about the link that brought the reader here belongs with it
             rather than inside whichever tab happened to be open. Both sit
             outside the scroller so neither can be scrolled out of frame. */}
-        {readOnlySession && (
-          <ReadOnlyBanner onSignIn={() => void signInThisBrowser()} busy={sessionBusy} />
-        )}
+        {readOnlySession && <ReadOnlyBanner onSignIn={signInThisBrowser} busy={session.busy} />}
         {session.note && <SessionNote text={session.note} onDismiss={session.dismissNote} />}
 
         {/* PAGE VIEWS SWITCH */}
@@ -4596,9 +4576,9 @@ export function AppDemo() {
                     <SessionCard
                       session={session.session}
                       wallet={onboardedWallet}
-                      busy={sessionBusy}
-                      onSignIn={() => void signInThisBrowser()}
-                      onSignOut={() => void signOutThisBrowser()}
+                      busy={session.busy}
+                      onSignIn={signInThisBrowser}
+                      onSignOut={signOutThisBrowser}
                     />
 
                     {/* Telegram alerts dispatcher (the real Connect flow).
@@ -4613,81 +4593,81 @@ export function AppDemo() {
                         the control at all: the banner above already says why,
                         and the Settings card above it says how to fix it. */}
                     {!readOnlySession && (
-                    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
-                      <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-                        <Bell className="w-4 h-4 text-text-primary" />
-                        <h3 className="flex items-center gap-1.5 text-2xs font-sans text-text-primary font-bold">
-                          Telegram alerts
-                          <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
-                        </h3>
-                      </div>
-                      <p className="text-xs text-text-secondary leading-relaxed font-sans">
-                        Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit.
-                      </p>
-                      <div className="flex flex-col sm:flex-row gap-3 pt-1">
-                        <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-xs truncate">
-                          {telegramLink.status === "connected" ? (
-                            <span className="text-risk-low flex items-center gap-1.5">
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                              Connected
-                            </span>
-                          ) : (
-                            /* States COVERAGE, not progress. This used to read
-                               "Linking 0x1234...abcd", which describes a
-                               handshake that has not been started and reads as
-                               "something is happening" on the one screen where
-                               the honest answer is "nothing is". The wallet is
-                               already named in the top bar, so the words are
-                               spent on the fact that matters. */
-                            <span className="text-text-secondary">
-                              {telegramEligible
-                                ? "Not connected. No alerts are being sent"
-                                : "No EVM wallet onboarded, so no alerts can be sent"}
-                            </span>
-                          )}
+                      <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
+                          <Bell className="w-4 h-4 text-text-primary" />
+                          <h3 className="flex items-center gap-1.5 text-2xs font-sans text-text-primary font-bold">
+                            Telegram alerts
+                            <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
+                          </h3>
                         </div>
-                        <button
-                          type="button"
-                          disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
-                          onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
-                          className="h-10 px-4 rounded-md text-2xs font-sans font-extrabold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-text-primary text-surface-base hover:opacity-90 cursor-pointer"
-                        >
-                          {telegramLink.status === "signing" ? "Sign in wallet..." :
-                           telegramLink.status === "requesting" ? "Opening..." :
-                           telegramLink.status === "connected" ? "Reconnect" :
-                           telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
-                        </button>
-                      </div>
-                      {telegramEligible && telegramLink.status !== "connected" && (
-                        <p className="text-xs font-sans text-text-secondary">
-                          Sign to prove wallet ownership - free, no transaction, no gas.
+                        <p className="text-xs text-text-secondary leading-relaxed font-sans">
+                          Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit.
                         </p>
-                      )}
-                      {!telegramEligible && (
-                        <p className="text-xs font-sans text-text-secondary">Onboard with an EVM wallet (0x...) to enable alerts.</p>
-                      )}
-                      {telegramLink.status === "connected" && (
-                        <p className="text-xs font-sans text-risk-low">
-                          Alerts are on. Send /stop in the bot anytime to pause them.
-                        </p>
-                      )}
-                      {telegramLink.status === "opened" && (
-                        <div className="space-y-1.5 pt-1.5 border-t border-border-subtle">
-                          <p className="text-xs font-sans text-risk-low flex items-center">
-                            Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
-                          </p>
-                          <p className="text-xs font-sans text-text-secondary leading-relaxed">
-                            If the link didn't open automatically, copy this command, open <strong className="text-text-primary">@{telegramBotUsername}</strong> in Telegram, and send it:
-                          </p>
-                          <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-sans text-xs text-risk-low select-all break-all">
-                            /start {telegramLink.code}
+                        <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                          <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-xs truncate">
+                            {telegramLink.status === "connected" ? (
+                              <span className="text-risk-low flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                Connected
+                              </span>
+                            ) : (
+                              /* States COVERAGE, not progress. This used to read
+                                 "Linking 0x1234...abcd", which describes a
+                                 handshake that has not been started and reads as
+                                 "something is happening" on the one screen where
+                                 the honest answer is "nothing is". The wallet is
+                                 already named in the top bar, so the words are
+                                 spent on the fact that matters. */
+                              <span className="text-text-secondary">
+                                {telegramEligible
+                                  ? "Not connected. No alerts are being sent"
+                                  : "No EVM wallet onboarded, so no alerts can be sent"}
+                              </span>
+                            )}
                           </div>
+                          <button
+                            type="button"
+                            disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
+                            onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
+                            className="h-10 px-4 rounded-md text-2xs font-sans font-extrabold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-text-primary text-surface-base hover:opacity-90 cursor-pointer"
+                          >
+                            {telegramLink.status === "signing" ? "Sign in wallet..." :
+                             telegramLink.status === "requesting" ? "Opening..." :
+                             telegramLink.status === "connected" ? "Reconnect" :
+                             telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
+                          </button>
                         </div>
-                      )}
-                      {telegramLink.status === "error" && telegramLink.error && (
-                        <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
-                      )}
-                    </div>
+                        {telegramEligible && telegramLink.status !== "connected" && (
+                          <p className="text-xs font-sans text-text-secondary">
+                            Sign to prove wallet ownership - free, no transaction, no gas.
+                          </p>
+                        )}
+                        {!telegramEligible && (
+                          <p className="text-xs font-sans text-text-secondary">Onboard with an EVM wallet (0x...) to enable alerts.</p>
+                        )}
+                        {telegramLink.status === "connected" && (
+                          <p className="text-xs font-sans text-risk-low">
+                            Alerts are on. Send /stop in the bot anytime to pause them.
+                          </p>
+                        )}
+                        {telegramLink.status === "opened" && (
+                          <div className="space-y-1.5 pt-1.5 border-t border-border-subtle">
+                            <p className="text-xs font-sans text-risk-low flex items-center">
+                              Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
+                            </p>
+                            <p className="text-xs font-sans text-text-secondary leading-relaxed">
+                              If the link didn't open automatically, copy this command, open <strong className="text-text-primary">@{telegramBotUsername}</strong> in Telegram, and send it:
+                            </p>
+                            <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-sans text-xs text-risk-low select-all break-all">
+                              /start {telegramLink.code}
+                            </div>
+                          </div>
+                        )}
+                        {telegramLink.status === "error" && telegramLink.error && (
+                          <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
+                        )}
+                      </div>
                     )}
 
                     {/* Standing exit permission (Phase 2.C) - grant/disclose/revoke
@@ -4754,9 +4734,9 @@ export function AppDemo() {
                         would be a promise about a feature this screen is not
                         offering, floating on its own. */}
                     {!readOnlySession && (
-                    <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
-                      We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
-                    </div>
+                      <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
+                        We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
+                      </div>
                     )}
                   </div>
                 </div>

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * The three surfaces that tell a reader how PANIK knows who they are, and the
- * two controls that change it.
+ * control that changes it.
  *
  * WHY THE COLOUR IS NEUTRAL. None of this is a risk state. A read-only session
  * is not a warning, a stale alert link is not a liquidation, and "signed in" is
@@ -22,11 +22,23 @@
 
 import React from "react";
 import { Eye, Info, KeyRound, X } from "lucide-react";
-import { Button } from "../ui";
-import type { Session } from "../lib/session";
+import { Button, Card } from "../ui";
+import { truncateAddress } from "../lib/utils";
+import type { Session, SessionScope } from "../lib/session";
 
-/** Address, short. The same shape the wallet chip in the header uses. */
-const short = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
+/** Every explanatory line on these surfaces reads the same. */
+const PROSE = "text-xs font-sans leading-relaxed text-text-secondary";
+
+/**
+ * Pinned once at module scope rather than rebuilt per render: constructing a
+ * formatter is the expensive half of formatting a date, and this one renders on
+ * every pass over the Settings tab.
+ */
+const EXPIRY_FORMAT = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
 
 /**
  * The expiry as a date, or null when the server's value is not one.
@@ -37,8 +49,74 @@ const short = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
  */
 function expiryDate(iso: string): string | null {
   const when = new Date(iso);
-  if (Number.isNaN(when.getTime())) return null;
-  return when.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+  return Number.isNaN(when.getTime()) ? null : EXPIRY_FORMAT.format(when);
+}
+
+/** What a session is worth here, with "no session at all" as a fourth answer. */
+type SessionState = SessionScope | "none";
+
+export interface SignInButtonProps {
+  scope: SessionState;
+  busy: boolean;
+  onClick: () => void;
+  variant?: "primary" | "outline";
+  /**
+   * Render as a header chip instead of a button, matching the wallet and
+   * Wallets controls it sits between. The header's chips are their own visual
+   * language and a primitive Button among them reads as a different kind of
+   * thing; what must not fork is the LABEL, which is why one component owns
+   * both shapes.
+   */
+  chip?: boolean;
+}
+
+/**
+ * The one control that asks for a `session-start` signature, in the three
+ * places it is offered.
+ *
+ * The label is the reason this is a component and not three buttons. What is
+ * being offered genuinely differs by state, "stay signed in" for a visitor who
+ * is nobody yet and "sign in with wallet" for a reader the server can name but
+ * not vouch for, and three hand-typed copies of that ternary is how one of them
+ * ends up saying the wrong thing about what pressing it does.
+ */
+export function SignInButton({
+  scope,
+  busy,
+  onClick,
+  variant = "outline",
+  chip = false,
+}: SignInButtonProps) {
+  const label = busy
+    ? "Sign in wallet..."
+    : scope === "readonly"
+      ? "Sign in with wallet"
+      : "Stay signed in";
+
+  if (chip) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={busy}
+        title="Sign once so PANIK recognises this browser next time. Free, no transaction."
+        aria-label="Stay signed in on this browser"
+        className="flex shrink-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <KeyRound className="w-3.5 h-3.5 shrink-0 text-text-muted" aria-hidden="true" />
+        {/* The word drops at 390px the same way the Wallets label does, with
+            the accessible name carrying the meaning. */}
+        <span className="hidden sm:inline">{label}</span>
+      </button>
+    );
+  }
+
+  return (
+    <Button variant={variant} onClick={onClick} disabled={busy}>
+      <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+      {label}
+    </Button>
+  );
 }
 
 /**
@@ -50,13 +128,7 @@ function expiryDate(iso: string): string | null {
  * the cure, and the control that performs the cure is beside it rather than
  * somewhere the reader has to go and find.
  */
-export function ReadOnlyBanner({
-  onSignIn,
-  busy,
-}: {
-  onSignIn: () => void;
-  busy: boolean;
-}) {
+export function ReadOnlyBanner({ onSignIn, busy }: { onSignIn: () => void; busy: boolean }) {
   return (
     <div
       role="status"
@@ -64,14 +136,11 @@ export function ReadOnlyBanner({
     >
       <div className="flex min-w-0 items-center gap-2">
         <Eye className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-        <span className="text-xs font-sans leading-relaxed text-text-secondary">
+        <span className={PROSE}>
           Viewing via alert link. Sign in with your wallet to make changes.
         </span>
       </div>
-      <Button variant="outline" onClick={onSignIn} disabled={busy}>
-        <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-        {busy ? "Sign in wallet..." : "Sign in with wallet"}
-      </Button>
+      <SignInButton scope="readonly" busy={busy} onClick={onSignIn} />
     </div>
   );
 }
@@ -92,9 +161,7 @@ export function SessionNote({ text, onDismiss }: { text: string; onDismiss: () =
       className="flex shrink-0 items-start gap-2 border-b border-border-subtle bg-white/[0.02] px-4 py-2 md:px-8"
     >
       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-      <span className="min-w-0 flex-1 text-xs font-sans leading-relaxed text-text-secondary">
-        {text}
-      </span>
+      <span className={`min-w-0 flex-1 ${PROSE}`}>{text}</span>
       <Button variant="quiet" onClick={onDismiss} aria-label="Dismiss this message">
         <X className="h-3.5 w-3.5" />
       </Button>
@@ -125,76 +192,78 @@ export interface SessionCardProps {
  * reason to open Settings.
  */
 export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: SessionCardProps) {
-  const until = session ? expiryDate(session.expiresAt) : null;
+  const state: SessionState = session?.scope ?? "none";
+
+  let body: React.ReactNode;
+  if (session && state === "full") {
+    const until = expiryDate(session.expiresAt);
+    body = (
+      <>
+        <p className={PROSE}>
+          This browser is signed in as {truncateAddress(session.wallet)}.
+          {until ? ` PANIK will recognise it until ${until}.` : ""} Signing out revokes that here
+          and everywhere the same session was open.
+        </p>
+        <Button variant="outline" onClick={onSignOut} disabled={busy}>
+          {busy ? "Signing out..." : "Sign out"}
+        </Button>
+      </>
+    );
+  } else if (state === "readonly") {
+    body = (
+      <>
+        {/* The honest description of what the alert link proved: that the
+            reader can see the chat those alerts go to. That is a real claim
+            and a weaker one than holding the key, which is exactly why the
+            writes are still withheld. */}
+        <p className={PROSE}>
+          You opened PANIK from an alert link. That shows PANIK which wallet the alert was about,
+          not that you hold it, so this view can read and not change. Sign in with that wallet to
+          make changes.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {wallet && <SignInButton scope="readonly" busy={busy} onClick={onSignIn} variant="primary" />}
+          <Button variant="outline" onClick={onSignOut} disabled={busy}>
+            Sign out
+          </Button>
+        </div>
+      </>
+    );
+  } else {
+    body = (
+      <>
+        <p className={PROSE}>
+          This browser is not signed in, so PANIK asks for your wallet again on every visit.
+        </p>
+        {wallet ? (
+          <SignInButton scope="none" busy={busy} onClick={onSignIn} variant="primary" />
+        ) : (
+          <p className={PROSE}>
+            Add the wallet PANIK should watch first, then this browser can remember it.
+          </p>
+        )}
+      </>
+    );
+  }
 
   return (
-    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+    <Card tone="raised" className="space-y-3">
       <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
         <KeyRound className="w-4 h-4 text-text-primary" />
         <h3 className="text-2xs font-sans text-text-primary font-bold">Staying signed in</h3>
       </div>
 
-      {session?.scope === "full" && (
-        <>
-          <p className="text-xs text-text-secondary leading-relaxed font-sans">
-            This browser is signed in as {short(session.wallet)}.
-            {until ? ` PANIK will recognise it until ${until}.` : ""} Signing out revokes that here
-            and everywhere the same session was open.
-          </p>
-          <Button variant="outline" onClick={onSignOut} disabled={busy}>
-            {busy ? "Signing out..." : "Sign out"}
-          </Button>
-        </>
-      )}
+      {body}
 
-      {session?.scope === "readonly" && (
-        <>
-          {/* The honest description of what the alert link proved: that the
-              reader can see the chat those alerts go to. That is a real claim
-              and a weaker one than holding the key, which is exactly why the
-              writes are still withheld. */}
-          <p className="text-xs text-text-secondary leading-relaxed font-sans">
-            You opened PANIK from an alert link. That shows PANIK which wallet the alert was about,
-            not that you hold it, so this view can read and not change. Sign in with that wallet to
-            make changes.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={onSignIn} disabled={busy || !wallet}>
-              {busy ? "Sign in wallet..." : "Sign in with wallet"}
-            </Button>
-            <Button variant="outline" onClick={onSignOut} disabled={busy}>
-              Sign out
-            </Button>
-          </div>
-        </>
-      )}
-
-      {session === null && (
-        <>
-          <p className="text-xs text-text-secondary leading-relaxed font-sans">
-            This browser is not signed in, so PANIK asks for your wallet again on every visit.
-          </p>
-          {wallet ? (
-            <Button onClick={onSignIn} disabled={busy}>
-              {busy ? "Sign in wallet..." : "Stay signed in"}
-            </Button>
-          ) : (
-            <p className="text-xs text-text-secondary leading-relaxed font-sans">
-              Add the wallet PANIK should watch first, then this browser can remember it.
-            </p>
-          )}
-        </>
-      )}
-
-      {session?.scope !== "full" && (
+      {state !== "full" && (
         /* Keep-inline by the three-way test: it is the only place the reader
            can learn what they are being asked to sign, and the limit on it is
            the reason signing is a reasonable thing to agree to. */
-        <p className="text-xs text-text-secondary leading-relaxed font-sans">
+        <p className={PROSE}>
           One signature, free, no transaction, no gas. It lets PANIK recognise this browser for 30
           days. It does not authorize anything: every change still asks for its own signature.
         </p>
       )}
-    </div>
+    </Card>
   );
 }
