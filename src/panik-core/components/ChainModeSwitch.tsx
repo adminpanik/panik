@@ -18,6 +18,7 @@
  * rationed to the indicators that carry one (docs/DESIGN_SYSTEM.md).
  */
 
+import { Card } from "../ui";
 import {
   CHAIN_MODE_LABEL,
   exitAvailabilityLine,
@@ -56,9 +57,9 @@ export function ChainModeBadge({ onOpenSettings }: { onOpenSettings?: () => void
 export function ChainModeSwitch() {
   const mode = useChainMode();
   return (
-    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+    <Card tone="raised" className="space-y-3">
       <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-        <h3 id="chain-mode-heading" className="text-2xs font-sans text-text-primary font-bold">
+        <h3 id="chain-mode-heading" className="text-sm font-sans font-semibold text-text-primary">
           Network
         </h3>
       </div>
@@ -92,6 +93,6 @@ export function ChainModeSwitch() {
       <p className="text-xs text-text-secondary leading-relaxed font-sans">
         {MODE_BODY[mode]} {exitAvailabilityLine(mode)}
       </p>
-    </div>
+    </Card>
   );
 }

@@ -65,7 +65,7 @@ import {
   type GrantAction,
 } from "../lib/exitPermitCompose";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
-import { Button } from "../ui";
+import { Button, Card } from "../ui";
 
 const BPS = 10_000;
 
@@ -368,7 +368,7 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   const header = (
     <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
       <ShieldCheck className="w-4 h-4 text-text-primary" />
-      <h3 className="text-2xs font-sans text-text-primary font-bold">Standing exit permission</h3>
+      <h3 className="text-sm font-sans font-semibold text-text-primary">Standing exit permission</h3>
       <TestnetBadge />
     </div>
   );
@@ -387,45 +387,45 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   // chain. It is the same honesty gate the exit modal applies, one step earlier.
   if (!exitsExecutableOn(chainMode)) {
     return (
-      <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+      <Card tone="raised" className="space-y-3">
         {header}
         {intro}
         <p className="text-xs text-text-secondary leading-relaxed font-sans">
           {exitAvailabilityLine(chainMode)} A standing permission would have nothing to run, so
           there is nothing to grant here yet. Switch the network above to try it end to end.
         </p>
-      </div>
+      </Card>
     );
   }
 
   if (!isConnected) {
     return (
-      <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+      <Card tone="raised" className="space-y-3">
         {header}
         {intro}
         <Button onClick={() => connect({ connector: injected() })} className="mt-1">
           <Wallet className="w-3.5 h-3.5" /> Connect wallet
         </Button>
-      </div>
+      </Card>
     );
   }
 
   if (!onChain) {
     return (
-      <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+      <Card tone="raised" className="space-y-3">
         {header}
         {intro}
         <Button onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })} className="mt-1">
           Switch to {getExitChain().name}
         </Button>
-      </div>
+      </Card>
     );
   }
 
   const slippageInvalid = ceilingBps === null || slippageBps === null;
 
   return (
-    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-5">
+    <Card tone="raised" className="space-y-5">
       {header}
       {intro}
 
@@ -711,6 +711,6 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
           </p>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

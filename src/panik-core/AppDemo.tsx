@@ -4622,13 +4622,37 @@ export function AppDemo() {
             {/* VIEW E: SETTINGS TAB (Sentry preferences + Telegram alert dispatcher) */}
             {activeTab === "settings" && (
               <TabPanel key="settings" tab="settings">
-                <div className="border-b border-border-subtle pb-3">
-                  <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide">Settings</h2>
-                </div>
+                {/* ONE settled column, centred, and no sidebar.
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Main settings column */}
-                  <div className="lg:col-span-8 space-y-6">
+                    This was a 12-column split whose right track held a single
+                    three-line privacy note. Measured at a 1440 window: the panel
+                    is 1114px, the sidebar track took 355px of it (32%) and ran
+                    853px tall to match its neighbour, so roughly 790px of the
+                    tab was permanently empty page with a hairline down the
+                    middle of it. The note belonged to the Telegram card anyway,
+                    and now sits under it.
+
+                    Settings is a stack of forms rather than a dashboard, and a
+                    form has a measure: `max-w-3xl` is 768px, within 33px of the
+                    735px these cards already rendered at, so the cards are the
+                    width they were and the slack is split evenly instead of
+                    dumped on one side. `TabPanel`'s own 1600px cap still applies
+                    above it.
+
+                    The page header is INSIDE the column rather than above it,
+                    so the heading, the rule under it and every card share one
+                    left edge. A full-width rule over an inset stack reads as
+                    two different pages joined at the top. */}
+                <div className="mx-auto w-full max-w-3xl space-y-6">
+                    {/* The other four tabs' page header, exactly: an `h1` at
+                        `text-2xl` over a hairline with `pb-5`. This tab was
+                        running its own smaller one (`h2`, `text-lg`,
+                        `tracking-wide`, `pb-3`), so moving between tabs restated
+                        the heading at two sizes with no rule saying which was
+                        which. */}
+                    <div className="border-b border-border-subtle pb-5">
+                      <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Settings</h1>
+                    </div>
 
                     {/* First, because it decides what the cards under it are
                         even about: which chain the positions, scores and exits
@@ -4662,10 +4686,10 @@ export function AppDemo() {
                         the control at all: the banner above already says why,
                         and the Settings card above it says how to fix it. */}
                     {!readOnlySession && (
-                      <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                      <Card tone="raised" className="space-y-3">
                         <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
                           <Bell className="w-4 h-4 text-text-primary" />
-                          <h3 className="flex items-center gap-1.5 text-2xs font-sans text-text-primary font-bold">
+                          <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
                             Telegram alerts
                             <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
                           </h3>
@@ -4736,6 +4760,24 @@ export function AppDemo() {
                         {telegramLink.status === "error" && telegramLink.error && (
                           <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
                         )}
+                      </Card>
+                    )}
+
+                    {/* Travels with the card it belongs to, and now sits under
+                        it rather than in a sidebar track beside it. It is a
+                        data-handling commitment about the Telegram link and the
+                        only place /stop is documented, so it is never deleted -
+                        but with that card withheld under a read-only session it
+                        would be a promise about a feature this screen is not
+                        offering, floating on its own.
+
+                        Deliberately NOT the `Card` primitive the cards above it
+                        are. It is a footnote to the card it follows, and giving
+                        it the same plate and the same padding would make it read
+                        as a fifth setting. */}
+                    {!readOnlySession && (
+                      <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
+                        We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
                       </div>
                     )}
 
@@ -4748,11 +4790,11 @@ export function AppDemo() {
                         Hidden per business-dev QA (2026-07-03) until the
                         Deleverager ships - flip SHOW_AUTO_REPAY_CARD to restore. */}
                     {SHOW_AUTO_REPAY_CARD && (
-                    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                    <Card tone="raised" className="space-y-3">
                       <div className="flex justify-between items-center border-b border-border-subtle pb-2.5">
                         <div className="flex items-center gap-2">
                           <Sliders className="w-4 h-4 text-text-primary" />
-                          <h3 className="text-2xs font-sans text-text-primary font-bold">
+                          <h3 className="text-sm font-sans font-semibold text-text-primary">
                             Emergency auto repayment
                           </h3>
                         </div>
@@ -4784,30 +4826,8 @@ export function AppDemo() {
                           className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
                         />
                       </div>
-                    </div>
+                    </Card>
                     )}
-                  </div>
-
-                  {/* Integration sidebar. The four-step "How to connect alerts"
-                      list that used to sit above the privacy note is gone: step
-                      1 described what pressing the Connect button already does,
-                      step 2 is the instruction Telegram itself shows, step 3
-                      restated the paragraph beside it, and step 4 restated the
-                      note below. The privacy note stays — it is a data-handling
-                      commitment and the only place /stop is documented. */}
-                  <div className="lg:col-span-4 space-y-4">
-                    {/* Travels with the card it belongs to. It is a
-                        data-handling commitment about the Telegram link and the
-                        only place /stop is documented, so it is never deleted -
-                        but with that card withheld under a read-only session it
-                        would be a promise about a feature this screen is not
-                        offering, floating on its own. */}
-                    {!readOnlySession && (
-                      <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
-                        We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
-                      </div>
-                    )}
-                  </div>
                 </div>
               </TabPanel>
             )}
