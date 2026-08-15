@@ -3,6 +3,7 @@
  * the whole layer stays greppable and adds no dependency.
  */
 export { Card } from "./Card";
+export { Chip } from "./Chip";
 export { DemoChip } from "./DemoChip";
 export { TabPanel } from "./TabPanel";
 export { RiskDial, riskScoreLabel } from "./RiskDial";

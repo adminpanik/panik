@@ -28,7 +28,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Undo2, WalletCards, X } from "lucide-react";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
-import { Button, EmptyState, Skeleton } from "../ui";
+import { Button, Chip, EmptyState, Skeleton } from "../ui";
 import { RISK_PROFILES, truncateAddress } from "../lib/utils";
 import { isEvmAddress, type GetProof } from "../lib/telegram";
 import {
@@ -356,16 +356,8 @@ function WalletRow({
         >
           {truncateAddress(row.wallet)}
         </span>
-        {isOwner && (
-          <span className="rounded-sm border border-border-subtle bg-white/[0.04] px-2 py-0.5 text-2xs font-sans font-bold text-text-muted">
-            Your wallet
-          </span>
-        )}
-        {isViewed && !isOwner && (
-          <span className="rounded-sm border border-border-subtle bg-white/[0.04] px-2 py-0.5 text-2xs font-sans font-bold text-text-muted">
-            Showing in Portfolio
-          </span>
-        )}
+        {isOwner && <Chip>Your wallet</Chip>}
+        {isViewed && !isOwner && <Chip>Showing in Portfolio</Chip>}
       </div>
 
       {readOnly ? (
