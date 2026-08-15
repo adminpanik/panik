@@ -708,9 +708,9 @@ const FALLBACK_SCORE_NOTE =
  * `lead` is the opposite end of the same axis, and it is why the other cards
  * settled a step. Eight cards at one weight is a page with no answer on it: the
  * reader has to compare eight dials before the screen has told them anything.
- * The emphasis is SURFACE, BORDER and a type step, never more hue - the dial is
- * still the only coloured thing on any of these cards, and the lead's own claim
- * is a neutral `Chip`.
+ * The emphasis is the BORDER, a type step and a marker, never more hue - the
+ * dial is still the only coloured thing on any of these cards, and the lead's
+ * own claim is a neutral `Chip`.
  */
 function MarketCard({
   preset,
@@ -752,18 +752,21 @@ function MarketCard({
   const apy = poolYield?.apy ?? preset.apy;
   const trend = poolYield ? apyTrendCopy(apy, poolYield.apySeries) : null;
   return (
-    <div
-      onClick={onBreakdown}
+    <Card
       /* Three depths, in the order the reader should meet them: the lead, the
          rest of its section, and the section that is out of profile. `strong` on
          the lead's edge is the only functional border on the grid, and it is the
-         one card whose edge is doing a job. */
-      className={`flex cursor-pointer flex-col gap-3 rounded-lg border p-5 transition-colors hover:border-border-strong ${
-        lead
-          ? "border-border-strong bg-surface-raised/80 hover:bg-surface-overlay/90"
-          : muted
-            ? "border-border-subtle bg-surface-raised/25 hover:bg-surface-raised/45"
-            : "border-border-subtle bg-surface-raised/45 hover:bg-surface-overlay/60"
+         one card whose edge is doing a job.
+
+         The primitive owns all three, so this grid's lead is pixel-for-pixel the
+         Advisor's: the two were hand-typed apart at `surface-raised/80` and /50,
+         which is one screen's "the thing to read here" being a different object
+         from another's. Only the hover is left here, because it is a step up
+         from whichever base the tone set. */
+      tone={lead ? "lead" : muted ? "set-back" : "raised"}
+      onClick={onBreakdown}
+      className={`flex cursor-pointer flex-col gap-3 transition-colors hover:border-border-strong ${
+        muted ? "hover:bg-surface-raised/45" : "hover:bg-surface-overlay/60"
       }`}
     >
       {/* The claim, in a neutral marker, above the identity it is about. It is
@@ -875,7 +878,7 @@ function MarketCard({
           <Eye className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
