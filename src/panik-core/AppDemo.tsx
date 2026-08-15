@@ -116,6 +116,7 @@ import {
   Card,
   DemoChip,
   EmptyState,
+  Listbox,
   RiskChip,
   RiskDial,
   riskScoreLabel,
@@ -133,6 +134,7 @@ import {
   useWalletHistory,
   recommendedExitAction,
   useWalletPositions,
+  type Band,
   type LiveProtocol,
   type PoolYield,
 } from "./lib/live";
@@ -929,6 +931,53 @@ function MarketSection({
 }
 
 /**
+ * One row of the Watch market listbox.
+ *
+ * ONE component for the two sources Watch reads (the wallet's real positions,
+ * and the Compass preset catalog), because the row is the same object seen from
+ * two sides: who runs the market, what the leg is, and what it scores. The two
+ * branches were verbatim copies differing only in the middle line, which is the
+ * shape that lets one of them quietly gain a band the other does not draw.
+ *
+ * The band lives in `RiskChip`, the one place a band becomes pixels, and the
+ * score is neutral ink beside it: a figure is not the thing that carries the
+ * hue. Nothing here states the band by colour alone - the chip's own word does.
+ */
+function MarketOptionRow({
+  protocol,
+  line,
+  band,
+  score,
+  selected,
+}: {
+  protocol: string;
+  /** The leg, already worded by the caller: it is a size on one source and an asset pair on the other. */
+  line: string;
+  band: Band;
+  score: number;
+  selected: boolean;
+}) {
+  return (
+    <>
+      <div className="min-w-0">
+        <span className="block text-xs font-sans text-text-muted">{protocol}</span>
+        <span
+          className={`block text-sm font-sans font-semibold truncate tabular-nums ${
+            selected ? "text-text-primary" : "text-text-secondary"
+          }`}
+        >
+          {line}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <RiskChip band={band}>{band}</RiskChip>
+        <span className="text-xs font-sans text-text-muted tabular-nums">{score}</span>
+      </div>
+    </>
+  );
+}
+
+/**
  * Everything the risk-breakdown panel renders, read once so no cell can derive
  * a second version of a figure another cell already shows.
  */
@@ -1416,9 +1465,6 @@ export function AppDemo() {
   const [selectedRiskBreakdownPreset, setSelectedRiskBreakdownPreset] = useState<VaultPreset | null>(null);
   // Demo-only open-position flow (no signing; see OpenPositionModal).
   const [openPositionPreset, setOpenPositionPreset] = useState<VaultPreset | null>(null);
-  // Watch tab: market/preset selector dropdown
-  const [watchDropOpen, setWatchDropOpen] = useState<boolean>(false);
-  const watchDropRef = useRef<HTMLDivElement>(null);
 
   // ── First-time onboarding (no backend — localStorage-persisted) ──────────
   // Null means closed; the value is WHY it is open, because the three entry
@@ -2415,6 +2461,51 @@ export function AppDemo() {
    */
   const sameAssetMarket = isSameAssetMarket(activeMarket);
 
+  /**
+   * The market listbox's rows, from whichever source Watch is reading.
+   *
+   * ONE array rather than two branches inside the panel, because `Listbox`
+   * addresses a row by INDEX: "the third row" has to mean one thing, and two
+   * `.map`s over two lists cannot agree on what it is. Which list is showing is
+   * decided here, once, beside the state that decides it.
+   */
+  const marketChoices: {
+    key: string;
+    protocol: string;
+    line: string;
+    band: Band;
+    score: number;
+    selected: boolean;
+    commit: () => void;
+  }[] = watchingOwnPosition
+    ? watchPositionMarkets.map(({ key, position, preset }) => ({
+        key,
+        protocol: preset.protocol,
+        // Never a zero standing in for a size we could not price: a degraded
+        // feed says so in words, in the slot the money would have been in.
+        line: `${preset.collateralSymbol} · ${
+          position.collateralValueUsd === null
+            ? "size unavailable (prices degraded)"
+            : `${formatCurrency(position.collateralValueUsd)} supplied`
+        }`,
+        band: preset.riskStatus,
+        score: preset.baseRisk,
+        selected: key === selectedPositionMarket?.key,
+        commit: () => setSelectedLivePositionKey(key),
+      }))
+    : presetsWithLive.map((p) => ({
+        key: p.id,
+        protocol: p.protocol,
+        line: p.assetPair,
+        band: p.riskStatus,
+        score: p.baseRisk,
+        selected: p.id === selectedPresetId,
+        commit: () => setSelectedPresetId(p.id),
+      }));
+  // The same guard `WalletSelector` makes for the same reason: a miss is a
+  // caller bug, and the first row is the honest thing to open on while it lasts.
+  const marketSelectedIndex = Math.max(0, marketChoices.findIndex((c) => c.selected));
+
   // Simulator parameters (sliders + direct numeric inputs)
   const [collateralAmount, setCollateralAmount] = useState<number>(activePreset.defaultCollateral);
   const [borrowAmount, setBorrowAmount] = useState<number>(activePreset.defaultBorrow);
@@ -2444,17 +2535,6 @@ export function AppDemo() {
     setActiveScenario("current");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMarket.id]);
-
-  // Close Watch market dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (watchDropRef.current && !watchDropRef.current.contains(e.target as Node)) {
-        setWatchDropOpen(false);
-      }
-    };
-    if (watchDropOpen) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [watchDropOpen]);
 
   /**
    * The offline fallback score, for the minutes `/api/prospective` is
@@ -3231,7 +3311,7 @@ export function AppDemo() {
                       {/* Market selector - mode-aware. Positions mode lists the
                           wallet's real on-chain positions; Recommendations lists
                           the Compass preset catalog. */}
-                      <div className="relative" ref={watchDropRef}>
+                      <div>
                         {/* Sentence case, and two words. The uppercase
                             letter-spaced style was retired everywhere else in
                             the app, and "SCORED ON-CHAIN" was provenance the
@@ -3249,97 +3329,55 @@ export function AppDemo() {
                               : "Your position"
                             : "Simulated market"}
                         </span>
-                        <button
-                          id="watch-market-selector"
-                          onClick={() => setWatchDropOpen(v => !v)}
-                          className="group flex items-center gap-2 cursor-pointer"
-                          aria-haspopup="listbox"
-                          aria-expanded={watchDropOpen}
-                        >
-                          <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide group-hover:text-text-muted transition-colors">
-                            {activeMarket.protocol} · {activeMarket.assetPair}
-                          </h2>
-                          <ChevronDown
-                            className={`w-4 h-4 text-text-muted group-hover:text-text-muted transition-all duration-200 ${watchDropOpen ? "rotate-180" : ""}`}
-                          />
-                        </button>
+                        {/* The app's listbox, not a second one. This was a
+                            button and a `<ul>` with no key handling at all: the
+                            list could not be opened, moved through or dismissed
+                            from a keyboard, on the screen where a reader
+                            compares four positions before acting on one. It
+                            also carried its own copy of the outside-click
+                            effect. Both are `ui/Listbox` now, which
+                            `WalletSelector` also uses, so a fix to either lands
+                            on both.
 
-                        {/* Dropdown panel */}
-                        <AnimatePresence>
-                          {watchDropOpen && (
-                            <motion.ul
-                              role="listbox"
-                              aria-label="Select market"
-                              initial={{ opacity: 0, y: -6, scale: 0.97 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                              transition={{ duration: 0.14 }}
-                              className="absolute left-0 top-full mt-2 z-50 w-80 bg-surface-raised border border-border-subtle rounded-md shadow-2xl overflow-hidden"
-                            >
-                              {watchingOwnPosition
-                                ? watchPositionMarkets.map(({ key, position, preset }) => {
-                                    const isActive = key === selectedPositionMarket?.key;
-                                    return (
-                                      <li
-                                        key={key}
-                                        role="option"
-                                        aria-selected={isActive}
-                                        onClick={() => {
-                                          setSelectedLivePositionKey(key);
-                                          setWatchDropOpen(false);
-                                        }}
-                                        className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
-                                          isActive
-                                            ? "bg-white/[0.06] border-l-2 border-l-border-strong"
-                                            : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
-                                        }`}
-                                      >
-                                        <div className="min-w-0">
-                                          <span className="block text-xs font-sans text-text-muted">{preset.protocol}</span>
-                                          <span className={`block text-sm font-sans font-semibold truncate tabular-nums ${
-                                            isActive ? "text-text-primary" : "text-text-secondary"
-                                          }`}>{preset.collateralSymbol} · {position.collateralValueUsd === null ? "size unavailable (prices degraded)" : `${formatCurrency(position.collateralValueUsd)} supplied`}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                          <RiskChip band={preset.riskStatus}>{preset.riskStatus}</RiskChip>
-                                          <span className="text-xs font-sans text-text-muted tabular-nums">{preset.baseRisk}</span>
-                                        </div>
-                                      </li>
-                                    );
-                                  })
-                                : presetsWithLive.map((p) => {
-                                    const isActive = p.id === selectedPresetId;
-                                    return (
-                                      <li
-                                        key={p.id}
-                                        role="option"
-                                        aria-selected={isActive}
-                                        onClick={() => {
-                                          setSelectedPresetId(p.id);
-                                          setWatchDropOpen(false);
-                                        }}
-                                        className={`flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors ${
-                                          isActive
-                                            ? "bg-white/[0.06] border-l-2 border-l-border-strong"
-                                            : "hover:bg-white/[0.04] border-l-2 border-l-transparent"
-                                        }`}
-                                      >
-                                        <div className="min-w-0">
-                                          <span className="block text-xs font-sans text-text-muted">{p.protocol}</span>
-                                          <span className={`block text-sm font-sans font-semibold truncate ${
-                                            isActive ? "text-text-primary" : "text-text-secondary"
-                                          }`}>{p.assetPair}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                          <RiskChip band={p.riskStatus}>{p.riskStatus}</RiskChip>
-                                          <span className="text-xs font-sans text-text-muted tabular-nums">{p.baseRisk}</span>
-                                        </div>
-                                      </li>
-                                    );
-                                  })}
-                            </motion.ul>
+                            The rows are what they were: protocol, the leg, the
+                            band as a chip and the score beside it. */}
+                        <Listbox
+                          label="Which market to score"
+                          count={marketChoices.length}
+                          selectedIndex={marketSelectedIndex}
+                          onCommit={(i) => marketChoices[i].commit()}
+                          triggerClassName="group flex items-center gap-2 cursor-pointer"
+                          renderTrigger={(open) => (
+                            <>
+                              <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide group-hover:text-text-muted transition-colors">
+                                {activeMarket.protocol} · {activeMarket.assetPair}
+                              </h2>
+                              <ChevronDown
+                                aria-hidden="true"
+                                className={`w-4 h-4 text-text-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+                              />
+                            </>
                           )}
-                        </AnimatePresence>
+                          /* The selected row keeps its left rail, which is the
+                             marker this list has always used for "this is the
+                             one you are on". The keyboard's row takes the same
+                             tint the pointer's does, and only a row that is
+                             neither gets the hover. */
+                          optionClassName={({ selected, active }) =>
+                            `flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors border-l-2 ${
+                              selected ? "border-l-border-strong" : "border-l-transparent"
+                            } ${selected || active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"}`
+                          }
+                          renderOption={(i, { selected }) => (
+                            <MarketOptionRow
+                              protocol={marketChoices[i].protocol}
+                              line={marketChoices[i].line}
+                              band={marketChoices[i].band}
+                              score={marketChoices[i].score}
+                              selected={selected}
+                            />
+                          )}
+                        />
                       </div>
                       <div className="flex items-center gap-2.5">
                         {/* Simulate-to-open path: the simulator is where conviction
