@@ -97,6 +97,16 @@ import {
   WatchlistError,
 } from "../server/watchlist";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
+import {
+  burnDeepLinkToken,
+  clearedSessionCookie,
+  createSession,
+  readCookie,
+  readSession,
+  revokeSession,
+  SESSION_COOKIE,
+  sessionCookie,
+} from "../server/sessionStore";
 import { SupabaseDelegationStore } from "../server/exitDelegationStore";
 import { ViemExitChainReader } from "../server/exitChain";
 import { listLiveDelegations, revokeDelegation, submitDelegation } from "../server/exitDelegations";
@@ -500,7 +510,10 @@ app.use((req, res, next) => {
   else if (origin && corsOrigins.includes(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
   else if (origin) logDeniedOrigin(origin);
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  // DELETE is here for /api/session and /api/admin/simulation. It was missing
+  // while the latter already existed, so a cross-origin preflight for it was
+  // being answered with a method list that did not include it.
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Telegram-Bot-Api-Secret-Token, X-Admin-Key");
   if (req.method === "OPTIONS") { res.status(204).end(); return; }
   next();
@@ -760,6 +773,121 @@ app.get("/api/auth/nonce", strictLimit, async (req, res) => {
   try {
     const { nonce } = await store.issue();
     res.json({ nonce, expiresInSec: AUTH_NONCE_TTL_MS / 1000 });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+// ── identity sessions ───────────────────────────────────────────────────────
+//
+// SIGNATURES AUTHORIZE ACTIONS; SESSIONS ONLY RESTORE IDENTITY. These four
+// routes are the entire session surface, and none of the write endpoints below
+// reads a cookie: /api/watchlist, /api/wallets/register and /api/telegram/link
+// each still demand their own single-use SIWE proof on every request, exactly
+// as they did before sessions existed. server/sessionBoundary.test.ts scans
+// this file and fails the build if a mutating route ever starts consulting one.
+//
+// All four are strict-tiered. Each one either mints a row, burns a row, or is
+// an unauthenticated guess at a credential, and none is a cheap cached GET.
+//
+// CORS: `Access-Control-Allow-Credentials` is deliberately NOT set. The
+// frontend reaches this API same-origin through the Vercel rewrite
+// (www.panik.fi/api/* -> Railway), so the cookie rides along without it;
+// setting it would be the one change that makes these cookies usable from a
+// genuinely cross-origin page.
+
+/** The session token this request presents, if any. */
+function presentedToken(req: express.Request): string | null {
+  return readCookie(req.headers.cookie, SESSION_COOKIE);
+}
+
+/**
+ * Mint a full session from a SIWE proof of `session-start`.
+ *
+ * The proof is a normal single-use ownership proof — same nonce, same domain
+ * binding, same exact-message re-derivation as every write. What is different
+ * is what it buys: a name, for thirty days, and nothing else.
+ */
+app.post("/api/session", strictLimit, async (req, res) => {
+  const proof = await verifyWalletOwnership(req.body, "session-start");
+  if (!proof.ok) {
+    res.status(proof.status).json({ error: proof.error });
+    return;
+  }
+  try {
+    const session = await createSession(db, proof.wallet, "full");
+    res.setHeader("Set-Cookie", sessionCookie(session.token, session.maxAgeSec));
+    res.json({ wallet: proof.wallet, scope: "full", expiresAt: session.expiresAt });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * Who is this browser? 401 when the answer is "nobody we can vouch for".
+ *
+ * One refusal for every cause — no cookie, malformed, unknown, revoked,
+ * expired. The client cannot tell them apart, and should not: the difference is
+ * only ever useful to someone guessing tokens.
+ */
+app.get("/api/session", strictLimit, async (req, res) => {
+  try {
+    const identity = await readSession(db, presentedToken(req));
+    if (!identity) {
+      res.status(401).json({ error: "not signed in" });
+      return;
+    }
+    res.json(identity);
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * Sign out: revoke server-side AND clear the cookie, in that order of
+ * importance. Clearing the cookie alone would leave any copy that had already
+ * been taken valid for the rest of its life, which is the opposite of what the
+ * person pressing this button is asking for.
+ *
+ * Always 200, even with no cookie. Sign-out is idempotent and must not report
+ * whether the token it was handed happened to exist.
+ */
+app.delete("/api/session", strictLimit, async (req, res) => {
+  try {
+    await revokeSession(db, presentedToken(req));
+  } catch (err) {
+    // Log it, but still clear the cookie: leaving the browser signed in because
+    // the revocation write failed is the worse of the two outcomes.
+    console.error(`DELETE /api/session revoke failed: ${(err as Error).message}`);
+  }
+  res.setHeader("Set-Cookie", clearedSessionCookie());
+  res.json({ ok: true });
+});
+
+/**
+ * Trade a Telegram alert's `sid` for a READONLY session.
+ *
+ * Read-only because that is the honest reading of what the bearer proved: they
+ * can see the chat this wallet's alerts go to. Enough to be shown the position
+ * the alert was about; not enough to be treated as the key holder, which is why
+ * this cannot mint a 'full' session and why the writes still want a signature.
+ *
+ * The burn is atomic and single-use (server/sessionStore.ts). Every failure is
+ * one 401 with one string, distinct from the "not signed in" of GET so the UI
+ * can phrase it for a human, and vague between unknown / expired / already-used
+ * because the server genuinely does not know which applied.
+ */
+app.post("/api/session/exchange", strictLimit, async (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token : null;
+  try {
+    const wallet = await burnDeepLinkToken(db, token);
+    if (!wallet) {
+      res.status(401).json({ error: "alert link is no longer valid — open PANIK from a fresh alert" });
+      return;
+    }
+    const session = await createSession(db, wallet, "readonly");
+    res.setHeader("Set-Cookie", sessionCookie(session.token, session.maxAgeSec));
+    res.json({ wallet, scope: "readonly", expiresAt: session.expiresAt });
   } catch (err) {
     serverError(req, res, 502, err);
   }
