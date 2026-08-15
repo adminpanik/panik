@@ -6,6 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+# Tracked on purpose: `npm run dev:mock` needs Supabase Auth pointed at the
+# in-process mock, and both values in it are fakes. See the header in the file.
+!.env.mock
 
 # Personal daily logs — not for the shared repo
 Progress/

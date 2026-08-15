@@ -69,6 +69,14 @@ import {
  * the whole point of this plugin is that the app cannot tell the difference.
  */
 import type { SessionScope } from "../server/sessionStore";
+/**
+ * The voucher REFUSAL SENTENCES, from the module that writes them. Same reason
+ * as the watchlist parser above: the invite screen renders whatever the API
+ * says, and a mock with its own wording would let that line be verified against
+ * a sentence production never sends.
+ */
+import { VOUCHER_REFUSALS } from "../server/accounts";
+import type { Membership } from "../server/accountStore";
 
 /**
  * localStorage the dashboard reads. Seeded from the page itself rather than by
@@ -109,8 +117,14 @@ const SEED: Record<string, string> = {
  * Only fills keys that are UNSET. A dev who onboarded for real, or who is
  * mid-way through testing the tour, must not have that state stomped on every
  * reload — clear the keys in devtools to get the tour back.
+ *
+ * `extra` is computed PER DOCUMENT REQUEST rather than pinned at module scope,
+ * because the account seed below has to carry a live expiry and has to
+ * disappear once the mock's account token has been revoked. A constant string
+ * could do neither.
  */
-const seedScript = `(function(){var s=${JSON.stringify(SEED)};try{for(var k in s){if(localStorage.getItem(k)===null)localStorage.setItem(k,s[k]);}}catch(e){}})();`;
+const seedScript = (extra: Record<string, string> = {}) =>
+  `(function(){var s=${JSON.stringify({ ...SEED, ...extra })};try{for(var k in s){if(localStorage.getItem(k)===null)localStorage.setItem(k,s[k]);}}catch(e){}})();`;
 
 /**
  * PANIK_MOCK_SIM arms a market simulation in mock mode, so the user-facing
@@ -398,6 +412,132 @@ function mockSessionCookie(session: MockSession): string {
   return `panik_session=${session.token}; Max-Age=${DAYS[session.scope] * 86_400}; Path=/; HttpOnly; SameSite=Lax`;
 }
 
+// ── the account (closed beta) ────────────────────────────────────────────────
+//
+// Two upstreams are faked here, because the sign-in experience spans both:
+//
+//   /mock-supabase/auth/v1/*   Supabase Auth (GoTrue), which normally lives on
+//                              another origin entirely. `.env.mock` points
+//                              VITE_SUPABASE_URL at this relative prefix, so the
+//                              app's own lib/account.ts calls it unchanged and
+//                              the whole implicit-grant return leg (the
+//                              `#access_token=` fragment) is exercised for real
+//                              rather than stubbed at the component.
+//   /api/account*              PANIK's own account routes.
+//
+// WHAT IS FAKED, AND IT MATTERS: no token is signed and no signature is
+// checked. Mock mode has no Supabase project, and a headless browser has no
+// mailbox. Nothing in this file is a trust boundary; it never ships
+// (`apply: 'serve'`).
+
+/** Where `.env.mock` points VITE_SUPABASE_URL. Relative, so it is same-origin. */
+const MOCK_SUPABASE_PREFIX = "/mock-supabase";
+
+/**
+ * PANIK_MOCK_ACCOUNT=none|new|member picks which of the three account states
+ * this dev server boots into, so each screen can be opened and measured
+ * without a Supabase project, a mailbox or a campaign row:
+ *
+ *   none    nobody is signed in            -> the sign-in page
+ *   new     signed in, no membership       -> the invite-code screen
+ *   member  signed in, membership is live  -> the app
+ *
+ * Unset means `none`, which is the honest default: a fresh browser has no
+ * account. Signing out at runtime revokes the seeded token either way, so the
+ * `member` seed is a starting point rather than a state the mock re-asserts.
+ */
+type MockAccountMode = "none" | "new" | "member";
+
+function accountMode(): MockAccountMode {
+  const raw = process.env.PANIK_MOCK_ACCOUNT?.trim().toLowerCase();
+  return raw === "new" || raw === "member" ? raw : "none";
+}
+
+const MOCK_ACCOUNT_USER = "00000000-0000-4000-8000-0000000000a1";
+const MOCK_ACCOUNT_EMAIL = "beta.reader@example.com";
+const MOCK_ACCOUNT_TOKEN = "mock-account-access-token";
+const MOCK_ACCOUNT_REFRESH = "mock-account-refresh-token";
+
+/** The one code this mock accepts. Shaped like the real printed card code. */
+const MOCK_VOUCHER_CODE = "PANIK-TRY-BETA";
+
+/** A per-user trial token, matched only so the mock can refuse it BY NAME. */
+const MOCK_TRIAL_TOKEN_RE = /^PANIK-[2-9A-HJ-NP-Z]{6}$/;
+
+/**
+ * The mock's whole account-token table. A Set, not a Map: there is one account
+ * here, and what varies is whether its token is still live. Sign-out removes
+ * it, which is what makes signing out survive a reload — the seed below only
+ * plants a session while the token is still in this set, exactly as the wallet
+ * cookie is only planted while its row is still in `sessions`.
+ */
+const liveAccountTokens = new Set<string>();
+
+/** The account's grant, or null. Mutable: redeeming a code is the point. */
+let mockMembership: Membership | null = null;
+
+function grantMembership(voucherCode: string): Membership {
+  mockMembership = {
+    id: "mock-membership",
+    status: "trial",
+    source: "voucher",
+    voucherCode,
+    startedAt: nowIso(),
+    expiresAt: new Date(Date.now() + 14 * 86_400_000).toISOString(),
+  };
+  return mockMembership;
+}
+
+/** Seed the account this dev server starts with. Returns the mode it applied. */
+function seedAccount(): MockAccountMode {
+  const mode = accountMode();
+  if (mode === "none") return mode;
+  liveAccountTokens.add(MOCK_ACCOUNT_TOKEN);
+  if (mode === "member") grantMembership(MOCK_VOUCHER_CODE);
+  return mode;
+}
+
+/**
+ * PANIK_MOCK_ACCOUNT_DOWN=1 makes GET /api/account fail, so the screen that
+ * says "we could not check your account" can be seen without unplugging
+ * anything. Same idiom as PANIK_MOCK_WATCHLIST_DOWN, and for the same reason:
+ * the degraded path is the one a UI is least likely to get right, and here it
+ * is the branch that must NOT collapse into "enter your invite code".
+ */
+const accountDown = () => process.env.PANIK_MOCK_ACCOUNT_DOWN === "1";
+
+/** The bearer this request presents, or "". */
+function presentedBearer(header: string | string[] | undefined): string {
+  const raw = Array.isArray(header) ? header[0] : header;
+  const match = /^Bearer\s+(.+)$/i.exec(raw?.trim() ?? "");
+  return match?.[1]?.trim() ?? "";
+}
+
+/**
+ * The localStorage entry lib/account.ts reads, but ONLY while the token is
+ * still live. Same rule as the wallet cookie: a sign-out must not be undone by
+ * the next reload.
+ */
+function accountSeed(): Record<string, string> {
+  if (!liveAccountTokens.has(MOCK_ACCOUNT_TOKEN)) return {};
+  return {
+    // ACCOUNT_STORAGE_KEY in src/panik-core/lib/account.ts.
+    panik_account_session: JSON.stringify({
+      accessToken: MOCK_ACCOUNT_TOKEN,
+      refreshToken: MOCK_ACCOUNT_REFRESH,
+      expiresAt: Date.now() + 3_600_000,
+    }),
+  };
+}
+
+/** The implicit-grant fragment Supabase sends a browser home with. */
+function authFragment(): string {
+  return (
+    `#access_token=${MOCK_ACCOUNT_TOKEN}&refresh_token=${MOCK_ACCOUNT_REFRESH}` +
+    `&expires_in=3600&token_type=bearer&type=magiclink`
+  );
+}
+
 /**
  * Read a request body and hand it over as JSON, or answer 400 in the API's own
  * shape.
@@ -522,6 +662,12 @@ export function mockApi(mode: string): Plugin[] {
               `\n     Alert-link token for ?sid= (single use): ${MOCK_SID}\n`,
           );
         }
+        const seededAccount = seedAccount();
+        server.config.logger.info(
+          `  \x1b[33m➜\x1b[0m  MOCK ACCOUNT: ${seededAccount}` +
+            ` (PANIK_MOCK_ACCOUNT=none|new|member)` +
+            `\n     Invite code the voucher screen accepts: ${MOCK_VOUCHER_CODE}\n`,
+        );
 
         server.middlewares.use((req, res, next) => {
           /* Hand the seeded session to the browser on the APP DOCUMENT request,
@@ -542,7 +688,9 @@ export function mockApi(mode: string): Plugin[] {
           ) {
             res.setHeader("Set-Cookie", mockSessionCookie(seeded));
           }
-          if (!req.url?.startsWith("/api/")) return next();
+          if (!req.url?.startsWith("/api/") && !req.url?.startsWith(`${MOCK_SUPABASE_PREFIX}/`)) {
+            return next();
+          }
           const url = new URL(req.url, "http://localhost");
 
           const send = (status: number, body: unknown) => {
@@ -551,6 +699,107 @@ export function mockApi(mode: string): Plugin[] {
             res.setHeader("Cache-Control", "no-store");
             res.end(JSON.stringify(body));
           };
+
+          /* Supabase Auth, minus the parts that need a real project. Each route
+             answers in GoTrue's own shape, because lib/account.ts reads those
+             fields and renders the error strings. */
+          if (url.pathname.startsWith(`${MOCK_SUPABASE_PREFIX}/auth/v1/`)) {
+            const leaf = url.pathname.slice(`${MOCK_SUPABASE_PREFIX}/auth/v1/`.length);
+            const back = url.searchParams.get("redirect_to") ?? "/app.html";
+
+            if (leaf === "authorize") {
+              // The Google handoff, collapsed to the one thing the app can
+              // observe: a full-page redirect home with tokens in the
+              // fragment. There is no consent screen to render offline, and
+              // faking one would be testing a mock rather than the return leg.
+              liveAccountTokens.add(MOCK_ACCOUNT_TOKEN);
+              res.statusCode = 302;
+              res.setHeader("Location", `${back}${authFragment()}`);
+              res.end();
+              return;
+            }
+
+            if (leaf === "otp") {
+              return withJsonBody(req, send, (body) => {
+                const email = String((body as { email?: unknown } | null)?.email ?? "").trim();
+                if (!email) return send(400, { msg: "an email address is required" });
+                liveAccountTokens.add(MOCK_ACCOUNT_TOKEN);
+                // The "email", in the only mailbox a dev server has. Printing
+                // the whole link is what makes the magic-link path clickable
+                // offline instead of a dead end.
+                server.config.logger.info(
+                  `\n  \x1b[33m➜\x1b[0m  MOCK SIGN-IN LINK for ${email}:` +
+                    `\n     ${back}${authFragment()}\n`,
+                );
+                return send(200, {});
+              });
+            }
+
+            if (leaf === "token") {
+              return withJsonBody(req, send, () => {
+                if (!liveAccountTokens.has(MOCK_ACCOUNT_TOKEN)) {
+                  return send(400, { error: "invalid_grant", error_description: "refresh token is spent" });
+                }
+                return send(200, {
+                  access_token: MOCK_ACCOUNT_TOKEN,
+                  refresh_token: MOCK_ACCOUNT_REFRESH,
+                  expires_in: 3600,
+                });
+              });
+            }
+
+            if (leaf === "logout") {
+              liveAccountTokens.delete(MOCK_ACCOUNT_TOKEN);
+              return send(200, {});
+            }
+
+            return send(404, { msg: "not mocked" });
+          }
+
+          /* PANIK's own account routes. Both demand the bearer and answer the
+             production statuses, including the 401 body the client acts on by
+             forgetting the session it holds. */
+          if (url.pathname === "/api/account" || url.pathname === "/api/account/voucher") {
+            const bearer = presentedBearer(req.headers.authorization);
+            if (!bearer || !liveAccountTokens.has(bearer)) {
+              return send(401, { error: "sign in to continue" });
+            }
+            const live = mockMembership !== null;
+
+            if (url.pathname === "/api/account") {
+              if (req.method !== "GET") return send(405, { error: "method not allowed" });
+              if (accountDown()) return send(502, { error: "could not check your membership" });
+              return send(200, {
+                account: { userId: MOCK_ACCOUNT_USER, email: MOCK_ACCOUNT_EMAIL },
+                member: live,
+                membership: mockMembership,
+                history: mockMembership ? [mockMembership] : [],
+                wallets: [],
+                voucherCode: mockMembership?.voucherCode ?? null,
+              });
+            }
+
+            if (req.method !== "POST") return send(405, { error: "method not allowed" });
+            return withJsonBody(req, send, (body) => {
+              const code = String((body as { code?: unknown } | null)?.code ?? "")
+                .trim()
+                .toUpperCase();
+              if (live) {
+                return send(200, { ok: true, outcome: "already_member", membership: mockMembership });
+              }
+              if (code === MOCK_VOUCHER_CODE) {
+                return send(200, { ok: true, outcome: "success", membership: grantMembership(code) });
+              }
+              // A trial link is refused BY NAME, because that is the mistake a
+              // real user makes: /app?trial=PANIK-XXXXXX is the other code this
+              // product hands out, and "not recognised" would send them looking
+              // for a different card.
+              if (MOCK_TRIAL_TOKEN_RE.test(code)) {
+                return send(409, { ok: false, outcome: "trial_link", error: VOUCHER_REFUSALS.trial_link });
+              }
+              return send(400, { ok: false, outcome: "invalid", error: VOUCHER_REFUSALS.invalid });
+            });
+          }
 
           /* The four session routes. Cookies are real here: the dev server is
              the same origin as the app, so the browser stores and returns this
@@ -674,7 +923,9 @@ export function mockApi(mode: string): Plugin[] {
           // app.html only — the landing / founding / try / admin entries have no
           // dashboard to unlock and should behave normally.
           if (!ctx.path.startsWith("/app.html")) return;
-          return [{ tag: "script", children: seedScript, injectTo: "head-prepend" as const }];
+          return [
+            { tag: "script", children: seedScript(accountSeed()), injectTo: "head-prepend" as const },
+          ];
         },
       },
     },
