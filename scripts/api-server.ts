@@ -888,6 +888,16 @@ app.post("/api/session/exchange", strictLimit, async (req, res) => {
       res.status(401).json({ error: "alert link is no longer valid — open PANIK from a fresh alert" });
       return;
     }
+    // A browser already holding a FULL session for this wallet keeps it: the
+    // token is burned above either way (a live token in a chat is the risk),
+    // but replacing a 30-day full cookie with a 7-day readonly one would
+    // DOWNGRADE the signed-in user who tapped their own alert and silently
+    // lock them out of edits until they re-sign.
+    const existing = await readSession(db, presentedToken(req));
+    if (existing && existing.scope === "full" && existing.wallet === wallet) {
+      res.json({ wallet, scope: "full", expiresAt: existing.expiresAt });
+      return;
+    }
     const session = await createSession(db, wallet, "readonly");
     res.setHeader("Set-Cookie", sessionCookie(session.token, session.maxAgeSec));
     res.json({ wallet, scope: "readonly", expiresAt: session.expiresAt });
