@@ -20,6 +20,7 @@ import type {
   AdvisorUrgency,
 } from "../lib/live";
 import { formatUsd, PROTOCOL_LABEL } from "../lib/utils";
+import { Button } from "../ui";
 import { exitControlState, useChainMode, type ControlState } from "../lib/chainMode";
 import { openControlState } from "../lib/openProtocols";
 
@@ -212,67 +213,79 @@ export function AdvisorPopup({
     <AnimatePresence>
       {notification ? (
         <motion.div
-          initial={{ opacity: 0, y: 16, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 8, scale: 0.98 }}
-          className={`fixed bottom-6 right-6 z-[80] w-full max-w-sm rounded-lg border p-4 shadow-2xl shadow-black/60 backdrop-blur-md ${
-            notification.urgency === "critical"
-              ? "bg-surface-overlay/95 border-risk-critical/40"
-              : notification.urgency === "warning"
-                ? "bg-surface-overlay/95 border-risk-elevated/30"
-                : "bg-surface-raised/95 border-border-subtle"
-          }`}
+          role="status"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          /* IN THE FLOW, in the band this shell already reserves for
+             session-level notices (SimulationBanner, ReadOnlyBanner,
+             SessionNote), between the header and the scroller.
+
+             It used to be `fixed bottom-6 right-6`, which put a 384x141 panel
+             over the bottom-right of whatever tab was open: measured on the
+             Portfolio tab at 1440, it covered "See all 12 alerts" and the last
+             Alert history row by 86% each, on load, with no interaction. A
+             floating panel cannot be positioned out of that on a page taller
+             than the viewport - anywhere it sits, it sits on content - so it
+             stops floating. Here it pushes the page down instead of covering
+             it, and being outside the scroller it is still in frame at every
+             scroll position, which the toast was only ever approximating.
+
+             No hue, on any branch. The severity is the sentence, and this
+             surface can appear over ANY tab: a critical border, a critical
+             glyph and a critical button added three risk-hued elements to
+             whatever screen was underneath, which is how the Portfolio tab
+             measured eleven against a documented budget of five. */
+          className="flex shrink-0 items-start gap-3 border-b border-border-subtle bg-surface-raised/60 px-4 py-3 md:px-8"
         >
-          <div className="flex items-start gap-3">
-            {notification.urgency === "info" ? (
-              <Sparkles className="w-4 h-4 mt-0.5 text-text-primary shrink-0" />
-            ) : (
-              <AlertTriangle
-                className={`w-4 h-4 mt-0.5 shrink-0 ${
-                  notification.urgency === "critical" ? "text-risk-critical" : "text-risk-elevated"
-                }`}
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-2xs font-sans text-text-muted mb-1">
-                AI Advisor
-              </p>
-              <p className="text-sm text-text-primary font-sans leading-relaxed">{notification.headline}</p>
-              <div className="flex items-center gap-2 mt-3">
-                {notification.actionLabel ? (
-                  <button
-                    onClick={actionState.enabled ? act : undefined}
-                    disabled={!actionState.enabled}
-                    title={actionState.enabled ? undefined : actionState.hint}
-                    // `disabled:hover:` on every branch because a disabled
-                    // button still takes :hover in the browser, and a control
-                    // that lights up under the cursor reads as pressable.
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-2xs font-sans font-bold tracking-wide transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                      notification.kind === "exit"
-                        ? "bg-risk-critical/15 text-risk-critical border border-risk-critical/30 hover:bg-risk-critical/25 disabled:hover:bg-risk-critical/15"
-                        : notification.kind === "reduce"
-                          ? "bg-risk-elevated/15 text-risk-elevated border border-risk-elevated/30 hover:bg-risk-elevated/25 disabled:hover:bg-risk-elevated/15"
-                          : "bg-white/10 text-text-primary border border-border-subtle hover:bg-white/15 disabled:hover:bg-white/10"
-                    }`}
-                  >
-                    {notification.actionLabel} <ArrowRight className="w-3 h-3" />
-                  </button>
-                ) : null}
-                <button
-                  onClick={() => {
-                    onView();
-                    setNotification(null);
-                  }}
-                  className="px-3 py-1.5 rounded-md text-2xs font-sans text-text-secondary border border-border-subtle hover:text-text-primary hover:bg-white/[0.06] transition-colors"
+          {notification.urgency === "info" ? (
+            <Sparkles className="w-4 h-4 mt-0.5 text-text-primary shrink-0" aria-hidden="true" />
+          ) : (
+            <AlertTriangle
+              className="w-4 h-4 mt-0.5 shrink-0 text-text-secondary"
+              aria-hidden="true"
+            />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-2xs font-sans text-text-muted mb-1">
+              AI Advisor
+            </p>
+            <p className="text-sm text-text-primary font-sans leading-relaxed">{notification.headline}</p>
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              {notification.actionLabel ? (
+                /* The `Button` primitive, whose `primary` is a neutral
+                   high-contrast fill and which accepts no risk band by design.
+                   This was a hand-rolled control painted
+                   `bg-risk-critical/15 text-risk-critical`, which is the ramp
+                   colouring a VERB: "Execute exit" in critical red is the
+                   colour system making a claim about an action, the exact
+                   thing DESIGN_SYSTEM.md names when it says not to. */
+                <Button
+                  onClick={actionState.enabled ? act : undefined}
+                  disabled={!actionState.enabled}
+                  title={actionState.enabled ? undefined : actionState.hint}
                 >
-                  View in Advisor
-                </button>
-              </div>
+                  {notification.actionLabel} <ArrowRight className="w-3 h-3" aria-hidden="true" />
+                </Button>
+              ) : null}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  onView();
+                  setNotification(null);
+                }}
+              >
+                View in Advisor
+              </Button>
             </div>
-            <button onClick={dismiss} className="text-text-muted hover:text-text-primary transition-colors shrink-0">
-              <X className="w-4 h-4" />
-            </button>
           </div>
+          {/* A real accessible name, because the glyph is the whole label: this
+              announced as "button" and nothing else. `Button` also gives it a
+              44x32 hit area, over the 24px floor SC 2.5.8 sets and well over
+              the 16x16 the bare `<X>` measured. */}
+          <Button variant="quiet" onClick={dismiss} aria-label="Dismiss this advisor notice">
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
+          </Button>
         </motion.div>
       ) : null}
     </AnimatePresence>

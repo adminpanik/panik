@@ -2876,6 +2876,26 @@ export function AppDemo() {
         {readOnlySession && <ReadOnlyBanner onSignIn={signInThisBrowser} busy={session.busy} />}
         {session.note && <SessionNote text={session.note} onDismiss={session.dismissNote} />}
 
+        {/* Advisor notice (Phase 2) - fires on action changes / market shifts.
+
+            In this band, with the other session-level notices, rather than
+            floating over the bottom-right corner: measured at 1440 the floating
+            panel covered two Alert history rows and "See all 12 alerts" on load,
+            and there is no corner of a scrolling page a fixed panel does not sit
+            on top of something in.
+
+            Silent while a watched wallet is on screen. Its whole shape is an
+            interruption offering an action, and the action here would be exiting
+            a position the reader does not hold: the panel can afford to state
+            that and withhold the button, a notice that arrives uninvited
+            cannot. */}
+        <AdvisorPopup
+          report={viewingWatchOnly ? null : advisorLive.report}
+          onExit={(prefill) => setExitPrefill(prefill)}
+          onOpen={(plan) => setOpenFlowPlan(plan)}
+          onView={() => setActiveTab("advisor")}
+        />
+
         {/* PAGE VIEWS SWITCH */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <AnimatePresence mode="wait">
@@ -4984,20 +5004,6 @@ export function AppDemo() {
           }}
         />
       )}
-
-      {/* Advisor popup (Phase 2) - fires on action changes / market shifts.
-
-          Silent while a watched wallet is on screen. The popup's whole shape is
-          an interruption offering an action, and the action here would be
-          exiting a position the reader does not hold: the panel can afford to
-          state that and withhold the button, a popup that arrives uninvited
-          cannot. */}
-      <AdvisorPopup
-        report={viewingWatchOnly ? null : advisorLive.report}
-        onExit={(prefill) => setExitPrefill(prefill)}
-        onOpen={(plan) => setOpenFlowPlan(plan)}
-        onView={() => setActiveTab("advisor")}
-      />
 
       {/* First-run onboarding tooltip tour */}
       {currentTourStep && (
