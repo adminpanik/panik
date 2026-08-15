@@ -1067,6 +1067,49 @@ function ScoreBreakdownSection({ valueOf }: { valueOf: (driver: RiskDriver) => n
 }
 
 /**
+ * The app's ONE slide-in: a dimmed backdrop over the content column, and a
+ * 500px panel hung from its right edge.
+ *
+ * Two surfaces use it (the risk breakdown and Wallets) and until now each wrote
+ * the shell out by hand: the same nine utilities on the backdrop, the same
+ * eleven on the panel, the same spring, twice. They happened to agree, which is
+ * the state a duplicated contract is in right up until an edit lands on one
+ * copy. An overlay that dims on one surface and not on the other teaches a
+ * reader that the two are different kinds of thing, when they are the same
+ * thing showing different content, and nothing about either copy would have
+ * failed to make that visible.
+ *
+ * `absolute`, not `fixed`, and deliberately: it covers the CONTENT COLUMN
+ * only, so the sidebar stays lit and reachable and the reader can leave by
+ * pressing a tab rather than by finding the close control.
+ *
+ * The panel's own dismissal contract (focus on open, Escape to close) belongs
+ * to the component inside it, which is the thing that knows what closing means.
+ */
+function Sheet({ onDismiss, children }: { onDismiss: () => void; children: React.ReactNode }) {
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 0.5 }}
+        exit={{ opacity: 0 }}
+        onClick={onDismiss}
+        className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+      />
+      <motion.div
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{ type: "spring", damping: 26, stiffness: 220 }}
+        className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
+      >
+        {children}
+      </motion.div>
+    </>
+  );
+}
+
+/**
  * The risk-breakdown panel's header, body and footer.
  *
  * Its own component because the panel is a self-contained reading surface with
@@ -4838,85 +4881,51 @@ export function AppDemo() {
         {/* 3. SLIDE-OUT PANEL FOR DETAILED RISK BREAKDOWN (Linear/Stripe style) */}
         <AnimatePresence>
           {selectedRiskBreakdownPreset && breakdownData && (
-            <>
-              {/* Overlay backdrop */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.5 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setSelectedRiskBreakdownPreset(null)}
-                className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+            <Sheet onDismiss={() => setSelectedRiskBreakdownPreset(null)}>
+              <RiskBreakdownPanel
+                preset={selectedRiskBreakdownPreset}
+                data={breakdownData}
+                opensDemo={!opensReal(selectedRiskBreakdownPreset)}
+                onClose={() => setSelectedRiskBreakdownPreset(null)}
+                onSimulate={() => {
+                  setSelectedPresetId(selectedRiskBreakdownPreset.id);
+                  setWatchSource("recommendations");
+                  setActiveTab("watch");
+                  setSelectedRiskBreakdownPreset(null);
+                }}
+                onOpen={() => requestOpenPosition(selectedRiskBreakdownPreset)}
               />
-              
-              {/* Slide-out side panel */}
-              <motion.div
-                initial={{ x: "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "100%" }}
-                transition={{ type: "spring", damping: 26, stiffness: 220 }}
-                className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
-              >
-                <RiskBreakdownPanel
-                  preset={selectedRiskBreakdownPreset}
-                  data={breakdownData}
-                  opensDemo={!opensReal(selectedRiskBreakdownPreset)}
-                  onClose={() => setSelectedRiskBreakdownPreset(null)}
-                  onSimulate={() => {
-                    setSelectedPresetId(selectedRiskBreakdownPreset.id);
-                    setWatchSource("recommendations");
-                    setActiveTab("watch");
-                    setSelectedRiskBreakdownPreset(null);
-                  }}
-                  onOpen={() => requestOpenPosition(selectedRiskBreakdownPreset)}
-                />
-              </motion.div>
-            </>
+            </Sheet>
           )}
         </AnimatePresence>
 
         {/* 4. SLIDE-OUT PANEL FOR THE WATCHLIST.
 
-            The risk breakdown's shape, deliberately: both are a reading-and-
-            editing surface opened over the page you were on, and the app should
-            not have two ways of covering itself. It lives inside the content
-            column for the same reason that one does, so the sidebar stays
-            reachable and the nav never disappears behind a modal.
+            Literally the risk breakdown's shell, not a matching copy of it:
+            both are a reading-and-editing surface opened over the page you were
+            on, and the app should not have two ways of covering itself. See
+            `Sheet`.
 
             Gated on a bound wallet: the list belongs to an owner, and there is
             no owner before onboarding. */}
         <AnimatePresence>
           {walletsPanelOpen && onboardedWallet && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.5 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setWalletsPanelOpen(false)}
-                className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+            <Sheet onDismiss={() => setWalletsPanelOpen(false)}>
+              <WalletsPanel
+                owner={onboardedWallet}
+                state={watchlist}
+                getProof={getProof}
+                /* The user's own answer from onboarding, as the default for a
+                   wallet they have not thought about a level for yet. */
+                defaultProfile={selectedRiskProfile}
+                viewedWallet={viewedWallet}
+                /* A read-only reader may see the list the alerts come from,
+                   and may not change it: every edit here ends in one
+                   `watchlist-manage` signature they cannot produce. */
+                readOnly={readOnlySession}
+                onClose={() => setWalletsPanelOpen(false)}
               />
-              <motion.div
-                initial={{ x: "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "100%" }}
-                transition={{ type: "spring", damping: 26, stiffness: 220 }}
-                className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
-              >
-                <WalletsPanel
-                  owner={onboardedWallet}
-                  state={watchlist}
-                  getProof={getProof}
-                  /* The user's own answer from onboarding, as the default for a
-                     wallet they have not thought about a level for yet. */
-                  defaultProfile={selectedRiskProfile}
-                  viewedWallet={viewedWallet}
-                  /* A read-only reader may see the list the alerts come from,
-                     and may not change it: every edit here ends in one
-                     `watchlist-manage` signature they cannot produce. */
-                  readOnly={readOnlySession}
-                  onClose={() => setWalletsPanelOpen(false)}
-                />
-              </motion.div>
-            </>
+            </Sheet>
           )}
         </AnimatePresence>
 

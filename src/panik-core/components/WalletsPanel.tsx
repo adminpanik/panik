@@ -26,7 +26,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Undo2, WalletCards, X } from "lucide-react";
+import { ChevronDown, Plus, Trash2, Undo2, WalletCards, X } from "lucide-react";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
 import { Button, Chip, EmptyState, Skeleton } from "../ui";
 import { RISK_PROFILES, truncateAddress } from "../lib/utils";
@@ -42,6 +42,65 @@ import {
 
 /** Sentence case, because the whole product is. */
 const profileLabel = (p: RiskProfile) => p.charAt(0).toUpperCase() + p.slice(1);
+
+/**
+ * The alert level for one wallet: a real `<select>`, wearing the product's
+ * control treatment.
+ *
+ * STILL NATIVE, and that is the decision. The Portfolio's wallet switcher is a
+ * hand-rolled listbox because its rows carry a name, an address and a marker
+ * that a flattened option string cannot hold; three one-word options carry
+ * nothing a native option cannot. Native brings a keyboard contract, a
+ * type-ahead, and a picker sized by the platform for touch, none of which is
+ * worth rewriting for this. The full listbox port is a separate question and
+ * this is not it.
+ *
+ * What was wrong was only the resting appearance: the browser painted its own
+ * arrow and its own chrome, so the one control in the panel that did not look
+ * like the inputs beside it was the one that changed what alerts fire. The
+ * fix is the two lines that cost nothing: `appearance-none` to take the paint
+ * back, and Lucide's `ChevronDown` (the switcher's own glyph) drawn in the
+ * padding the trigger reserves for it. `pointer-events-none` keeps the icon out
+ * of the way, so the whole control including the icon still opens the picker.
+ *
+ * The OS still paints the OPEN list. That is not a defect this can fix without
+ * giving up the semantics above, and it is the same trade every native select
+ * in every product makes.
+ */
+function ProfileSelect({
+  value,
+  disabled,
+  label,
+  onChange,
+}: {
+  value: RiskProfile;
+  disabled: boolean;
+  /** The accessible name. The visible one is on the row this sits in. */
+  label: string;
+  onChange: (profile: RiskProfile) => void;
+}) {
+  return (
+    <div className="relative inline-flex">
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value as RiskProfile)}
+        aria-label={label}
+        className="h-10 w-full cursor-pointer appearance-none rounded-md border border-border-strong bg-surface-sunken pl-3 pr-9 font-sans text-sm text-text-primary disabled:opacity-50"
+      >
+        {RISK_PROFILES.map((p) => (
+          <option key={p} value={p}>
+            {profileLabel(p)}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/2 right-3 h-3.5 w-3.5 -translate-y-1/2 text-text-muted"
+      />
+    </div>
+  );
+}
 
 /**
  * Where a save has got to.
@@ -402,19 +461,12 @@ function WalletRow({
                reason: the picker and the remove button beside it do not shrink. */
             className="h-10 min-w-40 flex-1 rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-sm text-text-primary placeholder:text-text-muted disabled:opacity-50"
           />
-          <select
+          <ProfileSelect
             value={row.profile}
             disabled={disabled}
-            onChange={(e) => onChange({ profile: e.target.value as RiskProfile })}
-            aria-label={`Alert level for ${name}`}
-            className="h-10 cursor-pointer rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-sm text-text-primary disabled:opacity-50"
-          >
-            {RISK_PROFILES.map((p) => (
-              <option key={p} value={p}>
-                {profileLabel(p)}
-              </option>
-            ))}
-          </select>
+            label={`Alert level for ${name}`}
+            onChange={(profile) => onChange({ profile })}
+          />
           <Button
             variant="outline"
             disabled={disabled}
@@ -535,19 +587,12 @@ function AddWalletForm({
                  than shrinking the text to hide the overflow. */
               className="h-10 min-w-40 flex-1 rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-sm text-text-primary placeholder:text-text-muted disabled:opacity-50"
             />
-            <select
+            <ProfileSelect
               value={profile}
               disabled={disabled}
-              onChange={(e) => setProfile(e.target.value as RiskProfile)}
-              aria-label="Alert level for the wallet to watch"
-              className="h-10 cursor-pointer rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-sm text-text-primary disabled:opacity-50"
-            >
-              {RISK_PROFILES.map((p) => (
-                <option key={p} value={p}>
-                  {profileLabel(p)}
-                </option>
-              ))}
-            </select>
+              label="Alert level for the wallet to watch"
+              onChange={setProfile}
+            />
             <Button
               onClick={submit}
               disabled={!valid || duplicate || disabled}
