@@ -883,9 +883,29 @@ app.delete("/api/session", strictLimit, async (req, res) => {
 app.post("/api/session/exchange", strictLimit, async (req, res) => {
   const token = typeof req.body?.token === "string" ? req.body.token : null;
   try {
-    const wallet = await burnDeepLinkToken(db, token);
+    // Two independent reads, so they go together rather than one after the
+    // other: neither the burn nor the cookie lookup is an input to the other,
+    // and this route is on the path a worried person takes from an alert.
+    //
+    // The only ordering this gives up is that `readSession`'s opportunistic
+    // `last_seen_at` bump can now land beside a burn that fails. That column is
+    // a diagnostic nothing decides on, and "this browser was here" is true
+    // whether or not the token it presented was still good.
+    const [wallet, existing] = await Promise.all([
+      burnDeepLinkToken(db, token),
+      readSession(db, presentedToken(req)),
+    ]);
     if (!wallet) {
       res.status(401).json({ error: "alert link is no longer valid — open PANIK from a fresh alert" });
+      return;
+    }
+    // A browser already holding a FULL session for this wallet keeps it: the
+    // token is burned above either way (a live token in a chat is the risk),
+    // but replacing a 30-day full cookie with a 7-day readonly one would
+    // DOWNGRADE the signed-in user who tapped their own alert and silently
+    // lock them out of edits until they re-sign.
+    if (existing && existing.scope === "full" && existing.wallet === wallet) {
+      res.json({ wallet, scope: "full", expiresAt: existing.expiresAt });
       return;
     }
     const session = await createSession(db, wallet, "readonly");

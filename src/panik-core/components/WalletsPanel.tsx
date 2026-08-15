@@ -29,7 +29,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Undo2, WalletCards, X } from "lucide-react";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
 import { Button, EmptyState, Skeleton } from "../ui";
-import { RISK_PROFILES } from "../lib/utils";
+import { RISK_PROFILES, truncateAddress } from "../lib/utils";
 import { isEvmAddress, type GetProof } from "../lib/telegram";
 import {
   draftCount,
@@ -39,9 +39,6 @@ import {
   type WatchDraftRow,
   type WatchlistState,
 } from "../lib/watchlist";
-
-/** Address, short, for a row that also carries the full one on hover. */
-const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /** Sentence case, because the whole product is. */
 const profileLabel = (p: RiskProfile) => p.charAt(0).toUpperCase() + p.slice(1);
@@ -64,6 +61,17 @@ export interface WalletsPanelProps {
   defaultProfile: RiskProfile;
   /** Which wallet the Portfolio is currently showing, for the "viewing" marker. */
   viewedWallet: string | null;
+  /**
+   * Show the list without a single way to change it.
+   *
+   * Set by a read-only session (arrived through an alert link). It is a UX
+   * truth, NOT a permission: the API would refuse these edits anyway, because
+   * every one of them travels behind a `watchlist-manage` signature from the
+   * owner's key and this reader has not produced one. What the flag buys is
+   * that the reader is never offered a control that would end in a wallet popup
+   * they cannot answer and a save that could not have worked.
+   */
+  readOnly?: boolean;
   onClose: () => void;
 }
 
@@ -73,6 +81,7 @@ export function WalletsPanel({
   getProof,
   defaultProfile,
   viewedWallet,
+  readOnly = false,
   onClose,
 }: WalletsPanelProps) {
   const panel = useRef<HTMLDivElement>(null);
@@ -165,7 +174,9 @@ export function WalletsPanel({
                 reader cannot infer from the rows, which is that the level beside
                 each address decides when that wallet raises an alert. */}
             <span className="mt-1 block text-xs font-sans leading-relaxed text-text-secondary">
-              Wallets PANIK watches for you. The level beside each one sets when it alerts.
+              {readOnly
+                ? "Wallets PANIK watches for this account. Sign in with your wallet to change the list."
+                : "Wallets PANIK watches for you. The level beside each one sets when it alerts."}
             </span>
           </div>
         </div>
@@ -219,8 +230,9 @@ export function WalletsPanel({
 
         {!loading && !offline && subscriptions !== null && draft.length === 0 && (
           <p className="text-xs font-sans leading-relaxed text-text-secondary">
-            PANIK is watching no wallets for you. Add one below and it is scored every minute, with
-            alerts at the level you pick.
+            {readOnly
+              ? "PANIK is watching no wallets for this account."
+              : "PANIK is watching no wallets for you. Add one below and it is scored every minute, with alerts at the level you pick."}
           </p>
         )}
 
@@ -234,6 +246,7 @@ export function WalletsPanel({
                 isOwner={row.wallet === owner.toLowerCase()}
                 isViewed={viewedWallet !== null && row.wallet === viewedWallet.toLowerCase()}
                 disabled={busy}
+                readOnly={readOnly}
                 onChange={(change) => patch(row.wallet, change)}
               />
             ))}
@@ -244,7 +257,7 @@ export function WalletsPanel({
             long a name may be. Offering one before then would be guessing at
             both, and the reader would find out which guess was wrong from a
             rejected batch. */}
-        {max !== null && labelMax !== null && (
+        {!readOnly && max !== null && labelMax !== null && (
           <AddWalletForm
             defaultProfile={defaultProfile}
             labelMax={labelMax}
@@ -257,6 +270,11 @@ export function WalletsPanel({
         )}
       </div>
 
+      {/* The whole save footer, gone rather than disabled: there is nothing to
+          stage, so a greyed "Save changes" would be a control describing an
+          action that is not merely unavailable but meaningless here. The panel
+          says why at the top, once. */}
+      {!readOnly && (
       <div className="shrink-0 space-y-2 border-t border-border-subtle p-5">
         {/* The API's own words, verbatim. It names the operation that failed
             ("ops[2].label is longer than 60 characters"), and rewording it here
@@ -294,6 +312,7 @@ export function WalletsPanel({
           </p>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -312,6 +331,7 @@ function WalletRow({
   isOwner,
   isViewed,
   disabled,
+  readOnly,
   onChange,
 }: {
   row: WatchDraftRow;
@@ -319,9 +339,10 @@ function WalletRow({
   isOwner: boolean;
   isViewed: boolean;
   disabled: boolean;
+  readOnly: boolean;
   onChange: (change: Partial<WatchDraftRow>) => void;
 }) {
-  const name = row.label.trim() || short(row.wallet);
+  const name = row.label.trim() || truncateAddress(row.wallet);
   return (
     <li className="py-4 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-2">
@@ -333,7 +354,7 @@ function WalletRow({
           className="font-mono text-xs text-text-secondary"
           title={row.wallet}
         >
-          {short(row.wallet)}
+          {truncateAddress(row.wallet)}
         </span>
         {isOwner && (
           <span className="rounded-sm border border-border-subtle bg-white/[0.04] px-2 py-0.5 text-2xs font-sans font-bold text-text-muted">
@@ -347,7 +368,16 @@ function WalletRow({
         )}
       </div>
 
-      {row.removed ? (
+      {readOnly ? (
+        /* The same two facts the editor holds, as text: what this wallet is
+           called and the level it alerts at. Rendered as a sentence rather than
+           as a disabled input, because a greyed-out field still reads as
+           something to click, and there is nothing here to click. */
+        <p className="mt-2 text-xs font-sans leading-relaxed text-text-secondary">
+          {row.label.trim() ? `${row.label.trim()}. ` : ""}
+          Alerts at the {profileLabel(row.profile)} level.
+        </p>
+      ) : row.removed ? (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-sans leading-relaxed text-text-secondary">
             {isOwner
@@ -373,7 +403,7 @@ function WalletRow({
             disabled={disabled}
             onChange={(e) => onChange({ label: e.target.value })}
             placeholder="Name this wallet"
-            aria-label={`Name for ${short(row.wallet)}`}
+            aria-label={`Name for ${truncateAddress(row.wallet)}`}
             autoComplete="off"
             spellCheck={false}
             /* Same 160px floor as the add form's name field, and for the same

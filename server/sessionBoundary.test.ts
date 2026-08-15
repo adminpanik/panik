@@ -136,8 +136,13 @@ describe("no session authorizes a write", () => {
     // read one would be asserting a fact that is not true and not wanted.
     expect(readers.filter((k) => !SESSION_ROUTES.has(k))).toEqual([]);
     // Named explicitly so a route quietly gaining or losing a cookie read shows
-    // up as a diff here rather than passing under a subset check.
-    expect(new Set(readers)).toEqual(new Set(["get /api/session", "delete /api/session"]));
+    // up as a diff here rather than passing under a subset check. The exchange
+    // reads one for exactly one decision: a browser already holding a FULL
+    // session for the token's wallet keeps it instead of being downgraded to
+    // readonly. It still never writes on the session's authority.
+    expect(new Set(readers)).toEqual(
+      new Set(["get /api/session", "delete /api/session", "post /api/session/exchange"]),
+    );
   });
 
   it("the cookie is read through exactly one helper", () => {

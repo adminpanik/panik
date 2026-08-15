@@ -51,6 +51,7 @@ import {
   RISK_SCORE_NAME,
   RISK_TEXT,
   sameAssetDepegNote,
+  truncateAddress,
 } from "./lib/utils";
 /**
  * The user's alert level, from the engine rather than a literal. A VALUE import
@@ -163,7 +164,14 @@ import {
   type ProfileResult,
 } from "./lib/profiling";
 import { deepLinkTab, subscriptionFor, useWatchlist, viewParamWallet } from "./lib/watchlist";
+import { useSession } from "./lib/session";
 import { WalletsPanel } from "./components/WalletsPanel";
+import {
+  ReadOnlyBanner,
+  SessionCard,
+  SessionNote,
+  SignInButton,
+} from "./components/SessionControls";
 import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
@@ -414,8 +422,6 @@ type WatchSource = "positions" | "recommendations";
  * say it encoded a distinction nobody could see.
  */
 const TIER_BADGE = "bg-white/5 text-text-secondary border-border-subtle";
-
-const truncateAddress = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
 
 /**
  * Settings: the Emergency Auto Repayment card is hidden per business-dev QA
@@ -1409,6 +1415,48 @@ export function AppDemo() {
     setOnboardedWallet(connectedWallet);
   }, [connectedWallet, onboardedWallet]);
 
+  /**
+   * The identity session: the ONE thing that may restore a wallet across
+   * reloads, and the reason the comment above no longer describes the whole
+   * story.
+   *
+   * The rule it does not break: a bare string in localStorage is still never
+   * restored as identity. What is restored here came back from the server,
+   * which issued it against either a `session-start` signature or a single-use
+   * alert token, so the browser is not asserting who it is - it is being told.
+   * Scope decides what that is worth (lib/session.ts), and it is never a write
+   * permission: every write below still signs its own action-bound proof.
+   */
+  const session = useSession();
+
+  /**
+   * Adopt the identity the server vouched for, WITHOUT outranking a connected
+   * wallet. A connected wallet is the only one the exit flow can act on, so it
+   * stays the winner; the session fills the gap for a reader who has not
+   * connected one, which is the whole case it exists for.
+   *
+   * A restored identity also ends the first run. It is by definition not one:
+   * the person on the other end signed for this browser, or the alert this link
+   * came from was sent for them.
+   */
+  useEffect(() => {
+    const restored = session.session;
+    if (session.status !== "resolved" || !restored) return;
+    setOnboardedWallet((current) => current ?? restored.wallet);
+    setOnboardingIntent((intent) => (intent === "first-run" ? null : intent));
+  }, [session.status, session.session]);
+
+  /**
+   * What a read-only session withholds, in one predicate.
+   *
+   * It gates AFFORDANCES, never data: the reader is looking at a wallet the
+   * server named for them, and hiding the numbers would defeat the alert link
+   * they arrived on. What goes is every control whose signature this reader
+   * cannot produce, because offering one is the product claiming it can do
+   * something for them that it cannot.
+   */
+  const readOnlySession = session.session?.scope === "readonly";
+
   const handleOnboardingComplete = (result: ProfileResult, wallet: string) => {
     saveProfileForWallet(wallet.trim(), result); // per-wallet memory (wallet-switch flow)
     localStorage.setItem("panik_onboarded", "true");
@@ -1802,6 +1850,32 @@ export function AppDemo() {
   // redirect this wallet's liquidation alerts to a stranger's Telegram.
   const { getProof } = useWalletOwnership();
   const telegramLink = useTelegramLink(getProof);
+
+  /**
+   * Sign in: one `session-start` signature for the bound wallet. Never
+   * automatic and never forced, so a reader who declines keeps exactly the
+   * per-visit behaviour this app had before sessions existed and the only thing
+   * a refusal produces is a dismissible line. The in-flight flag lives in the
+   * hook (`session.busy`), beside the request it describes.
+   */
+  const signInThisBrowser = () => {
+    if (onboardedWallet) void session.signIn(onboardedWallet, getProof);
+  };
+
+  /**
+   * Sign out: revoke server-side, then drop what this tab restored.
+   *
+   * The local reset is conditional on the server having confirmed, and it is a
+   * reset of the RESTORED identity only. A connected wallet immediately rebinds
+   * through the effect above, which is correct: ending a session is not
+   * disconnecting a wallet, and the dashboard has always followed the wallet
+   * that is actually connected.
+   */
+  const signOutThisBrowser = () => {
+    void session.signOut().then((done) => {
+      if (done) setOnboardedWallet(null);
+    });
+  };
 
   // ── Monitoring status (the alerts this product exists to send) ───────────
   // Registration needs a signature the wallet must actually be able to produce.
@@ -2527,6 +2601,40 @@ export function AppDemo() {
     localStorage.setItem("panik_tour_seen", "true");
   };
 
+  /**
+   * The boot gate, and it is deliberately wordless.
+   *
+   * Until GET /api/session answers, this app does not know whether the person
+   * in front of it is a returning signed-in user or a first-time visitor, and
+   * the two get different screens. Rendering either one first and correcting it
+   * a moment later is the worst option available: a returning user watching the
+   * first-run overlay flash past learns that PANIK forgot them, and a new
+   * visitor seeing a dashboard blink is shown a product they have not started.
+   *
+   * A Skeleton, so the space the shell will occupy is reserved rather than
+   * jumping into place (docs/DESIGN_SYSTEM.md). No copy at all: every sentence
+   * available here ("Signing you in", "Checking your session") would be a claim
+   * about an answer that has not arrived, and this typically resolves in one
+   * same-origin round trip.
+   *
+   * Every hook above has already run, so this early return cannot change the
+   * hook order between renders.
+   */
+  if (session.status === "checking") {
+    return (
+      <div
+        aria-busy="true"
+        className="flex h-screen w-full items-center justify-center bg-surface-base p-6"
+      >
+        <div className="w-full max-w-sm space-y-3">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
     {/* Onboarding overlay. First run: mandatory (no cancel). Every other way in
@@ -2733,8 +2841,31 @@ export function AppDemo() {
                 )}
               </button>
             )}
+
+            {/* The offer to be remembered, where a signed-out returning user
+                will actually meet it.
+
+                Only when there is a wallet to sign with and no session to
+                replace: a read-only reader is offered the same thing by the
+                banner under this header, and two identical buttons on one
+                screen would be the app asking twice.
+
+                Never automatic. Declining costs nothing and leaves the app
+                exactly as it behaved before sessions existed, so this is a
+                chip, not a modal, and there is no dismissal to remember. */}
+            {onboardedWallet && session.session === null && (
+              <SignInButton scope="none" busy={session.busy} onClick={signInThisBrowser} chip />
+            )}
           </div>
         </header>
+
+        {/* Session-level truths, between the header and the content they
+            qualify: a read-only view has to be visible from every tab, and a
+            note about the link that brought the reader here belongs with it
+            rather than inside whichever tab happened to be open. Both sit
+            outside the scroller so neither can be scrolled out of frame. */}
+        {readOnlySession && <ReadOnlyBanner onSignIn={signInThisBrowser} busy={session.busy} />}
+        {session.note && <SessionNote text={session.note} onDismiss={session.dismissNote} />}
 
         {/* PAGE VIEWS SWITCH */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
@@ -4435,82 +4566,109 @@ export function AppDemo() {
                         on every other tab belong to. */}
                     <ChainModeSwitch />
 
-                    {/* Telegram alerts dispatcher (the real Connect flow) */}
-                    <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
-                      <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-                        <Bell className="w-4 h-4 text-text-primary" />
-                        <h3 className="flex items-center gap-1.5 text-2xs font-sans text-text-primary font-bold">
-                          Telegram alerts
-                          <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
-                        </h3>
-                      </div>
-                      <p className="text-xs text-text-secondary leading-relaxed font-sans">
-                        Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit.
-                      </p>
-                      <div className="flex flex-col sm:flex-row gap-3 pt-1">
-                        <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-xs truncate">
-                          {telegramLink.status === "connected" ? (
-                            <span className="text-risk-low flex items-center gap-1.5">
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                              Connected
-                            </span>
-                          ) : (
-                            /* States COVERAGE, not progress. This used to read
-                               "Linking 0x1234...abcd", which describes a
-                               handshake that has not been started and reads as
-                               "something is happening" on the one screen where
-                               the honest answer is "nothing is". The wallet is
-                               already named in the top bar, so the words are
-                               spent on the fact that matters. */
-                            <span className="text-text-secondary">
-                              {telegramEligible
-                                ? "Not connected. No alerts are being sent"
-                                : "No EVM wallet onboarded, so no alerts can be sent"}
-                            </span>
-                          )}
+                    {/* Identity, above the two cards that depend on it: where
+                        alerts go and what standing permission exists are both
+                        answers to "for which wallet", and this is the card that
+                        says how PANIK knows. It is also the only home for sign
+                        out, which is a deliberate, rare action a user goes
+                        looking for rather than one that belongs in a header
+                        read on every screen. */}
+                    <SessionCard
+                      session={session.session}
+                      wallet={onboardedWallet}
+                      busy={session.busy}
+                      onSignIn={signInThisBrowser}
+                      onSignOut={signOutThisBrowser}
+                    />
+
+                    {/* Telegram alerts dispatcher (the real Connect flow).
+
+                        Withheld entirely under a read-only session. Every
+                        control on it is a write that ends in a `telegram-link`
+                        signature this reader cannot produce, and the card's own
+                        status line describes alert delivery for a wallet they
+                        have not proved they hold. A disabled copy would state
+                        the same facts while offering nothing, so the honest
+                        version of "you cannot change this here" is not to show
+                        the control at all: the banner above already says why,
+                        and the Settings card above it says how to fix it. */}
+                    {!readOnlySession && (
+                      <div className="bg-surface-raised/50 border border-border-subtle p-6 rounded-lg space-y-3">
+                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
+                          <Bell className="w-4 h-4 text-text-primary" />
+                          <h3 className="flex items-center gap-1.5 text-2xs font-sans text-text-primary font-bold">
+                            Telegram alerts
+                            <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
+                          </h3>
                         </div>
-                        <button
-                          type="button"
-                          disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
-                          onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
-                          className="h-10 px-4 rounded-md text-2xs font-sans font-extrabold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-text-primary text-surface-base hover:opacity-90 cursor-pointer"
-                        >
-                          {telegramLink.status === "signing" ? "Sign in wallet..." :
-                           telegramLink.status === "requesting" ? "Opening..." :
-                           telegramLink.status === "connected" ? "Reconnect" :
-                           telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
-                        </button>
-                      </div>
-                      {telegramEligible && telegramLink.status !== "connected" && (
-                        <p className="text-xs font-sans text-text-secondary">
-                          Sign to prove wallet ownership - free, no transaction, no gas.
+                        <p className="text-xs text-text-secondary leading-relaxed font-sans">
+                          Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit.
                         </p>
-                      )}
-                      {!telegramEligible && (
-                        <p className="text-xs font-sans text-text-secondary">Onboard with an EVM wallet (0x...) to enable alerts.</p>
-                      )}
-                      {telegramLink.status === "connected" && (
-                        <p className="text-xs font-sans text-risk-low">
-                          Alerts are on. Send /stop in the bot anytime to pause them.
-                        </p>
-                      )}
-                      {telegramLink.status === "opened" && (
-                        <div className="space-y-1.5 pt-1.5 border-t border-border-subtle">
-                          <p className="text-xs font-sans text-risk-low flex items-center">
-                            Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
-                          </p>
-                          <p className="text-xs font-sans text-text-secondary leading-relaxed">
-                            If the link didn't open automatically, copy this command, open <strong className="text-text-primary">@{telegramBotUsername}</strong> in Telegram, and send it:
-                          </p>
-                          <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-sans text-xs text-risk-low select-all break-all">
-                            /start {telegramLink.code}
+                        <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                          <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-xs truncate">
+                            {telegramLink.status === "connected" ? (
+                              <span className="text-risk-low flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                Connected
+                              </span>
+                            ) : (
+                              /* States COVERAGE, not progress. This used to read
+                                 "Linking 0x1234...abcd", which describes a
+                                 handshake that has not been started and reads as
+                                 "something is happening" on the one screen where
+                                 the honest answer is "nothing is". The wallet is
+                                 already named in the top bar, so the words are
+                                 spent on the fact that matters. */
+                              <span className="text-text-secondary">
+                                {telegramEligible
+                                  ? "Not connected. No alerts are being sent"
+                                  : "No EVM wallet onboarded, so no alerts can be sent"}
+                              </span>
+                            )}
                           </div>
+                          <button
+                            type="button"
+                            disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
+                            onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
+                            className="h-10 px-4 rounded-md text-2xs font-sans font-extrabold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-text-primary text-surface-base hover:opacity-90 cursor-pointer"
+                          >
+                            {telegramLink.status === "signing" ? "Sign in wallet..." :
+                             telegramLink.status === "requesting" ? "Opening..." :
+                             telegramLink.status === "connected" ? "Reconnect" :
+                             telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
+                          </button>
                         </div>
-                      )}
-                      {telegramLink.status === "error" && telegramLink.error && (
-                        <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
-                      )}
-                    </div>
+                        {telegramEligible && telegramLink.status !== "connected" && (
+                          <p className="text-xs font-sans text-text-secondary">
+                            Sign to prove wallet ownership - free, no transaction, no gas.
+                          </p>
+                        )}
+                        {!telegramEligible && (
+                          <p className="text-xs font-sans text-text-secondary">Onboard with an EVM wallet (0x...) to enable alerts.</p>
+                        )}
+                        {telegramLink.status === "connected" && (
+                          <p className="text-xs font-sans text-risk-low">
+                            Alerts are on. Send /stop in the bot anytime to pause them.
+                          </p>
+                        )}
+                        {telegramLink.status === "opened" && (
+                          <div className="space-y-1.5 pt-1.5 border-t border-border-subtle">
+                            <p className="text-xs font-sans text-risk-low flex items-center">
+                              Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
+                            </p>
+                            <p className="text-xs font-sans text-text-secondary leading-relaxed">
+                              If the link didn't open automatically, copy this command, open <strong className="text-text-primary">@{telegramBotUsername}</strong> in Telegram, and send it:
+                            </p>
+                            <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-sans text-xs text-risk-low select-all break-all">
+                              /start {telegramLink.code}
+                            </div>
+                          </div>
+                        )}
+                        {telegramLink.status === "error" && telegramLink.error && (
+                          <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Standing exit permission (Phase 2.C) - grant/disclose/revoke
                         a scoped ExitPermit the user signs; the relayer that uses
@@ -4569,9 +4727,17 @@ export function AppDemo() {
                       note below. The privacy note stays — it is a data-handling
                       commitment and the only place /stop is documented. */}
                   <div className="lg:col-span-4 space-y-4">
-                    <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
-                      We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
-                    </div>
+                    {/* Travels with the card it belongs to. It is a
+                        data-handling commitment about the Telegram link and the
+                        only place /stop is documented, so it is never deleted -
+                        but with that card withheld under a read-only session it
+                        would be a promise about a feature this screen is not
+                        offering, floating on its own. */}
+                    {!readOnlySession && (
+                      <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
+                        We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
+                      </div>
+                    )}
                   </div>
                 </div>
               </TabPanel>
@@ -4654,6 +4820,10 @@ export function AppDemo() {
                      wallet they have not thought about a level for yet. */
                   defaultProfile={selectedRiskProfile}
                   viewedWallet={viewedWallet}
+                  /* A read-only reader may see the list the alerts come from,
+                     and may not change it: every edit here ends in one
+                     `watchlist-manage` signature they cannot produce. */
+                  readOnly={readOnlySession}
                   onClose={() => setWalletsPanelOpen(false)}
                 />
               </motion.div>
