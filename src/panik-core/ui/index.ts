@@ -12,5 +12,6 @@ export { RiskChip } from "./RiskChip";
 export { Button } from "./Button";
 export { EmptyState } from "./EmptyState";
 export { Listbox } from "./Listbox";
+export { LAYER, SCRIM } from "./overlay";
 export { Skeleton } from "./Skeleton";
 export { SimulationBanner, SimulationChip } from "./SimulationMarker";

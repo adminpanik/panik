@@ -14,6 +14,7 @@ import {
   type ProfileResult,
 } from "../lib/profiling";
 import { useWalletProfile, type WalletProfileData } from "../lib/profileApi";
+import { LAYER, SCRIM } from "../ui";
 
 /**
  * Address format check (purely client-side).
@@ -206,7 +207,10 @@ export function Onboarding({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md"
+          /* The app's one scrim and one overlay rung, from `ui/overlay`. This
+             was `bg-black/80 backdrop-blur-md` against the exit flow's
+             `bg-black/70 backdrop-blur-sm` and the sheet's surface token. */
+          className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4 sm:p-6 ${SCRIM}`}
         >
 
           <motion.div

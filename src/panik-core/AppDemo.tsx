@@ -117,10 +117,12 @@ import {
   Chip,
   DemoChip,
   EmptyState,
+  LAYER,
   Listbox,
   RiskChip,
   RiskDial,
   riskScoreLabel,
+  SCRIM,
   SimulationBanner,
   Skeleton,
   Stat,
@@ -1180,6 +1182,11 @@ function ScoreBreakdownSection({ valueOf }: { valueOf: (driver: RiskDriver) => n
  *
  * The panel's own dismissal contract (focus on open, Escape to close) belongs
  * to the component inside it, which is the thing that knows what closing means.
+ *
+ * Its rungs come from `LAYER`, which is why it is now above the alerts-inactive
+ * banner rather than under it. At 390 that banner covered this panel's heading
+ * and its close control, and a notice the app raised on its own does not get to
+ * sit on top of the surface the reader deliberately opened.
  */
 function Sheet({ onDismiss, children }: { onDismiss: () => void; children: React.ReactNode }) {
   return (
@@ -1189,14 +1196,14 @@ function Sheet({ onDismiss, children }: { onDismiss: () => void; children: React
         animate={{ opacity: 0.5 }}
         exit={{ opacity: 0 }}
         onClick={onDismiss}
-        className="absolute inset-0 bg-surface-base/85 z-40 backdrop-blur-xs cursor-pointer"
+        className={`absolute inset-0 ${SCRIM} ${LAYER.scrim} cursor-pointer`}
       />
       <motion.div
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", damping: 26, stiffness: 220 }}
-        className="absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] z-50 flex flex-col overflow-hidden text-sm"
+        className={`absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] ${LAYER.sheet} flex flex-col overflow-hidden text-sm`}
       >
         {children}
       </motion.div>
@@ -2885,7 +2892,7 @@ export function AppDemo() {
 
       {/* 1. LEFT SIDEBAR PANEL (exactly modeled after the Figma UI) */}
       {isDesktop && (
-      <aside className="w-64 h-full shrink-0 flex flex-col justify-between border-r border-border-subtle bg-surface-base p-6 z-30">
+      <aside className={`w-64 h-full shrink-0 flex flex-col justify-between border-r border-border-subtle bg-surface-base p-6 ${LAYER.chrome}`}>
 
         {/* Sidebar Header Brand block */}
         <div className="space-y-8">
@@ -5057,7 +5064,7 @@ export function AppDemo() {
           `env(safe-area-inset-bottom)` keeps it clear of the home indicator. */}
       {!isDesktop && (
         <div
-          className="shrink-0 border-t border-border-subtle bg-surface-base z-30"
+          className={`shrink-0 border-t border-border-subtle bg-surface-base ${LAYER.chrome}`}
           style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <NavTabs
@@ -5111,7 +5118,7 @@ export function AppDemo() {
         // risk on a wallet-connection prompt. Same words, stated calmly.
         const blocked = monitoringIssue.severity === "blocked";
         return (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[210] w-full max-w-xl px-4">
+          <div className={`fixed top-4 left-1/2 -translate-x-1/2 ${LAYER.banner} w-full max-w-xl px-4`}>
             <div
               role={blocked ? "alert" : "status"}
               className={`flex items-center gap-3 bg-surface-overlay border rounded-md px-4 py-3 shadow-2xl shadow-black/60 ${
@@ -5171,7 +5178,7 @@ export function AppDemo() {
 
       {/* First-run onboarding tooltip tour */}
       {currentTourStep && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] w-full max-w-sm px-4">
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 ${LAYER.banner} w-full max-w-sm px-4`}>
           <div className="bg-surface-raised border border-border-subtle rounded-md p-4 shadow-2xl shadow-black/60">
             <div className="flex items-center justify-between mb-2">
               <span className="text-2xs font-sans text-text-primary font-bold">

@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import { Clock, AlertCircle, X } from "lucide-react";
 import { formatRemaining, parseCode } from "../../panik-try/lib/trialLogic";
+import { LAYER } from "../ui";
 
 type State =
   | { kind: "none" }
@@ -77,7 +78,7 @@ export function TrialBanner() {
   if (state.kind === "active") {
     const remainingMs = state.expiresAt ? new Date(state.expiresAt).getTime() - Date.now() : 0;
     return (
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9998] panik-glass rounded-full pl-4 pr-3 py-2 flex items-center gap-2.5 shadow-lg">
+      <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 ${LAYER.banner} panik-glass rounded-full pl-4 pr-3 py-2 flex items-center gap-2.5 shadow-lg`}>
         <Clock className="w-4 h-4 text-text-primary" />
         <span className="text-xs text-text-secondary">
           Trial active
@@ -92,7 +93,7 @@ export function TrialBanner() {
 
   // expired | invalid
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9998] panik-glass rounded-full pl-4 pr-3 py-2 flex items-center gap-2.5 shadow-lg">
+    <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 ${LAYER.banner} panik-glass rounded-full pl-4 pr-3 py-2 flex items-center gap-2.5 shadow-lg`}>
       <AlertCircle className="w-4 h-4 text-risk-critical" />
       <span className="text-xs text-text-secondary">
         {state.kind === "expired" ? "Your trial has expired." : "Trial link isn't valid."}

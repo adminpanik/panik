@@ -25,6 +25,7 @@ import {
 } from "../lib/utils";
 import { estimateHealthFactor } from "../../../packages/scoring/src/prospective";
 import { ProtocolLogo } from "./ProtocolLogo";
+import { LAYER, SCRIM } from "../ui";
 
 export interface OpenPositionTarget {
   protocol: "Aave V3" | "Moonwell" | "Morpho" | "Compound V3";
@@ -84,7 +85,8 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+        /* The app's one scrim and one overlay rung, from `ui/overlay`. */
+        className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4 ${SCRIM}`}
         onClick={phase === "config" ? onClose : undefined}
       >
         <motion.div

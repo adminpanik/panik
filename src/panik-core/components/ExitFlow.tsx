@@ -42,6 +42,7 @@ import {
   useChainMode,
 } from "../lib/chainMode";
 import { classifyExitError } from "../lib/exitRpc";
+import { LAYER, SCRIM } from "../ui";
 // Shared with the relayer (server/relayerChain.ts) and the coverage sweep
 // (server/coverageChain.ts). One resolution, cached per deployment; see the
 // module header for why the reads live there rather than here.
@@ -681,8 +682,11 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
   ) : null;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+    <div className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4`}>
+      {/* The app's one scrim, from `ui/overlay`. This was `bg-black/70`, one of
+          four hand-typed dims that between them used two blacks and three
+          blurs, so which one you got depended on which button you pressed. */}
+      <div className={`absolute inset-0 ${SCRIM}`} onClick={onClose} />
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

@@ -42,6 +42,7 @@
  */
 
 import React, { useEffect, useId, useRef, useState } from "react";
+import { LAYER } from "./overlay";
 
 /**
  * The panel's width, and it is the `w-80` on the `<ul>` below written as a
@@ -262,7 +263,7 @@ export function Listbox({
           /* `w-80` is `PANEL_W`, and the two travel together. `overlay` is the
              token for a popover; `border-subtle` because this edge is decoration
              around content, not the boundary of a control. */
-          className={`absolute top-full z-50 mt-2 max-h-72 w-80 overflow-y-auto rounded-md border border-border-subtle bg-surface-overlay py-1 shadow-2xl ${
+          className={`absolute top-full ${LAYER.popover} mt-2 max-h-72 w-80 overflow-y-auto rounded-md border border-border-subtle bg-surface-overlay py-1 shadow-2xl ${
             alignRight ? "right-0" : "left-0"
           }`}
         >
