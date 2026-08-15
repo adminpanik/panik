@@ -2758,12 +2758,19 @@ export function AppDemo() {
                 the profile is set by the onboarding quiz, so the chip that
                 names it is the control that reopens it. */}
             {riskTier && (
-              <span className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}>
+              /* The vertical padding is on the BUTTON, not on this wrapper.
+                 With `py-1` here the chip measured 92x26 while the only thing
+                 anyone can press inside it measured 53x16, which is under the
+                 24px floor SC 2.5.8 sets. Moving the same padding one level in
+                 gives the control a 24px hit area and leaves the chip the
+                 height it already was, so nothing about how quiet it looks
+                 changes. */
+              <span className={`flex shrink-0 items-center gap-1.5 pl-2.5 pr-2 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}>
                 <button
                   type="button"
                   onClick={() => setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")}
                   title="Change your risk profile"
-                  className="cursor-pointer hover:text-text-primary transition-colors"
+                  className="inline-flex min-h-6 cursor-pointer items-center pr-0.5 hover:text-text-primary transition-colors"
                 >
                   {RISK_TIER_LABELS[riskTier]}
                 </button>
