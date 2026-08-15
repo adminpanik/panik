@@ -286,6 +286,104 @@ function applyMockOps(owner: string, ops: WatchOp[]): { watching: WatchSubscript
  */
 const watchlistDown = () => process.env.PANIK_MOCK_WATCHLIST_DOWN === "1";
 
+// ── /api/session ─────────────────────────────────────────────────────────────
+//
+// The four identity routes, in memory. Same shapes and same statuses as
+// scripts/api-server.ts, including the 401 bodies, because the app renders
+// those strings and a mock with its own wording would let the boot path be
+// verified against a sentence production never sends.
+//
+// WHAT IS FAKED, AND IT MATTERS: there is no signature check on POST
+// /api/session, for the same reason the watchlist has none here — mock mode has
+// no nonce store and a headless browser has no wallet to sign with. Nothing in
+// this file is a trust boundary; it never ships (`apply: 'serve'`).
+
+/**
+ * PANIK_MOCK_SESSION=full|readonly|none seeds the session this dev server
+ * starts with, so the three boot paths (restore, read-only view, first run) can
+ * each be opened and measured without a Supabase row or a wallet. Unset means
+ * `none`, which is the previous behaviour exactly: every load is a signed-out
+ * one.
+ */
+type MockScope = "full" | "readonly";
+
+interface MockSession {
+  token: string;
+  wallet: string;
+  scope: MockScope;
+  expiresAt: string;
+}
+
+/** The dev server's whole session table, keyed by the token it handed out. */
+const sessions = new Map<string, MockSession>();
+
+const MOCK_SESSION_TOKEN = "mock-session-token";
+
+/**
+ * The `sid` the mock treats as a live alert link, and it BURNS like the real
+ * one: the first trade succeeds and every later trade of the same value gets
+ * the production 401. That is the half of the deep-link contract a UI is most
+ * likely to get wrong (retrying, or exchanging twice under StrictMode), so the
+ * mock refuses to be lenient about it.
+ */
+const MOCK_SID = "mock-alert-link-token";
+const spentSids = new Set<string>();
+
+/** Mint a session and return it. Tokens are unique so a re-sign replaces. */
+function mintMockSession(wallet: string, scope: MockScope): MockSession {
+  const session: MockSession = {
+    token: `${MOCK_SESSION_TOKEN}-${sessions.size}-${Date.now()}`,
+    wallet,
+    scope,
+    expiresAt: new Date(Date.now() + (scope === "full" ? 30 : 7) * 86_400_000).toISOString(),
+  };
+  sessions.set(session.token, session);
+  return session;
+}
+
+/**
+ * The seeded session, and the cookie that reaches it.
+ *
+ * The token is fixed rather than minted so the page can be handed the cookie
+ * without a round trip: `PANIK_MOCK_SESSION=full` seeds the row here and the
+ * html transform below plants the matching cookie, which together are what
+ * makes "reload and you are still signed in" testable in one command.
+ */
+function seedSession(): MockScope | null {
+  const scope = process.env.PANIK_MOCK_SESSION?.trim().toLowerCase();
+  if (scope !== "full" && scope !== "readonly") return null;
+  sessions.set(MOCK_SESSION_TOKEN, {
+    token: MOCK_SESSION_TOKEN,
+    wallet: MOCK_WALLET,
+    scope,
+    expiresAt: new Date(Date.now() + (scope === "full" ? 30 : 7) * 86_400_000).toISOString(),
+  });
+  return scope;
+}
+
+/** The session cookie this request presents, if the browser kept one. */
+function presentedSession(cookieHeader: string | undefined): MockSession | null {
+  if (!cookieHeader) return null;
+  for (const part of cookieHeader.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() !== "panik_session") continue;
+    return sessions.get(part.slice(eq + 1).trim()) ?? null;
+  }
+  return null;
+}
+
+/**
+ * The Set-Cookie the mock sets. Production's attributes minus `Secure`
+ * (server/sessionStore.ts keeps it, and browsers exempt http://localhost from
+ * it) — dropped here so the cookie also survives when the dev server is reached
+ * over http on a LAN address, which `--host 0.0.0.0` invites and which is not a
+ * localhost exemption.
+ */
+function mockSessionCookie(token: string, days: number): string {
+  return `panik_session=${token}; Max-Age=${days * 86_400}; Path=/; HttpOnly; SameSite=Lax`;
+}
+
 /** Route table: pathname -> body. Returning undefined means "not mine". */
 function handle(url: URL): unknown {
   const profile = url.searchParams.get("profile") ?? "moderate";
@@ -373,7 +471,34 @@ export function mockApi(mode: string): Plugin[] {
             `\n     Paste this into "Add your wallet" to populate the dashboard:` +
             `\n     ${MOCK_WALLET}\n`,
         );
+        const seededScope = seedSession();
+        if (seededScope) {
+          server.config.logger.info(
+            `  \x1b[33m➜\x1b[0m  MOCK SESSION: this browser boots with a ${seededScope} session` +
+              `\n     Alert-link token for ?sid= (single use): ${MOCK_SID}\n`,
+          );
+        }
+
         server.middlewares.use((req, res, next) => {
+          /* Hand the seeded session to the browser on the DOCUMENT request, so
+             the cookie is there before any script runs and stays HttpOnly. A
+             seed script could not do this: production's cookie is HttpOnly by
+             design, and a mock that made it readable would be exercising a
+             different mechanism than the one that ships.
+
+             Only while the row is still there, so a sign-out is not undone by
+             the next reload. */
+          if (
+            seededScope &&
+            sessions.has(MOCK_SESSION_TOKEN) &&
+            !req.url?.startsWith("/api/") &&
+            !presentedSession(req.headers.cookie)
+          ) {
+            res.setHeader(
+              "Set-Cookie",
+              mockSessionCookie(MOCK_SESSION_TOKEN, seededScope === "full" ? 30 : 7),
+            );
+          }
           if (!req.url?.startsWith("/api/")) return next();
           const url = new URL(req.url, "http://localhost");
 
@@ -383,6 +508,77 @@ export function mockApi(mode: string): Plugin[] {
             res.setHeader("Cache-Control", "no-store");
             res.end(JSON.stringify(body));
           };
+
+          /** The request body as JSON, or a 400 in the shape the API uses. */
+          const withJsonBody = (use: (body: unknown) => void) => {
+            const chunks: Buffer[] = [];
+            req.on("data", (c: Buffer) => chunks.push(c));
+            req.on("end", () => {
+              try {
+                use(JSON.parse(Buffer.concat(chunks).toString("utf8") || "null"));
+              } catch {
+                send(400, { error: "body is not JSON" });
+              }
+            });
+          };
+
+          /* The four session routes. Cookies are real here: the dev server is
+             the same origin as the app, so the browser stores and returns this
+             exactly as it does in production, and the boot path is exercised
+             end to end rather than stubbed. */
+          if (url.pathname === "/api/session" || url.pathname === "/api/session/exchange") {
+            const live = presentedSession(req.headers.cookie);
+
+            if (url.pathname === "/api/session" && req.method === "GET") {
+              if (!live) return send(401, { error: "not signed in" });
+              return send(200, { wallet: live.wallet, scope: live.scope, expiresAt: live.expiresAt });
+            }
+
+            if (url.pathname === "/api/session" && req.method === "DELETE") {
+              // Revoke server-side AND clear the cookie, in that order of
+              // importance, exactly as the real route does.
+              if (live) sessions.delete(live.token);
+              res.setHeader("Set-Cookie", "panik_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax");
+              return send(200, { ok: true });
+            }
+
+            if (req.method !== "POST") return send(405, { error: "method not allowed" });
+
+            return withJsonBody((body) => {
+              if (url.pathname === "/api/session/exchange") {
+                const token = (body as { token?: unknown } | null)?.token;
+                if (typeof token !== "string" || token !== MOCK_SID || spentSids.has(token)) {
+                  // One string for unknown / expired / already used, because
+                  // the real endpoint genuinely cannot tell them apart.
+                  return send(401, {
+                    error: "alert link is no longer valid — open PANIK from a fresh alert",
+                  });
+                }
+                spentSids.add(token);
+                const minted = mintMockSession(MOCK_WALLET, "readonly");
+                res.setHeader("Set-Cookie", mockSessionCookie(minted.token, 7));
+                return send(200, {
+                  wallet: minted.wallet,
+                  scope: minted.scope,
+                  expiresAt: minted.expiresAt,
+                });
+              }
+              /* POST /api/session. The proof is accepted UNREAD (see the note
+                 above this route table). The wallet is lifted out of the SIWE
+                 message the client built, which is the one part of the proof
+                 that is readable without a verifier, so signing in as a
+                 non-fixture address in mock mode still shows that address. */
+              const message = (body as { message?: unknown } | null)?.message;
+              const named = typeof message === "string" ? /0x[0-9a-fA-F]{40}/.exec(message) : null;
+              const minted = mintMockSession((named?.[0] ?? MOCK_WALLET).toLowerCase(), "full");
+              res.setHeader("Set-Cookie", mockSessionCookie(minted.token, 30));
+              return send(200, {
+                wallet: minted.wallet,
+                scope: minted.scope,
+                expiresAt: minted.expiresAt,
+              });
+            });
+          }
 
           /* The watchlist is the one route with a WRITE and with per-request
              statuses, so it is handled here rather than in `handle`, which is a
