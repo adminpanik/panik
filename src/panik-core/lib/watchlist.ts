@@ -224,6 +224,35 @@ export function viewableWallets(
   return out;
 }
 
+/**
+ * Whether PANIK could ACT on the wallet the dashboard is currently showing.
+ *
+ * Both terms are load-bearing and neither implies the other. `viewed` is the
+ * wallet whose positions are on screen, which `viewableWallets` above allows to
+ * be any watched address. `connected` is the wallet wagmi holds a signer for.
+ * An exit is signed by the connected key and settles against whatever THAT
+ * account holds, so the only state in which the button on a position row can do
+ * what it says is the one where the two are the same address.
+ *
+ * The two ways they come apart are both ordinary. A watched wallet is the
+ * feature working as designed: watching an address you do not control is the
+ * point, and offering to close its positions is a control that could never
+ * fire. An address pasted at onboarding with no wallet connected behind it is
+ * the commoner one, and it is the case a `viewed !== owner` test misses
+ * entirely - the dashboard is showing the "own" wallet, and there is still no
+ * key that could sign for it.
+ *
+ * Case-insensitive because an EVM address is, and the two sides reach here from
+ * different places (a form, wagmi) with different capitalisation.
+ */
+export function canActOnViewedWallet(
+  viewed: string | null | undefined,
+  connected: string | null | undefined,
+): boolean {
+  if (!viewed || !connected) return false;
+  return viewed.trim().toLowerCase() === connected.trim().toLowerCase();
+}
+
 /** The subscription covering one wallet, or null when the list does not hold it. */
 export function subscriptionFor(
   list: readonly WatchSubscription[] | null,

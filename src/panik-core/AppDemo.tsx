@@ -166,6 +166,7 @@ import {
   type ProfileResult,
 } from "./lib/profiling";
 import {
+  canActOnViewedWallet,
   deepLinkTab,
   subscriptionFor,
   useWatchlist,
@@ -1652,6 +1653,18 @@ export function AppDemo() {
     viewedWallet !== null &&
     onboardedWallet !== null &&
     viewedWallet.toLowerCase() !== onboardedWallet.toLowerCase();
+
+  /**
+   * The stricter half of the same question, and the one an EXIT has to pass.
+   *
+   * `viewingWatchOnly` compares the shown wallet against the bound one, which
+   * catches somebody else's dashboard and misses the commoner case: a wallet
+   * pasted at onboarding is the "own" wallet and still has no signer behind it.
+   * An exit is signed by the connected key, so the rule is the identity the
+   * `useAccount` binding above already states in prose. See
+   * `canActOnViewedWallet`.
+   */
+  const canActOnViewed = canActOnViewedWallet(viewedWallet, connectedWallet);
 
   /**
    * The alert level the bound wallet is actually SUBSCRIBED at, or null when we
@@ -4302,14 +4315,15 @@ export function AppDemo() {
                       highlightKey={highlightedPositionKey}
                       offline={portfolioFeedDown}
                       chain={ownLive.chain}
-                      /* No exit control at all on a wallet the user does not
-                         own, rather than a disabled one: `exitControlState`'s
-                         two "why not" sentences are about the chain and about
-                         the flow being wired in, and neither is the reason
-                         here. A row with no action is the honest shape when the
-                         action was never available to offer. */
-                      exitActions={viewingWatchOnly ? undefined : portfolioExitActions}
-                      onExit={viewingWatchOnly ? undefined : (prefill) => setExitPrefill(prefill)}
+                      /* No exit control at all unless a connected key could
+                         sign one for the wallet on screen, rather than a
+                         disabled one: `exitControlState`'s two "why not"
+                         sentences are about the chain and about the flow being
+                         wired in, and neither is the reason here. A row with no
+                         action is the honest shape when the action was never
+                         available to offer. */
+                      exitActions={canActOnViewed ? portfolioExitActions : undefined}
+                      onExit={canActOnViewed ? (prefill) => setExitPrefill(prefill) : undefined}
                       onStressTest={(pos) => {
                         // Bridge: open THIS real position in the Watch simulator.
                         setSelectedLivePositionKey(`${pos.wallet}:${pos.protocol}:${pos.scoredCollateralSymbol}`);
