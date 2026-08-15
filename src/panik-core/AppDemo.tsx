@@ -61,7 +61,7 @@ import {
  * `profile.ts`, whose sole import is type-only. The package barrel pulls viem
  * and must never reach a browser bundle (see lib/live.ts).
  */
-import { ALERT_THRESHOLD } from "../../packages/scoring/src/profile";
+import { ALERT_THRESHOLD, fitsProfile } from "../../packages/scoring/src/profile";
 /**
  * The composite weights, from the engine for the same reason: `params.ts` has no
  * imports at all. Three surfaces on this file used to hard-code 40/25/20/15, one
@@ -2762,16 +2762,16 @@ export function AppDemo() {
   // routes on, so a card shown is a card that works.
   const compassCatalog =
     chainMode === "testnet" ? presetsWithLive.filter(opensReal) : presetsWithLive;
-  // One predicate per profile; `outside` is its negation by construction
-  // rather than a hand-maintained De Morgan of it.
-  const inProfile = (r: number) =>
-    selectedRiskProfile === "conservative"
-      ? r < 20
-      : selectedRiskProfile === "aggressive"
-        ? r >= 50
-        : r >= 20 && r < 50;
-  const recommended = compassCatalog.filter((p) => inProfile(p.baseRisk));
-  const outside = compassCatalog.filter((p) => !inProfile(p.baseRisk));
+  // The engine's own membership test, and `outside` is its negation by
+  // construction rather than a hand-maintained De Morgan of it.
+  //
+  // This used to be three windows written here (<20 / 20-49 / >=50 by profile)
+  // while `ALERT_THRESHOLD` alerts at 25 / 50 / 75, so the grid recommended
+  // markets the watcher would fire on and filed the two safest markets in the
+  // catalog under "Outside your profile" for an aggressive reader. `fitsProfile`
+  // is the same boundary `statusFor` decides alerts with.
+  const recommended = compassCatalog.filter((p) => fitsProfile(selectedRiskProfile, p.baseRisk));
+  const outside = compassCatalog.filter((p) => !fitsProfile(selectedRiskProfile, p.baseRisk));
   /**
    * The one market this page leads with, and the ONE claim the data supports.
    *
@@ -2781,10 +2781,11 @@ export function AppDemo() {
    * APY. A "best match for you" would therefore be a ranking this component
    * invented, which is exactly the thing the data-honesty rule forbids.
    *
-   * So the lead is the lowest PANIK score among the markets that scored INSIDE
-   * the selected profile, and the card says that in those words rather than
-   * implying a recommendation engine that does not exist. It is arithmetic the
-   * reader can check against the seven dials beside it.
+   * So the lead is the lowest PANIK score among the markets that scored UNDER
+   * the profile's alert threshold (`fitsProfile`), and the card says that in
+   * those words rather than implying a recommendation engine that does not
+   * exist. It is arithmetic the reader can check against the seven dials beside
+   * it.
    *
    * Null below two cards: "the lowest of one" is a claim with no content, and a
    * section with one card in it has already led with it.
@@ -3219,10 +3220,13 @@ export function AppDemo() {
                   leadId={compassLead?.id}
                   /* The measurement, not a verdict: this app does not rank
                      markets for a person, and saying it did would be the
-                     invented fact the data-honesty rule is about. */
-                  leadNote="Lowest risk in this profile"
+                     invented fact the data-honesty rule is about. "Within your
+                     limit" is what the predicate now computes - membership is
+                     one boundary, the profile's alert threshold, so "in this
+                     profile" would name a window that no longer exists. */
+                  leadNote="Lowest risk within your limit"
                   statesEmpty={statesEmptySections}
-                  emptyTitle={`No ${CHAIN_MODE_LABEL[chainMode]} market scores inside this profile`}
+                  emptyTitle={`No ${CHAIN_MODE_LABEL[chainMode]} market scores under your risk limit`}
                   /* A measured fact rather than a guess: an empty section is
                      only stated with a non-empty catalog, so an empty
                      `recommended` puts every market in `outside`. */
@@ -3256,7 +3260,7 @@ export function AppDemo() {
                   muted
                   presets={outside}
                   statesEmpty={statesEmptySections}
-                  emptyTitle={`Every ${CHAIN_MODE_LABEL[chainMode]} market scores inside your profile`}
+                  emptyTitle={`Every ${CHAIN_MODE_LABEL[chainMode]} market scores under your risk limit`}
                   poolYields={poolYields}
                   opensReal={opensReal}
                   scoreFromFallback={scoreFromFallback}
