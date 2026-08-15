@@ -990,35 +990,39 @@ function MarketSection({
  * score is neutral ink beside it: a figure is not the thing that carries the
  * hue. Nothing here states the band by colour alone - the chip's own word does.
  */
-function MarketOptionRow({
-  protocol,
-  line,
-  band,
-  score,
-  selected,
-}: {
+interface MarketChoice {
+  /**
+   * What this row IS, and the only thing selection is decided by. Both sources
+   * key by something already unique to them (a position's wallet-protocol-asset
+   * triple, a preset's id), so an index is a position in the list and never an
+   * identity.
+   */
+  key: string;
   protocol: string;
   /** The leg, already worded by the caller: it is a size on one source and an asset pair on the other. */
   line: string;
   band: Band;
   score: number;
-  selected: boolean;
-}) {
+  /** What picking this row does, in the words of whichever source built it. */
+  commit: () => void;
+}
+
+function MarketOptionRow({ choice, selected }: { choice: MarketChoice; selected: boolean }) {
   return (
     <>
       <div className="min-w-0">
-        <span className="block text-xs font-sans text-text-muted">{protocol}</span>
+        <span className="block text-xs font-sans text-text-muted">{choice.protocol}</span>
         <span
           className={`block text-sm font-sans font-semibold truncate tabular-nums ${
             selected ? "text-text-primary" : "text-text-secondary"
           }`}
         >
-          {line}
+          {choice.line}
         </span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <RiskChip band={band}>{band}</RiskChip>
-        <span className="text-xs font-sans text-text-muted tabular-nums">{score}</span>
+        <RiskChip band={choice.band}>{choice.band}</RiskChip>
+        <span className="text-xs font-sans text-text-muted tabular-nums">{choice.score}</span>
       </div>
     </>
   );
@@ -2521,42 +2525,54 @@ export function AppDemo() {
    * `.map`s over two lists cannot agree on what it is. Which list is showing is
    * decided here, once, beside the state that decides it.
    */
-  const marketChoices: {
-    key: string;
-    protocol: string;
-    line: string;
-    band: Band;
-    score: number;
-    selected: boolean;
-    commit: () => void;
-  }[] = watchingOwnPosition
-    ? watchPositionMarkets.map(({ key, position, preset }) => ({
-        key,
-        protocol: preset.protocol,
-        // Never a zero standing in for a size we could not price: a degraded
-        // feed says so in words, in the slot the money would have been in.
-        line: `${preset.collateralSymbol} · ${
-          position.collateralValueUsd === null
-            ? "size unavailable (prices degraded)"
-            : `${formatCurrency(position.collateralValueUsd)} supplied`
-        }`,
-        band: preset.riskStatus,
-        score: preset.baseRisk,
-        selected: key === selectedPositionMarket?.key,
-        commit: () => setSelectedLivePositionKey(key),
-      }))
-    : presetsWithLive.map((p) => ({
-        key: p.id,
-        protocol: p.protocol,
-        line: p.assetPair,
-        band: p.riskStatus,
-        score: p.baseRisk,
-        selected: p.id === selectedPresetId,
-        commit: () => setSelectedPresetId(p.id),
-      }));
-  // The same guard `WalletSelector` makes for the same reason: a miss is a
-  // caller bug, and the first row is the honest thing to open on while it lasts.
-  const marketSelectedIndex = Math.max(0, marketChoices.findIndex((c) => c.selected));
+  const marketChoices: MarketChoice[] = useMemo(
+    () =>
+      watchingOwnPosition
+        ? watchPositionMarkets.map(({ key, position, preset }) => ({
+            key,
+            protocol: preset.protocol,
+            // Never a zero standing in for a size we could not price: a degraded
+            // feed says so in words, in the slot the money would have been in.
+            line: `${preset.collateralSymbol} · ${
+              position.collateralValueUsd === null
+                ? "size unavailable (prices degraded)"
+                : `${formatCurrency(position.collateralValueUsd)} supplied`
+            }`,
+            band: preset.riskStatus,
+            score: preset.baseRisk,
+            commit: () => setSelectedLivePositionKey(key),
+          }))
+        : presetsWithLive.map((p) => ({
+            key: p.id,
+            protocol: p.protocol,
+            line: p.assetPair,
+            band: p.riskStatus,
+            score: p.baseRisk,
+            commit: () => setSelectedPresetId(p.id),
+          })),
+    // Nothing about the SELECTION, which is why the rows no longer carry a
+    // `selected` flag: a list that is rebuilt every time a reader picks a row
+    // in it is rebuilding eight objects to move one marker, and `Listbox`
+    // already derives selection from the index below. What the rows are made of
+    // is these three, and the two setters are stable.
+    [watchingOwnPosition, watchPositionMarkets, presetsWithLive],
+  );
+  /**
+   * Which row is the current value, found by the KEY the selection is held as.
+   *
+   * One `findIndex` over the load-bearing field rather than a per-row boolean
+   * that then has to be searched for anyway: the flag was a second copy of this
+   * answer, stored on every row, and one edit away from disagreeing with the
+   * state it was derived from.
+   *
+   * The same guard `WalletSelector` makes for the same reason: a miss is a
+   * caller bug, and the first row is the honest thing to open on while it lasts.
+   */
+  const selectedMarketKey = watchingOwnPosition ? selectedPositionMarket.key : selectedPresetId;
+  const marketSelectedIndex = Math.max(
+    0,
+    marketChoices.findIndex((c) => c.key === selectedMarketKey),
+  );
 
   // Simulator parameters (sliders + direct numeric inputs)
   const [collateralAmount, setCollateralAmount] = useState<number>(activePreset.defaultCollateral);
@@ -3455,13 +3471,7 @@ export function AppDemo() {
                             } ${selected || active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"}`
                           }
                           renderOption={(i, { selected }) => (
-                            <MarketOptionRow
-                              protocol={marketChoices[i].protocol}
-                              line={marketChoices[i].line}
-                              band={marketChoices[i].band}
-                              score={marketChoices[i].score}
-                              selected={selected}
-                            />
+                            <MarketOptionRow choice={marketChoices[i]} selected={selected} />
                           )}
                         />
                       </div>
