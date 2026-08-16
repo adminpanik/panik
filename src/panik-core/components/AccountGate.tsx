@@ -66,7 +66,7 @@ function GoogleMark() {
  * open. `min-h-screen` rather than `h-screen` so a short viewport scrolls
  * instead of clipping the control at the bottom of the card.
  */
-function GateShell({ children }: { children: React.ReactNode }) {
+function GateShell({ children, after }: { children: React.ReactNode; after?: React.ReactNode }) {
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-6 bg-surface-base px-4 py-10 font-sans text-sm text-text-primary antialiased">
       <div className="flex items-center gap-2.5">
@@ -76,7 +76,10 @@ function GateShell({ children }: { children: React.ReactNode }) {
           <span className="mt-0.5 text-2xs font-sans text-text-muted">Risk intelligence</span>
         </div>
       </div>
-      <div className="w-full max-w-md space-y-4">{children}</div>
+      <div className="w-full max-w-md space-y-4">
+        {children}
+        {after}
+      </div>
     </div>
   );
 }
@@ -131,8 +134,11 @@ function useCooldown(startedAt: number | null): number {
 function SignInScreen({
   account,
   note,
+  after,
 }: {
   account: AccountState;
+  /** Whatever the surface hosting this gate wants under the card. */
+  after?: React.ReactNode;
   /**
    * One line the SHELL knows and this screen does not: an alert link that could
    * not be traded. Passed in rather than read here, so this component stays a
@@ -173,7 +179,7 @@ function SignInScreen({
 
   if (!account.configured) {
     return (
-      <GateShell>
+      <GateShell after={after}>
         <EmptyState
           tone="problem"
           title="Sign-in is not available here"
@@ -185,7 +191,7 @@ function SignInScreen({
 
   if (sent) {
     return (
-      <GateShell>
+      <GateShell after={after}>
         <Card tone="raised" className="space-y-3">
           <GateHeading icon={Mail} title="Check your email" />
           <p className={PROSE}>
@@ -214,7 +220,7 @@ function SignInScreen({
   }
 
   return (
-    <GateShell>
+    <GateShell after={after}>
       <Card tone="raised" className="space-y-4">
         <GateHeading icon={LogIn} title="Sign in to PANIK" />
         {/* Keep-inline by the three-way test: it is the only place a first-time
@@ -281,7 +287,7 @@ function SignInScreen({
 
 // ── 3. the invite code ──────────────────────────────────────────────────────
 
-function VoucherScreen({ account }: { account: AccountState }) {
+function VoucherScreen({ account, after }: { account: AccountState; after?: React.ReactNode }) {
   /**
    * A code the reader arrived holding, if they did. `takeVoucher` is the whole
    * prefill mechanism: /try puts the `?code=` from a scanned card there before
@@ -318,7 +324,7 @@ function VoucherScreen({ account }: { account: AccountState }) {
 
   if (redeemed) {
     return (
-      <GateShell>
+      <GateShell after={after}>
         <Card tone="raised" className="space-y-3">
           <GateHeading icon={Check} title="You're in" />
           <p className={PROSE}>
@@ -335,7 +341,7 @@ function VoucherScreen({ account }: { account: AccountState }) {
   }
 
   return (
-    <GateShell>
+    <GateShell after={after}>
       <Card tone="raised" className="space-y-4">
         <GateHeading icon={Ticket} title="Enter your invite code" />
         <p className={PROSE}>
@@ -395,9 +401,9 @@ function VoucherScreen({ account }: { account: AccountState }) {
 
 // ── the screen that admits it does not know ─────────────────────────────────
 
-function UnavailableScreen({ account }: { account: AccountState }) {
+function UnavailableScreen({ account, after }: { account: AccountState; after?: React.ReactNode }) {
   return (
-    <GateShell>
+    <GateShell after={after}>
       <EmptyState
         tone="problem"
         title="PANIK could not check your account"
@@ -432,19 +438,27 @@ export function AccountGate({
   screen,
   account,
   note,
+  after,
 }: {
   screen: GateScreen;
   account: AccountState;
   note?: string | null;
+  /**
+   * One block the HOSTING SURFACE owns, under the gate's card. /try passes its
+   * socials card here so the scanned-card reader meets the same sign-in as
+   * /app rather than a second one built around the extra block. `checking` has
+   * no card to sit under, so it ignores this.
+   */
+  after?: React.ReactNode;
 }) {
   switch (screen) {
     case "checking":
       return <BootSkeleton />;
     case "signin":
-      return <SignInScreen account={account} note={note} />;
+      return <SignInScreen account={account} note={note} after={after} />;
     case "unavailable":
-      return <UnavailableScreen account={account} />;
+      return <UnavailableScreen account={account} after={after} />;
     case "voucher":
-      return <VoucherScreen account={account} />;
+      return <VoucherScreen account={account} after={after} />;
   }
 }
