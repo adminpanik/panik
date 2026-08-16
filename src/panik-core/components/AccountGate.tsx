@@ -34,7 +34,6 @@ import { ArrowRight, Check, LogIn, Mail, Ticket, type LucideIcon } from "lucide-
 import { BootSkeleton, Button, Card, EmptyState, Notice, TextField } from "../ui";
 import {
   RESEND_COOLDOWN_MS,
-  takeVoucher,
   WAITLIST_URL,
   type AccountState,
   type GateScreen,
@@ -65,6 +64,10 @@ function GoogleMark() {
  * page's own surface, with the brand block the sidebar carries once the app is
  * open. `min-h-screen` rather than `h-screen` so a short viewport scrolls
  * instead of clipping the control at the bottom of the card.
+ *
+ * Rendered ONCE, by `AccountGate`, around whichever screen is up. The screens
+ * return their card alone, so a block the hosting surface wants under the card
+ * (`after`) is placed in exactly one signature and no screen can forget it.
  */
 function GateShell({ children, after }: { children: React.ReactNode; after?: React.ReactNode }) {
   return (
@@ -134,11 +137,8 @@ function useCooldown(startedAt: number | null): number {
 function SignInScreen({
   account,
   note,
-  after,
 }: {
   account: AccountState;
-  /** Whatever the surface hosting this gate wants under the card. */
-  after?: React.ReactNode;
   /**
    * One line the SHELL knows and this screen does not: an alert link that could
    * not be traded. Passed in rather than read here, so this component stays a
@@ -179,123 +179,116 @@ function SignInScreen({
 
   if (!account.configured) {
     return (
-      <GateShell after={after}>
-        <EmptyState
-          tone="problem"
-          title="Sign-in is not available here"
-          hint="This deployment has no sign-in service configured, so PANIK cannot open an account for you."
-        />
-      </GateShell>
+      <EmptyState
+        tone="problem"
+        title="Sign-in is not available here"
+        hint="This deployment has no sign-in service configured, so PANIK cannot open an account for you."
+      />
     );
   }
 
   if (sent) {
     return (
-      <GateShell after={after}>
-        <Card tone="raised" className="space-y-3">
-          <GateHeading icon={Mail} title="Check your email" />
-          <p className={PROSE}>
-            We sent a sign-in link to <span className="text-text-primary">{sent.to}</span>. Open it
-            in this browser to finish signing in.
-          </p>
-          <p className={PROSE}>The link can be used once.</p>
-          {message && <Notice text={message} />}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={send} disabled={account.busy || cooldown > 0}>
-              {cooldown > 0 ? `Send another link in ${cooldown}s` : "Send another link"}
-            </Button>
-            <Button
-              variant="quiet"
-              onClick={() => {
-                setSent(null);
-                setError(null);
-              }}
-            >
-              Use a different address
-            </Button>
-          </div>
-        </Card>
-      </GateShell>
+      <Card tone="raised" className="space-y-3">
+        <GateHeading icon={Mail} title="Check your email" />
+        <p className={PROSE}>
+          We sent a sign-in link to <span className="text-text-primary">{sent.to}</span>. Open it
+          in this browser to finish signing in.
+        </p>
+        <p className={PROSE}>The link can be used once.</p>
+        {message && <Notice text={message} />}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={send} disabled={account.busy || cooldown > 0}>
+            {cooldown > 0 ? `Send another link in ${cooldown}s` : "Send another link"}
+          </Button>
+          <Button
+            variant="quiet"
+            onClick={() => {
+              setSent(null);
+              setError(null);
+            }}
+          >
+            Use a different address
+          </Button>
+        </div>
+      </Card>
     );
   }
 
   return (
-    <GateShell after={after}>
-      <Card tone="raised" className="space-y-4">
-        <GateHeading icon={LogIn} title="Sign in to PANIK" />
-        {/* Keep-inline by the three-way test: it is the only place a first-time
-            visitor learns that an account alone is not enough, and knowing it
-            before signing in is what stops the next screen reading as a
-            rejection. */}
-        <p className={PROSE}>
-          PANIK is in closed beta. Sign in first, then enter your invite code.
-        </p>
+    <Card tone="raised" className="space-y-4">
+      <GateHeading icon={LogIn} title="Sign in to PANIK" />
+      {/* Keep-inline by the three-way test: it is the only place a first-time
+          visitor learns that an account alone is not enough, and knowing it
+          before signing in is what stops the next screen reading as a
+          rejection. */}
+      <p className={PROSE}>
+        PANIK is in closed beta. Sign in first, then enter your invite code.
+      </p>
 
-        {message && <Notice text={message} />}
+      {message && <Notice text={message} />}
 
-        <Button
-          variant="outline"
-          onClick={account.startGoogle}
+      <Button
+        variant="outline"
+        onClick={account.startGoogle}
+        disabled={account.busy}
+        className="w-full justify-center"
+      >
+        <GoogleMark />
+        Continue with Google
+      </Button>
+
+      {/* A hairline with a word on it, not a bordered row: nested chrome is
+          what the design system forbids, and this is a separator. */}
+      <div className="flex items-center gap-3" aria-hidden="true">
+        <span className="h-px flex-1 bg-border-subtle" />
+        <span className="text-2xs font-sans text-text-muted">or</span>
+        <span className="h-px flex-1 bg-border-subtle" />
+      </div>
+
+      <div className="space-y-2">
+        <TextField
+          id="account-email"
+          label="Email"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          spellCheck={false}
+          value={email}
           disabled={account.busy}
-          className="w-full justify-center"
-        >
-          <GoogleMark />
-          Continue with Google
+          onChange={(e) => {
+            setEmail(e.target.value);
+            if (error) setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void send();
+          }}
+          placeholder="you@email.com"
+        />
+        {/* "Sign in", not "Send sign-in link". What pressing this does is
+            explained by the screen it produces, which names the address the
+            link went to and says it can be used once; saying it here as well
+            made the control describe its own mechanism before anyone had
+            asked. The caption under it went for the same reason. */}
+        <Button onClick={send} disabled={!canSend} className="w-full justify-center">
+          {account.busy ? "Sending..." : "Sign in"}
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </Button>
-
-        {/* A hairline with a word on it, not a bordered row: nested chrome is
-            what the design system forbids, and this is a separator. */}
-        <div className="flex items-center gap-3" aria-hidden="true">
-          <span className="h-px flex-1 bg-border-subtle" />
-          <span className="text-2xs font-sans text-text-muted">or</span>
-          <span className="h-px flex-1 bg-border-subtle" />
-        </div>
-
-        <div className="space-y-2">
-          <TextField
-            id="account-email"
-            label="Email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            spellCheck={false}
-            value={email}
-            disabled={account.busy}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              if (error) setError(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void send();
-            }}
-            placeholder="you@email.com"
-          />
-          {/* "Sign in", not "Send sign-in link". What pressing this does is
-              explained by the screen it produces, which names the address the
-              link went to and says it can be used once; saying it here as well
-              made the control describe its own mechanism before anyone had
-              asked. The caption under it went for the same reason. */}
-          <Button onClick={send} disabled={!canSend} className="w-full justify-center">
-            {account.busy ? "Sending..." : "Sign in"}
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
-        </div>
-      </Card>
-    </GateShell>
+      </div>
+    </Card>
   );
 }
 
 // ── 3. the invite code ──────────────────────────────────────────────────────
 
-function VoucherScreen({ account, after }: { account: AccountState; after?: React.ReactNode }) {
+function VoucherScreen({ account }: { account: AccountState }) {
   /**
-   * A code the reader arrived holding, if they did. `takeVoucher` is the whole
-   * prefill mechanism: /try puts the `?code=` from a scanned card there before
-   * the sign-in round trip, which drops the query string, and this is the
-   * screen that wanted it. Nobody is redeemed automatically - the code is typed
-   * into the box for them and they press the control.
+   * A code the reader arrived holding, if they did: the `?code=` a scanned card
+   * carried onto /try, kept by the account boot across the sign-in round trip.
+   * Nobody is redeemed automatically - the code is typed into the box for them
+   * and they press the control.
    */
-  const [code, setCode] = useState(() => takeVoucher() ?? "");
+  const [code, setCode] = useState(account.pendingVoucher ?? "");
   const [error, setError] = useState<string | null>(null);
   const [redeemed, setRedeemed] = useState(false);
   const email = account.account?.email ?? "";
@@ -324,86 +317,82 @@ function VoucherScreen({ account, after }: { account: AccountState; after?: Reac
 
   if (redeemed) {
     return (
-      <GateShell after={after}>
-        <Card tone="raised" className="space-y-3">
-          <GateHeading icon={Check} title="You're in" />
-          <p className={PROSE}>
-            Your code was accepted. PANIK is open for{" "}
-            <span className="text-text-primary">{email}</span>.
-          </p>
-          <Button onClick={() => void account.reload()} disabled={account.busy} className="w-full justify-center">
-            {account.busy ? "Opening..." : "Open PANIK"}
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
-        </Card>
-      </GateShell>
+      <Card tone="raised" className="space-y-3">
+        <GateHeading icon={Check} title="You're in" />
+        <p className={PROSE}>
+          Your code was accepted. PANIK is open for{" "}
+          <span className="text-text-primary">{email}</span>.
+        </p>
+        <Button onClick={() => void account.reload()} disabled={account.busy} className="w-full justify-center">
+          {account.busy ? "Opening..." : "Open PANIK"}
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
+      </Card>
     );
   }
 
   return (
-    <GateShell after={after}>
-      <Card tone="raised" className="space-y-4">
-        <GateHeading icon={Ticket} title="Enter your invite code" />
-        <p className={PROSE}>
-          PANIK is in closed beta. Your code opens it for this account.
-        </p>
+    <Card tone="raised" className="space-y-4">
+      <GateHeading icon={Ticket} title="Enter your invite code" />
+      <p className={PROSE}>
+        PANIK is in closed beta. Your code opens it for this account.
+      </p>
 
-        <div className="space-y-2">
-          {/* Mono, because it is a printed string a reader is copying character
-              by character off a card: the face that makes 0/O and 1/l tell
-              themselves apart is the one every address and hash in this product
-              already uses. */}
-          <TextField
-            id="account-voucher"
-            label="Invite code"
-            mono
-            type="text"
-            autoComplete="off"
-            spellCheck={false}
-            autoCapitalize="characters"
-            value={code}
-            disabled={account.busy}
-            onChange={(e) => {
-              setCode(e.target.value.toUpperCase());
-              if (error) setError(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submit();
-            }}
-            placeholder="PANIK-TRY-XXXXXXXX"
-          />
-          {message && <Notice text={message} />}
-          <Button onClick={submit} disabled={!canSubmit} className="w-full justify-center">
-            {account.busy ? "Checking..." : "Redeem code"}
-          </Button>
-        </div>
+      <div className="space-y-2">
+        {/* Mono, because it is a printed string a reader is copying character
+            by character off a card: the face that makes 0/O and 1/l tell
+            themselves apart is the one every address and hash in this product
+            already uses. */}
+        <TextField
+          id="account-voucher"
+          label="Invite code"
+          mono
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          autoCapitalize="characters"
+          value={code}
+          disabled={account.busy}
+          onChange={(e) => {
+            setCode(e.target.value.toUpperCase());
+            if (error) setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void submit();
+          }}
+          placeholder="PANIK-TRY-XXXXXXXX"
+        />
+        {message && <Notice text={message} />}
+        <Button onClick={submit} disabled={!canSubmit} className="w-full justify-center">
+          {account.busy ? "Checking..." : "Redeem code"}
+        </Button>
+      </div>
 
-        <a
-          href={WAITLIST_URL}
-          className="inline-flex min-h-6 items-center gap-1.5 text-xs font-sans font-bold text-text-secondary transition-colors hover:text-text-primary"
-        >
-          No code? Join the waitlist
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </a>
+      <a
+        href={WAITLIST_URL}
+        className="inline-flex min-h-6 items-center gap-1.5 text-xs font-sans font-bold text-text-secondary transition-colors hover:text-text-primary"
+      >
+        No code? Join the waitlist
+        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+      </a>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3">
-          <span className="min-w-0 truncate text-xs font-sans text-text-muted">
-            Signed in as {email}
-          </span>
-          <Button variant="quiet" onClick={() => void account.signOut()} disabled={account.busy}>
-            Sign out
-          </Button>
-        </div>
-      </Card>
-    </GateShell>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3">
+        <span className="min-w-0 truncate text-xs font-sans text-text-muted">
+          Signed in as {email}
+        </span>
+        <Button variant="quiet" onClick={() => void account.signOut()} disabled={account.busy}>
+          Sign out
+        </Button>
+      </div>
+    </Card>
   );
 }
 
 // ── the screen that admits it does not know ─────────────────────────────────
 
-function UnavailableScreen({ account, after }: { account: AccountState; after?: React.ReactNode }) {
+function UnavailableScreen({ account }: { account: AccountState }) {
   return (
-    <GateShell after={after}>
+    <>
       <EmptyState
         tone="problem"
         title="PANIK could not check your account"
@@ -422,7 +411,7 @@ function UnavailableScreen({ account, after }: { account: AccountState; after?: 
           Sign out
         </Button>
       </div>
-    </GateShell>
+    </>
   );
 }
 
@@ -451,14 +440,16 @@ export function AccountGate({
    */
   after?: React.ReactNode;
 }) {
-  switch (screen) {
-    case "checking":
-      return <BootSkeleton />;
-    case "signin":
-      return <SignInScreen account={account} note={note} after={after} />;
-    case "unavailable":
-      return <UnavailableScreen account={account} after={after} />;
-    case "voucher":
-      return <VoucherScreen account={account} after={after} />;
-  }
+  if (screen === "checking") return <BootSkeleton />;
+  return (
+    <GateShell after={after}>
+      {screen === "signin" ? (
+        <SignInScreen account={account} note={note} />
+      ) : screen === "unavailable" ? (
+        <UnavailableScreen account={account} />
+      ) : (
+        <VoucherScreen account={account} />
+      )}
+    </GateShell>
+  );
 }

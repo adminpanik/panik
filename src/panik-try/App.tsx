@@ -12,11 +12,10 @@
  * that /app does not - a block of socials for whoever is holding the card - is
  * a slot on the shell rather than a reason to fork it.
  *
- * WHY THE CODE IS STASHED BEFORE REACT MOUNTS. `returnUrl()` is origin plus
- * path, so `?code=` does not survive the trip through Google or a mailbox, and
- * a reader who is ALREADY signed in meets the voucher screen on the very first
- * render. Both cases are served by putting the code somewhere durable before
- * anything renders; an effect would run one render too late for the second.
+ * THE CODE ON THE CARD NEEDS NO HANDLING HERE. The account boot in
+ * lib/account.ts reads `?code=` from any URL it starts on, keeps it across the
+ * sign-in round trip (which comes home to a bare path), and the voucher screen
+ * takes it from there.
  *
  * A MEMBER IS NOT SHOWN A GATE. `gateScreen` returning null means the server
  * says this account is in the beta, and the thing a card holder wants at that
@@ -27,16 +26,11 @@
 import { useEffect } from "react";
 import { Globe } from "lucide-react";
 import { AccountGate } from "../panik-core/components/AccountGate";
-import { gateScreen, stashVoucher, useAccountSession } from "../panik-core/lib/account";
+import { gateScreen, useAccountSession } from "../panik-core/lib/account";
 import { BootSkeleton, Card } from "../panik-core/ui";
-import { parseCode } from "./lib/trialLogic";
 
 const SITE_URL = "https://panik.fi";
 const X_URL = "https://x.com/panik_fi";
-
-/** One import, one read. See the note above about why this is not an effect. */
-const arrivingCode = typeof window === "undefined" ? null : parseCode(window.location.search);
-if (arrivingCode) stashVoucher(arrivingCode);
 
 /**
  * The X mark, from Simple Icons (CC0), path data copied verbatim on its own
