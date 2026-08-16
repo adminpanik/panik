@@ -1,0 +1,6 @@
+# gitleaks fingerprints that are known non-secrets, one per line (commit:file:rule:line).
+# The history scan in CI reads this file; a fixture already in history cannot be
+# un-committed, so it is named here instead of rewritten.
+
+# server/accounts.test.ts: an in-memory fake campaign token ("PANIK-8X2QRT"), not a credential.
+c545f42e8982060cc37c56aa1697d61407306fe1:server/accounts.test.ts:generic-api-key:49
