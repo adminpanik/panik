@@ -1775,7 +1775,7 @@ app.post("/api/exit/delegations/revoke", strictLimit, async (req, res) => {
 // ADMIN_ACCESS_KEY. See supabase/migrations/20260704000001_product_codes.sql.
 const campaignsConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY);
 
-// Mirrors isValidEmail in src/panik-try/lib/trialLogic.ts + trial_grants_email_format.
+// Mirrors the trial_grants_email_format CHECK: a permissive typo screen, not deliverability.
 const TRY_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 app.post("/api/try/redeem", strictLimit, async (req, res) => {

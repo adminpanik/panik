@@ -4,8 +4,8 @@
  *
  * Unit tests for the trial-code decision logic. These mirror the SQL rules in
  * supabase/migrations/20260704000001_product_codes.sql: campaign status
- * (time + count limits), per-user expiry (clock starts on first open), and code
- * parsing for the scan vs manual-input paths.
+ * (time + count limits), per-user expiry (clock starts on first open), and the
+ * code parsing /try does on a scanned card's URL.
  *
  * NOTE: the atomic over-limit guard itself lives in SQL (redeem_campaign_code's
  * guarded UPDATE) and is exercised by the end-to-end verification steps, not
@@ -17,9 +17,6 @@ import {
   evaluateCampaign,
   computeTrialExpiry,
   evaluateTrialAccess,
-  normalizeCode,
-  normalizeEmail,
-  isValidEmail,
   parseCode,
   formatRemaining,
   type CampaignLike,
@@ -109,52 +106,18 @@ describe("evaluateTrialAccess - per-user expiry (clock starts on first open)", (
   });
 });
 
-describe("parseCode - scan path vs manual fallback", () => {
+describe("parseCode - a scanned card vs a typed URL", () => {
   it("reads the code param (scan path)", () => {
     expect(parseCode("?code=PANIK-TRY-8X2Q")).toBe("PANIK-TRY-8X2Q");
   });
-  it("normalizes case and whitespace", () => {
+  it("uppercases and trims what it reads", () => {
     expect(parseCode("?code=panik-try-8x2q")).toBe("PANIK-TRY-8X2Q");
+    expect(parseCode("?code=%20panik-try-8x2q%20")).toBe("PANIK-TRY-8X2Q");
   });
-  it("returns null with no code param (manual fallback path)", () => {
+  it("returns null with no code param (a reader who typed /try)", () => {
     expect(parseCode("")).toBeNull();
     expect(parseCode("?foo=bar")).toBeNull();
-  });
-});
-
-describe("normalizeCode", () => {
-  it("uppercases and trims", () => {
-    expect(normalizeCode("  panik-try-abcd ")).toBe("PANIK-TRY-ABCD");
-  });
-  it("handles null/undefined", () => {
-    expect(normalizeCode(null)).toBe("");
-    expect(normalizeCode(undefined)).toBe("");
-  });
-});
-
-describe("isValidEmail", () => {
-  it("accepts ordinary addresses", () => {
-    expect(isValidEmail("neithan@panik.fi")).toBe(true);
-    expect(isValidEmail("a.b+tag@sub.example.co")).toBe(true);
-    expect(isValidEmail("  trimmed@panik.fi  ")).toBe(true);
-  });
-  it("rejects malformed / empty input", () => {
-    expect(isValidEmail("")).toBe(false);
-    expect(isValidEmail(null)).toBe(false);
-    expect(isValidEmail("nope")).toBe(false);
-    expect(isValidEmail("no@domain")).toBe(false);
-    expect(isValidEmail("two@@at.com")).toBe(false);
-    expect(isValidEmail("has space@panik.fi")).toBe(false);
-  });
-});
-
-describe("normalizeEmail", () => {
-  it("lowercases and trims", () => {
-    expect(normalizeEmail("  Neithan@PANIK.Fi ")).toBe("neithan@panik.fi");
-  });
-  it("handles null/undefined", () => {
-    expect(normalizeEmail(null)).toBe("");
-    expect(normalizeEmail(undefined)).toBe("");
+    expect(parseCode("?code=")).toBeNull();
   });
 });
 

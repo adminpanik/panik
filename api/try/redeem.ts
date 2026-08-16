@@ -20,8 +20,8 @@ interface Req {
 }
 interface Res { status(code: number): Res; json(body: unknown): void }
 
-// Mirrors isValidEmail in src/panik-try/lib/trialLogic.ts and the
-// trial_grants_email_format CHECK - a permissive typo screen, not deliverability.
+// Mirrors the trial_grants_email_format CHECK: a permissive typo screen, not
+// deliverability.
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 export default async function handler(req: Req, res: Res): Promise<void> {

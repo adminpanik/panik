@@ -161,6 +161,30 @@ export function loadAccountSession(): AccountSession | null {
 const storeAccountSession = (session: AccountSession | null) =>
   writeStored(ACCOUNT_STORAGE_KEY, session);
 
+// ── the invite code a reader arrived holding ────────────────────────────────
+
+/**
+ * Where a `?code=` from a scanned card waits for the voucher screen.
+ *
+ * `returnUrl()` below is origin plus PATH and nothing else, which is what makes
+ * a Supabase redirect allow-list checkable. That also means the query on /try
+ * does not survive the round trip through Google or a mailbox: the browser
+ * comes home to a bare path. So the boot below keeps the code here on the way
+ * out and reads it back on the way in; a successful redemption clears it. The
+ * value is a printed campaign code, not a credential - the server still
+ * decides whether it opens anything.
+ */
+const PENDING_VOUCHER_KEY = "panik_pending_voucher";
+
+/** The code a URL carries, uppercased, or null. */
+function voucherFromUrl(search: string): string | null {
+  const raw = new URLSearchParams(search).get("code")?.trim().toUpperCase();
+  return raw ? raw : null;
+}
+
+const readPendingVoucher = () =>
+  readStored(PENDING_VOUCHER_KEY, (v) => (typeof v === "string" && v ? v : null));
+
 // ── the return leg (both flows land here) ───────────────────────────────────
 
 /** What a fragment carried back from Supabase, or nothing it recognises. */
@@ -475,6 +499,8 @@ export interface AccountState {
   error: string | null;
   /** A sign-in, sign-out or redemption is in flight. */
   busy: boolean;
+  /** The invite code the reader arrived holding (`?code=`), until one is redeemed. */
+  pendingVoucher: string | null;
   sendLink: (email: string) => Promise<{ ok: boolean; error: string | null }>;
   startGoogle: () => void;
   redeem: (code: string) => Promise<{ ok: boolean; error: string | null }>;
@@ -497,6 +523,7 @@ export function useAccountSession(): AccountState {
   const [account, setAccount] = useState<Account | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingVoucher, setPendingVoucher] = useState<string | null>(null);
   const booted = useRef(false);
 
   /**
@@ -588,6 +615,11 @@ export function useAccountSession(): AccountState {
         if (landed.session) storeAccountSession(landed.session);
         if (landed.error) setError(landed.error);
       }
+      // The code from the URL wins over a stored one and replaces it; with no
+      // code in the URL, whatever an earlier visit left behind is what waits.
+      const arrived = voucherFromUrl(window.location.search);
+      if (arrived) writeStored(PENDING_VOUCHER_KEY, arrived);
+      setPendingVoucher(arrived ?? readPendingVoucher());
       const held = loadAccountSession();
       if (held) await resolve(held);
       setStatus("resolved");
@@ -619,7 +651,12 @@ export function useAccountSession(): AccountState {
           return { ok: false, error: SIGN_IN_EXPIRED };
         }
         setSession(fresh);
-        return redeemVoucher(fresh.accessToken, code);
+        const result = await redeemVoucher(fresh.accessToken, code);
+        if (result.ok) {
+          writeStored(PENDING_VOUCHER_KEY, null);
+          setPendingVoucher(null);
+        }
+        return result;
       }),
     [session, runBusy, dropSession],
   );
@@ -649,13 +686,14 @@ export function useAccountSession(): AccountState {
       account,
       error,
       busy,
+      pendingVoucher,
       sendLink,
       startGoogle,
       redeem,
       signOut,
       reload,
     }),
-    [status, session, account, error, busy, sendLink, startGoogle, redeem, signOut, reload],
+    [status, session, account, error, busy, pendingVoucher, sendLink, startGoogle, redeem, signOut, reload],
   );
 }
 

@@ -194,6 +194,7 @@ describe("gateScreen", () => {
     account: null,
     error: null,
     busy: false,
+    pendingVoucher: null,
     sendLink: async () => ({ ok: true, error: null }),
     startGoogle: () => {},
     redeem: async () => ({ ok: true, error: null }),
