@@ -68,7 +68,7 @@ export default defineConfig(({mode}) => {
           app: path.resolve(__dirname, 'app.html'),
           // "founding user" — hidden escrow page (direct URL only, not linked from nav)
           founding: path.resolve(__dirname, 'founding.html'),
-          // "try" - 2-in-1 business card + trial-code redemption (direct URL / QR)
+          // "try" - where a scanned business card lands: the account gate, prefilled
           try: path.resolve(__dirname, 'try.html'),
           // "admin" - hidden, secret-gated campaign console (direct URL only)
           admin: path.resolve(__dirname, 'admin.html'),
