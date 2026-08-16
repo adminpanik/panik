@@ -44,6 +44,56 @@ export interface AccountWallet {
   createdAt: string;
 }
 
+/**
+ * THE BODY GET /api/account ANSWERS WITH, as a type and as a builder.
+ *
+ * Six fields, and the SPA refuses the whole body if the ones it renders are
+ * missing (lib/account.ts asAccount). The Express route and the dev mock both
+ * hand-wrote it, which is a shape with two authors: a field renamed on one
+ * side leaves `npm run dev:mock` exercising a screen against a body the
+ * server does not send, and the mock is the only place most of these states
+ * are ever seen.
+ *
+ * `voucherCode` is derived here rather than passed in, because it is not an
+ * independent fact: it is the live grant's own code, surfaced so support can
+ * match a person to a printed card without an admin round trip.
+ */
+export interface AccountResponse {
+  account: { userId: string; email: string };
+  /**
+   * The server's verdict, stated rather than left for the client to derive
+   * from the status string. `isLiveMembership` is the one place that decides
+   * what counts, and a browser applying it would be a second copy.
+   */
+  member: boolean;
+  membership: Membership | null;
+  /**
+   * Every grant this account has held, newest first, so the UI can say "your
+   * trial ended on the 3rd" instead of rendering a stranger's empty state.
+   */
+  history: Membership[];
+  wallets: AccountWallet[];
+  voucherCode: string | null;
+}
+
+export function buildAccountResponse(fields: {
+  userId: string;
+  email: string;
+  member: boolean;
+  membership: Membership | null;
+  history: Membership[];
+  wallets: AccountWallet[];
+}): AccountResponse {
+  return {
+    account: { userId: fields.userId, email: fields.email },
+    member: fields.member,
+    membership: fields.membership,
+    history: fields.history,
+    wallets: fields.wallets,
+    voucherCode: fields.membership?.voucherCode ?? null,
+  };
+}
+
 /** What POST /api/account/voucher inserts once the code has been validated. */
 export interface NewMembership {
   userId: string;

@@ -77,6 +77,15 @@ const IDENTITY_CACHE_MAX = 5_000;
 /** What the beta gate says. One sentence, no jargon, and it names the fix. */
 export const CLOSED_BETA_MESSAGE = "closed beta - a voucher code is needed";
 
+/**
+ * The 401 body, named because the CLIENT ACTS ON IT: lib/account.ts reads a
+ * 401 on /api/account as "this bearer is not a session" and forgets the one
+ * the browser holds. Two routes here answer it and dev/mockApi.ts has to
+ * answer the same thing, or the mock would exercise a path production does
+ * not have.
+ */
+export const SIGN_IN_REQUIRED = "sign in to continue";
+
 export interface AccountIdentity {
   /** auth.users.id — the account's primary key everywhere in this codebase. */
   userId: string;
@@ -236,7 +245,7 @@ export function requireAccount(deps: AccountAuthDeps = {}): RequestHandler {
   return async (req: Request, res: ExpressResponse, next: NextFunction): Promise<void> => {
     const token = bearerToken(req.header("authorization"));
     if (token === "") {
-      res.status(401).json({ error: "sign in to continue" });
+      res.status(401).json({ error: SIGN_IN_REQUIRED });
       return;
     }
     const verdict = await verifyAccountToken(token, deps);
@@ -280,7 +289,7 @@ export function requireMember(req: Request, res: ExpressResponse, next: NextFunc
   if (!account) {
     // requireAccount did not run, or ran and refused. Either way this request
     // has no established identity and must not be treated as a member.
-    res.status(401).json({ error: "sign in to continue" });
+    res.status(401).json({ error: SIGN_IN_REQUIRED });
     return;
   }
   if (!isMember(account.membership)) {

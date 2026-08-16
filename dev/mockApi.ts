@@ -76,7 +76,15 @@ import type { SessionScope } from "../server/sessionStore";
  * a sentence production never sends.
  */
 import { VOUCHER_REFUSALS } from "../server/accounts";
-import type { Membership } from "../server/accountStore";
+/**
+ * The account body's SHAPE, from the module the real route builds it with, and
+ * the 401 sentence from the middleware that sends it. Six fields the SPA
+ * refuses the whole body over (lib/account.ts asAccount) had two authors
+ * before this: a rename on the server left dev:mock exercising every account
+ * screen against a body production does not send.
+ */
+import { buildAccountResponse, type Membership } from "../server/accountStore";
+import { SIGN_IN_REQUIRED } from "../server/accountAuth";
 
 /**
  * localStorage the dashboard reads. Seeded from the page itself rather than by
@@ -762,21 +770,24 @@ export function mockApi(mode: string): Plugin[] {
           if (url.pathname === "/api/account" || url.pathname === "/api/account/voucher") {
             const bearer = presentedBearer(req.headers.authorization);
             if (!bearer || !liveAccountTokens.has(bearer)) {
-              return send(401, { error: "sign in to continue" });
+              return send(401, { error: SIGN_IN_REQUIRED });
             }
             const live = mockMembership !== null;
 
             if (url.pathname === "/api/account") {
               if (req.method !== "GET") return send(405, { error: "method not allowed" });
               if (accountDown()) return send(502, { error: "could not check your membership" });
-              return send(200, {
-                account: { userId: MOCK_ACCOUNT_USER, email: MOCK_ACCOUNT_EMAIL },
-                member: live,
-                membership: mockMembership,
-                history: mockMembership ? [mockMembership] : [],
-                wallets: [],
-                voucherCode: mockMembership?.voucherCode ?? null,
-              });
+              return send(
+                200,
+                buildAccountResponse({
+                  userId: MOCK_ACCOUNT_USER,
+                  email: MOCK_ACCOUNT_EMAIL,
+                  member: live,
+                  membership: mockMembership,
+                  history: mockMembership ? [mockMembership] : [],
+                  wallets: [],
+                }),
+              );
             }
 
             if (req.method !== "POST") return send(405, { error: "method not allowed" });
