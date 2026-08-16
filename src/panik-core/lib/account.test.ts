@@ -8,7 +8,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asAccount, describeMembership, readAuthHash, type Account } from "./account";
+import {
+  asAccount,
+  describeMembership,
+  gateScreen,
+  readAuthHash,
+  type Account,
+  type AccountState,
+} from "./account";
 
 const NOW = Date.UTC(2026, 7, 16, 12, 0, 0);
 
@@ -167,5 +174,66 @@ describe("describeMembership", () => {
     expect(describeMembership({ ...base, membership: null })).toBe(
       "No closed beta access on this account",
     );
+  });
+});
+
+describe("gateScreen", () => {
+  const account: Account = {
+    userId: "u-1",
+    email: "reader@example.com",
+    member: true,
+    membership: null,
+    wallets: [],
+  };
+
+  /** Only the five fields the predicate reads ever differ; the rest are inert. */
+  const state = (over: Partial<AccountState>): AccountState => ({
+    status: "resolved",
+    configured: true,
+    session: { accessToken: "a", refreshToken: "r", expiresAt: Date.now() + 3_600_000 },
+    account: null,
+    error: null,
+    busy: false,
+    sendLink: async () => ({ ok: true, error: null }),
+    startGoogle: () => {},
+    redeem: async () => ({ ok: true, error: null }),
+    signOut: async () => {},
+    reload: async () => {},
+    ...over,
+  });
+
+  it("gates while the answer has not arrived, whatever else is set", () => {
+    // The one that must never fall through: rendering the dashboard and then
+    // replacing it with a sign-in page tells someone they are in and then that
+    // they are not.
+    expect(gateScreen(state({ status: "checking" }))).toBe("checking");
+    expect(gateScreen(state({ status: "checking", account }))).toBe("checking");
+  });
+
+  it("asks a visitor with no session to sign in", () => {
+    expect(gateScreen(state({ session: null }))).toBe("signin");
+  });
+
+  it("admits it could not find out rather than asking for a code", () => {
+    // The branch this shape exists for: a 502 from the account service must not
+    // render as "enter your invite code" at a member who already has one.
+    expect(gateScreen(state({ account: null, error: "PANIK could not check your account." })))
+      .toBe("unavailable");
+  });
+
+  it("asks for the invite code when the server says this account is not a member", () => {
+    expect(gateScreen(state({ account: { ...account, member: false } }))).toBe("voucher");
+  });
+
+  it("stands aside for a member", () => {
+    expect(gateScreen(state({ account }))).toBeNull();
+  });
+
+  it("is unmoved by a busy flag or a configured deployment", () => {
+    // Neither is evidence about who is signed in, and both were in scope for a
+    // predicate that read the whole state object.
+    expect(gateScreen(state({ account, busy: true }))).toBeNull();
+    expect(gateScreen(state({ account, configured: false }))).toBeNull();
+    expect(gateScreen(state({ session: null, configured: false }))).toBe("signin");
   });
 });

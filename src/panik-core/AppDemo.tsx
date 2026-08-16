@@ -178,7 +178,7 @@ import {
   viewParamWallet,
 } from "./lib/watchlist";
 import { useSession } from "./lib/session";
-import { accountGateBlocks, useAccountSession } from "./lib/account";
+import { gateScreen, useAccountSession } from "./lib/account";
 import { AccountGate } from "./components/AccountGate";
 import { AccountMenu } from "./components/AccountMenu";
 import { WalletsPanel } from "./components/WalletsPanel";
@@ -2899,8 +2899,9 @@ export function AppDemo() {
    * settled and a single-use `?sid=` has already been traded and stripped.
    * Every hook has run, so this early return cannot reorder them.
    */
-  if (!readOnlySession && accountGateBlocks(accountState)) {
-    return <AccountGate account={accountState} note={session.note} />;
+  const gate = gateScreen(accountState);
+  if (!readOnlySession && gate !== null) {
+    return <AccountGate screen={gate} account={accountState} note={session.note} />;
   }
 
   return (

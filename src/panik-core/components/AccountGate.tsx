@@ -5,13 +5,17 @@
  * The four screens a reader can meet before the app: sign in, check your email,
  * enter your invite code, and the one that says we could not find out.
  *
+ * WHICH ONE IS NOT DECIDED HERE. `gateScreen` in lib/account.ts names it and
+ * this component switches on that name, so the shell and the gate cannot walk
+ * two different chains over the same three fields and disagree about which
+ * kind of "unknown" the reader is in.
+ *
  * WHY THE COLOUR IS NEUTRAL, AGAIN. Being outside a closed beta is not a risk
  * state. A wrong invite code is not a liquidation and "you are in" is not good
  * news about anyone's positions, so the risk ramp is spent on none of this
  * (docs/DESIGN_SYSTEM.md). The only token borrowed from it is `risk-unknown`,
- * which is a grey and whose whole meaning is "we could not find out" — the
- * dashed-edge treatment `EmptyState tone="problem"` uses, reused here so a
- * failed read looks the same everywhere it appears.
+ * inside `ui/Notice` and `EmptyState tone="problem"`, and its whole meaning is
+ * "we could not find out".
  *
  * WHY THE SERVER'S WORDS. Every refusal on the voucher screen is the sentence
  * server/accounts.ts wrote (`that code was not recognised`, `that code has
@@ -26,20 +30,17 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, Check, LogIn, Mail, Ticket } from "lucide-react";
-import { Button, Card, EmptyState, Skeleton } from "../ui";
+import { ArrowRight, Check, LogIn, Mail, Ticket, type LucideIcon } from "lucide-react";
+import { BootSkeleton, Button, Card, EmptyState, Notice, TextField } from "../ui";
 import {
   RESEND_COOLDOWN_MS,
   WAITLIST_URL,
   type AccountState,
+  type GateScreen,
 } from "../lib/account";
 
 /** Every explanatory line on these screens reads the same. */
 const PROSE = "text-xs font-sans leading-relaxed text-text-secondary";
-
-/** The one input treatment, borrowed verbatim from `components/WalletsPanel`. */
-const FIELD =
-  "h-10 w-full rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-sm text-text-primary placeholder:text-text-muted disabled:opacity-50";
 
 /**
  * The Google mark, from Simple Icons (CC0), path data copied verbatim on a
@@ -55,24 +56,6 @@ function GoogleMark() {
     <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="currentColor" aria-hidden="true">
       <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" />
     </svg>
-  );
-}
-
-/**
- * A thing that did not work, in one line.
- *
- * `role="alert"`, not `status`: it answers a control the reader just pressed and
- * replaces the outcome they were expecting, so it is worth interrupting for.
- */
-function Notice({ text }: { text: string }) {
-  return (
-    <p
-      role="alert"
-      className="flex items-start gap-2 rounded-md border border-dashed border-risk-unknown/40 px-3 py-2 text-xs font-sans leading-relaxed text-text-secondary"
-    >
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-risk-unknown" aria-hidden="true" />
-      <span className="min-w-0 flex-1">{text}</span>
-    </p>
   );
 }
 
@@ -97,7 +80,7 @@ function GateShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function GateHeading({ icon: Icon, title }: { icon: typeof Mail; title: string }) {
+function GateHeading({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
   return (
     <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
       <Icon className="h-4 w-4 shrink-0 text-text-primary" aria-hidden="true" />
@@ -119,7 +102,11 @@ function plausibleEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) && trimmed.length <= 320;
 }
 
-/** Seconds left on the resend cooldown, ticking down to zero. */
+/**
+ * Seconds left on the resend cooldown, ticking down to zero AND STOPPING there.
+ * A timer left running past the last value anything reads is a render per
+ * second for as long as the screen is open.
+ */
 function useCooldown(startedAt: number | null): number {
   const [left, setLeft] = useState(0);
   useEffect(() => {
@@ -127,16 +114,20 @@ function useCooldown(startedAt: number | null): number {
       setLeft(0);
       return;
     }
-    const tick = () =>
-      setLeft(Math.max(0, Math.ceil((startedAt + RESEND_COOLDOWN_MS - Date.now()) / 1000)));
-    tick();
-    const id = window.setInterval(tick, 1000);
+    const remaining = () =>
+      Math.max(0, Math.ceil((startedAt + RESEND_COOLDOWN_MS - Date.now()) / 1000));
+    setLeft(remaining());
+    const id = window.setInterval(() => {
+      const seconds = remaining();
+      setLeft(seconds);
+      if (seconds === 0) window.clearInterval(id);
+    }, 1000);
     return () => window.clearInterval(id);
   }, [startedAt]);
   return left;
 }
 
-export function SignInScreen({
+function SignInScreen({
   account,
   note,
 }: {
@@ -149,22 +140,35 @@ export function SignInScreen({
   note?: string | null;
 }) {
   const [email, setEmail] = useState("");
-  const [sentTo, setSentTo] = useState<string | null>(null);
-  const [sentAt, setSentAt] = useState<number | null>(null);
+  /** Where the link went and when, as one fact: neither half means anything alone. */
+  const [sent, setSent] = useState<{ to: string; at: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const cooldown = useCooldown(sentAt);
+  const cooldown = useCooldown(sent?.at ?? null);
+
+  /**
+   * ONE line about what went wrong, and both halves of this screen read it.
+   *
+   * The order is what a reader needs to hear first: the answer to the control
+   * they just pressed, then the account layer's own news (a sign-in link that
+   * came back expired), then the shell's note about the alert link they
+   * arrived on. Three separate strips would put three sentences about three
+   * different failures on one card.
+   */
+  const message = error ?? account.error ?? note ?? null;
+
+  /** The one predicate the guard and the control's disabled state both use. */
+  const canSend = plausibleEmail(email) && !account.busy;
 
   const send = useCallback(async () => {
-    if (!plausibleEmail(email) || account.busy) return;
+    if (!canSend) return;
     setError(null);
     const result = await account.sendLink(email);
     if (!result.ok) {
       setError(result.error);
       return;
     }
-    setSentTo(email.trim().toLowerCase());
-    setSentAt(Date.now());
-  }, [account, email]);
+    setSent({ to: email.trim().toLowerCase(), at: Date.now() });
+  }, [account, canSend, email]);
 
   if (!account.configured) {
     return (
@@ -178,17 +182,17 @@ export function SignInScreen({
     );
   }
 
-  if (sentTo) {
+  if (sent) {
     return (
       <GateShell>
         <Card tone="raised" className="space-y-3">
           <GateHeading icon={Mail} title="Check your email" />
           <p className={PROSE}>
-            We sent a sign-in link to <span className="text-text-primary">{sentTo}</span>. Open it in
-            this browser to finish signing in.
+            We sent a sign-in link to <span className="text-text-primary">{sent.to}</span>. Open it
+            in this browser to finish signing in.
           </p>
           <p className={PROSE}>The link can be used once.</p>
-          {error && <Notice text={error} />}
+          {message && <Notice text={message} />}
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={send} disabled={account.busy || cooldown > 0}>
               {cooldown > 0 ? `Send another link in ${cooldown}s` : "Send another link"}
@@ -196,8 +200,7 @@ export function SignInScreen({
             <Button
               variant="quiet"
               onClick={() => {
-                setSentTo(null);
-                setSentAt(null);
+                setSent(null);
                 setError(null);
               }}
             >
@@ -221,8 +224,7 @@ export function SignInScreen({
           PANIK is in closed beta. Sign in first, then enter your invite code.
         </p>
 
-        {note && <Notice text={note} />}
-        {account.error && <Notice text={account.error} />}
+        {message && <Notice text={message} />}
 
         <Button
           variant="outline"
@@ -243,11 +245,9 @@ export function SignInScreen({
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="account-email" className="block text-xs font-sans font-bold text-text-primary">
-            Email
-          </label>
-          <input
+          <TextField
             id="account-email"
+            label="Email"
             type="email"
             inputMode="email"
             autoComplete="email"
@@ -262,14 +262,8 @@ export function SignInScreen({
               if (e.key === "Enter") void send();
             }}
             placeholder="you@email.com"
-            className={FIELD}
           />
-          {error && <Notice text={error} />}
-          <Button
-            onClick={send}
-            disabled={account.busy || !plausibleEmail(email)}
-            className="w-full justify-center"
-          >
+          <Button onClick={send} disabled={!canSend} className="w-full justify-center">
             {account.busy ? "Sending..." : "Send sign-in link"}
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
@@ -282,14 +276,20 @@ export function SignInScreen({
 
 // ── 3. the invite code ──────────────────────────────────────────────────────
 
-export function VoucherScreen({ account }: { account: AccountState }) {
+function VoucherScreen({ account }: { account: AccountState }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [redeemed, setRedeemed] = useState(false);
   const email = account.account?.email ?? "";
 
+  /** Same rule as the sign-in screen: one sentence, one place to look. */
+  const message = error ?? account.error ?? null;
+
+  /** The one predicate the guard and the control's disabled state both use. */
+  const canSubmit = code.trim() !== "" && !account.busy;
+
   const submit = useCallback(async () => {
-    if (code.trim() === "" || account.busy) return;
+    if (!canSubmit) return;
     setError(null);
     const result = await account.redeem(code);
     if (!result.ok) {
@@ -302,7 +302,7 @@ export function VoucherScreen({ account }: { account: AccountState }) {
     // vanished; it also means the membership on screen is the server's answer
     // rather than this component's assumption about what the POST did.
     setRedeemed(true);
-  }, [account, code]);
+  }, [account, canSubmit, code]);
 
   if (redeemed) {
     return (
@@ -331,11 +331,14 @@ export function VoucherScreen({ account }: { account: AccountState }) {
         </p>
 
         <div className="space-y-2">
-          <label htmlFor="account-voucher" className="block text-xs font-sans font-bold text-text-primary">
-            Invite code
-          </label>
-          <input
+          {/* Mono, because it is a printed string a reader is copying character
+              by character off a card: the face that makes 0/O and 1/l tell
+              themselves apart is the one every address and hash in this product
+              already uses. */}
+          <TextField
             id="account-voucher"
+            label="Invite code"
+            mono
             type="text"
             autoComplete="off"
             spellCheck={false}
@@ -350,14 +353,9 @@ export function VoucherScreen({ account }: { account: AccountState }) {
               if (e.key === "Enter") void submit();
             }}
             placeholder="PANIK-TRY-XXXXXXXX"
-            className={FIELD}
           />
-          {error && <Notice text={error} />}
-          <Button
-            onClick={submit}
-            disabled={account.busy || code.trim() === ""}
-            className="w-full justify-center"
-          >
+          {message && <Notice text={message} />}
+          <Button onClick={submit} disabled={!canSubmit} className="w-full justify-center">
             {account.busy ? "Checking..." : "Redeem code"}
           </Button>
         </div>
@@ -413,38 +411,28 @@ function UnavailableScreen({ account }: { account: AccountState }) {
 // ── the gate itself ─────────────────────────────────────────────────────────
 
 /**
- * Which of the four screens this account state produces.
- *
- * The order is the point, and each branch is a DIFFERENT thing being unknown:
- *
- *   checking      we have not asked yet          -> nothing, wordlessly
- *   no session    nobody is signed in            -> sign in
- *   no account    we asked and could not find out -> say so, offer a retry
- *   not a member  we asked and the answer is no  -> the invite code
- *
- * Collapsing the third into the fourth is the failure this shape exists to
- * stop: a 502 from the account service would otherwise render as "enter your
- * invite code" at a paying member, which is the app stating a fact it does not
- * know (docs/DESIGN_SYSTEM.md).
+ * One named screen in, one screen out. No chain, no re-derivation: whatever
+ * `gateScreen(state)` decided in the shell is what renders here, so the two
+ * cannot disagree about whether "we could not find out" is the same thing as
+ * "you have no membership".
  */
-export function AccountGate({ account, note }: { account: AccountState; note?: string | null }) {
-  if (account.status !== "resolved") {
-    /* Wordless, for the reason the session boot gate gives: every sentence
-       available here would be a claim about an answer that has not arrived. */
-    return (
-      <div
-        aria-busy="true"
-        className="flex min-h-screen w-full items-center justify-center bg-surface-base p-6"
-      >
-        <div className="w-full max-w-sm space-y-3">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-      </div>
-    );
+export function AccountGate({
+  screen,
+  account,
+  note,
+}: {
+  screen: GateScreen;
+  account: AccountState;
+  note?: string | null;
+}) {
+  switch (screen) {
+    case "checking":
+      return <BootSkeleton />;
+    case "signin":
+      return <SignInScreen account={account} note={note} />;
+    case "unavailable":
+      return <UnavailableScreen account={account} />;
+    case "voucher":
+      return <VoucherScreen account={account} />;
   }
-  if (account.session === null) return <SignInScreen account={account} note={note} />;
-  if (account.account === null) return <UnavailableScreen account={account} />;
-  return <VoucherScreen account={account} />;
 }

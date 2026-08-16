@@ -660,13 +660,38 @@ export function useAccountSession(): AccountState {
 }
 
 /**
- * Does the account layer stand between this reader and the app?
+ * WHICH screen the account layer stands in front of the app with, or null when
+ * it stands in front of nothing.
  *
- * One predicate, so the shell asks once and the screen component answers the
- * same question the same way. It is true while the answer is still unknown:
- * rendering the dashboard for a moment and replacing it with a sign-in page is
- * the app telling someone they are in and then that they are not.
+ * A boolean lived here first and it made the caller ask the same question
+ * twice: the shell decided whether to show a gate, then the gate re-derived
+ * which one from the same three fields. Two chains over one state is how the
+ * "we could not find out" branch ends up rendering as "enter your invite code"
+ * on one of them, which is the app stating a fact it does not know
+ * (docs/DESIGN_SYSTEM.md).
+ *
+ * Each answer is a DIFFERENT thing being unknown, and the order is the point:
+ *
+ *   checking      we have not asked yet             wordless, no claim at all
+ *   signin        nobody is signed in               ask them to
+ *   unavailable   we asked and could not find out   say so, offer a retry
+ *   voucher       we asked, the answer is no        ask for the invite code
+ *   null          the server says they are a member let them in
+ *
+ * `checking` is a gate rather than a null on purpose: rendering the dashboard
+ * for a moment and replacing it with a sign-in page is the app telling someone
+ * they are in and then that they are not.
+ *
+ * THE READ-ONLY BYPASS IS NOT HERE. An alert link is a WALLET session
+ * (lib/session.ts) and this module is the account layer; it never consults the
+ * other and the two must not learn about each other. The shell holds both and
+ * is where that precedence is decided.
  */
-export function accountGateBlocks(state: AccountState): boolean {
-  return state.status !== "resolved" || state.account === null || !state.account.member;
+export type GateScreen = "checking" | "signin" | "unavailable" | "voucher";
+
+export function gateScreen(state: AccountState): GateScreen | null {
+  if (state.status !== "resolved") return "checking";
+  if (state.session === null) return "signin";
+  if (state.account === null) return "unavailable";
+  return state.account.member ? null : "voucher";
 }
