@@ -2,13 +2,21 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Supabase Auth over plain fetch. `@supabase/supabase-js` is not a dependency
- * of this repo and the design system forbids adding one for a single internal
- * screen, so the three GoTrue endpoints we need are called directly:
+ * The ADMIN console's sign-in: a password grant, a token cupboard of its own,
+ * and the one rotation flow that retires the handover credential.
  *
- *   POST /auth/v1/token?grant_type=password        sign in
- *   POST /auth/v1/token?grant_type=refresh_token   keep the session alive
- *   POST /auth/v1/logout                           sign out (revokes it)
+ * THE WIRE IS SHARED, THE SESSION IS NOT. Everything that talks to GoTrue lives
+ * in src/panik-core/lib/goTrue.ts and is used verbatim by the product's own
+ * account layer: the two public settings, the token endpoint, the refresh
+ * margin, logout, and storage. What stays here is what is genuinely this
+ * console's: its Session shape (an email and a password-rotated flag, neither
+ * of which the app has), its own storage key, and its own copy.
+ *
+ * The three endpoints this file adds on top of that transport:
+ *
+ *   POST /auth/v1/token?grant_type=password   sign in
+ *   GET  /auth/v1/reauthenticate              email a confirmation code
+ *   PUT  /auth/v1/user                        set a new password
  *
  * VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY are public by design: the
  * publishable key authorizes nothing on its own, and every admin table is
@@ -22,8 +30,19 @@
  * localStorage here gets a would-be admin a nicer screen and zero data.
  */
 
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/+$/, "");
-const PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
+import {
+  authHeaders,
+  ensureFresh as ensureFreshSession,
+  isConfigured,
+  readStored,
+  revokeSession,
+  SUPABASE_URL,
+  tokenRequest,
+  writeStored,
+  type TokenBody,
+} from "../../panik-core/lib/goTrue";
+
+export { isConfigured };
 
 /** Mirrors ADMIN_ALLOWED_EMAIL / DEFAULT_ADMIN_EMAIL in server/adminIdentity.ts. */
 export const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL ?? "admin.panik@gmail.com")
@@ -31,9 +50,6 @@ export const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL ?? "admin.panik@gma
   .toLowerCase();
 
 const SESSION_STORAGE_KEY = "panik_admin_session";
-
-/** Refresh this far before the token actually lapses, so a request never races it. */
-const REFRESH_MARGIN_MS = 60_000;
 
 /** Shortest password this console will set. Supabase's own floor is 6. */
 export const MIN_PASSWORD_LENGTH = 12;
@@ -60,67 +76,42 @@ export interface Session {
   passwordRotated: boolean;
 }
 
-export function isConfigured(): boolean {
-  return SUPABASE_URL !== "" && PUBLISHABLE_KEY !== "";
-}
-
 /** True when this session belongs to the one address the console is built for. */
 export function isAdminSession(session: Session | null): boolean {
   return session !== null && session.email === ADMIN_EMAIL;
 }
 
-// ── storage ─────────────────────────────────────────────────────────────────
+// ── storage ───────────────────────────────────────────────────
 
+/**
+ * The stored session, or null when any field this console relies on is missing.
+ * `passwordRotated` is read as a strict true so an older entry, written before
+ * the flag existed, is treated as not yet rotated rather than as done.
+ */
 export function loadSession(): Session | null {
-  try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<Session>;
+  return readStored(SESSION_STORAGE_KEY, (parsed) => {
+    const p = parsed as Partial<Session> | null;
     if (
-      typeof parsed.accessToken !== "string" ||
-      typeof parsed.refreshToken !== "string" ||
-      typeof parsed.expiresAt !== "number" ||
-      typeof parsed.email !== "string"
+      typeof p?.accessToken !== "string" ||
+      typeof p.refreshToken !== "string" ||
+      typeof p.expiresAt !== "number" ||
+      typeof p.email !== "string"
     ) {
       return null;
     }
-    return { ...(parsed as Session), passwordRotated: parsed.passwordRotated === true };
-  } catch {
-    return null;
-  }
+    return { ...(p as Session), passwordRotated: p.passwordRotated === true };
+  });
 }
 
-function storeSession(session: Session | null): void {
-  try {
-    if (session) localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-    else localStorage.removeItem(SESSION_STORAGE_KEY);
-  } catch {
-    /* private mode: the session simply does not survive a reload */
-  }
-}
+const storeSession = (session: Session | null) => writeStored(SESSION_STORAGE_KEY, session);
 
-// ── GoTrue ──────────────────────────────────────────────────────────────────
+// ── GoTrue ────────────────────────────────────────────────────
 
-interface SupabaseUser {
-  email?: string;
-  user_metadata?: Record<string, unknown>;
-}
-
-interface TokenResponse {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  user?: SupabaseUser;
-  error_description?: string;
-  msg?: string;
-  error?: string;
-}
-
-function hasRotated(user: SupabaseUser | undefined): boolean {
+function hasRotated(user: TokenBody["user"]): boolean {
   return typeof user?.user_metadata?.[ROTATED_AT_KEY] === "string";
 }
 
-function toSession(body: TokenResponse): Session | null {
+function toSession(body: TokenBody): Session | null {
   if (!body.access_token || !body.refresh_token || !body.user?.email) return null;
   const lifetimeMs = (typeof body.expires_in === "number" ? body.expires_in : 3600) * 1000;
   return {
@@ -132,20 +123,6 @@ function toSession(body: TokenResponse): Session | null {
   };
 }
 
-async function tokenRequest(query: string, body: unknown): Promise<TokenResponse | null> {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?${query}`, {
-      method: "POST",
-      headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const parsed = (await res.json().catch(() => ({}))) as TokenResponse;
-    return res.ok ? parsed : { error: parsed.error_description ?? parsed.msg ?? "rejected" };
-  } catch {
-    return null;
-  }
-}
-
 export interface SignInResult {
   session?: Session;
   error?: string;
@@ -155,29 +132,35 @@ export interface SignInResult {
  * Sign in with email + password. The error string is deliberately the same for
  * a wrong password and an unknown account: this form is reachable by anyone who
  * finds the URL, and it should not confirm which addresses exist.
+ *
+ * The service being unreachable is the one outcome told apart from that, and it
+ * is the transport that knows the difference (goTrue.ts `tokenRequest`): a
+ * request that never completed is not a rejected credential, and saying so
+ * would send an operator hunting for a password that is fine.
  */
 export async function signIn(email: string, password: string): Promise<SignInResult> {
   if (!isConfigured()) return { error: "Sign-in is not configured for this deployment." };
-  const body = await tokenRequest("grant_type=password", {
+  const result = await tokenRequest("grant_type=password", {
     email: email.trim().toLowerCase(),
     password,
   });
-  if (body === null) return { error: "Could not reach the sign-in service." };
-  if (body.error) return { error: "That email and password did not match." };
-  const session = toSession(body);
+  if (!result.reached) return { error: "Could not reach the sign-in service." };
+  const session = result.ok ? toSession(result.body) : null;
   if (!session) return { error: "That email and password did not match." };
   storeSession(session);
   return { session };
 }
 
-/** Exchange the refresh token for a fresh access token. Null if it is spent. */
-async function refresh(session: Session): Promise<Session | null> {
-  const body = await tokenRequest("grant_type=refresh_token", {
-    refresh_token: session.refreshToken,
-  });
-  const next = body && !body.error ? toSession(body) : null;
-  storeSession(next);
-  return next;
+/**
+ * Session after any refresh, so callers can keep their state in step.
+ *
+ * What a null means, and what it costs storage, is goTrue.ts `ensureFresh`'s
+ * decision: a refusal clears the cupboard, a request that never completed
+ * leaves it alone so the next load can retry. This console used to erase the
+ * session on both, which signed an operator out for a dropped packet.
+ */
+export async function ensureFresh(session: Session): Promise<Session | null> {
+  return ensureFreshSession(session, SESSION_STORAGE_KEY, toSession);
 }
 
 /**
@@ -186,15 +169,7 @@ async function refresh(session: Session): Promise<Session | null> {
  * treats as "signed out" rather than retrying.
  */
 export async function activeAccessToken(session: Session): Promise<string | null> {
-  if (session.expiresAt - Date.now() > REFRESH_MARGIN_MS) return session.accessToken;
-  const renewed = await refresh(session);
-  return renewed?.accessToken ?? null;
-}
-
-/** Session after any refresh, so callers can keep their state in step. */
-export async function ensureFresh(session: Session): Promise<Session | null> {
-  if (session.expiresAt - Date.now() > REFRESH_MARGIN_MS) return session;
-  return refresh(session);
+  return (await ensureFresh(session))?.accessToken ?? null;
 }
 
 // ── password rotation ───────────────────────────────────────────────────────
@@ -216,7 +191,7 @@ export async function requestReauthentication(session: Session): Promise<boolean
   try {
     const res = await fetch(`${SUPABASE_URL}/auth/v1/reauthenticate`, {
       method: "GET",
-      headers: { apikey: PUBLISHABLE_KEY, Authorization: `Bearer ${session.accessToken}` },
+      headers: authHeaders({ Authorization: `Bearer ${session.accessToken}` }),
     });
     return res.ok;
   } catch {
@@ -263,11 +238,10 @@ export async function updatePassword(
   try {
     res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       method: "PUT",
-      headers: {
-        apikey: PUBLISHABLE_KEY,
+      headers: authHeaders({
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
-      },
+      }),
       body: JSON.stringify({
         password: newPassword,
         data: { [ROTATED_AT_KEY]: new Date().toISOString() },
@@ -283,7 +257,7 @@ export async function updatePassword(
     // The password changed, so the session's own token may be rotated by the
     // project's settings. Re-establish it rather than assuming, and keep the
     // operator signed in either way.
-    const refreshed = (await refresh(session)) ?? {
+    const refreshed = (await ensureFreshSession(session, SESSION_STORAGE_KEY, toSession)) ?? {
       ...session,
       passwordRotated: true,
     };
@@ -320,18 +294,5 @@ export async function updatePassword(
 
 /** Revoke the session server-side, then forget it locally either way. */
 export async function signOut(session: Session | null): Promise<void> {
-  if (session && isConfigured()) {
-    try {
-      await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
-        method: "POST",
-        headers: {
-          apikey: PUBLISHABLE_KEY,
-          Authorization: `Bearer ${session.accessToken}`,
-        },
-      });
-    } catch {
-      /* the local session is cleared regardless; the token lapses on its own */
-    }
-  }
-  storeSession(null);
+  await revokeSession(SESSION_STORAGE_KEY, session?.accessToken ?? null);
 }

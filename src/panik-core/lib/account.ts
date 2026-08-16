@@ -15,10 +15,13 @@
  * the server can say which ACCOUNT is calling and whether it holds a live
  * membership. An account never names a wallet and never authorizes one.
  *
- * ── WHY PLAIN fetch AND NOT @supabase/supabase-js ─────────────────────────
- * The same reason src/panik-admin/lib/supabaseAuth.ts gives: that package is
- * not a dependency of this repo, the design system forbids adding one, and the
- * four GoTrue endpoints needed here are ordinary HTTP:
+ * ── WHERE THE GoTrue WIRE LIVES ───────────────────────────────────────────
+ * lib/goTrue.ts, shared with the admin console, which had every one of these
+ * lines already. It owns the two public settings, the token endpoint, the
+ * refresh margin, logout and the localStorage cupboard; this file owns the
+ * account's own shape, its storage key, and every sentence on screen.
+ *
+ * The four GoTrue endpoints this flow uses, all ordinary HTTP:
  *
  *   POST /auth/v1/otp                              email a sign-in link
  *   GET  /auth/v1/authorize?provider=google        hand off to Google
@@ -49,9 +52,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readableServerError } from "./session";
+import {
+  authHeaders,
+  ensureFresh as ensureFreshSession,
+  goTrueMessage,
+  isConfigured,
+  readStored,
+  revokeSession,
+  SUPABASE_URL,
+  writeStored,
+  type GoTrueError,
+  type TokenBody,
+} from "./goTrue";
 
-const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? "").trim().replace(/\/+$/, "");
-const PUBLISHABLE_KEY = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "").trim();
+export { isConfigured };
 
 /**
  * Namespaced, so this cannot be confused with `panik_admin_session` (the
@@ -59,9 +73,6 @@ const PUBLISHABLE_KEY = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "").tr
  * anything reading storage on this origin.
  */
 export const ACCOUNT_STORAGE_KEY = "panik_account_session";
-
-/** Refresh this far before the token lapses, so an API call never races it. */
-const REFRESH_MARGIN_MS = 60_000;
 
 /**
  * How long the "send another link" control stays disabled.
@@ -76,6 +87,13 @@ export const RESEND_COOLDOWN_MS = 60_000;
 
 /** Where a signed-out visitor is sent to ask for an invite. */
 export const WAITLIST_URL = "https://www.panik.fi/";
+
+/**
+ * What a reader is told when the session they were holding is no longer one.
+ * Two paths reach it (no session at all, and a refresh that produced none) and
+ * they are the same news, so they say the same words.
+ */
+const SIGN_IN_EXPIRED = "Your sign-in expired. Sign in again and retry.";
 
 // ── shapes ──────────────────────────────────────────────────────────────────
 
@@ -121,45 +139,27 @@ export interface Account {
   wallets: AccountWallet[];
 }
 
-export function isConfigured(): boolean {
-  return SUPABASE_URL !== "" && PUBLISHABLE_KEY !== "";
-}
-
 // ── storage ─────────────────────────────────────────────────────────────────
 
+/**
+ * The stored pair, or null when either token is missing or the expiry is not a
+ * finite number. A half-written entry is refused rather than repaired: a
+ * session with no refresh token cannot survive its first hour, and one with a
+ * NaN expiry is either always fresh or never, depending on which way the
+ * comparison falls.
+ */
 export function loadAccountSession(): AccountSession | null {
-  try {
-    const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<AccountSession>;
-    if (
-      typeof parsed.accessToken !== "string" ||
-      parsed.accessToken === "" ||
-      typeof parsed.refreshToken !== "string" ||
-      parsed.refreshToken === "" ||
-      typeof parsed.expiresAt !== "number" ||
-      !Number.isFinite(parsed.expiresAt)
-    ) {
-      return null;
-    }
-    return {
-      accessToken: parsed.accessToken,
-      refreshToken: parsed.refreshToken,
-      expiresAt: parsed.expiresAt,
-    };
-  } catch {
-    return null;
-  }
+  return readStored(ACCOUNT_STORAGE_KEY, (parsed) => {
+    const p = parsed as Partial<AccountSession> | null;
+    if (typeof p?.accessToken !== "string" || p.accessToken === "") return null;
+    if (typeof p.refreshToken !== "string" || p.refreshToken === "") return null;
+    if (typeof p.expiresAt !== "number" || !Number.isFinite(p.expiresAt)) return null;
+    return { accessToken: p.accessToken, refreshToken: p.refreshToken, expiresAt: p.expiresAt };
+  });
 }
 
-function storeAccountSession(session: AccountSession | null): void {
-  try {
-    if (session) localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(session));
-    else localStorage.removeItem(ACCOUNT_STORAGE_KEY);
-  } catch {
-    /* private mode: the session simply does not survive a reload */
-  }
-}
+const storeAccountSession = (session: AccountSession | null) =>
+  writeStored(ACCOUNT_STORAGE_KEY, session);
 
 // ── the return leg (both flows land here) ───────────────────────────────────
 
@@ -212,20 +212,6 @@ export function readAuthHash(hash: string, now = Date.now()): AuthHashResult | n
 
 // ── GoTrue ──────────────────────────────────────────────────────────────────
 
-interface TokenBody {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  msg?: string;
-  error?: string;
-  error_description?: string;
-}
-
-/** Supabase's own sentence when it wrote one, else the caller's fallback. */
-function goTrueError(body: TokenBody | null, fallback: string): string {
-  return readableServerError(body?.error_description ?? body?.msg ?? body?.error, fallback);
-}
-
 /**
  * Where Supabase sends the browser back to. Origin plus path and nothing else:
  * a query string here would be echoed into the email and into Google's redirect
@@ -250,7 +236,7 @@ export async function sendMagicLink(email: string): Promise<{ ok: boolean; error
       `${SUPABASE_URL}/auth/v1/otp?redirect_to=${encodeURIComponent(returnUrl())}`,
       {
         method: "POST",
-        headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         // `create_user` is what makes this a sign-UP as well as a sign-in. The
         // closed beta is enforced by the VOUCHER, not by who may hold an
         // account, so refusing to create one here would only replace a screen
@@ -259,10 +245,13 @@ export async function sendMagicLink(email: string): Promise<{ ok: boolean; error
       },
     );
     if (res.ok) return { ok: true, error: null };
-    const body = (await res.json().catch(() => null)) as TokenBody | null;
+    const body = (await res.json().catch(() => null)) as GoTrueError | null;
     return {
       ok: false,
-      error: goTrueError(body, "That sign-in link could not be sent. Try again in a moment."),
+      error: readableServerError(
+        goTrueMessage(body),
+        "That sign-in link could not be sent. Try again in a moment.",
+      ),
     };
   } catch {
     return { ok: false, error: UNREACHABLE };
@@ -278,63 +267,72 @@ export function googleAuthUrl(): string {
   return `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(returnUrl())}`;
 }
 
-/** Exchange the refresh token for a fresh access token. Null if it is spent. */
-async function refreshAccountSession(session: AccountSession): Promise<AccountSession | null> {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-      method: "POST",
-      headers: { apikey: PUBLISHABLE_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: session.refreshToken }),
-    });
-    if (!res.ok) {
-      storeAccountSession(null);
-      return null;
-    }
-    const body = (await res.json().catch(() => null)) as TokenBody | null;
-    if (!body?.access_token || !body.refresh_token) {
-      storeAccountSession(null);
-      return null;
-    }
-    const next: AccountSession = {
-      accessToken: body.access_token,
-      refreshToken: body.refresh_token,
-      expiresAt: Date.now() + (typeof body.expires_in === "number" ? body.expires_in : 3600) * 1000,
-    };
-    storeAccountSession(next);
-    return next;
-  } catch {
-    // The network failed, which is NOT evidence the refresh token is spent.
-    // Keeping what we hold lets the next attempt succeed; discarding it would
-    // sign a user out because their train went into a tunnel.
-    return null;
-  }
+/** A grant out of a token body, or null when nothing usable came back. */
+function toAccountSession(body: TokenBody): AccountSession | null {
+  if (!body.access_token || !body.refresh_token) return null;
+  return {
+    accessToken: body.access_token,
+    refreshToken: body.refresh_token,
+    // GoTrue's own default when it omits the field. A short guess costs one
+    // extra refresh; a long one would let a call race the expiry.
+    expiresAt: Date.now() + (typeof body.expires_in === "number" ? body.expires_in : 3600) * 1000,
+  };
 }
 
-/** The session to use for the next call, refreshed first when it is close to lapsing. */
+/**
+ * The session to use for the next call, refreshed first when it is close to
+ * lapsing.
+ *
+ * Null means "not usable now", and lib/goTrue.ts decides what that costs the
+ * stored copy: a refusal from GoTrue erases it, a request that never completed
+ * leaves it alone. That distinction is the reason this is one shared function
+ * and not a per-surface copy, and the callers must not re-clear storage on
+ * their own (see `dropSession` below).
+ */
 export async function ensureFresh(session: AccountSession): Promise<AccountSession | null> {
-  if (session.expiresAt - Date.now() > REFRESH_MARGIN_MS) return session;
-  return refreshAccountSession(session);
+  return ensureFreshSession(session, ACCOUNT_STORAGE_KEY, toAccountSession);
 }
 
 /** Revoke server-side, then forget it locally either way. */
 export async function signOutAccount(session: AccountSession | null): Promise<void> {
-  if (session && isConfigured()) {
-    try {
-      await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
-        method: "POST",
-        headers: { apikey: PUBLISHABLE_KEY, Authorization: `Bearer ${session.accessToken}` },
-      });
-    } catch {
-      /* the local copy is dropped regardless; the token lapses on its own */
-    }
-  }
-  storeAccountSession(null);
+  await revokeSession(ACCOUNT_STORAGE_KEY, session?.accessToken ?? null);
 }
 
 // ── PANIK's own API ─────────────────────────────────────────────────────────
 
 const ACCOUNT_URL = "/api/account";
 const VOUCHER_URL = "/api/account/voucher";
+
+/**
+ * One authenticated call to PANIK's own account API.
+ *
+ * Both routes below need the same four things: the bearer, a body parse that
+ * cannot throw, the STATUS kept (401 is a decision, not an error string), and
+ * a request that never completed told apart from one the server answered.
+ * That last distinction is the one a second hand-written copy loses, and it
+ * decides whether a reader is signed out or shown "try again in a moment".
+ * Null is the unreachable case; everything else is an answer.
+ */
+async function callApi(
+  url: string,
+  token: string,
+  post?: unknown,
+): Promise<{ status: number; ok: boolean; body: unknown } | null> {
+  const sending = post !== undefined;
+  try {
+    const res = await fetch(url, {
+      method: sending ? "POST" : "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(sending ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(sending ? { body: JSON.stringify(post) } : {}),
+    });
+    return { status: res.status, ok: res.ok, body: await res.json().catch(() => null) };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * An account out of a response body, or null when a field this UI renders is
@@ -368,8 +366,7 @@ export function asAccount(body: unknown): Account | null {
 
 function asMembership(raw: unknown): Membership | null {
   const m = raw as Partial<Membership> | null;
-  if (!m || typeof m.status !== "string") return null;
-  if (m.status !== "trial" && m.status !== "active" && m.status !== "lapsed") return null;
+  if (m?.status !== "trial" && m?.status !== "active" && m?.status !== "lapsed") return null;
   return {
     id: typeof m.id === "string" ? m.id : "",
     status: m.status,
@@ -394,18 +391,14 @@ export type AccountRead =
 const ACCOUNT_UNAVAILABLE = "PANIK could not check your account. Try again in a moment.";
 
 export async function fetchAccount(token: string): Promise<AccountRead> {
-  let res: Response;
-  try {
-    res = await fetch(ACCOUNT_URL, { headers: { Authorization: `Bearer ${token}` } });
-  } catch {
-    return { ok: false, expired: false, error: UNREACHABLE };
-  }
+  const res = await callApi(ACCOUNT_URL, token);
+  if (!res) return { ok: false, expired: false, error: UNREACHABLE };
   if (res.status === 401) return { ok: false, expired: true };
-  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   if (!res.ok) {
+    const body = res.body as { error?: unknown } | null;
     return { ok: false, expired: false, error: readableServerError(body?.error, ACCOUNT_UNAVAILABLE) };
   }
-  const account = asAccount(body);
+  const account = asAccount(res.body);
   if (!account) return { ok: false, expired: false, error: ACCOUNT_UNAVAILABLE };
   return { ok: true, account };
 }
@@ -427,17 +420,9 @@ export async function redeemVoucher(
   token: string,
   code: string,
 ): Promise<{ ok: boolean; error: string | null }> {
-  let res: Response;
-  try {
-    res = await fetch(VOUCHER_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ code: code.trim() }),
-    });
-  } catch {
-    return { ok: false, error: UNREACHABLE };
-  }
-  const body = (await res.json().catch(() => null)) as { ok?: unknown; error?: unknown } | null;
+  const res = await callApi(VOUCHER_URL, token, { code: code.trim() });
+  if (!res) return { ok: false, error: UNREACHABLE };
+  const body = res.body as { ok?: unknown; error?: unknown } | null;
   if (res.ok && body?.ok === true) return { ok: true, error: null };
   return { ok: false, error: readableServerError(body?.error, VOUCHER_FAILED) };
 }
@@ -515,35 +500,75 @@ export function useAccountSession(): AccountState {
   const booted = useRef(false);
 
   /**
+   * Raise the busy flag for exactly the duration of one account action.
+   *
+   * `finally`, so a throw cannot leave every control on the gate disabled with
+   * no way back. Four callers had four hand-written pairs of setBusy calls and
+   * one of them already returned early between them.
+   */
+  const runBusy = useCallback(async <T,>(work: () => Promise<T>): Promise<T> => {
+    setBusy(true);
+    try {
+      return await work();
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  /**
+   * Forget the session this browser is holding.
+   *
+   * `forgetStored` is a decision rather than a detail. Storage is erased only
+   * when a server DEFINITIVELY said this credential is no longer one: a 401
+   * from /api/account, or a refresh GoTrue refused (which lib/goTrue.ts has
+   * already cleared by the time we see the null). A request that never
+   * completed clears nothing, so the next load retries with what it holds
+   * instead of signing someone out for a dropped packet.
+   */
+  const dropSession = useCallback((forgetStored: boolean) => {
+    if (forgetStored) storeAccountSession(null);
+    setSession(null);
+    setAccount(null);
+  }, []);
+
+  /**
    * Resolve one session into an account. Shared by the boot and by `reload`,
    * because "refresh the token, ask the server, and act on a 401 by forgetting
    * the session" is one sequence and two copies of it drift on the 401 branch,
    * which is the branch that decides whether a signed-out user sees a sign-in
    * screen or a stuck one.
    */
-  const resolve = useCallback(async (held: AccountSession): Promise<void> => {
-    const fresh = await ensureFresh(held);
-    if (!fresh) {
-      setSession(null);
+  const resolve = useCallback(
+    async (held: AccountSession): Promise<void> => {
+      const fresh = await ensureFresh(held);
+      if (!fresh) {
+        // Two different failures arrive here and only ONE of them has already
+        // cleared storage: GoTrue refusing the refresh token clears it inside
+        // ensureFresh, a request that never completed keeps it. Neither can
+        // make the next call, so both drop what is in memory and neither
+        // touches storage again from here.
+        dropSession(false);
+        return;
+      }
+      setSession(fresh);
+      const read = await fetchAccount(fresh.accessToken);
+      if (read.ok) {
+        setAccount(read.account);
+        setError(null);
+        return;
+      }
+      if (read.expired) {
+        // The server looked at this bearer and said it is not a session. That
+        // is definitive, so the stored copy goes with it.
+        dropSession(true);
+        setError(null);
+        return;
+      }
       setAccount(null);
-      return;
-    }
-    setSession(fresh);
-    const read = await fetchAccount(fresh.accessToken);
-    if (read.ok) {
-      setAccount(read.account);
-      setError(null);
-      return;
-    }
-    setAccount(null);
-    if (read.expired) {
-      storeAccountSession(null);
-      setSession(null);
-      setError(null);
-      return;
-    }
-    setError(read.error);
-  }, []);
+      setError(read.error);
+    },
+    [dropSession],
+  );
 
   useEffect(() => {
     if (booted.current) return;
@@ -569,12 +594,10 @@ export function useAccountSession(): AccountState {
     })();
   }, [resolve]);
 
-  const sendLink = useCallback(async (email: string) => {
-    setBusy(true);
-    const result = await sendMagicLink(email);
-    setBusy(false);
-    return result;
-  }, []);
+  const sendLink = useCallback(
+    (email: string) => runBusy(() => sendMagicLink(email)),
+    [runBusy],
+  );
 
   const startGoogle = useCallback(() => {
     if (!isConfigured()) {
@@ -586,41 +609,37 @@ export function useAccountSession(): AccountState {
   }, []);
 
   const redeem = useCallback(
-    async (code: string) => {
-      const held = session;
-      if (!held) return { ok: false, error: "Your sign-in expired. Sign in again and retry." };
-      setBusy(true);
-      const fresh = await ensureFresh(held);
-      if (!fresh) {
-        setBusy(false);
-        setSession(null);
-        setAccount(null);
-        return { ok: false, error: "Your sign-in expired. Sign in again and retry." };
-      }
-      setSession(fresh);
-      const result = await redeemVoucher(fresh.accessToken, code);
-      setBusy(false);
-      return result;
-    },
-    [session],
+    (code: string) =>
+      runBusy(async () => {
+        const held = session;
+        if (!held) return { ok: false, error: SIGN_IN_EXPIRED };
+        const fresh = await ensureFresh(held);
+        if (!fresh) {
+          dropSession(false);
+          return { ok: false, error: SIGN_IN_EXPIRED };
+        }
+        setSession(fresh);
+        return redeemVoucher(fresh.accessToken, code);
+      }),
+    [session, runBusy, dropSession],
   );
 
-  const signOut = useCallback(async () => {
-    setBusy(true);
-    await signOutAccount(session);
-    setSession(null);
-    setAccount(null);
-    setError(null);
-    setBusy(false);
-  }, [session]);
+  const signOut = useCallback(
+    () =>
+      runBusy(async () => {
+        // signOutAccount clears storage itself, whatever the revocation did.
+        await signOutAccount(session);
+        dropSession(false);
+        setError(null);
+      }),
+    [session, runBusy, dropSession],
+  );
 
   const reload = useCallback(async () => {
     const held = session ?? loadAccountSession();
     if (!held) return;
-    setBusy(true);
-    await resolve(held);
-    setBusy(false);
-  }, [session, resolve]);
+    await runBusy(() => resolve(held));
+  }, [session, resolve, runBusy]);
 
   return useMemo(
     () => ({
