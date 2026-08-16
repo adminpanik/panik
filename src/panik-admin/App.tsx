@@ -27,6 +27,7 @@ import { CampaignsPanel } from "./CampaignsPanel";
 import { MetricsPanel } from "./MetricsPanel";
 import { RosterPanel } from "./RosterPanel";
 import { SimulationPanel } from "./SimulationPanel";
+import { UsersPanel } from "./UsersPanel";
 import {
   ADMIN_EMAIL,
   ensureFresh,
@@ -136,6 +137,11 @@ export default function App() {
                   right now. */}
               <SimulationPanel session={session} onSignedOut={forget} />
               <RosterPanel session={session} onSignedOut={forget} />
+              {/* Below the roster and not above it: the roster is card
+                  redemptions, this is who actually holds an account. Both
+                  count people, so they sit together rather than either one
+                  turning up next to the campaign controls. */}
+              <UsersPanel session={session} onSignedOut={forget} />
               <CampaignsPanel session={session} onSignedOut={forget} />
             </>
           )

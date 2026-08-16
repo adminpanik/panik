@@ -223,6 +223,7 @@ describe("listAccounts", () => {
     expect(page.users[0]).toMatchObject({
       userId: USER,
       email: "beta@example.com",
+      live: true,
       walletCount: 2,
       telegramLinked: true,
     });
@@ -230,6 +231,7 @@ describe("listAccounts", () => {
     expect(page.users[1]).toMatchObject({
       userId: OTHER,
       membership: null,
+      live: false,
       walletCount: 0,
       telegramLinked: false,
     });
@@ -244,6 +246,7 @@ describe("listAccounts", () => {
       "createdAt",
       "email",
       "lastSignInAt",
+      "live",
       "membership",
       "telegramLinked",
       "userId",
