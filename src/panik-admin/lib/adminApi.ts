@@ -221,3 +221,73 @@ export const armSimulation = (session: Session, input: ArmSimulationInput) =>
 
 export const clearSimulation = (session: Session) =>
   call<SimulationState>("/api/admin/simulation", session, { method: "DELETE" });
+
+// ── accounts (the closed-beta identity roster) ──────────────────────────────
+
+/** Frontend copy of `Membership` in server/accountStore.ts. */
+export interface Membership {
+  id: string;
+  status: "trial" | "active" | "lapsed";
+  source: string;
+  voucherCode: string | null;
+  startedAt: string;
+  /** ISO timestamp, or null for a grant with no expiry. */
+  expiresAt: string | null;
+}
+
+/** Frontend copy of `AccountSummary`. No PII beyond the email. */
+export interface AccountSummary {
+  userId: string;
+  email: string | null;
+  createdAt: string | null;
+  lastSignInAt: string | null;
+  membership: Membership | null;
+  walletCount: number;
+  telegramLinked: boolean;
+}
+
+/** Frontend copy of `AccountPage`. GoTrue returns no total, hence `hasMore`. */
+export interface AccountPage {
+  users: AccountSummary[];
+  page: number;
+  perPage: number;
+  hasMore: boolean;
+}
+
+export const listAccounts = (session: Session, page: number, perPage: number) =>
+  call<AccountPage>(`/api/admin/users?page=${page}&perPage=${perPage}`, session);
+
+/**
+ * A grant as words, and the ONLY place a membership status becomes any. The
+ * status is an engine enum and must never reach a screen, so the panel renders
+ * this and never branches on the enum itself.
+ *
+ * Expiry is applied to `active` as well as to `trial`, matching
+ * `isLiveMembership` in server/accountStore.ts: a row is judged, never
+ * rewritten, so a grant that ran out still carries the status an operator set.
+ * Calling that "Member" would have the console assert access the product's own
+ * gate refuses.
+ *
+ * `detail` is a second line rather than a clause inside the label: prose in a
+ * value field renders clipped the moment something truncates it.
+ */
+export function describeAccess(
+  membership: Membership | null,
+  now: number,
+): { label: string; detail: string | null } {
+  if (!membership) return { label: "Not in beta", detail: null };
+
+  const expiresAt = membership.expiresAt === null ? null : Date.parse(membership.expiresAt);
+  // An unparseable expiry is not "no expiry": the server refuses to read one as
+  // an unbounded grant, and neither does this.
+  const open = expiresAt === null || (Number.isFinite(expiresAt) && expiresAt > now);
+
+  if (!open || membership.status === "lapsed") return { label: "Ended", detail: null };
+  if (membership.status === "trial") {
+    return {
+      label: "Trial",
+      detail: expiresAt === null ? null : `until ${new Date(expiresAt).toLocaleDateString()}`,
+    };
+  }
+  return { label: "Member", detail: null };
+}
