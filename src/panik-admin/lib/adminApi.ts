@@ -13,6 +13,7 @@
  * kept in browser storage at all.
  */
 
+import type { Membership } from "../../panik-core/lib/account";
 import { activeAccessToken, type Session } from "./supabaseAuth";
 
 /** Frontend copy of the campaign row shape (server type lives in campaignStore). */
@@ -224,24 +225,15 @@ export const clearSimulation = (session: Session) =>
 
 // ── accounts (the closed-beta identity roster) ──────────────────────────────
 
-/** Frontend copy of `Membership` in server/accountStore.ts. */
-export interface Membership {
-  id: string;
-  status: "trial" | "active" | "lapsed";
-  source: string;
-  voucherCode: string | null;
-  startedAt: string;
-  /** ISO timestamp, or null for a grant with no expiry. */
-  expiresAt: string | null;
-}
-
-/** Frontend copy of `AccountSummary`. No PII beyond the email. */
+/** Frontend copy of `AccountSummary` in server/accountStore.ts. No PII beyond the email. */
 export interface AccountSummary {
   userId: string;
   email: string | null;
   createdAt: string | null;
   lastSignInAt: string | null;
   membership: Membership | null;
+  /** The server's verdict on the grant (`isLiveMembership`); never re-derived here. */
+  live: boolean;
   walletCount: number;
   telegramLinked: boolean;
 }
@@ -260,33 +252,22 @@ export const listAccounts = (session: Session, page: number, perPage: number) =>
 /**
  * A grant as words, and the ONLY place a membership status becomes any. The
  * status is an engine enum and must never reach a screen, so the panel renders
- * this and never branches on the enum itself.
- *
- * Expiry is applied to `active` as well as to `trial`, matching
- * `isLiveMembership` in server/accountStore.ts: a row is judged, never
- * rewritten, so a grant that ran out still carries the status an operator set.
- * Calling that "Member" would have the console assert access the product's own
- * gate refuses.
+ * this and never branches on the enum itself. Whether the grant is OPEN is the
+ * server's `live`, not a second reading of `expiresAt` on this clock.
  *
  * `detail` is a second line rather than a clause inside the label: prose in a
  * value field renders clipped the moment something truncates it.
  */
 export function describeAccess(
-  membership: Membership | null,
-  now: number,
+  row: Pick<AccountSummary, "membership" | "live">,
 ): { label: string; detail: string | null } {
-  if (!membership) return { label: "Not in beta", detail: null };
-
-  const expiresAt = membership.expiresAt === null ? null : Date.parse(membership.expiresAt);
-  // An unparseable expiry is not "no expiry": the server refuses to read one as
-  // an unbounded grant, and neither does this.
-  const open = expiresAt === null || (Number.isFinite(expiresAt) && expiresAt > now);
-
-  if (!open || membership.status === "lapsed") return { label: "Ended", detail: null };
-  if (membership.status === "trial") {
+  const m = row.membership;
+  if (!m) return { label: "Not in beta", detail: null };
+  if (!row.live) return { label: "Ended", detail: null };
+  if (m.status === "trial") {
     return {
       label: "Trial",
-      detail: expiresAt === null ? null : `until ${new Date(expiresAt).toLocaleDateString()}`,
+      detail: m.expiresAt === null ? null : `until ${new Date(m.expiresAt).toLocaleDateString()}`,
     };
   }
   return { label: "Member", detail: null };

@@ -71,10 +71,6 @@ export function UsersPanel({
     void reload();
   }, [reload]);
 
-  // One clock for the whole render, so two rows expiring either side of a
-  // millisecond cannot disagree about which of them is still open.
-  const now = Date.now();
-
   return (
     <Card tone="panel" className="mb-6">
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -84,12 +80,10 @@ export function UsersPanel({
             <span className="ml-2 text-xs font-normal text-text-muted">(more available)</span>
           ) : null}
         </h2>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="quiet" onClick={reload} aria-label="Reload the accounts">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
-            Reload
-          </Button>
-        </div>
+        <Button variant="quiet" className="ml-auto" onClick={reload} aria-label="Reload the accounts">
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+          Reload
+        </Button>
       </div>
 
       {error ? (
@@ -131,7 +125,7 @@ export function UsersPanel({
               </thead>
               <tbody>
                 {users.map((u) => {
-                  const access = describeAccess(u.membership, now);
+                  const access = describeAccess(u);
                   return (
                     <tr key={u.userId} className="border-t border-border-subtle">
                       <td className="py-2 pr-4 text-text-primary">

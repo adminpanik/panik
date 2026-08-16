@@ -110,6 +110,12 @@ export interface AccountSummary {
   createdAt: string | null;
   lastSignInAt: string | null;
   membership: Membership | null;
+  /**
+   * The server's verdict on that grant, from `isLiveMembership`. Shipped so the
+   * console never re-derives "can this person get in" from the status string;
+   * same rule as `AccountResponse.member`.
+   */
+  live: boolean;
   /** How many wallets this account has proven it holds. Not the addresses. */
   walletCount: number;
   /** Whether ANY linked wallet has a Telegram chat attached. */
@@ -410,16 +416,19 @@ export class AccountStore {
       this.walletsFor(ids),
     ]);
     const reachable = await this.telegramReachable([...new Set([...wallets.values()].flat())]);
+    const now = Date.now();
 
     return {
       users: users.map((u) => {
         const owned = wallets.get(u.id) ?? [];
+        const membership = memberships.get(u.id) ?? null;
         return {
           userId: u.id,
           email: typeof u.email === "string" ? u.email : null,
           createdAt: typeof u.created_at === "string" ? u.created_at : null,
           lastSignInAt: typeof u.last_sign_in_at === "string" ? u.last_sign_in_at : null,
-          membership: memberships.get(u.id) ?? null,
+          membership,
+          live: membership !== null && isLiveMembership(membership, now),
           walletCount: owned.length,
           telegramLinked: owned.some((w) => reachable.has(w)),
         };
