@@ -30,7 +30,7 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { UserRound } from "lucide-react";
-import { LAYER } from "../ui";
+import { LAYER, useDismissOnOutsidePress } from "../ui";
 import { describeMembership, type Account } from "../lib/account";
 
 /** Panel width. Wide enough for an ordinary address without truncating it. */
@@ -67,6 +67,13 @@ export function AccountMenu({ account, busy, onSignOut }: AccountMenuProps) {
     setAnchor({ right: window.innerWidth - box.right, top: box.bottom + 6 });
   }, []);
 
+  /* Two elements count as inside: the panel is portalled to the body, so it is
+     not a descendant of the trigger. The listener itself, and why it is a
+     `mousedown` rather than this component's old capturing `pointerdown`, is
+     ui/useDismissOnOutsidePress. */
+  const dismiss = useCallback(() => close(false), [close]);
+  useDismissOnOutsidePress([panel, trigger], open ? dismiss : null);
+
   useEffect(() => {
     if (!open) return;
     // Focus lands on the action, which is the WAI-ARIA menu-button contract and
@@ -74,11 +81,6 @@ export function AccountMenu({ account, busy, onSignOut }: AccountMenuProps) {
     // come back from.
     firstItem.current?.focus();
 
-    const onPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (panel.current?.contains(target) || trigger.current?.contains(target)) return;
-      close(false);
-    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -89,11 +91,9 @@ export function AccountMenu({ account, busy, onSignOut }: AccountMenuProps) {
        dismisses it rather than leaving it pointing at nothing. */
     const onResize = () => close(false);
 
-    document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("resize", onResize);
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("resize", onResize);
     };

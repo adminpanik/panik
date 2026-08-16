@@ -8,11 +8,17 @@
  * than reimplemented, so the admin surface cannot drift into looking like a
  * different product.
  *
+ * `Field` is that rule applied to itself: the BOX is `ui/TextField`'s
+ * `FIELD_BOX`, so an operator types into the same control the product ships.
+ * What stays local is the label-above, hint-below layout, which the product's
+ * own TextField does not have and which the console's dense forms need.
+ *
  * No `focus:` classes here on purpose. src/index.css carries one global
  * `:focus-visible` rule, which is what stops a control shipping without a ring.
  */
 
 import React from "react";
+import { FIELD_BOX } from "../../panik-core/ui";
 
 interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label: string;
@@ -29,7 +35,7 @@ export function Field({ label, hint, className = "", id, ...rest }: FieldProps) 
       </label>
       <input
         id={inputId}
-        className="mt-1.5 block w-full rounded-sm border border-border-strong bg-surface-sunken px-3 py-2 text-sm font-sans text-text-primary placeholder:text-text-muted"
+        className={`mt-1.5 block w-full font-sans ${FIELD_BOX}`}
         {...rest}
       />
       {hint ? <p className="mt-1.5 text-2xs font-sans text-text-muted">{hint}</p> : null}
