@@ -263,11 +263,15 @@ function SignInScreen({
             }}
             placeholder="you@email.com"
           />
+          {/* "Sign in", not "Send sign-in link". What pressing this does is
+              explained by the screen it produces, which names the address the
+              link went to and says it can be used once; saying it here as well
+              made the control describe its own mechanism before anyone had
+              asked. The caption under it went for the same reason. */}
           <Button onClick={send} disabled={!canSend} className="w-full justify-center">
-            {account.busy ? "Sending..." : "Send sign-in link"}
+            {account.busy ? "Sending..." : "Sign in"}
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
-          <p className={PROSE}>We email a one-time link. There is no password to set.</p>
         </div>
       </Card>
     </GateShell>
