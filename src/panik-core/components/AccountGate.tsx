@@ -34,6 +34,7 @@ import { ArrowRight, Check, LogIn, Mail, Ticket, type LucideIcon } from "lucide-
 import { BootSkeleton, Button, Card, EmptyState, Notice, TextField } from "../ui";
 import {
   RESEND_COOLDOWN_MS,
+  takeVoucher,
   WAITLIST_URL,
   type AccountState,
   type GateScreen,
@@ -281,7 +282,14 @@ function SignInScreen({
 // ── 3. the invite code ──────────────────────────────────────────────────────
 
 function VoucherScreen({ account }: { account: AccountState }) {
-  const [code, setCode] = useState("");
+  /**
+   * A code the reader arrived holding, if they did. `takeVoucher` is the whole
+   * prefill mechanism: /try puts the `?code=` from a scanned card there before
+   * the sign-in round trip, which drops the query string, and this is the
+   * screen that wanted it. Nobody is redeemed automatically - the code is typed
+   * into the box for them and they press the control.
+   */
+  const [code, setCode] = useState(() => takeVoucher() ?? "");
   const [error, setError] = useState<string | null>(null);
   const [redeemed, setRedeemed] = useState(false);
   const email = account.account?.email ?? "";

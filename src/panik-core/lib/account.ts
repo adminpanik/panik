@@ -161,6 +161,58 @@ export function loadAccountSession(): AccountSession | null {
 const storeAccountSession = (session: AccountSession | null) =>
   writeStored(ACCOUNT_STORAGE_KEY, session);
 
+// ── the invite code a reader arrived holding ────────────────────────────────
+
+/**
+ * Where a code carried in a URL waits for the voucher screen.
+ *
+ * `returnUrl()` below is origin plus PATH and nothing else, which is what makes
+ * a Supabase redirect allow-list checkable. That also means a `?code=` on /try
+ * does not survive the round trip through Google or a mailbox: the browser
+ * comes home to a bare path. So the code is put somewhere that does survive,
+ * on the way out, and taken out again when the screen that wants it renders.
+ *
+ * Same namespacing rule as the session key above, and the same audience: this
+ * origin, this product. The value is a printed campaign code, not a credential
+ * - the server still decides whether it opens anything.
+ */
+export const PENDING_VOUCHER_KEY = "panik_pending_voucher";
+
+/** Read once per document, so a repeat call cannot come back empty. */
+let takenVoucher: string | null | undefined;
+
+/** Remember a code for the voucher screen. Uppercased by the caller. */
+export function stashVoucher(code: string): void {
+  try {
+    window.localStorage.setItem(PENDING_VOUCHER_KEY, code);
+    takenVoucher = undefined;
+  } catch {
+    /* Storage refused (private mode, disabled). The reader types the code. */
+  }
+}
+
+/**
+ * The waiting code, and it stops waiting: the entry is removed on the way out,
+ * so a code cannot outlive the visit it arrived on and prefill a screen for
+ * somebody who never scanned anything.
+ *
+ * The ANSWER is remembered for the life of the document, which is what makes a
+ * second call safe. React StrictMode invokes a `useState` initializer twice on
+ * mount in development, and a read-and-remove that ran twice would hand the
+ * first render the code and the committed one an empty box.
+ */
+export function takeVoucher(): string | null {
+  if (takenVoucher !== undefined) return takenVoucher;
+  try {
+    const stored = window.localStorage.getItem(PENDING_VOUCHER_KEY);
+    window.localStorage.removeItem(PENDING_VOUCHER_KEY);
+    takenVoucher = stored !== null && stored !== "" ? stored : null;
+  } catch {
+    takenVoucher = null;
+  }
+  return takenVoucher;
+}
+
 // ── the return leg (both flows land here) ───────────────────────────────────
 
 /** What a fragment carried back from Supabase, or nothing it recognises. */
