@@ -38,9 +38,10 @@
  * cannot drift apart again.
  */
 
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { LAYER } from "./overlay";
+import { useDismissOnOutsidePress } from "./useDismissOnOutsidePress";
 
 /**
  * The panel's width, and it is the `w-80` on the `<ul>` below written as a
@@ -171,23 +172,13 @@ export function Listbox({
   }, [open]);
 
   /**
-   * Anywhere outside closes, which is the whole job a backdrop element would do
-   * and none of the cost: a `fixed inset-0` catcher swallows the first click on
-   * whatever the reader was actually reaching for, so dismissing the list and
-   * pressing the next control takes two clicks instead of one.
-   *
-   * `mousedown`, not `click`: a press that starts outside and ends inside (a
-   * drag over the panel) should still dismiss, and waiting for the click lets
-   * the list eat it.
+   * Anywhere outside closes. The listener contract, and the reasoning that
+   * settled on `mousedown` over a click or a backdrop element, now lives in
+   * ui/useDismissOnOutsidePress so the app's two overlays cannot answer it
+   * differently. The trigger is inside `wrap`, so one ref covers both.
    */
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+  const dismiss = useCallback(() => setOpen(false), []);
+  useDismissOnOutsidePress([wrap], open ? dismiss : null);
 
   /** Every key, on the trigger, because the trigger never gives up focus. */
   const onKey = (e: React.KeyboardEvent) => {

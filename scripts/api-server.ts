@@ -78,7 +78,7 @@ import {
   operatorWebhookSink,
 } from "../server/monitorAlerts";
 import { CampaignStore } from "../server/campaignStore";
-import { AccountStore } from "../server/accountStore";
+import { AccountStore, buildAccountResponse } from "../server/accountStore";
 import {
   isMember,
   requireAccount,
@@ -1849,21 +1849,18 @@ app.get("/api/account", accountLimit, requireAccount(), async (req, res) => {
       store.listWallets(account.userId),
       store.membershipHistory(account.userId),
     ]);
-    res.json({
-      account: { userId: account.userId, email: account.email },
-      // `member` is stated rather than left for the client to derive from the
-      // status string: one place decides what counts (server/accountStore.ts
-      // isLiveMembership), and a browser must never be the one applying it.
-      member: isMember(account.membership),
-      membership: account.membership,
-      // Every grant this account has held, so the UI can say "your trial ended
-      // on the 3rd" instead of rendering the same empty state as a stranger.
-      history,
-      wallets,
-      // The code that let them in, surfaced so support can match a person to a
-      // printed card without an admin round trip.
-      voucherCode: account.membership?.voucherCode ?? null,
-    });
+    // The shape lives in server/accountStore.ts, because dev/mockApi.ts answers
+    // this route too and a body with two authors is a body that drifts.
+    res.json(
+      buildAccountResponse({
+        userId: account.userId,
+        email: account.email,
+        member: isMember(account.membership),
+        membership: account.membership,
+        history,
+        wallets,
+      }),
+    );
   } catch (err) {
     serverError(req, res, 502, err);
   }

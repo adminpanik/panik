@@ -177,15 +177,12 @@ import {
   viewableWallets,
   viewParamWallet,
 } from "./lib/watchlist";
-import { useSession } from "./lib/session";
+import type { SessionState } from "./lib/session";
+import type { AccountState } from "./lib/account";
+import { AccountMenu } from "./components/AccountMenu";
 import { WalletsPanel } from "./components/WalletsPanel";
 import { WalletSelector } from "./components/WalletSelector";
-import {
-  ReadOnlyBanner,
-  SessionCard,
-  SessionNote,
-  SignInButton,
-} from "./components/SessionControls";
+import { ReadOnlyBanner, SessionCard, SessionNote } from "./components/SessionControls";
 import { motion, AnimatePresence } from "motion/react";
 
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
@@ -1478,7 +1475,35 @@ function RiskBreakdownPanel({
   );
 }
 
-export function AppDemo() {
+export interface AppDemoProps {
+  /**
+   * The WALLET session: which address this browser has been told it may be
+   * shown, and how the server knows. Owned by AppShell, which has to hold it
+   * before this component exists: it is half of the decision about whether the
+   * dashboard mounts at all.
+   *
+   * The rule it does not break: a bare string in localStorage is still never
+   * restored as identity. What arrives here came back from the server, which
+   * issued it against either a `session-start` signature or a single-use alert
+   * token, so the browser is not asserting who it is - it is being told. Scope
+   * decides what that is worth (lib/session.ts), and it is never a write
+   * permission: every write below still signs its own action-bound proof.
+   *
+   * Always `resolved` by the time this renders. The shell holds the boot.
+   */
+  session: SessionState;
+  /**
+   * The ACCOUNT: a different question, and one this component no longer asks.
+   *
+   * `session` answers "which wallet may this browser be shown". This answers
+   * "who is signed in to PANIK, and has the beta let them in yet". Neither
+   * authorizes the other: an account never names a wallet, and every
+   * wallet-scoped write below still signs its own action-bound proof.
+   */
+  account: AccountState;
+}
+
+export function AppDemo({ session, account: accountState }: AppDemoProps) {
   // Navigation tabs exactly reflecting the Figma screenshot
   const [activeTab, setActiveTab] = useState<SidebarTab>("portfolio");
   const isDesktop = useMediaQuery(DESKTOP_MQ);
@@ -1568,20 +1593,6 @@ export function AppDemo() {
     if (onboardedWallet && onboardedWallet.toLowerCase() === connectedWallet.toLowerCase()) return;
     setOnboardedWallet(connectedWallet);
   }, [connectedWallet, onboardedWallet]);
-
-  /**
-   * The identity session: the ONE thing that may restore a wallet across
-   * reloads, and the reason the comment above no longer describes the whole
-   * story.
-   *
-   * The rule it does not break: a bare string in localStorage is still never
-   * restored as identity. What is restored here came back from the server,
-   * which issued it against either a `session-start` signature or a single-use
-   * alert token, so the browser is not asserting who it is - it is being told.
-   * Scope decides what that is worth (lib/session.ts), and it is never a write
-   * permission: every write below still signs its own action-bound proof.
-   */
-  const session = useSession();
 
   /**
    * Adopt the identity the server vouched for, WITHOUT outranking a connected
@@ -2839,40 +2850,6 @@ export function AppDemo() {
     localStorage.setItem("panik_tour_seen", "true");
   };
 
-  /**
-   * The boot gate, and it is deliberately wordless.
-   *
-   * Until GET /api/session answers, this app does not know whether the person
-   * in front of it is a returning signed-in user or a first-time visitor, and
-   * the two get different screens. Rendering either one first and correcting it
-   * a moment later is the worst option available: a returning user watching the
-   * first-run overlay flash past learns that PANIK forgot them, and a new
-   * visitor seeing a dashboard blink is shown a product they have not started.
-   *
-   * A Skeleton, so the space the shell will occupy is reserved rather than
-   * jumping into place (docs/DESIGN_SYSTEM.md). No copy at all: every sentence
-   * available here ("Signing you in", "Checking your session") would be a claim
-   * about an answer that has not arrived, and this typically resolves in one
-   * same-origin round trip.
-   *
-   * Every hook above has already run, so this early return cannot change the
-   * hook order between renders.
-   */
-  if (session.status === "checking") {
-    return (
-      <div
-        aria-busy="true"
-        className="flex h-screen w-full items-center justify-center bg-surface-base p-6"
-      >
-        <div className="w-full max-w-sm space-y-3">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
     {/* Onboarding overlay. First run: mandatory (no cancel). Every other way in
@@ -3087,19 +3064,32 @@ export function AppDemo() {
               </button>
             )}
 
-            {/* The offer to be remembered, where a signed-out returning user
-                will actually meet it.
+            {/* WHO IS SIGNED IN, which is now an account rather than a browser.
+                It replaces the "Stay signed in" chip that used to sit here.
 
-                Only when there is a wallet to sign with and no session to
-                replace: a read-only reader is offered the same thing by the
-                banner under this header, and two identical buttons on one
-                screen would be the app asking twice.
+                That chip offered the SIWE `session-start` signature, and the
+                offer has not gone anywhere: it is on the read-only banner under
+                this header and in Settings' account card, which is where a
+                deliberate, rare action belongs. What it stopped being is the
+                first identity in the header, because past the gate there is
+                normally an account and the wallet session is a detail of how
+                one wallet is read.
 
-                Never automatic. Declining costs nothing and leaves the app
-                exactly as it behaved before sessions existed, so this is a
-                chip, not a modal, and there is no dismissal to remember. */}
-            {onboardedWallet && session.session === null && (
-              <SignInButton scope="none" busy={session.busy} onClick={signInThisBrowser} chip />
+                SHOWN WHENEVER AN ACCOUNT SESSION EXISTS, read-only or not. A
+                member who taps their own alert link arrives with a `?sid=`
+                wallet session AND the account they signed in with, and hiding
+                their own address and sign-out control because of how they got
+                here would be the header lying about who this browser is. The
+                bypass in AppShell decides what they may SEE; what they may DO
+                is `readOnlySession` below, and the two are separate on
+                purpose. A reader who genuinely has no account renders nothing
+                here, because `account` is null. */}
+            {accountState.account && (
+              <AccountMenu
+                account={accountState.account}
+                busy={accountState.busy}
+                onSignOut={() => void accountState.signOut()}
+              />
             )}
           </div>
         </header>

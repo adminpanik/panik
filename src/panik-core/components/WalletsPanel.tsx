@@ -28,7 +28,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Plus, Trash2, Undo2, WalletCards, X } from "lucide-react";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
-import { Button, Chip, EmptyState, Skeleton } from "../ui";
+import { Button, Chip, EmptyState, FIELD_BOX, Skeleton } from "../ui";
 import { RISK_PROFILES, truncateAddress } from "../lib/utils";
 import { isEvmAddress, type GetProof } from "../lib/telegram";
 import {
@@ -563,7 +563,7 @@ function AddWalletForm({
             aria-label="Address of the wallet to watch"
             autoComplete="off"
             spellCheck={false}
-            className="h-10 w-full rounded-md border border-border-strong bg-surface-sunken px-3 font-mono text-sm text-text-primary placeholder:text-text-muted disabled:opacity-50"
+            className={`w-full font-mono ${FIELD_BOX}`}
           />
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -585,7 +585,7 @@ function AddWalletForm({
                  placeholder mid-word. At a 160px floor the field takes its own
                  full-width line instead, which is the structural fix rather
                  than shrinking the text to hide the overflow. */
-              className="h-10 min-w-40 flex-1 rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-sm text-text-primary placeholder:text-text-muted disabled:opacity-50"
+              className={`min-w-40 flex-1 font-sans ${FIELD_BOX}`}
             />
             <ProfileSelect
               value={profile}

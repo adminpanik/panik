@@ -38,6 +38,13 @@ const EMPTY_TONE = {
  */
 export const CLEAR_TONE_BOX = EMPTY_TONE.clear.box;
 
+/**
+ * The `problem` tone's box treatment, for the same reason: `ui/Notice` is this
+ * exact statement at one line rather than one panel, and it had hand-copied
+ * these classes. "We could not do that" must look the same at both sizes.
+ */
+export const PROBLEM_TONE_BOX = EMPTY_TONE.problem.box;
+
 interface EmptyStateProps {
   tone: keyof typeof EMPTY_TONE;
   title: string;
