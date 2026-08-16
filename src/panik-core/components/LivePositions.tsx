@@ -425,9 +425,7 @@ export function LivePositions({
                     , {status}
                   </p>
 
-                  {/* Line 4 — the way out, and nothing else. The stress test
-                      is on the rail beside the score it simulates, not here
-                      next to the one control on this row that moves money.
+                  {/* Line 4 — the way out, and nothing else.
 
                       The exit is offered ONLY where it can fire. Three facts
                       have to hold and none of them is this component's to
@@ -443,49 +441,33 @@ export function LivePositions({
                       prefill. `Button` accepts no risk band, so being the loudest
                       control on the row costs nothing from the risk ramp.
 
-                      When they do not hold there is no button, not a greyed one,
-                      and no empty bar to hold its place either. A disabled
-                      primary is the largest element on the row asserting an
-                      action the product cannot perform, and the hover that
-                      explained why was reachable by neither a phone nor a
-                      keyboard. */}
+                      When they do not hold there is no button, not a greyed one.
+                      A disabled primary is the largest element on the row
+                      asserting an action the product cannot perform, and the
+                      hover that explained why was reachable by neither a phone
+                      nor a keyboard. */}
                   {exitAction && (
-                    <div className="mt-2">
-                      <Button size="lg" onClick={() => onExit?.(exitAction.prefill)}>
-                        {exitAction.label}
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <Button size="lg" className="mt-2" onClick={() => onExit?.(exitAction.prefill)}>
+                      {exitAction.label}
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
                   )}
                 </div>
 
                 {/* Right rail — the score, and the one thing you can do about
                     it. Grouped because "this is 75" and "simulate 75 under a
-                    price move" are one thought: the control belongs to the
-                    number it acts on, and a labelled button in the row's action
-                    bar read as a peer of the exit instead.
+                    price move" are one thought.
 
-                    Icon-only, because the rail is a 44px dial wide and the
-                    labelled version measured 129px, a third of a 390px row
-                    taken from the figures. It keeps its name for everyone who
-                    is not a sighted mouse user: `title` plus `aria-label`. Eye,
-                    not sliders - this button lands on Watch, and Watch wears
-                    the eye in the nav - so the icon names where it goes, not
-                    what it does to the numbers once it arrives.
-
-                    The default `md` padding, with no `px-*`/`py-*` override at
-                    the call site. An override there puts two of each padding
-                    utility on one element and leaves the tap target to whichever
-                    one Tailwind emits last, which is not a size the call site
-                    can read off itself. Unoverridden it measures 46x34, clear of
-                    the 24px floor (WCAG 2.5.8), and the rail grows 2px past the
-                    dial and no further. `min-h-6 min-w-6` writes that floor down
-                    so a change to the size token cannot drop under it unseen,
-                    and `justify-center` keeps the icon centred if it ever binds.
+                    Icon-only, because the rail is as wide as the dial (44px)
+                    and a labelled button would take a third of a 390px row from
+                    the figures. It keeps its name for everyone who is not a
+                    sighted mouse user: `title` plus `aria-label`. Eye, not
+                    sliders - this button lands on Watch, and Watch wears the
+                    eye in the nav - so the icon names where it goes.
 
                     `quiet`, so the row's loudest control stays the one that
-                    moves money. A control is not a risk indicator: this spends
-                    nothing from the screen's five-element hue budget.
+                    moves money; a control is not a risk indicator. Default `md`
+                    padding, no override: `Button` owns the tap-target floor.
 
                     `shrink-0` is on the wrapper rather than left to the dial:
                     the dial carries its own, but it arrives wrapped in
@@ -498,7 +480,6 @@ export function LivePositions({
                       onClick={() => onStressTest(p)}
                       title="Stress-test this position in Watch"
                       aria-label={`Stress-test the ${PROTOCOL_LABEL[p.protocol]} position in Watch`}
-                      className="min-h-6 min-w-6 justify-center"
                     >
                       <Eye className="h-4 w-4" />
                     </Button>

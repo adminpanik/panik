@@ -39,6 +39,10 @@ const BUTTON_VARIANT = {
  * `px-*` and `text-*` there puts two of each utility on one element and leaves
  * which of them wins to Tailwind's emit order — the same failure the `outline`
  * variant was added to fix.
+ *
+ * `min-h-6 min-w-6` on the base is the 24px tap-target floor (WCAG 2.5.8),
+ * written once where the size tokens live rather than at the icon-only call
+ * sites; every size here already clears it, so it binds only if one shrinks.
  */
 const BUTTON_SIZE = {
   md: "px-3.5 py-2 text-xs",
@@ -70,7 +74,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border font-sans font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_SIZE[size]} ${BUTTON_VARIANT[variant]} ${className}`}
+      className={`inline-flex min-h-6 min-w-6 cursor-pointer items-center gap-1.5 rounded-md border font-sans font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_SIZE[size]} ${BUTTON_VARIANT[variant]} ${className}`}
       {...rest}
     >
       {children}
