@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { LayoutDashboard, Bot, FlaskConical } from "lucide-react";
 import { ScrollReveal } from "./ScrollReveal";
 
 interface TooltipInfo {
@@ -255,6 +256,50 @@ export function WhyPanik() {
             <p className="text-text-secondary text-sm sm:text-base max-w-xl leading-relaxed">
               Siloed interfaces leave your funds vulnerable. <span className="text-panik-orange font-semibold">PANIK</span> integrates state monitoring, audit history mapping, and action suggestions into a cohesive unit.
             </p>
+          </div>
+        </ScrollReveal>
+
+        {/* Named differentiation: the three comparisons stated plainly, not implied
+            by the animated matrix below. Every sentence here is a fact about what
+            PANIK does today, sourced from the same claims made elsewhere on this
+            page (FAQ "Is Panik live on mainnet?", Hero's testnet disclosure, and
+            packages/scoring's calibration docs) - never an assertion about what a
+            named competitor does or fails to do. */}
+        <ScrollReveal duration={0.6} delay={0.08}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-14">
+            <div className="bg-surface-sunken border border-border-subtle rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-2.5">
+                <LayoutDashboard className="w-4 h-4 text-panik-orange shrink-0" aria-hidden="true" />
+                <span className="text-2xs font-mono tracking-widest text-text-muted uppercase font-medium">
+                  Vs protocol dashboards
+                </span>
+              </div>
+              <p className="text-text-secondary text-sm leading-relaxed">
+                Aave, Moonwell, Compound and Morpho each show your health factor inside their own app. PANIK scores and monitors every position you hold across all four, together, live on Base mainnet.
+              </p>
+            </div>
+            <div className="bg-surface-sunken border border-border-subtle rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-2.5">
+                <Bot className="w-4 h-4 text-panik-orange shrink-0" aria-hidden="true" />
+                <span className="text-2xs font-mono tracking-widest text-text-muted uppercase font-medium">
+                  Vs generic automation
+                </span>
+              </div>
+              <p className="text-text-secondary text-sm leading-relaxed">
+                A generic stop-loss bot fires the moment one number crosses a line. The Panik Risk Score weighs your position's health, the asset's volatility, the protocol's track record and market-wide stress together, calibrated against real historical liquidations.
+              </p>
+            </div>
+            <div className="bg-surface-sunken border border-border-subtle rounded-lg p-5">
+              <div className="flex items-center gap-2 mb-2.5">
+                <FlaskConical className="w-4 h-4 text-panik-orange shrink-0" aria-hidden="true" />
+                <span className="text-2xs font-mono tracking-widest text-text-muted uppercase font-medium">
+                  Vs DeFi Saver
+                </span>
+              </div>
+              <p className="text-text-secondary text-sm leading-relaxed">
+                Your Panik Risk Score is set against your own risk tolerance, not one default for every user, and its backtest is published below rather than asserted. The one-click exit runs on Base Sepolia today, ahead of a mainnet launch after audit.
+              </p>
+            </div>
           </div>
         </ScrollReveal>
 
