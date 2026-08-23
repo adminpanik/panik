@@ -444,6 +444,18 @@ const SHOW_AUTO_REPAY_CARD = false;
 /** The shared table in lib/utils, under this file's long-standing local name. */
 const LIVE_PROTOCOL_LABEL = PROTOCOL_LABEL;
 
+/**
+ * When a stale figure was last real, to the minute.
+ *
+ * Local time and no seconds: the reader is deciding whether to trust a number
+ * on their screen right now, and "07:41" answers that. The locale is the
+ * browser's, because this is a wall-clock reading rather than a record.
+ */
+const SCORED_AT_FORMAT = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 /** How long a position row stays emphasised after an alert points at it. */
 const HIGHLIGHT_MS = 4000;
 
@@ -2086,6 +2098,21 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onboardedWallet, telegramEligible]);
 
+  /**
+   * Whether an alert could actually reach this user away from this page.
+   *
+   * Both halves are required and they fail independently: the wallet has to be
+   * registered for monitoring (or nothing is ever scored for it) AND a channel
+   * has to be linked (or the crossing is recorded and delivered nowhere).
+   *
+   * It exists because the empty alert log promised delivery unconditionally
+   * while Settings, in the same session, said "No alerts are being sent". Only
+   * `"connected"` counts: `idle` is the state before the link check has
+   * returned, and treating "we have not asked yet" as "you are covered" is the
+   * failure this whole flag is here to close.
+   */
+  const alertsDeliverable = monitoringIssue === null && telegramLink.status === "connected";
+
   // ── Alert coverage ────────────────────────────────────────────────────────
   // This used to be the subline of the "Monitored capital" stat card, reading
   // "Connect Telegram for alerts". Two things were wrong with that. It is a
@@ -2119,6 +2146,17 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
    * naming it.
    */
   const portfolioFeedDown = ownLive.offline;
+  /**
+   * When the figures on screen were last actually read, or null when the feed
+   * never answered.
+   *
+   * The API's own `updatedAt`, never a local clock: it is the moment the
+   * scoring run produced these numbers, and a "we fetched it at" would be a
+   * different and less useful fact. Null renders no claim rather than an epoch
+   * date, which is the "never render an unknown as a zero" rule applied to a
+   * timestamp.
+   */
+  const lastScoredAt = ownLive.updatedAt > 0 ? SCORED_AT_FORMAT.format(ownLive.updatedAt) : null;
   const portfolioLoading = portfolioPositions === null && !portfolioFeedDown;
   const portfolioEmpty = portfolioPositions !== null && portfolioPositions.length === 0;
   const hasPositions = portfolioPositions !== null && portfolioPositions.length > 0;
@@ -4073,6 +4111,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     setHighlightedPositionKey(key);
                   }}
                   onClose={closeAlertHistory}
+                  deliveryConnected={alertsDeliverable}
+                  onConnectAlerts={() => {
+                    closeAlertHistory();
+                    setActiveTab("settings");
+                  }}
                 />
               </TabPanel>
             )}
@@ -4200,13 +4243,41 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   </div>
                 )}
 
+                {/* STATE 4 of 4, on the cards rather than on the list.
+
+                    A poll that fails after one has succeeded raises `offline`
+                    and KEEPS the positions it last read, so `liveMacro` keeps
+                    summing them and the four cards below carried on stating a
+                    monitored total and an aggregate risk score as current while
+                    the position list under them said the feed was unreachable.
+                    One screen, two contradictory claims about one wallet, and
+                    the one making the safety claim was the one that looked
+                    fine.
+
+                    The figures stay, because a reader whose feed just went down
+                    still wants their last-known numbers. What changes is that
+                    the screen says how old they are, in the words the feed's
+                    own timestamp supports and no stronger. */}
+                {portfolioFeedDown && liveMacro && (
+                  <EmptyState
+                    tone="problem"
+                    title="These figures are not being updated"
+                    hint={`We could not reach the scoring feed, so everything below is the last successful read${lastScoredAt ? `, from ${lastScoredAt}` : ""}. Your positions may have moved since. Nothing here has been rescored.`}
+                  />
+                )}
+
                 {/* Nothing on this wallet could be priced. Stated once, loudly,
                     above the cards: the aggregate card is the one making a
                     safety claim and it previously carried no caveat whatsoever,
                     so the caveat that mattered most was the one the screen did
                     not have. `problem`, not `clear` — this is "we could not
-                    look", which is never good news. */}
-                {liveMacro && liveMacro.capital === null && (
+                    look", which is never good news.
+
+                    Suppressed while the feed is down: the notice above already
+                    says these numbers are not current, and two dashed grey
+                    panels stacked make the reader work out which one is the
+                    real problem. */}
+                {!portfolioFeedDown && liveMacro && liveMacro.capital === null && (
                   <EmptyState
                     tone="problem"
                     title="Dollar amounts are unavailable for this wallet"
@@ -4658,7 +4729,10 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           hint="We could not reach the alert log, so whether this wallet has raised any alert is unknown right now. That is not the same as having raised none."
                         />
                       ) : (
-                        <AlertLogEmptyState />
+                        <AlertLogEmptyState
+                          deliveryConnected={alertsDeliverable}
+                          onConnectAlerts={() => setActiveTab("settings")}
+                        />
                       )}
                     </Card>
                     )}

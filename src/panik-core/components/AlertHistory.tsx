@@ -215,13 +215,55 @@ export function AlertFeedSkeleton() {
  * One component because it is one fact, said in two places: the Portfolio
  * card's preview and the full history page below. They held byte-identical
  * copies of the title and the hint.
+ *
+ * ## Why the hint is conditional
+ *
+ * It read "PANIK messages you the moment a position crosses your profile's risk
+ * limit" unconditionally, which is a promise about message DELIVERY made on the
+ * one screen where the honest answer may be that nothing can be delivered at
+ * all. Settings says "Not connected. No alerts are being sent" in the same
+ * session; two surfaces stating opposite things about one wallet is the
+ * `Guard active` failure DESIGN_SYSTEM names, and the reassuring one was the
+ * one a reader would believe.
+ *
+ * The good news is still good news, so the tone does not change. What changes
+ * is that the sentence stops promising a channel the code cannot see, and the
+ * fix is offered instead.
  */
-export function AlertLogEmptyState() {
+export function AlertLogEmptyState({
+  /**
+   * Whether an alert could actually reach this user off this page. Undefined
+   * from a caller that does not know, and an unknown delivery state may not be
+   * rendered as a promise: it falls to the same wording as "not connected"
+   * minus the call to action.
+   */
+  deliveryConnected,
+  onConnectAlerts,
+}: {
+  deliveryConnected?: boolean;
+  onConnectAlerts?: () => void;
+} = {}) {
+  if (deliveryConnected === true) {
+    return (
+      <EmptyState
+        tone="clear"
+        title="No alerts yet"
+        hint="PANIK messages you the moment a position crosses your profile's risk limit."
+      />
+    );
+  }
   return (
     <EmptyState
       tone="clear"
       title="No alerts yet"
-      hint="PANIK messages you the moment a position crosses your profile's risk limit."
+      hint="Nothing has crossed your risk limit. PANIK records every crossing here, but no alert channel is connected, so nothing will reach you away from this page."
+      action={
+        onConnectAlerts ? (
+          <Button variant="quiet" onClick={onConnectAlerts}>
+            Connect alerts
+          </Button>
+        ) : undefined
+      }
     />
   );
 }
@@ -261,6 +303,9 @@ interface AlertHistoryViewProps {
   targets: Map<LiveProtocol, string>;
   onSelectTarget: (positionKey: string) => void;
   onClose: () => void;
+  /** See `AlertLogEmptyState`: an empty log may not promise a channel. */
+  deliveryConnected?: boolean;
+  onConnectAlerts?: () => void;
 }
 
 /**
@@ -289,6 +334,8 @@ export function AlertHistoryView({
   targets,
   onSelectTarget,
   onClose,
+  deliveryConnected,
+  onConnectAlerts,
 }: AlertHistoryViewProps) {
   const view = useRef<HTMLElement>(null);
   // `preventScroll`: this mounts inside the tab's entry animation, and the
@@ -334,7 +381,10 @@ export function AlertHistoryView({
       </div>
 
       {alerts.length === 0 ? (
-        <AlertLogEmptyState />
+        <AlertLogEmptyState
+          deliveryConnected={deliveryConnected}
+          onConnectAlerts={onConnectAlerts}
+        />
       ) : (
         /* ONE card with dated sections inside it, not one card per day. A log
            where most days hold a single alert draws twelve bordered boxes for
