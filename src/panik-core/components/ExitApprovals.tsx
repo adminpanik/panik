@@ -418,11 +418,12 @@ export function ExitApprovals() {
     current: r.current,
   }));
   const coverage = preauthCoverage(states);
-  // Rows the exit would need but the wallet has not granted. A row that is
-  // granted but no longer needed (a closed position) is not "missing" and must
-  // not be counted toward a signature.
-  const needed = rows.filter((r) => r.amount > 0n);
-  const missingCount = needed.filter((r) => r.current < r.amount).length;
+  // ONE count, from `preauthCoverage`, used by the sentence and by the button.
+  // A local second filter here agreed with it today and was free to stop
+  // agreeing, on the two elements a user reads together. A row that is granted
+  // but no longer needed (a closed position) requires nothing, so it is covered
+  // and never counted toward a signature.
+  const missingCount = coverage.missing.length;
   const grantedCount = rows.filter((r) => r.current > 0n).length;
   // Nothing may be claimed about a position we could only partly read.
   const incomplete = (loaded?.unreadable.length ?? 0) > 0;
