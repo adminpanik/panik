@@ -5,14 +5,14 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ChevronDown, HelpCircle, ShieldAlert, Sparkles, AlertCircle, Cpu } from "lucide-react";
+import { ChevronDown, HelpCircle, ShieldAlert, Sparkles, AlertCircle, Cpu, FlaskConical } from "lucide-react";
 import { ScrollReveal } from "./ScrollReveal";
 
 interface FAQItem {
   id: string;
   question: string;
   answer: React.ReactNode;
-  category: "GENERAL" | "RISK ENGINE" | "SECURITY";
+  category: "GENERAL" | "RISK ENGINE" | "SECURITY" | "NETWORK";
 }
 
 export function FAQ() {
@@ -46,6 +46,12 @@ export function FAQ() {
       category: "RISK ENGINE",
       question: "What does Advisor actually do?",
       answer: "Advisor fires when a position crosses your risk threshold. It tells you what happened, why it matters for your specific position, and exactly what to do, backed by live on-chain data. You make the final call.",
+    },
+    {
+      id: "panik-network-status",
+      category: "NETWORK",
+      question: "Is Panik live on mainnet?",
+      answer: "Risk scoring and monitoring already run on Base mainnet, across Aave V3, Moonwell, Compound III and Morpho. Execution, the one-click exit that closes a position for you, currently runs on Base Sepolia, a public test network, starting with Aave V3. It moves to Base mainnet, unlocking all four protocols, once the executor contract clears audit.",
     },
   ];
 
@@ -105,6 +111,7 @@ export function FAQ() {
                         {item.category === "RISK ENGINE" && <Cpu className="w-3.5 h-3.5" />}
                         {item.category === "SECURITY" && <AlertCircle className="w-3.5 h-3.5" />}
                         {item.category === "GENERAL" && <HelpCircle className="w-3.5 h-3.5" />}
+                        {item.category === "NETWORK" && <FlaskConical className="w-3.5 h-3.5" />}
                       </div>
 
                       <span className={`text-xs md:text-sm font-semibold tracking-wide font-sans transition-colors ${

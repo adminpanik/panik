@@ -5,6 +5,7 @@
 
 import React, { useState, useRef } from "react";
 import { motion, useScroll, useTransform } from "motion/react";
+import { Info } from "lucide-react";
 import { ScrollReveal } from "./ScrollReveal";
 
 interface HeroProps {
@@ -90,6 +91,17 @@ export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWai
               )}
 
             </div>
+
+            {/* Honesty gate: scoring is live on mainnet, execution is not yet.
+                Stated plainly, before the "Try It Now" CTA, not after. */}
+            <p className="mt-5 flex items-start justify-center gap-1.5 text-2xs sm:text-xs text-text-muted font-sans leading-relaxed max-w-md text-center pointer-events-none">
+              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+              <span>
+                Risk scoring runs live on Base mainnet. The one-click exit runs on Base
+                Sepolia today, starting with Aave V3, and moves to mainnet once the
+                contract clears audit.
+              </span>
+            </p>
           </div>
 
         </ScrollReveal>

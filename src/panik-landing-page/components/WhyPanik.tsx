@@ -482,15 +482,15 @@ export function WhyPanik() {
                     </div>
                   </div>
 
-                  {/* Node 4: Atomic Repay (BLIND SPOT normally, ACTIVE on PANIK) */}
-                  <div 
+                  {/* Node 4: Atomic Exit (BLIND SPOT normally, live on testnet for PANIK) */}
+                  <div
                     className="radar-node absolute pointer-events-auto cursor-pointer z-35 group"
                     style={{ left: "115px", top: "290px", transform: "translate(-50%, -50%)" }}
                     onMouseEnter={() => setHoveredNode({
-                      title: "ATOMIC REPAY",
-                      status: activeIdx === 4 ? "ACTIVE" : "BLIND SPOT",
-                      details: activeIdx === 4 
-                        ? "Automated atomic repayment and protective safehousing configured active."
+                      title: "ATOMIC EXIT",
+                      status: activeIdx === 4 ? "TESTNET" : "BLIND SPOT",
+                      details: activeIdx === 4
+                        ? "One-click exit executes today on Base Sepolia, starting with Aave V3. Mainnet execution ships once the contract clears audit."
                         : "Portfolio track hazard: action trigger bypassed. Emergency rescue unreachable.",
                       colorClass: activeIdx === 4 ? "text-risk-low" : "text-risk-critical"
                     })}
@@ -514,9 +514,9 @@ export function WhyPanik() {
                     </div>
                     
                     <div className="absolute top-[38px] left-1/2 -translate-x-1/2 flex flex-col items-center">
-                      <span className="text-2xs font-mono text-text-muted whitespace-nowrap font-medium tracking-wider">ATOMIC REPAY</span>
+                      <span className="text-2xs font-mono text-text-muted whitespace-nowrap font-medium tracking-wider">ATOMIC EXIT</span>
                       <span className={`text-2xs font-mono font-bold ${activeIdx === 4 ? "text-risk-low" : "text-risk-critical/70"}`}>
-                        {activeIdx === 4 ? "ACTIVE" : "BLIND SPOT"}
+                        {activeIdx === 4 ? "TESTNET" : "BLIND SPOT"}
                       </span>
                     </div>
                   </div>
