@@ -44,7 +44,8 @@
  * made this block unreadable; see `routesFor`.
  *
  * The legs are ordered WORST FIRST here rather than as the report built them,
- * and each card names who worded it. See `worstFirst` and `NARRATION_NOTE`.
+ * and a leg the panel's AI line would misdescribe says so. See `worstFirst` and
+ * `ENGINE_WORDED_NOTE`.
  *
  * The engine's prose is not edited here. Where it duplicates the strip that is
  * a copy problem in packages/scoring/src/advisor, out of this file's scope.
@@ -165,28 +166,30 @@ const GAS_CAVEAT =
 const DELEVERAGE_NOT_LIVE = "Not ready to sign yet.";
 
 /**
- * Who worded THIS card's prose.
+ * The exception to the panel's AI disclosure, on the one card it is wrong about.
  *
- * Per card because the panel's footer line cannot answer it: a report counts as
- * narrated as soon as ONE leg is, and the narrator's guards reject legs one at a
- * time, so the footer alone implies AI wording on cards the engine wrote. Both
- * states are printed for the same reason - a missing label reads as a missing
- * label, not as "the engine wrote this one".
+ * `AI_PROSE_NOTE` at the foot covers the panel, and `report.narrated` is true as
+ * soon as ONE leg is model-phrased while the narrator's guards reject legs one
+ * at a time. So a report with a narrated leg and a fallback leg shows a footer
+ * that over-claims on the fallback card. This line is that correction and
+ * nothing else: it appears only on a leg the engine worded, and only while the
+ * footer is up to contradict.
+ *
+ * Not on every card, in either direction. Provenance per block was already tried
+ * and deleted for being six markers about a distinction the reader cannot act on
+ * (see `AI_PROSE_NOTE` in lib/utils.ts); restating "worded by AI" on each card
+ * rebuilds exactly that, and on a report where nothing is narrated there is no
+ * claim outstanding to correct.
  *
  * It says WORDING and stops there. The action, the numbers and the score are the
  * engine's on every leg, and on a critical leg the verdict sentence is the
- * engine's too (`AdvisorNarrator` puts its own sentence back), so a label
- * claiming the recommendation was written by a model would be false on exactly
- * the cards that matter most. The engine's two words for this are an enum and
- * neither is printed.
+ * engine's too (`AdvisorNarrator` puts its own sentence back). The engine's two
+ * words for this are an enum and neither is printed.
  *
  * No hue and no glyph: provenance is not a risk state, and the ramp on this
  * screen belongs to the dials and to the one banner.
  */
-const NARRATION_NOTE = {
-  narrated: "Wording by AI. The risk engine decides the action and the numbers.",
-  engine: "Wording by the risk engine.",
-} as const;
+const ENGINE_WORDED_NOTE = "Wording on this one is the risk engine's, not AI.";
 
 /**
  * Worst first.
@@ -677,12 +680,15 @@ function RecommendationCard({
   onExit,
   onOpen,
   readOnly = false,
+  reportNarrated = false,
 }: {
   rec: AdvisorRecommendation;
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
   onOpen?: (plan: AdvisorOpenPlan) => void;
   /** This report is about a wallet the reader watches but cannot act on. */
   readOnly?: boolean;
+  /** The panel's AI line is up, so a leg the engine worded needs saying so. */
+  reportNarrated?: boolean;
 }) {
   const routes = routesFor(rec);
   /**
@@ -808,10 +814,11 @@ function RecommendationCard({
 
       {/* Last line of the card, under the controls, where a standing fact about
           how the card is written belongs rather than beside the sentence it is
-          about. See `NARRATION_NOTE`. */}
-      <p className="text-xs font-sans text-text-muted">
-        {NARRATION_NOTE[rec.narrationSource === "narrated" ? "narrated" : "engine"]}
-      </p>
+          about. Absent on a narrated leg and on every leg of a report with no
+          narration at all: see `ENGINE_WORDED_NOTE`. */}
+      {reportNarrated && rec.narrationSource !== "narrated" ? (
+        <p className="text-xs font-sans text-text-muted">{ENGINE_WORDED_NOTE}</p>
+      ) : null}
     </Card>
   );
 }
@@ -1052,6 +1059,7 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
               onExit={onExit}
               onOpen={onOpen}
               readOnly={readOnly}
+              reportNarrated={report.narrated}
             />
           ))}
         </div>
@@ -1091,11 +1099,12 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
           sentences a model rephrased is not a thing the reader acts on, and the
           engine decides the recommendation either way.
 
-          It is not the whole disclosure, because it cannot be: `narrated` is true
-          as soon as ANY leg is model-phrased, so on its own it claims AI wording
-          on legs that fell back to the engine. Each card now states its own
-          provenance (`NARRATION_NOTE`) and this line says what that means for the
-          advice. Present only when there is something to disclose. */}
+          It stays the whole disclosure for the panel. What it cannot do alone is
+          be accurate per leg: `narrated` is true as soon as ANY leg is
+          model-phrased, so on a mixed report it claims AI wording on legs that
+          fell back to the engine. Those legs, and only those, carry a correction
+          (`ENGINE_WORDED_NOTE`). Present only when there is something to
+          disclose. */}
       {report.narrated ? (
         <p className="text-xs font-sans text-text-muted">{AI_PROSE_NOTE}</p>
       ) : null}
