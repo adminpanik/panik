@@ -168,6 +168,13 @@ export function repayToTargetDrawdown(
  * Null, never 0, when either input is unknown or unusable: a rate of 0 would
  * say a repay buys nothing, which is a claim about the position rather than an
  * absence of one.
+ *
+ * WALLET-FUNDED ONLY, and it cannot check: the two inputs are the same for both
+ * modes, so a collateral-funded repay fed in here returns a plausible number
+ * that is wrong. Selling collateral moves L as well as D
+ * (`collateralFundedRepayToTargetHf`), so the line has a different and steeper
+ * slope. Any caller quoting this beside a collateral-funded plan is quoting the
+ * wrong rate.
  */
 export function drawdownPerUsdRepaid(
   borrowUsd: number | null,
@@ -199,6 +206,11 @@ export function drawdownPerUsdRepaid(
  * `drawdownAfterRepay` is the post-repay figure the caller is already showing
  * (from `drawdownToLiquidation(projectedHf)`), passed in rather than recomputed
  * so this function adds no second copy of `1 - 1/HF`.
+ *
+ * WALLET-FUNDED ONLY, inherited from the slope - see `drawdownPerUsdRepaid`.
+ * `repayUsd` must come from the wallet-funded plan; handing it the
+ * collateral-funded one mixes a figure from a position whose collateral shrank
+ * into a line drawn on the assumption it did not.
  */
 export function drawdownAfterExtraRepay(
   drawdownAfterRepay: number | null,
