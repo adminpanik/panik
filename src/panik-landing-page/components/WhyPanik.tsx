@@ -297,7 +297,7 @@ export function WhyPanik() {
                 </span>
               </div>
               <p className="text-text-secondary text-sm leading-relaxed">
-                Your Panik Risk Score is set against your own risk tolerance, not one default for every user, and its backtest is published below rather than asserted. The one-click exit runs on Base Sepolia today, ahead of a mainnet launch after audit.
+                Your Panik Risk Score is set against your own risk tolerance, not one default for every user, and its backtest is published below rather than asserted. The one-click exit runs on Base Sepolia today, and all four protocols unlock at mainnet cutover.
               </p>
             </div>
           </div>
