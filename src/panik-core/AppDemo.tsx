@@ -143,6 +143,7 @@ import {
 import { AdvisorPanel } from "./components/AdvisorPanel";
 import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
 import { DelegationManager } from "./components/DelegationManager";
+import { ExitApprovals } from "./components/ExitApprovals";
 import { ChainModeBadge, ChainModeSwitch } from "./components/ChainModeSwitch";
 import { CHAIN_MODE_LABEL, useChainMode } from "./lib/chainMode";
 import { canOpenInApp } from "./lib/openProtocols";
@@ -4940,6 +4941,18 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
                       </div>
                     )}
+
+                    {/* Two cards, two different things being granted, and they
+                        sit in this order on purpose.
+
+                        Approvals come first because they are the lower-level
+                        permission: they let the exit contract move tokens at
+                        all, and without them the standing permission below has
+                        nothing it can execute. Each card names what its own
+                        revoke button revokes, because a user who kills their
+                        delegation meaning to clear their allowances (or the
+                        reverse) has lost something they meant to keep. */}
+                    <ExitApprovals />
 
                     {/* Standing exit permission (Phase 2.C) - grant/disclose/revoke
                         a scoped ExitPermit the user signs; the relayer that uses

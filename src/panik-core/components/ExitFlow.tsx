@@ -28,7 +28,6 @@ import { injected } from "wagmi/connectors";
 import type { LiveProtocol } from "../lib/live";
 import {
   asContractClient,
-  EXIT_DATA_PROVIDER_ABI,
   EXIT_ERC20_ABI,
   EXIT_NETWORK_LABEL,
   exitExplorerTxUrl,
@@ -43,19 +42,21 @@ import {
 } from "../lib/chainMode";
 import { classifyExitError } from "../lib/exitRpc";
 import { LAYER, SCRIM } from "../ui";
-// Shared with the relayer (server/relayerChain.ts) and the coverage sweep
-// (server/coverageChain.ts). One resolution, cached per deployment; see the
-// module header for why the reads live there rather than here.
-import { loadExitReserveSet } from "../lib/exitReserves";
+// `exitReserves` is shared with the relayer (server/relayerChain.ts) and the
+// coverage sweep (server/coverageChain.ts); `exitPosition` is shared with the
+// Settings pre-authorization card, which sizes its approvals from the same
+// debt and deposit balances an exit would.
+import { resolveATokens } from "../lib/exitReserves";
+import { readUserReserves } from "../lib/exitPosition";
 import {
   AMOUNT_FULL,
+  approvalStepsFor,
   buildExitLegs,
   capRepayToWallet,
   formatTokenAmount,
   swapAcquisitionNote,
   withAccrualBuffer,
   type ExitLegView,
-  type ExitReserveState,
   type SwapConfigRead,
   type WalletRepayCap,
 } from "../lib/exitLegs";
@@ -65,7 +66,6 @@ import {
   EXECUTOR_ABI,
   EXECUTOR_ADDRESS,
   EXIT_CHAIN_ID,
-  EXIT_DATA_PROVIDER_ADDRESS,
   // `executor.usdc()`: the token the executor SWEEPS PROCEEDS IN. It is not a
   // reserve, and reading a user's Aave position against it is the bug
   // `exitReserves` exists to prevent. Used here only for the payout decimals.
@@ -74,6 +74,7 @@ import {
   LOCK_CHECKER_ADDRESS,
 } from "../lib/exit.generated";
 import { useExitApprovals, type ApprovalStep } from "../lib/useExitApprovals";
+import { RevokeExitApprovals } from "./ExitApprovals";
 
 export interface ExitPrefill {
   protocol: LiveProtocol;
@@ -263,78 +264,12 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
     const client = asContractClient(publicClient);
     setNotice(null);
     try {
-      // Which assets this exit may name, from the chain rather than a hardcoded
-      // pair. The old `[EXIT_USDC_ADDRESS, EXIT_WETH_ADDRESS]` named the payout
-      // token as a reserve, and Aave does not list it, so the very first read
-      // reverted for every wallet.
-      const known = await loadExitReserveSet(client);
-      if (known.length === 0) {
-        setNotice({
-          tone: "problem",
-          message: `No asset on ${EXIT_NETWORK_LABEL} is both listed by Aave V3 and enabled for exits right now, so there is nothing this can act on. This is a problem on our side, not with your wallet.`,
-        });
-        setStep("error");
-        return;
-      }
-
-      // Reserves the configured market will not answer for. Tracked apart from
-      // a transport failure on purpose: "this asset is not in this market" is a
-      // fact about the deployment and "we cannot reach the chain" is a fact
-      // about the connection, and telling a user one when it is the other sends
-      // them to retry something that cannot start working.
-      const unreadable: string[] = [];
-
-      // Every read below is issued in one tick rather than awaited in sequence.
-      // They have no dependency on each other, and one at a time meant one round
-      // trip each against a rate-limited public node; together, wagmi's
-      // Multicall3 batching folds them into a single request. `Promise.all`
-      // preserves `known`'s order.
-      //
-      // Decimals come from each token, never from the symbol: the repay is
-      // denominated in the debt asset, and a WETH repay scaled by 10^6 is off
-      // by twelve orders of magnitude.
-      const [readings, rawPayoutDecimals] = await Promise.all([
-        Promise.all(
-          known.map(async ({ reserve, symbol }): Promise<ExitReserveState | null> => {
-            try {
-              const [userReserve, rawDecimals] = await Promise.all([
-                client.readContract({
-                  address: EXIT_DATA_PROVIDER_ADDRESS,
-                  abi: EXIT_DATA_PROVIDER_ABI,
-                  functionName: "getUserReserveData",
-                  args: [reserve, address],
-                }) as Promise<[bigint, bigint, bigint]>,
-                client.readContract({
-                  address: reserve,
-                  abi: EXIT_ERC20_ABI,
-                  functionName: "decimals",
-                }),
-              ]);
-              const [aBal, stableDebt, varDebt] = userReserve;
-              return {
-                reserve,
-                symbol,
-                // uint8 token metadata, not a wei amount - the one place
-                // `Number` is safe on a chain read in this file.
-                decimals: Number(rawDecimals),
-                aBalance: aBal,
-                debt: stableDebt + varDebt,
-              };
-            } catch (err) {
-              const failure = classifyExitError(err, EXIT_NETWORK_LABEL);
-              // A transport failure says nothing about this particular reserve -
-              // every read is failing. Let it out so the outer catch reports the
-              // connection, rather than blaming the asset.
-              if (failure.kind === "network") throw err;
-              console.error(
-                `[exit] reserve ${symbol} (${reserve}) is unreadable on ${EXIT_NETWORK_LABEL}:`,
-                failure.detail,
-              );
-              unreadable.push(symbol);
-              return null;
-            }
-          }),
-        ),
+      // The position and the payout token's decimals, issued together so a
+      // batching transport folds them into one request. The reserve reads live
+      // in `lib/exitPosition` because the Settings pre-authorization card sizes
+      // its approvals from the same debt and the same deposit balances.
+      const [{ reserves, unreadable, noCoverage }, rawPayoutDecimals] = await Promise.all([
+        readUserReserves(client, address),
         // The PAYOUT token's own decimals, read from the payout token. This used
         // to be `reserves.find(r => r.reserve === EXIT_USDC_ADDRESS)?.decimals
         // ?? 6` - a lookup that can no longer match, because the payout token is
@@ -346,7 +281,15 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
           functionName: "decimals",
         }),
       ]);
-      const reserves = readings.filter((r): r is ExitReserveState => r !== null);
+
+      if (noCoverage) {
+        setNotice({
+          tone: "problem",
+          message: `No asset on ${EXIT_NETWORK_LABEL} is both listed by Aave V3 and enabled for exits right now, so there is nothing this can act on. This is a problem on our side, not with your wallet.`,
+        });
+        setStep("error");
+        return;
+      }
 
       // Legs built from a partial view of the position would repay what could be
       // read and leave the rest, under a button that says the position is
@@ -482,40 +425,33 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
         }
       }
 
-      const approvals: ApprovalStep[] = [];
+      // The aTokens the withdrawal legs need, resolved here because only the
+      // market can supply them, then handed to `approvalStepsFor` - the one
+      // derivation of "which approvals, for how much", shared with the
+      // pre-authorization card in Settings.
+      const aTokens = await resolveATokens(client, views);
+      const { steps: approvals, missing } = approvalStepsFor(views, EXECUTOR_ADDRESS, aTokens);
+      if (missing.length > 0) {
+        setNotice({
+          tone: "problem",
+          message: `We could not read where this wallet's ${missing.join(" and ")} deposit is held on ${EXIT_NETWORK_LABEL}, so we cannot approve the collateral transfer and nothing has been sent. This is a problem on our side, not with your wallet.`,
+        });
+        setStep("error");
+        return;
+      }
+
       const funding: FundingRow[] = [];
       for (const v of views) {
-        if (v.repayFunding > 0n) {
-          approvals.push({
-            token: v.reserve,
-            spender: EXECUTOR_ADDRESS,
-            amount: v.repayFunding,
-            label: `Approve ${v.symbol} for debt repayment`,
-          });
-          const held = wallet.get(v.reserve);
-          funding.push({
-            token: v.reserve,
-            symbol: v.symbol,
-            decimals: v.decimals,
-            required: withAccrualBuffer(v.repayFunding),
-            balance: held?.balance ?? 0n,
-            swapConfig: held?.swapConfig ?? null,
-          });
-        }
-        if (v.withdraw > 0n) {
-          const [aToken] = (await client.readContract({
-            address: EXIT_DATA_PROVIDER_ADDRESS,
-            abi: EXIT_DATA_PROVIDER_ABI,
-            functionName: "getReserveTokensAddresses",
-            args: [v.reserve],
-          })) as [`0x${string}`];
-          approvals.push({
-            token: aToken,
-            spender: EXECUTOR_ADDRESS,
-            amount: v.aBalance,
-            label: `Approve a${v.symbol} collateral transfer`,
-          });
-        }
+        if (v.repayFunding <= 0n) continue;
+        const held = wallet.get(v.reserve);
+        funding.push({
+          token: v.reserve,
+          symbol: v.symbol,
+          decimals: v.decimals,
+          required: withAccrualBuffer(v.repayFunding),
+          balance: held?.balance ?? 0n,
+          swapConfig: held?.swapConfig ?? null,
+        });
       }
 
       setPosition({ legs, views, approvals, funding, cap, usdcDecimals });
@@ -898,6 +834,13 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
             >
               View on Basescan <ExternalLink className="w-3 h-3" />
             </a>
+            {/* The way back out, offered where the user actually is.
+                An exit leaves live token approvals behind it, and Settings is
+                two clicks and a tab away from a modal somebody is about to
+                close. It revokes THESE approvals (the ones this exit ran with)
+                and reads its own allowances first, so it renders nothing when
+                there is nothing left standing. */}
+            {position ? <RevokeExitApprovals approvals={position.approvals} /> : null}
             <button
               onClick={onClose}
               className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"

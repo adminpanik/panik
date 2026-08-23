@@ -174,6 +174,55 @@ export async function resolveExitReserveSet(
   return exitReserveSet(marketReserves, tracked);
 }
 
+/** `getReserveTokensAddresses` only, for the same reason as the fragment above. */
+const RESERVE_TOKENS_ABI = [
+  {
+    type: "function",
+    name: "getReserveTokensAddresses",
+    stateMutability: "view",
+    inputs: [{ name: "asset", type: "address" }],
+    outputs: [
+      { name: "aTokenAddress", type: "address" },
+      { name: "stableDebtTokenAddress", type: "address" },
+      { name: "variableDebtTokenAddress", type: "address" },
+    ],
+  },
+] as const;
+
+/**
+ * The aToken address for each leg that withdraws collateral, keyed by the
+ * reserve address LOWERCASED.
+ *
+ * Only the legs that actually withdraw are read: a repay-only plan needs no
+ * aToken and should not pay for the call. A read that fails leaves its reserve
+ * out of the map rather than putting a guessed address in it, which is what
+ * lets `approvalStepsFor` report the gap instead of approving the wrong token.
+ */
+export async function resolveATokens(
+  client: ReserveReadClient,
+  views: readonly { reserve: `0x${string}`; withdraw: bigint }[],
+  dataProvider: `0x${string}` = EXIT_DATA_PROVIDER_ADDRESS,
+): Promise<Map<string, `0x${string}`>> {
+  const needed = views.filter((v) => v.withdraw > 0n).map((v) => v.reserve);
+  const out = new Map<string, `0x${string}`>();
+  await Promise.all(
+    needed.map(async (reserve) => {
+      try {
+        const res = (await client.readContract({
+          address: dataProvider,
+          abi: RESERVE_TOKENS_ABI,
+          functionName: "getReserveTokensAddresses",
+          args: [reserve],
+        })) as [`0x${string}`, `0x${string}`, `0x${string}`];
+        out.set(reserve.toLowerCase(), res[0]);
+      } catch (err) {
+        console.error(`[exit] no aToken address for reserve ${reserve}:`, err);
+      }
+    }),
+  );
+  return out;
+}
+
 function cacheKey(options: ExitReserveSetOptions): string {
   const chainId = options.chainId ?? EXIT_CHAIN_ID;
   const dataProvider = (options.dataProvider ?? EXIT_DATA_PROVIDER_ADDRESS).toLowerCase();
