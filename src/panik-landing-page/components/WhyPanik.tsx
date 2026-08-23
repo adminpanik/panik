@@ -344,7 +344,7 @@ export function WhyPanik() {
                       }}
                     />
 
-                    {/* Wedge B: Atomic Repay Blind Spot Arc (~220deg to ~290deg) */}
+                    {/* Wedge B: Atomic Exit Blind Spot Arc (~220deg to ~290deg) */}
                     <path 
                       d="M 170 170 L 39.8 279.3 A 170 170 0 0 0 228.1 329.8 Z" 
                       fill="rgb(from var(--color-risk-critical) r g b / 0.04)" 
@@ -367,7 +367,7 @@ export function WhyPanik() {
                       className="radar-flow-dashes"
                     />
 
-                    {/* Alert Node (230, 280) -> Atomic Repay (115, 290) */}
+                    {/* Alert Node (230, 280) -> Atomic Exit (115, 290) */}
                     <line 
                       x1="230" y1="280" x2="115" y2="290" 
                       stroke="rgb(from var(--color-risk-critical) r g b / 0.22)" 
@@ -490,7 +490,7 @@ export function WhyPanik() {
                       title: "ATOMIC EXIT",
                       status: activeIdx === 4 ? "TESTNET" : "BLIND SPOT",
                       details: activeIdx === 4
-                        ? "One-click exit executes today on Base Sepolia, starting with Aave V3. Mainnet execution ships once the contract clears audit."
+                        ? "One-click exit executes today on Base Sepolia, starting with Aave V3. All four protocols unlock at mainnet cutover."
                         : "Portfolio track hazard: action trigger bypassed. Emergency rescue unreachable.",
                       colorClass: activeIdx === 4 ? "text-risk-low" : "text-risk-critical"
                     })}

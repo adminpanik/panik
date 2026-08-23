@@ -51,7 +51,7 @@ export function FAQ() {
       id: "panik-network-status",
       category: "NETWORK",
       question: "Is Panik live on mainnet?",
-      answer: "Risk scoring and monitoring already run on Base mainnet, across Aave V3, Moonwell, Compound III and Morpho. Execution, the one-click exit that closes a position for you, currently runs on Base Sepolia, a public test network, starting with Aave V3. It moves to Base mainnet, unlocking all four protocols, once the executor contract clears audit.",
+      answer: "Risk scoring and monitoring already run on Base mainnet, across Aave V3, Moonwell, Compound III and Morpho. Execution, the one-click exit that closes a position for you, currently runs on Base Sepolia, a public test network, starting with Aave V3. The other three are proven against a Base mainnet fork and unlock at mainnet cutover.",
     },
   ];
 

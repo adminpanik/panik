@@ -98,8 +98,8 @@ export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWai
               <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
               <span>
                 Risk scoring runs live on Base mainnet. The one-click exit runs on Base
-                Sepolia today, starting with Aave V3, and moves to mainnet once the
-                contract clears audit.
+                Sepolia today, starting with Aave V3. All four protocols unlock at
+                mainnet cutover.
               </span>
             </p>
           </div>
