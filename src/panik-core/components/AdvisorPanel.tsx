@@ -43,6 +43,9 @@
  * prose, one of them describing a route the app cannot sign, is the shape that
  * made this block unreadable; see `routesFor`.
  *
+ * The legs are ordered WORST FIRST here rather than as the report built them,
+ * and each card names who worded it. See `worstFirst` and `NARRATION_NOTE`.
+ *
  * The engine's prose is not edited here. Where it duplicates the strip that is
  * a copy problem in packages/scoring/src/advisor, out of this file's scope.
  *
@@ -160,6 +163,47 @@ const GAS_CAVEAT =
  * `DELEVERAGE_EXECUTABLE_PROTOCOLS` names a chain.
  */
 const DELEVERAGE_NOT_LIVE = "Not ready to sign yet.";
+
+/**
+ * Who worded THIS card's prose.
+ *
+ * Per card because the panel's footer line cannot answer it: a report counts as
+ * narrated as soon as ONE leg is, and the narrator's guards reject legs one at a
+ * time, so the footer alone implies AI wording on cards the engine wrote. Both
+ * states are printed for the same reason - a missing label reads as a missing
+ * label, not as "the engine wrote this one".
+ *
+ * It says WORDING and stops there. The action, the numbers and the score are the
+ * engine's on every leg, and on a critical leg the verdict sentence is the
+ * engine's too (`AdvisorNarrator` puts its own sentence back), so a label
+ * claiming the recommendation was written by a model would be false on exactly
+ * the cards that matter most. The engine's two words for this are an enum and
+ * neither is printed.
+ *
+ * No hue and no glyph: provenance is not a risk state, and the ramp on this
+ * screen belongs to the dials and to the one banner.
+ */
+const NARRATION_NOTE = {
+  narrated: "Wording by AI. The risk engine decides the action and the numbers.",
+  engine: "Wording by the risk engine.",
+} as const;
+
+/**
+ * Worst first.
+ *
+ * The legs arrived in whatever order the report was built in, so a panel could
+ * open on a HOLD and put the EXIT third, on the one screen that exists to say
+ * what to do next.
+ *
+ * A leg the engine could not score sorts FIRST, not last: an unmeasured risk is
+ * not a low one, and a missing score read as 0 would file it under every healthy
+ * position. Equal scores keep the report's own order (`sort` is stable per spec).
+ */
+function worstFirst(a: AdvisorRecommendation, b: AdvisorRecommendation): number {
+  const scored = (r: AdvisorRecommendation) => (Number.isFinite(r.numbers.total) ? 1 : 0);
+  if (scored(a) !== scored(b)) return scored(a) - scored(b);
+  return scored(a) === 0 ? 0 : b.numbers.total - a.numbers.total;
+}
 
 function ActionButton({
   rec,
@@ -761,6 +805,13 @@ function RecommendationCard({
           ]}
         />
       </div>
+
+      {/* Last line of the card, under the controls, where a standing fact about
+          how the card is written belongs rather than beside the sentence it is
+          about. See `NARRATION_NOTE`. */}
+      <p className="text-xs font-sans text-text-muted">
+        {NARRATION_NOTE[rec.narrationSource === "narrated" ? "narrated" : "engine"]}
+      </p>
     </Card>
   );
 }
@@ -925,6 +976,10 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
 
   const readOnly = watchOnlyNote !== undefined;
 
+  /* A COPY, sorted: `sort` mutates, and the array here is the caller's report
+     object, which other surfaces read from. See `worstFirst`. */
+  const legs = React.useMemo(() => [...recommendations].sort(worstFirst), [recommendations]);
+
   return (
     <div className="space-y-6">
       {/* Whose wallet this report is about, and what the reader may do with it,
@@ -990,7 +1045,7 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
                 needs is the one that says the button beside it will not work. */}
             <p className="text-xs font-sans text-text-muted">{exitAvailabilityLine(chainMode)}</p>
           </div>
-          {recommendations.map((rec) => (
+          {legs.map((rec) => (
             <RecommendationCard
               key={`${rec.protocol}-${rec.numbers.scoredCollateralSymbol}`}
               rec={rec}
@@ -1031,13 +1086,16 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
         </div>
       ) : null}
 
-      {/* The panel's one AI disclosure, at the foot, where a standing fact about
-          how the page is written belongs. It replaces a marker under every block
-          of prose on every card plus a banner line explaining that the markers
-          exist: which sentences a model rephrased is not a thing the reader
-          acts on, and the engine decides the recommendation either way. `narrated`
-          is true as soon as any leg is model-phrased, so the line is present
-          exactly when there is something to disclose. */}
+      {/* The panel's scope line. It replaced a marker under every BLOCK of prose
+          on every card plus a banner explaining that the markers exist: which
+          sentences a model rephrased is not a thing the reader acts on, and the
+          engine decides the recommendation either way.
+
+          It is not the whole disclosure, because it cannot be: `narrated` is true
+          as soon as ANY leg is model-phrased, so on its own it claims AI wording
+          on legs that fell back to the engine. Each card now states its own
+          provenance (`NARRATION_NOTE`) and this line says what that means for the
+          advice. Present only when there is something to disclose. */}
       {report.narrated ? (
         <p className="text-xs font-sans text-text-muted">{AI_PROSE_NOTE}</p>
       ) : null}
