@@ -669,6 +669,64 @@ export function formatAlert(t: WatchTransition, extras: AlertExtras = {}): strin
   return lines.join("\n");
 }
 
+// ── 7.5 digest ──────────────────────────────────────────────────────────────
+
+/** One held alert, as the digest needs it. */
+export interface DigestEntry {
+  transition: WatchTransition;
+  extras?: AlertExtras;
+}
+
+/** "14 Aug 2026, 09:05 UTC" - readable, unambiguous, no locale in the worker. */
+function digestTime(iso: string): string | null {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  const date = at.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const hh = String(at.getUTCHours()).padStart(2, "0");
+  const mm = String(at.getUTCMinutes()).padStart(2, "0");
+  return `${date}, ${hh}:${mm} UTC`;
+}
+
+/**
+ * The digest (7.5): every non-critical alert this user chose to have batched,
+ * in one message.
+ *
+ * WHAT CHANGED SINCE THE LAST ONE is the message's job, so each line states the
+ * crossing (`from` -> `to`) and not merely the current state, and the header
+ * names the moment the last digest went out. `sinceIso` null is a first digest
+ * and says so rather than inventing a window it cannot know.
+ *
+ * The footer is a fact about the policy, not reassurance: `decideSend` cannot
+ * route a critical alert into a digest, so the sentence is true by construction.
+ */
+export function formatDigest(entries: readonly DigestEntry[], sinceIso: string | null): string {
+  const lines: string[] = [b("PANIK alert digest")];
+  lines.push("");
+  const since = sinceIso ? digestTime(sinceIso) : null;
+  const count = `${entries.length} update${entries.length === 1 ? "" : "s"}`;
+  lines.push(since ? `${count} since your last digest on ${since}.` : `${count} while you were away.`);
+  lines.push("");
+
+  for (const entry of entries) {
+    const t = entry.transition;
+    const extras = entry.extras ?? {};
+    const change =
+      t.from === null || t.from === t.to
+        ? `now ${LIMIT_STATE[t.to]}`
+        : `was ${LIMIT_STATE[t.from]}, now ${LIMIT_STATE[t.to]}`;
+    lines.push(bullet(`${subjectOf(t, extras)}: ${change}. ${scoreLine(t)}`));
+  }
+
+  lines.push("");
+  lines.push("Alerts about a position over your limit are never batched - those arrive as they happen.");
+  return lines.join("\n");
+}
+
 /**
  * Resolution notification (7.2): a position we alerted on is back inside the
  * user's limit. Sent only for transitions INTO "within", and only when an alert

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ALERT_POLICY } from "../packages/scoring/src/params";
 import {
   dispatchPending,
@@ -137,7 +137,7 @@ describe("dispatchPending — fan-out", () => {
 
     const report = await dispatchPending(h.deps);
 
-    expect(report).toEqual({ considered: 2, sent: 2, suppressed: 0, failed: 0 });
+    expect(report).toEqual({ considered: 2, sent: 2, suppressed: 0, failed: 0, deferred: 0 });
     expect(h.sent.map((s) => s.chatId)).toEqual([101, 202]);
     expect(h.delivered).toEqual([101, 202]);
     // One ledger row per RECIPIENT, both against the same transition id.
@@ -172,7 +172,7 @@ describe("dispatchPending — fan-out", () => {
 
     const report = await dispatchPending(h.deps);
 
-    expect(report).toEqual({ considered: 2, sent: 1, suppressed: 0, failed: 1 });
+    expect(report).toEqual({ considered: 2, sent: 1, suppressed: 0, failed: 1, deferred: 0 });
     // Ben still got his message and his row is resolved...
     expect(h.stamps()).toEqual([
       { transitionId: "1", owner: BEN, chatId: 202, channel: "telegram", attempts: 1 },
@@ -223,7 +223,7 @@ describe("dispatchPending — the cooldown is per chat", () => {
 
     const report = await dispatchPending(h.deps);
 
-    expect(report).toEqual({ considered: 2, sent: 1, suppressed: 1, failed: 0 });
+    expect(report).toEqual({ considered: 2, sent: 1, suppressed: 1, failed: 0, deferred: 0 });
     expect(h.sent.map((s) => s.chatId)).toEqual([202]);
     expect(h.stamps()).toEqual([
       { transitionId: "1", owner: ANNA, chatId: 101, channel: "suppressed_cooldown", attempts: 0 },
@@ -273,7 +273,7 @@ describe("dispatchPending — the cooldown is per chat", () => {
     // Anna's last message said "approaching" and this one says "outside": worse
     // news, so it bypasses. Ben was already told "outside" a minute ago.
     expect(h.sent.map((s) => s.chatId)).toEqual([101]);
-    expect(report).toEqual({ considered: 2, sent: 1, suppressed: 1, failed: 0 });
+    expect(report).toEqual({ considered: 2, sent: 1, suppressed: 1, failed: 0, deferred: 0 });
   });
 });
 
@@ -552,7 +552,7 @@ describe("dispatchPending — the alert card", () => {
 
     // The alert still went out, still counts as delivered, and the failure is
     // a log line rather than a lost warning.
-    expect(report).toEqual({ considered: 1, sent: 1, suppressed: 0, failed: 0 });
+    expect(report).toEqual({ considered: 1, sent: 1, suppressed: 0, failed: 0, deferred: 0 });
     expect(h.sent).toHaveLength(1);
     expect(plain(h.sent[0]!.text)).toContain("Risk score 62 of 100");
     expect(h.delivered).toEqual([101]);
@@ -709,7 +709,7 @@ describe("dispatchPending — materiality still applies per delivery", () => {
       ],
     });
     const report = await dispatchPending(h.deps);
-    expect(report).toEqual({ considered: 2, sent: 0, suppressed: 2, failed: 0 });
+    expect(report).toEqual({ considered: 2, sent: 0, suppressed: 2, failed: 0, deferred: 0 });
     expect(h.stamps().map((s) => s.channel)).toEqual([
       "suppressed_immaterial",
       "suppressed_immaterial",
@@ -729,5 +729,155 @@ describe("dispatchPending — materiality still applies per delivery", () => {
       ],
     });
     expect((await dispatchPending(h.deps)).sent).toBe(1);
+  });
+});
+
+/**
+ * 7.4 / 7.5 - a preference may make a chat quieter. It may never make a
+ * liquidation warning later.
+ *
+ * These run against the dispatcher rather than only against `decideSend`,
+ * because the property that matters is end to end: the critical row is SENT and
+ * the deferred row is left UNSTAMPED, which is what makes "held" different from
+ * "lost".
+ */
+describe("dispatchPending — per-user tuning", () => {
+  /** 03:00 UTC, inside the 22:00 -> 07:00 quiet window below. */
+  const NIGHT = Date.parse("2026-08-15T03:00:00.000Z");
+  const QUIET = { quiet_start_minute: 22 * 60, quiet_end_minute: 7 * 60 };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const at = (ms: number) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(ms);
+  };
+
+  it("holds a non-critical alert through quiet hours, unstamped", async () => {
+    at(NIGHT);
+    const h = harness({
+      pending: [delivery({ to_status: "approaching", band: "HIGH", alert_settings: QUIET })],
+    });
+
+    const report = await dispatchPending(h.deps);
+
+    expect(report).toEqual({ considered: 1, sent: 0, suppressed: 0, failed: 0, deferred: 1 });
+    expect(h.sent).toHaveLength(0);
+    // Nothing stamped: the pass after 07:00 must still deliver it.
+    expect(h.stamps()).toHaveLength(0);
+    expect(h.attempts()).toHaveLength(0);
+  });
+
+  it("CRITICAL alerts break through quiet hours", async () => {
+    at(NIGHT);
+    const h = harness({ pending: [delivery({ to_status: "outside", alert_settings: QUIET })] });
+
+    const report = await dispatchPending(h.deps);
+
+    expect(report.sent).toBe(1);
+    expect(report.deferred).toBe(0);
+    expect(h.stamps().map((s) => s.channel)).toEqual(["telegram"]);
+  });
+
+  it("suppresses a non-critical alert for a muted protocol, and not a critical one", async () => {
+    const muted = { muted_protocols: ["aave_v3"] };
+    const quiet = harness({
+      pending: [delivery({ to_status: "approaching", band: "HIGH", alert_settings: muted })],
+    });
+    expect((await dispatchPending(quiet.deps)).suppressed).toBe(1);
+    expect(quiet.stamps().map((s) => s.channel)).toEqual(["suppressed_muted"]);
+
+    const loud = harness({ pending: [delivery({ to_status: "outside", alert_settings: muted })] });
+    expect((await dispatchPending(loud.deps)).sent).toBe(1);
+  });
+});
+
+describe("dispatchPending — digest mode (7.5)", () => {
+  const HOURLY = { digest_frequency: "hourly" };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const at = (ms: number) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(ms);
+  };
+
+  const held = (over: Partial<PendingDelivery> = {}) =>
+    delivery({ to_status: "approaching", band: "HIGH", alert_settings: HOURLY, ...over });
+
+  it("batches held alerts into ONE message once the digest falls due", async () => {
+    at(NOW + 2 * 60 * 60 * 1000);
+    const h = harness({
+      pending: [held({ id: "1" }), held({ id: "2", protocol: "morpho", score: 47 })],
+    });
+
+    const report = await dispatchPending(h.deps);
+
+    expect(report).toEqual({ considered: 2, sent: 1, suppressed: 0, failed: 0, deferred: 0 });
+    expect(h.sent).toHaveLength(1);
+    const text = plain(h.sent[0].text);
+    expect(text).toContain("PANIK alert digest");
+    expect(text).toContain("2 updates");
+    expect(text).toContain("Aave V3");
+    expect(text).toContain("Morpho");
+    // Both rows resolve as 'digest', a channel that is not 'telegram', so
+    // nothing downstream counts a batched alert as an individual delivery.
+    expect(h.stamps().map((s) => s.channel)).toEqual(["digest", "digest"]);
+    expect(h.calls.some((c) => c.sql.includes("last_digest_at"))).toBe(true);
+  });
+
+  it("holds the batch, unstamped, until it is due", async () => {
+    at(NOW + 60_000);
+    const h = harness({ pending: [held({ id: "1" }), held({ id: "2" })] });
+
+    const report = await dispatchPending(h.deps);
+
+    expect(report).toEqual({ considered: 2, sent: 0, suppressed: 0, failed: 0, deferred: 2 });
+    expect(h.sent).toHaveLength(0);
+    expect(h.stamps()).toHaveLength(0);
+  });
+
+  // THE SAFETY PROPERTY at the dispatcher level: digest mode is on, the digest
+  // is nowhere near due, and the critical alert still goes out on its own.
+  it("never batches a CRITICAL alert, whatever the digest setting", async () => {
+    at(NOW + 60_000);
+    const h = harness({
+      pending: [
+        held({ id: "1" }),
+        delivery({ id: "2", to_status: "outside", alert_settings: { digest_frequency: "daily" } }),
+      ],
+    });
+
+    const report = await dispatchPending(h.deps);
+
+    expect(report).toEqual({ considered: 2, sent: 1, suppressed: 0, failed: 0, deferred: 1 });
+    expect(h.sent).toHaveLength(1);
+    expect(plain(h.sent[0].text)).not.toContain("PANIK alert digest");
+    expect(h.stamps()).toEqual([
+      { transitionId: "2", owner: ANNA, chatId: 101, channel: "telegram", attempts: 1 },
+    ]);
+  });
+
+  it("spends an attempt per row when the digest cannot be sent", async () => {
+    at(NOW + 2 * 60 * 60 * 1000);
+    const h = harness({
+      pending: [held({ id: "1" }), held({ id: "2" })],
+      send: async () => ({ ok: false, status: 500, description: "internal" }),
+    });
+
+    const report = await dispatchPending(h.deps);
+
+    expect(report.failed).toBe(2);
+    // Unresolved (retried next pass) but no longer forever: the counter is what
+    // retires a chat Telegram will never accept.
+    expect(h.stamps()).toHaveLength(0);
+    expect(h.attempts()).toEqual([
+      { transitionId: "1", owner: ANNA, attempts: 1 },
+      { transitionId: "2", owner: ANNA, attempts: 1 },
+    ]);
   });
 });

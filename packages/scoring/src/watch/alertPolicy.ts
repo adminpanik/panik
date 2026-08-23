@@ -13,10 +13,24 @@
  *
  * Recovery transitions used to be filtered out upstream; since 7.2 they reach
  * this function and are routed to `formatResolution` when it returns "send".
+ *
+ * 7.4 / 7.5 add a fourth layer ON TOP, never underneath: the user's own
+ * preferences (watch/alertSettings.ts). Mute, quiet hours and digest batching
+ * are consulted only AFTER the layers above said "send", and only for an alert
+ * `isCriticalAlert` says is not critical. That ordering is the safety property:
+ * there is no path from a preference to withholding a critical alert, and the
+ * tests in tests/alertPolicy.test.ts assert it rather than a comment claiming it.
  */
 
-import { ALERT_POLICY } from "../params";
-import type { ProfileStatus } from "../types";
+import type { Band, ProfileStatus, Protocol } from "../types";
+import {
+  DEFAULT_ALERT_SETTINGS,
+  effectiveCooldownMs,
+  inQuietHours,
+  isCriticalAlert,
+  isMuted,
+  type AlertSettings,
+} from "./alertSettings";
 
 /** The most recent Telegram message actually SENT for this (wallet, protocol). */
 export interface PriorAlert {
@@ -49,11 +63,64 @@ export interface SendDecisionInput {
    * alert the ceiling.
    */
   prior: PriorAlert | null;
+  /**
+   * The subscriber's own tuning. Absent = `DEFAULT_ALERT_SETTINGS`, which is
+   * byte-for-byte the behaviour this function had before 7.4.
+   */
+  settings?: AlertSettings;
+  /** Engine band for this transition, used only to widen what counts as critical. */
+  band?: Band | null;
+  /** Watched wallet + protocol, for the per-position / per-protocol mute. */
+  wallet?: string;
+  protocol?: Protocol;
+  /**
+   * When the decision is being MADE, which is not when the transition happened:
+   * quiet hours are a fact about the clock at send time. Defaults to
+   * `createdAt`, so a caller that does not care keeps the old behaviour.
+   */
+  nowMs?: number;
 }
 
-export type SendReason = "send" | "skipped" | "suppressed_immaterial" | "suppressed_cooldown";
+export type SendReason =
+  | "send"
+  | "skipped"
+  | "suppressed_immaterial"
+  | "suppressed_cooldown"
+  /** The user muted this protocol or this position. Resolved, never sent. */
+  | "suppressed_muted"
+  /** Held until quiet hours end. NOT resolved - the caller must re-consider it. */
+  | "deferred_quiet"
+  /** Held for the next digest. NOT resolved - the caller batches and sends it. */
+  | "deferred_digest";
+
+/** A decision the dispatcher must revisit rather than stamp. */
+export function isDeferred(reason: SendReason): boolean {
+  return reason === "deferred_quiet" || reason === "deferred_digest";
+}
+
+/**
+ * The preference layer, applied to a decision the safety layers already
+ * approved. Critical alerts never reach it (see `decideSend`).
+ */
+function applyPreferences(input: SendDecisionInput, settings: AlertSettings): SendReason {
+  const at = input.nowMs ?? input.createdAt;
+  if (inQuietHours(at, settings)) return "deferred_quiet";
+  if (settings.digest !== "off") return "deferred_digest";
+  return "send";
+}
 
 export function decideSend(input: SendDecisionInput): SendReason {
+  const settings = input.settings ?? DEFAULT_ALERT_SETTINGS;
+  // Computed FIRST and consulted before every preference branch below. This is
+  // the structural form of "critical always breaks through": the preference
+  // code is unreachable for a critical alert, rather than guarded by a flag
+  // somebody could reorder.
+  const critical = isCriticalAlert(input.toStatus, input.band);
+  const muted =
+    input.wallet !== undefined &&
+    input.protocol !== undefined &&
+    isMuted(settings, input.wallet, input.protocol);
+
   // 0. Recovery -> resolution notification (7.2).
   //
   // The materiality gate is deliberately NOT applied here: a debt repaid to
@@ -69,7 +136,10 @@ export function decideSend(input: SendDecisionInput): SendReason {
     // news. Without this, outside -> within -> outside -> within is four
     // messages for one position that never left its band.
     if (prior.toStatus === "within") return "suppressed_cooldown";
-    return "send";
+    // An all-clear is good news and good news can wait: it is muted, held for
+    // quiet hours and batched exactly like a non-critical alert.
+    if (muted) return "suppressed_muted";
+    return applyPreferences(input, settings);
   }
 
   // 1. Materiality: a position with no real debt cannot be liquidated.
@@ -79,21 +149,35 @@ export function decideSend(input: SendDecisionInput): SendReason {
   // A non-null HF already proves debt exists; minBorrowUsd only filters dust.
   // With the USD magnitude unknown the gate is unevaluable, so it is EXEMPTED
   // (a degraded six-figure debt must not be silently classed as dust).
+  //
+  // The threshold is the user's when they set one: raising it says "this
+  // position is too small to be worth a message", which is a statement about
+  // STAKES and stays true whatever the urgency, so it applies to critical
+  // alerts too.
   if (
     !input.usdValuesUnavailable &&
-    (input.borrowUsd == null || input.borrowUsd < ALERT_POLICY.minBorrowUsd)
+    (input.borrowUsd == null || input.borrowUsd < settings.minBorrowUsd)
   ) {
     return "suppressed_immaterial";
   }
 
+  // 1b. Mute (7.4) - never for a critical alert. A muted protocol means "spare
+  // me the warnings", not "let me be liquidated in peace".
+  if (muted && !critical) return "suppressed_muted";
+
   const prior = input.prior;
-  if (!prior) return "send"; // first alert for this position
-
   // 2. Escalation: approaching -> outside is worse news; bypass the cooldown.
-  if (input.toStatus === "outside" && prior.toStatus === "approaching") return "send";
+  const escalation =
+    prior !== null && input.toStatus === "outside" && prior.toStatus === "approaching";
 
-  // 3. Cooldown ceiling.
-  if (input.createdAt - prior.createdAt >= ALERT_POLICY.cooldownMs) return "send";
+  if (prior !== null && !escalation) {
+    // 3. Cooldown ceiling. A user may shorten it; for a critical alert they may
+    // not lengthen it past the calibrated default (see effectiveCooldownMs).
+    if (input.createdAt - prior.createdAt < effectiveCooldownMs(settings, critical)) {
+      return "suppressed_cooldown";
+    }
+  }
 
-  return "suppressed_cooldown";
+  // 4. Preferences, last and only for the non-critical.
+  return critical ? "send" : applyPreferences(input, settings);
 }

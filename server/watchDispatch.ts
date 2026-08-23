@@ -37,13 +37,17 @@
 // Specific modules, NOT the barrel — see the note in server/profileDeps.ts:
 // ../packages/scoring/src/index pulls in the chain adapters (viem -> isows ->
 // the optional "ws" dep) and crashes a bundled function at load.
-import { decideSend } from "../packages/scoring/src/watch/alertPolicy";
+import { decideSend, isDeferred } from "../packages/scoring/src/watch/alertPolicy";
+import { digestDueAtMs } from "../packages/scoring/src/watch/alertSettings";
 import {
   formatAlert,
+  formatDigest,
   formatHeadline,
   formatResolution,
   type AlertExtras,
+  type DigestEntry,
 } from "../packages/scoring/src/watch/alertMessage";
+import { decodeAlertSettings, markDigestSent } from "./alertSettingsStore";
 import type { WatchTransition } from "../packages/scoring/src/watch/loop";
 import type { ProfileStatus, Protocol, RiskProfile } from "../packages/scoring/src/types";
 import { renderAlertCard } from "./alertCard";
@@ -105,6 +109,16 @@ export interface PendingDelivery {
   simulation_label: string | null;
   /** Sends already spent on THIS delivery. 0 when the row does not exist yet. */
   notify_attempts: number;
+  /**
+   * The subscriber's `alert_settings` row as jsonb, or null when they have
+   * never changed anything (7.4 / 7.5).
+   *
+   * Selected as ONE column rather than eight: the shape belongs to
+   * `decodeAlertSettings`, and spreading it across the row type would make
+   * every future setting a change to this interface, the drain, the fake in the
+   * tests and the decoder instead of just the last one.
+   */
+  alert_settings?: unknown;
 }
 
 export interface DispatchDeps {
@@ -180,6 +194,7 @@ export const DRAIN_SQL = `select t.id, t.wallet, t.protocol, t.risk_profile, t.s
             t.simulation_id, t.simulation_label,
             s.owner_wallet, s.label, l.chat_id,
             coalesce(d.notify_attempts, 0) as notify_attempts,
+            to_jsonb(a) as alert_settings,
             snap.health_factor, snap.collateral_usd, snap.borrow_usd,
             snap.usd_values_unavailable
        from public.watch_transitions t
@@ -191,6 +206,11 @@ export const DRAIN_SQL = `select t.id, t.wallet, t.protocol, t.risk_profile, t.s
          on l.wallet = s.owner_wallet and l.enabled
        left join public.watch_deliveries d
          on d.transition_id = t.id and d.owner_wallet = s.owner_wallet
+       -- 7.4 / 7.5. DEPLOY ORDER MATTERS: this table must exist before a worker
+       -- carrying this query starts, or every drain fails and the product stops
+       -- alerting. supabase/migrations/20260823000002_alert_settings.sql.
+       left join public.alert_settings a
+         on a.owner_wallet = s.owner_wallet
        left join lateral (
          select health_factor, collateral_usd, borrow_usd, usd_values_unavailable
            from public.score_snapshots sn
@@ -457,12 +477,118 @@ async function deliver(
 export interface DispatchReport {
   /** Deliveries the drain looked at. */
   considered: number;
-  /** Messages Telegram accepted. */
+  /** Messages Telegram accepted. One digest counts as one message. */
   sent: number;
   /** Deliveries the anti-spam gate resolved without sending. */
   suppressed: number;
   /** Sends that failed (transient or terminal). */
   failed: number;
+  /**
+   * Deliveries HELD by a user preference (quiet hours, or a digest that is not
+   * due yet) and left unresolved for a later pass. Distinct from `suppressed`,
+   * which is a delivery nobody will ever receive.
+   */
+  deferred: number;
+}
+
+/** What the message builders need, reconstructed from one delivery row. */
+function toEntry(deps: DispatchDeps, r: PendingDelivery): DigestEntry & { transition: WatchTransition; extras: AlertExtras } {
+  const transition: WatchTransition = {
+    wallet: r.wallet,
+    protocol: r.protocol,
+    profile: r.risk_profile,
+    score: r.score,
+    band: r.band,
+    // The row's own record of where the position came from, not the last
+    // thing we happened to SEND. A wallet whose prior alert was suppressed
+    // would otherwise be described as moving from a status it never left.
+    from: r.from_status,
+    to: r.to_status,
+    // The stamp itself is not recoverable from a row (it carries multipliers
+    // and an expiry the table does not keep), so the marker travels as
+    // `extras.simulation`, which asks only for what WAS persisted.
+    // `formatAlert` refuses to build an unmarked body once either is set,
+    // which makes "a simulated alert says so" a property of the message
+    // builder rather than of this caller remembering.
+    simulation: null,
+  };
+  const extras: AlertExtras = {
+    // The reader's own name for this wallet. Straight through: the formatter
+    // owns the copy, including what a too-long or whitespace-only label
+    // becomes, so this path has no opinion beyond passing on what was stored.
+    label: r.label,
+    healthFactor: r.health_factor == null ? null : Number(r.health_factor),
+    collateralUsd: r.collateral_usd == null ? null : Number(r.collateral_usd),
+    borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
+    simulation: r.simulation_id ? { label: r.simulation_label ?? "Simulated market event" } : null,
+    // The subscriber is not this wallet's owner, so nothing the message
+    // advises is something the reader can do. Compared here because this is
+    // the only place that holds both addresses.
+    watchOnly: r.owner_wallet.trim().toLowerCase() !== r.wallet.trim().toLowerCase(),
+    why: deps.whyNow(r.wallet, r.protocol, r.risk_profile),
+  };
+  return { transition, extras };
+}
+
+/** Alerts one subscriber is holding for their next digest. */
+interface DigestBucket {
+  chatId: number;
+  rows: PendingDelivery[];
+  lastDigestAt: string | null;
+  dueAtMs: number | null;
+}
+
+/**
+ * Send the digests that are due (7.5).
+ *
+ * Nothing critical can be in here: `decideSend` returns `deferred_digest` only
+ * for an alert `isCriticalAlert` rejected, so batching is structurally incapable
+ * of delaying a liquidation warning. That is asserted in
+ * packages/scoring/tests/alertSettings.test.ts, not promised in this comment.
+ *
+ * A digest that fails to send leaves its rows UNRESOLVED but spends an attempt
+ * each, so a chat Telegram will never accept retires the same way a single
+ * alert does instead of re-rendering a digest every 15 seconds forever.
+ */
+async function flushDigests(
+  deps: DispatchDeps,
+  buckets: Map<string, DigestBucket>,
+  nowMs: number,
+  report: DispatchReport,
+): Promise<void> {
+  for (const [owner, bucket] of buckets) {
+    if (bucket.dueAtMs === null || nowMs < bucket.dueAtMs) {
+      report.deferred += bucket.rows.length;
+      continue;
+    }
+    const entries = bucket.rows.map((r) => toEntry(deps, r));
+    const text = formatDigest(entries, bucket.lastDigestAt);
+    const result = await deps.send(bucket.chatId, text, { parseMode: "HTML" });
+    if (result.ok) {
+      for (const r of bucket.rows) await stamp(deps, r, "digest", r.notify_attempts + 1);
+      await deps.onDelivered(bucket.chatId);
+      // Before the stamps would be a digest the user never got, resetting their
+      // clock; after them is at worst one repeated line in the next digest.
+      try {
+        await markDigestSent(deps.db, owner);
+      } catch (err) {
+        deps.log?.error(`digest clock update failed for ${owner}: ${(err as Error).message.slice(0, 120)}`);
+      }
+      report.sent += 1;
+      continue;
+    }
+    if (result.errorCode === 403) {
+      await deps.onBlocked(bucket.chatId);
+      for (const r of bucket.rows) await stamp(deps, r, "blocked", r.notify_attempts + 1);
+      deps.log?.error(`telegram 403 for chat ${bucket.chatId}; link disabled`);
+    } else {
+      deps.log?.error(
+        `digest send failed for ${owner} (status ${result.status}): ${result.description ?? ""}`.slice(0, 200),
+      );
+      for (const r of bucket.rows) await recordSendFailure(deps, r, `digest HTTP ${result.status}`);
+    }
+    report.failed += bucket.rows.length;
+  }
 }
 
 export async function dispatchPending(deps: DispatchDeps): Promise<DispatchReport> {
@@ -471,7 +597,16 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
     deps.maxAttempts,
     deps.batchSize ?? 50,
   ]);
-  const report: DispatchReport = { considered: rows.length, sent: 0, suppressed: 0, failed: 0 };
+  const report: DispatchReport = {
+    considered: rows.length,
+    sent: 0,
+    suppressed: 0,
+    failed: 0,
+    deferred: 0,
+  };
+  const nowMs = Date.now();
+  /** Non-critical alerts held for a digest, per subscriber. Flushed below. */
+  const digests = new Map<string, DigestBucket>();
 
   for (const r of rows) {
     const chatId = Number(r.chat_id);
@@ -487,9 +622,15 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
     const recovery = r.to_status === "within";
     const priorRow = recovery ? prior.rows[0] : prior.rows.find((p) => p.to_status !== "within");
 
+    // The subscriber's own tuning (7.4). A missing row decodes to the shipped
+    // defaults, so a user who never opened the settings screen gets exactly the
+    // behaviour this dispatcher had before they existed.
+    const stored = decodeAlertSettings(r.alert_settings ?? {});
+    const createdAtMs = new Date(r.created_at).getTime();
+
     const decision = decideSend({
       toStatus: r.to_status,
-      createdAt: new Date(r.created_at).getTime(),
+      createdAt: createdAtMs,
       healthFactor: r.health_factor == null ? null : Number(r.health_factor),
       borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
       // Degraded USD means the dust gate is UNEVALUABLE, not failed — waive it.
@@ -497,7 +638,48 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
       prior: priorRow
         ? { toStatus: priorRow.to_status, createdAt: new Date(priorRow.created_at).getTime() }
         : null,
+      settings: stored.settings,
+      // The band widens what counts as critical; the wallet and protocol are
+      // what a mute is expressed against.
+      band: r.band,
+      wallet: r.wallet,
+      protocol: r.protocol,
+      // Quiet hours are a fact about the clock NOW, not about when the crossing
+      // happened: a transition raised at 21:59 and drained at 22:01 is being
+      // delivered inside the window.
+      nowMs,
     });
+
+    // Held, not resolved: no stamp and no attempt spent, so the next pass
+    // reconsiders it once the window closes or the digest falls due.
+    //
+    // ponytail: a held row keeps its slot in the batch of 50. One subscriber in
+    // quiet hours can hold at most WATCHLIST_MAX x protocols rows, so a busy
+    // night could crowd the batch. If that ever shows up, filter held rows in
+    // the drain (the settings are already joined) or raise batchSize.
+    if (isDeferred(decision)) {
+      if (decision === "deferred_digest") {
+        const lastMs = stored.lastDigestAt ? new Date(stored.lastDigestAt).getTime() : null;
+        const bucket = digests.get(r.owner_wallet) ?? {
+          chatId,
+          rows: [],
+          lastDigestAt: stored.lastDigestAt,
+          // The drain is ordered by created_at, so the FIRST row into a bucket
+          // is the oldest one waiting - which is the clock a user who has never
+          // had a digest measures their first one from.
+          dueAtMs: digestDueAtMs(
+            stored.settings,
+            Number.isFinite(lastMs as number) ? lastMs : null,
+            createdAtMs,
+          ),
+        };
+        bucket.rows.push(r);
+        digests.set(r.owner_wallet, bucket);
+      } else {
+        report.deferred += 1;
+      }
+      continue;
+    }
 
     if (decision !== "send") {
       await stamp(deps, r, decision, r.notify_attempts);
@@ -505,40 +687,7 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
       continue;
     }
 
-    const transition: WatchTransition = {
-      wallet: r.wallet,
-      protocol: r.protocol,
-      profile: r.risk_profile,
-      score: r.score,
-      band: r.band,
-      // The row's own record of where the position came from, not the last
-      // thing we happened to SEND. A wallet whose prior alert was suppressed
-      // would otherwise be described as moving from a status it never left.
-      from: r.from_status,
-      to: r.to_status,
-      // The stamp itself is not recoverable from a row (it carries multipliers
-      // and an expiry the table does not keep), so the marker travels as
-      // `extras.simulation`, which asks only for what WAS persisted.
-      // `formatAlert` refuses to build an unmarked body once either is set,
-      // which makes "a simulated alert says so" a property of the message
-      // builder rather than of this caller remembering.
-      simulation: null,
-    };
-    const extras: AlertExtras = {
-      // The reader's own name for this wallet. Straight through: the formatter
-      // owns the copy, including what a too-long or whitespace-only label
-      // becomes, so this path has no opinion beyond passing on what was stored.
-      label: r.label,
-      healthFactor: r.health_factor == null ? null : Number(r.health_factor),
-      collateralUsd: r.collateral_usd == null ? null : Number(r.collateral_usd),
-      borrowUsd: r.borrow_usd == null ? null : Number(r.borrow_usd),
-      simulation: r.simulation_id ? { label: r.simulation_label ?? "Simulated market event" } : null,
-      // The subscriber is not this wallet's owner, so nothing the message
-      // advises is something the reader can do. Compared here because this is
-      // the only place that holds both addresses.
-      watchOnly: r.owner_wallet.trim().toLowerCase() !== r.wallet.trim().toLowerCase(),
-      why: deps.whyNow(r.wallet, r.protocol, r.risk_profile),
-    };
+    const { transition, extras } = toEntry(deps, r);
     const text = recovery ? formatResolution(transition, extras) : formatAlert(transition, extras);
 
     // Straight from the message to the position it is about. The button carries
@@ -578,6 +727,10 @@ export async function dispatchPending(deps: DispatchDeps): Promise<DispatchRepor
       report.failed += 1;
     }
   }
+
+  // Digests last: the live alerts above have already gone out, so a batch can
+  // only ever be the news that was not urgent enough to interrupt anyone.
+  await flushDigests(deps, digests, nowMs, report);
 
   return report;
 }

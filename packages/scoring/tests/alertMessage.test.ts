@@ -3,6 +3,7 @@ import {
   CARD_HEADLINE,
   escapeHtml,
   formatAlert,
+  formatDigest,
   formatHeadline,
   formatResolution,
   protocolLabel,
@@ -808,6 +809,52 @@ describe("the card's vocabulary", () => {
   it("gives the card the same protocol name the message uses", () => {
     expect(protocolLabel("aave_v3")).toBe("Aave V3");
     expect(alert(base, {})).toContain(protocolLabel("moonwell"));
+  });
+});
+
+describe("formatDigest (7.5)", () => {
+  const entries = [
+    {
+      transition: { ...base, to: "approaching" as const, from: "within" as const, score: 44 },
+      extras: { label: "Main" },
+    },
+    {
+      transition: {
+        ...base,
+        protocol: "aave_v3" as const,
+        to: "within" as const,
+        from: "approaching" as const,
+        score: 21,
+      },
+    },
+  ];
+
+  it("states what changed since the last digest, per position", () => {
+    const text = plain(formatDigest(entries, "2026-08-23T09:05:00.000Z"));
+    expect(text).toContain("2 updates since your last digest on 23 Aug 2026, 09:05 UTC.");
+    expect(text).toContain("was under your limit, now nearing your limit");
+    expect(text).toContain("was nearing your limit, now under your limit");
+    // Every line still carries the score and the limit it is measured against.
+    expect(text).toContain("Risk score 44 of 100");
+    expect(text).toContain(`Your moderate limit is ${ALERT_THRESHOLD.moderate}`);
+  });
+
+  it("does not invent a window for a first digest", () => {
+    const text = plain(formatDigest(entries.slice(0, 1), null));
+    expect(text).toContain("1 update while you were away.");
+    expect(text).not.toContain("since your last digest");
+  });
+
+  it("says out loud that over-the-limit alerts are never batched", () => {
+    expect(plain(formatDigest(entries, null))).toContain(
+      "Alerts about a position over your limit are never batched",
+    );
+  });
+
+  it("keeps house style: no em dashes, no emoji", () => {
+    const raw = formatDigest(entries, "2026-08-23T09:05:00.000Z");
+    expect(raw).not.toMatch(/[—–]/);
+    expect(raw).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });
 

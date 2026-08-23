@@ -56,6 +56,7 @@ export const OWNERSHIP_ACTIONS = [
   "watchlist-manage",
   "session-start",
   "account-wallet-link",
+  "alert-settings",
 ] as const;
 export type OwnershipAction = (typeof OWNERSHIP_ACTIONS)[number];
 
@@ -88,6 +89,14 @@ export const ACTION_STATEMENT: Record<OwnershipAction, string> = {
   // user is not being asked to start monitoring or to change an alert; they are
   // being asked to attach an address to the PANIK account they signed in to.
   "account-wallet-link": "Add this wallet to your PANIK account.",
+  // Names the DOWNSIDE, because that is what this signature can do that the
+  // others cannot: quiet hours, a mute and a digest all make a chat quieter,
+  // and someone who could collect this proof under any other pretext could
+  // silence a stranger's warnings without ever touching their funds. It also
+  // states the limit that makes the setting safe to grant - critical alerts are
+  // not tunable, and `alertPolicy.decideSend` is where that is enforced.
+  "alert-settings":
+    "Change when PANIK alerts you: quiet hours, muted positions and digest mode. Alerts about a position over your limit are always sent.",
 };
 
 export interface OwnershipMessageParams {
