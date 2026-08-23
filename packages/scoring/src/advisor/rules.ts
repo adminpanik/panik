@@ -21,7 +21,7 @@ import {
 import { fallbackSections, overallHeadline, PROTOCOL_LABEL, fmtPct } from "./fallback";
 import {
   collateralFundedRepayToTargetHf,
-  REDUCE_TO_EXIT_RATIO,
+  reduceToExitRatio,
   repayFractionOfDebt,
   repayToTargetDrawdown,
   TARGET_DRAWDOWN,
@@ -40,6 +40,29 @@ import {
 
 /** Protocol-safety sub-score at/above which a rebalance is suggested. */
 export const REBALANCE_SAFETY_GATE = 60;
+
+/**
+ * The MARKET half of CRASH_REGIME: a saturated sell-off, said without reference
+ * to how close this particular position is to liquidation.
+ *
+ * An unmeasured asset risk never opens the gate - no reading is not a crash
+ * reading, the same rule computeScore.ts holds for the score itself.
+ */
+export function crashMarketRegime(assetRisk: number | null): boolean {
+  return assetRisk !== null && assetRisk >= CRASH_REGIME.assetRiskAtOrAbove;
+}
+
+/**
+ * The full CRASH_REGIME conjunction: a saturated sell-off AND a position close
+ * enough to liquidation that hours of further erosion reach it.
+ *
+ * The one copy. It was written out inline in rules 1 and 2 and the sizing in
+ * rule 3 now asks a related question, which is three places for two gates to
+ * drift apart in.
+ */
+function inCrashRegime(hf: number | null, assetRisk: number | null): boolean {
+  return hf !== null && hf <= CRASH_REGIME.hfAtOrBelow && crashMarketRegime(assetRisk);
+}
 
 /**
  * Per-call inputs the engine cannot read for itself.
@@ -210,12 +233,7 @@ export function adviseLeg(
         break;
       }
     }
-    if (
-      hf !== null &&
-      hf <= CRASH_REGIME.hfAtOrBelow &&
-      score.subScores.assetRisk !== null &&
-      score.subScores.assetRisk >= CRASH_REGIME.assetRiskAtOrAbove
-    ) {
+    if (inCrashRegime(hf, score.subScores.assetRisk)) {
       triggers.push("regime:crash");
     }
     return finish("EXIT", "critical", {
@@ -224,14 +242,7 @@ export function adviseLeg(
   }
 
   // Rule 2 - defensive crash-regime catch below the CRITICAL band boundary.
-  // An unmeasured asset risk never opens this gate (computeScore.ts holds the
-  // same rule for the score itself): no reading is not a crash reading.
-  if (
-    hf !== null &&
-    hf <= CRASH_REGIME.hfAtOrBelow &&
-    score.subScores.assetRisk !== null &&
-    score.subScores.assetRisk >= CRASH_REGIME.assetRiskAtOrAbove
-  ) {
+  if (inCrashRegime(hf, score.subScores.assetRisk)) {
     triggers.push("regime:crash");
     return finish("EXIT", "critical", {
       exitPrefill: { protocol: score.protocol, kind: "full" },
@@ -312,7 +323,17 @@ export function adviseLeg(
       // and on issue #28 - do not re-derive them from the algebra. It is kept
       // rather than deleted because the threshold is a live risk constant and
       // moving it is the founder's call, not this branch's.
-      if (repayUsd > REDUCE_TO_EXIT_RATIO * borrowUsd) {
+      //
+      // The threshold is regime-dependent. Only the MARKET half of the crash
+      // gate is asked here, and that is not a looser reading of it: rule 2 has
+      // already returned for everything inside the full conjunction, so the
+      // proximity half is false by construction on every leg that gets this far.
+      // A leg at HF 1.4 in a saturated sell-off is precisely the one this
+      // distinction is for - too far out for rule 2, but in a market where the
+      // repay it is about to be quoted may not hold.
+      const crashRegime = crashMarketRegime(score.subScores.assetRisk);
+      if (crashRegime) triggers.push("regime:crash_market");
+      if (repayUsd > reduceToExitRatio(crashRegime) * borrowUsd) {
         triggers.push("promoted:reduce_to_exit");
         // The WHOLE debt as a fraction of itself. Routed through the engine's
         // one quantiser rather than written as a literal 1, so the alternative
