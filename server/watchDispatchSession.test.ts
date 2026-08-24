@@ -193,7 +193,7 @@ describe("the alert survives a mint failure", () => {
     const report = await dispatchPending(h.deps);
 
     // THE ASSERTION THIS FILE EXISTS FOR: the warning still went out.
-    expect(report).toEqual({ considered: 1, sent: 1, suppressed: 0, failed: 0 });
+    expect(report).toEqual({ considered: 1, sent: 1, suppressed: 0, failed: 0, deferred: 0 });
     expect(h.sent).toHaveLength(1);
 
     const button = h.sent[0]!.opts?.button;

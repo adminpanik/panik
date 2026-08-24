@@ -21,22 +21,38 @@ export * from "./adapters/active";
 export * from "./watch/loop";
 export {
   formatAlert,
+  formatDigest,
   formatResolution,
   formatSubScores,
   formatWelcome,
   truncateWallet,
   whyNow,
   type AlertExtras,
+  type DigestEntry,
   type WhyNow,
   type WhyNowFacts,
   type WhyNowInput,
 } from "./watch/alertMessage";
 export {
   decideSend,
+  isDeferred,
   type SendReason,
   type PriorAlert,
   type SendDecisionInput,
 } from "./watch/alertPolicy";
+export {
+  DEFAULT_ALERT_SETTINGS,
+  DIGEST_INTERVAL_MS,
+  digestDueAtMs,
+  effectiveCooldownMs,
+  inQuietHours,
+  isCriticalAlert,
+  isMuted,
+  parseAlertSettings,
+  positionKey,
+  type AlertSettings,
+  type DigestFrequency,
+} from "./watch/alertSettings";
 export * from "./providers/types";
 export { CoinGeckoProvider } from "./providers/coingecko";
 export { DefiLlamaProvider } from "./providers/defillama";

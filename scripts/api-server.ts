@@ -104,6 +104,13 @@ import {
   WATCHLIST_MAX,
   WatchlistError,
 } from "../server/watchlist";
+import {
+  loadAlertSettings,
+  saveAlertSettings,
+  toWireSettings,
+} from "../server/alertSettingsStore";
+import { parseAlertSettings } from "../packages/scoring/src/watch/alertSettings";
+import { fetchAlertOutcomes } from "../server/alertOutcomes";
 import { AUTH_NONCE_TTL_MS, SupabaseNonceStore } from "../server/nonceStore";
 import {
   burnDeepLinkToken,
@@ -1030,6 +1037,92 @@ app.get("/api/watchlist", walletLimit, async (req, res) => {
       max: WATCHLIST_MAX,
       labelMax: WATCHLIST_LABEL_MAX,
     });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * Change when PANIK alerts the caller (7.4 / 7.5).
+ *
+ * SIGNED, and with its OWN action URN. Alert settings are per-wallet state, so
+ * changing them acts on a wallet: without a proof, anyone could name a victim's
+ * address and mute their liquidation alerts, which is not an inconvenience but a
+ * silent failure of the one thing this product promises. The URN is
+ * `alert-settings` and nothing else — a signature a user gave to link Telegram
+ * or to manage a watchlist must not double as permission to silence them
+ * (server/siweProof.ts).
+ *
+ * strictLimit, like every other signed write: a proof costs a nonce and this
+ * endpoint writes a row the dispatcher then reads on every pass.
+ *
+ * The body is a WHOLE settings object, not a patch. An absent field is the
+ * engine default, which makes "reset to defaults" an empty body and removes the
+ * class of bug where a partial save leaves half of a quiet-hours window behind.
+ */
+app.post("/api/alerts/settings", strictLimit, async (req, res) => {
+  const proof = await verifyWalletOwnership(req.body, "alert-settings");
+  if (!proof.ok) {
+    res.status(proof.status).json({ error: proof.error });
+    return;
+  }
+  const parsed = parseAlertSettings(req.body?.settings);
+  if ("error" in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    await saveAlertSettings(db, proof.wallet, parsed.settings);
+    res.json({ ok: true, settings: toWireSettings(await loadAlertSettings(db, proof.wallet)) });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * One wallet's current alert settings. Unsigned to READ, on the same reasoning
+ * as GET /api/watchlist: nothing here is a credential, nothing here can be
+ * written through this route, and demanding a wallet popup to render a settings
+ * screen would push people to skip the screen.
+ */
+app.get("/api/alerts/settings", walletLimit, async (req, res) => {
+  const wallet = String(req.query.wallet ?? "").trim().toLowerCase();
+  if (!isEvmAddress(wallet)) {
+    res.status(400).json({ error: "invalid EVM wallet address" });
+    return;
+  }
+  try {
+    res.json({ settings: toWireSettings(await loadAlertSettings(db, wallet)) });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+});
+
+/**
+ * Observed alert quality (7.3): how many delivered alerts were followed by the
+ * position getting worse, and how many by it going quiet again.
+ *
+ * Both figures, always: one user's own history is usually too small to mean
+ * anything on its own, and the aggregate is what the ~24-27% backtest figure
+ * should be read against. `falseAlarmRate` is null until something has actually
+ * been decided - a 0% rate computed from no evidence is the
+ * unknown-rendered-as-zero bug in its most flattering form.
+ *
+ * The aggregate is counts only and names no wallet, which is why it is safe to
+ * return next to a per-user figure the caller already knows.
+ */
+app.get("/api/alerts/outcomes", walletLimit, async (req, res) => {
+  const raw = String(req.query.wallet ?? "").trim().toLowerCase();
+  if (raw && !isEvmAddress(raw)) {
+    res.status(400).json({ error: "invalid EVM wallet address" });
+    return;
+  }
+  try {
+    const [aggregate, user] = await Promise.all([
+      fetchAlertOutcomes(db, null),
+      raw ? fetchAlertOutcomes(db, raw) : Promise.resolve(null),
+    ]);
+    res.json({ user, aggregate, generatedAt: new Date().toISOString() });
   } catch (err) {
     serverError(req, res, 502, err);
   }
