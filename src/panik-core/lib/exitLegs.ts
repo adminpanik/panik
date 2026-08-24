@@ -183,6 +183,73 @@ export function buildExitLegs(
 }
 
 /**
+ * One ERC-20 approval the exit needs before it can run.
+ *
+ * Lives here rather than beside the runner because two surfaces build these
+ * now: the exit modal, at the moment of exiting, and the pre-authorization card
+ * in Settings, in calm. The AMOUNT is the money path, and a second derivation
+ * of it is a second answer to "how much am I approving".
+ */
+export interface ApprovalStep {
+  token: `0x${string}`;
+  spender: `0x${string}`;
+  /** Exact amount needed; the runner approves amount + the accrual buffer. */
+  amount: bigint;
+  /** The token's own symbol, for a sentence that has to name it briefly. */
+  symbol: string;
+  /** The step as a progress line ("Approve USDC for debt repayment"). */
+  label: string;
+}
+
+/**
+ * The approvals a set of legs needs, derived once.
+ *
+ * A debt leg needs the debt asset itself (`repayFunding`, the sentinel already
+ * resolved against the live debt). A withdrawal needs the aToken that stands
+ * for the deposit, whose address only the market can supply, so it is passed in
+ * resolved rather than read here: this module stays free of chain calls.
+ *
+ * A withdrawal whose aToken was NOT supplied is reported in `missing`, never
+ * dropped. Silently skipping it would build an approval set that looks complete
+ * and leaves the collateral leg unapproved, which fails at the worst moment
+ * with the user believing they were pre-authorized.
+ */
+export function approvalStepsFor(
+  views: readonly ExitLegView[],
+  spender: `0x${string}`,
+  aTokens: ReadonlyMap<string, `0x${string}`>,
+): { steps: ApprovalStep[]; missing: string[] } {
+  const steps: ApprovalStep[] = [];
+  const missing: string[] = [];
+  for (const v of views) {
+    if (v.repayFunding > 0n) {
+      steps.push({
+        token: v.reserve,
+        spender,
+        amount: v.repayFunding,
+        symbol: v.symbol,
+        label: `Approve ${v.symbol} for debt repayment`,
+      });
+    }
+    if (v.withdraw > 0n) {
+      const aToken = aTokens.get(v.reserve.toLowerCase());
+      if (aToken === undefined) {
+        missing.push(v.symbol);
+        continue;
+      }
+      steps.push({
+        token: aToken,
+        spender,
+        amount: v.aBalance,
+        symbol: `a${v.symbol}`,
+        label: `Approve a${v.symbol} collateral transfer`,
+      });
+    }
+  }
+  return { steps, missing };
+}
+
+/**
  * A token amount for DISPLAY, in the token's own decimals. BigInt throughout:
  * the naive `Number(v) / 10 ** decimals` silently loses the low digits of any
  * 18-decimal balance above ~9 WETH-ish magnitudes, and this string sits next to
