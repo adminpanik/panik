@@ -7,11 +7,12 @@
 
 ## TL;DR
 
-- Validated on **4 real crashes** (June 2022, UST, FTX, USDC depeg), **~6,800 wallets**, exact on-chain HFs.
-- **Shipped** one change (`CRASH_REGIME`): warns **~44h** before liquidation vs 17h baseline; pooled recall **65→89%**, false-alarm **~27%**.
+- Validated on **5 real crashes** (June 2022, UST, FTX, USDC depeg, Aug-2024 Base), **~6,800 wallets**, exact on-chain HFs. FTX is the only one that cannot currently be scored offline.
+- **Shipped** one change (`CRASH_REGIME`): warns **~44h** before liquidation vs 17h baseline.
 - **Tested + rejected 2 ideas** (acute-drawdown, peg-deviation): the static HF≤1.10 floor already catches every crash type — escalation only helps by buying *lead time* on ETH crashes.
-- **Honest claim:** *"~89% of doomed positions flagged, median ~44h early, ~27% false-alarm."* Never a bare "caught 19/19".
-- **Scope:** WETH/stable + USDC collateral, Aave V2 Ethereum. Not yet alt-collateral / V3 / Base.
+- **Honest claim:** *"92% of doomed positions flagged, at a 26% false-alarm rate, across two crises the thresholds were never tuned on."* Measured 2026-08-25 on the holdout split (1,494 liquidated / 491 surviving). Never a bare "caught 19/19", and never the old pooled 89%, which mixed the calibration event with FTX.
+- **Known limit:** the crash-regime gate never opened on either holdout event, so its measured lift comes entirely from the event it was calibrated on. See the 2026-08-25 section.
+- **Scope:** WETH/stable + USDC collateral, Aave V2 Ethereum, plus the Aug-2024 Aave V3 Base cohort. Not yet alt-collateral.
 
 ## What ran
 
@@ -173,13 +174,41 @@ CRITICAL before exit. Precision below is **exact** (full population, not extrapo
 | UST/LUNA (May 2022) | 46–57 (**gate never fires**) | 94% | **94%** (no change) | 20% |
 | **Pooled (full pop, exact)** | — | 65% | **89%** | 27% (precision 35%) |
 
-> ⚠️ **These figures predate the true-max-drawdown change and have NOT been re-measured.** The
-> script was still routing through the deprecated order-blind fallback; it now passes `prices90d`,
-> but re-running it needs `DUNE_API_KEY` (see "Re-measured 2026-08-06" above). The UST row is
-> reproducible from the local `ethCrash2022` fixture and moves ≤ 0.4pt (46.4–57.7 → 46.0–57.7,
-> gate still never fires). The **FTX 54–65 band and the pooled 89% recall are the ones at risk**:
-> a 5–9pt downward shift on the sub-60 half of that band could turn "partial" into "never fires".
-> Re-run before quoting.
+> ⚠️ **These figures predate the true-max-drawdown change.** Superseded for every event that can
+> be scored offline: see "Re-measured 2026-08-25, with a calibration/holdout split" below, which
+> reproduces the June, UST and USDC rows exactly. **FTX is the one row still unverified** — no
+> Nov-2022 price series is committed, so it cannot be scored without `DUNE_API_KEY`, and the
+> 54–65 band remains at risk of turning "partial" into "never fires". The pooled 89% is superseded
+> and should not be quoted: it mixes the calibration event with FTX.
+
+## Re-measured 2026-08-25, with a calibration/holdout split (roadmap 5.4)
+
+Offline, from the committed CSVs and price series (no Dune, no RPC, no key):
+`node --import tsx scripts/backtest/holdout-recall.ts`
+
+| Event | Split | Liq | Surv | Baseline recall | Shipped recall | Shipped false-alarm |
+| --- | --- | --- | --- | --- | --- | --- |
+| June 2022 (ETH/stETH) | CALIBRATION | 408 | 1257 | 49% | **88%** | 34% |
+| UST/LUNA (May 2022) | PARTIAL | 262 | 1454 | 94% | **94%** | 20% |
+| USDC depeg (Mar 2023) | HOLDOUT | 29 | 202 | 97% | **97%** | 30% |
+| Aug 2024 unwind (Base) | HOLDOUT | 1465 | 289 | 92% | **92%** | 24% |
+| **Pooled HOLDOUT** | — | **1494** | **491** | 92% | **92%** | **26%** |
+| Pooled all offline (no FTX) | — | 2164 | 3202 | 84% | 91% | 26% |
+
+**Why the split falls where it does.** June 2022 is calibration twice over: the asset-risk gate of
+60 was placed in the June-vs-calm gap, and the 1.25 HF gate was chosen on a 560-wallet June
+survivor matrix. UST is *partially* in-sample — no parameter was fitted on it, but the v2
+acute-drawdown variant was rejected on it, which is model selection. USDC 2023 and Aug-2024 Base
+are clean holdout: both postdate the gates, and no parameter or threshold was touched for either.
+
+**The honest headline is the holdout row: 92% recall at 26% false-alarm, over 1,494 liquidated and
+491 surviving borrowers, across two crises no threshold was tuned on.**
+
+**And the caveat that matters more than the headline:** on BOTH holdout events, baseline and
+shipped are identical. The crash-regime gate never opened there (peak `S_asset_risk` 50 and 53,
+against a gate of 60), so the entire +39pt lift the gate is credited with is measured on the event
+it was calibrated on. **The gate is unvalidated out of sample.** That is not evidence it is wrong —
+no holdout event reached a June-2022-scale sell-off — but it is not evidence it is right either.
 
 **Finding 1 — the crash-regime helps on ETH-led crashes and never hurts.** It fires when
 `S_asset_risk ≥ 60`, which held for June (fully) and FTX (partly), lifting recall 49→89% and

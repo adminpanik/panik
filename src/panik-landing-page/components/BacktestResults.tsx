@@ -21,9 +21,9 @@ const METRICS = [
   },
   {
     label: "CORE RECALL",
-    value: "89% Recall",
+    value: "92% Recall",
     valueClass: "text-panik-orange/90",
-    description: "Doomed positions flagged with critical warnings prior to failure.",
+    description: "Flagged critical before failure, across two crises the thresholds were never tuned on.",
   },
   {
     label: "WARNING WINDOW",
@@ -108,9 +108,9 @@ export function BacktestResults() {
                       <td className="py-3.5 text-right font-bold text-text-primary">1.22</td>
                     </tr>
                     <tr>
-                      <td className="py-3.5 font-medium">Doomed positions flagged before crash</td>
-                      <td className="py-3.5 text-center text-text-secondary">65%</td>
-                      <td className="py-3.5 text-right font-bold text-risk-low">89%</td>
+                      <td className="py-3.5 font-medium">Doomed positions flagged (June 2022)</td>
+                      <td className="py-3.5 text-center text-text-secondary">49%</td>
+                      <td className="py-3.5 text-right font-bold text-risk-low">88%</td>
                     </tr>
                   </tbody>
                 </table>
@@ -136,30 +136,37 @@ export function BacktestResults() {
                   <tr>
                     <td className="py-3.5">
                       <p className="text-text-primary font-medium">June 2022 (ETH/stETH)</p>
-                      <p className="text-text-muted text-2xs mt-0.5">Asset-led liquidation cascade</p>
+                      <p className="text-text-muted text-2xs mt-0.5">Asset-led cascade. Thresholds were calibrated here.</p>
                     </td>
                     <td className="py-3.5 text-right font-mono font-bold text-risk-low">88%</td>
                   </tr>
                   <tr>
                     <td className="py-3.5">
                       <p className="text-text-primary font-medium">UST/LUNA Depeg (May 2022)</p>
-                      <p className="text-text-muted text-2xs mt-0.5">Algorithm run &amp; depeg</p>
+                      <p className="text-text-muted text-2xs mt-0.5">Algorithm run &amp; depeg. No threshold fitted here.</p>
                     </td>
                     <td className="py-3.5 text-right font-mono font-bold text-risk-low">94%</td>
                   </tr>
                   <tr>
                     <td className="py-3.5">
-                      <p className="text-text-primary font-medium">FTX Collapse (Nov 2022)</p>
-                      <p className="text-text-muted text-2xs mt-0.5">Acute solvency shock</p>
+                      <p className="text-text-primary font-medium">USDC Depeg (Mar 2023)</p>
+                      <p className="text-text-muted text-2xs mt-0.5">Frictional peg deviation. Held out.</p>
                     </td>
-                    <td className="py-3.5 text-right font-mono font-bold text-risk-low">53%</td>
+                    <td className="py-3.5 text-right font-mono font-bold text-risk-low">97%</td>
                   </tr>
                   <tr>
                     <td className="py-3.5">
-                      <p className="text-text-primary font-medium">USDC Depeg (Mar 2023)</p>
-                      <p className="text-text-muted text-2xs mt-0.5">Frictional peg deviation</p>
+                      <p className="text-text-primary font-medium">Aug 2024 Unwind (Base)</p>
+                      <p className="text-text-muted text-2xs mt-0.5">Carry-trade unwind. Held out.</p>
                     </td>
-                    <td className="py-3.5 text-right font-mono font-bold text-risk-low">97%</td>
+                    <td className="py-3.5 text-right font-mono font-bold text-risk-low">92%</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3.5">
+                      <p className="text-text-primary font-medium">FTX Collapse (Nov 2022)</p>
+                      <p className="text-text-muted text-2xs mt-0.5">Acute solvency shock. Awaiting re-measurement.</p>
+                    </td>
+                    <td className="py-3.5 text-right font-mono text-text-muted">Not re-measured</td>
                   </tr>
                 </tbody>
               </table>
@@ -171,7 +178,7 @@ export function BacktestResults() {
         {/* Footnote */}
         <ScrollReveal duration={0.6} delay={0.25}>
           <p className="mt-12 pt-6 border-t border-border-subtle text-2xs text-text-muted font-sans leading-relaxed max-w-2xl">
-            A 27% pooled false-alarm rate is expected and accepted. To achieve early warnings, the engine flags positions that ultimately recover through repayment or market stabilization. Earlier warnings require broader capture, and this tradeoff is intentional and disclosed.
+            A 26% false-alarm rate is expected and accepted. To achieve early warnings, the engine flags positions that ultimately recover through repayment or market stabilization. Earlier warnings require broader capture, and this tradeoff is intentional and disclosed. Recall and false-alarm figures are measured on the two held-out crises (1,494 liquidated and 491 surviving borrowers), not on the event the thresholds were calibrated against.
           </p>
         </ScrollReveal>
 
