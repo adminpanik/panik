@@ -331,8 +331,14 @@ export function adviseLeg(
       // A leg at HF 1.4 in a saturated sell-off is precisely the one this
       // distinction is for - too far out for rule 2, but in a market where the
       // repay it is about to be quoted may not hold.
+      // NOT "regime:crash_market": `whyNow` in watch/alertMessage.ts matches its
+      // rules with `startsWith`, and its crash rule is keyed on "regime:crash".
+      // A name beginning with that prefix inherits the full-regime sentence,
+      // which tells a leg at HF 1.8 that "liquidation is only a 44% drop away" —
+      // the exact claim rule 2 already declined to make about it. The market
+      // half of the gate must not borrow the whole gate's copy.
       const crashRegime = crashMarketRegime(score.subScores.assetRisk);
-      if (crashRegime) triggers.push("regime:crash_market");
+      if (crashRegime) triggers.push("regime:market_crash");
       if (repayUsd > reduceToExitRatio(crashRegime) * borrowUsd) {
         triggers.push("promoted:reduce_to_exit");
         // The WHOLE debt as a fraction of itself. Routed through the engine's

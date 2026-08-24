@@ -747,7 +747,7 @@ describe("adviseLeg decision table", () => {
 
     it("sizes against the CRASH ratio in a saturated sell-off", () => {
       const rec = legAt(CRASH_ASSET_RISK);
-      expect(rec.triggers).toContain("regime:crash_market");
+      expect(rec.triggers).toContain("regime:market_crash");
       // Rule 2 did not take this leg: it is further out than the proximity half,
       // so the full-conjunction trigger the UI reads must NOT appear.
       expect(rec.triggers).not.toContain("regime:crash");
@@ -758,7 +758,7 @@ describe("adviseLeg decision table", () => {
 
     it("sizes against the CALM ratio in a calm market", () => {
       const rec = legAt(CRASH_REGIME.assetRiskAtOrAbove - 1);
-      expect(rec.triggers).not.toContain("regime:crash_market");
+      expect(rec.triggers).not.toContain("regime:market_crash");
       expect(rec.action).toBe(
         ratioAt(TARGET_HF.conservative) > reduceToExitRatio(false) ? "EXIT" : "REDUCE",
       );
