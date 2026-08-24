@@ -14,6 +14,8 @@ import {
   drawdownPerUsdRepaid,
   hfAfterRepayFraction,
   REDUCE_TO_EXIT_RATIO,
+  REDUCE_TO_EXIT_RATIO_CRASH,
+  reduceToExitRatio,
   REPAY_FRACTION_SCALE,
   repayAmountFromFraction,
   repayFractionFloorFromAmount,
@@ -26,7 +28,8 @@ import {
   TARGET_HF,
 } from "../src/advisor/repayMath";
 import { drawdownToLiquidation, formatDrawdownPct, hfForDrawdown } from "../src/prospective";
-import { adviseLeg, adviseWallet, safestAlternativeProtocol } from "../src/advisor/rules";
+import { adviseLeg, adviseWallet, crashMarketRegime, safestAlternativeProtocol } from "../src/advisor/rules";
+import { CRASH_REGIME } from "../src/params";
 import type { AdvisorRecommendation, WalletInsights } from "../src/advisor/types";
 import { MARKETS } from "../src/markets";
 import { AdvisorNarrator } from "../src/providers/advisorNarrator";
@@ -701,6 +704,73 @@ describe("adviseLeg decision table", () => {
       );
       expect(above.action).toBe("EXIT");
       expect(above.alternative?.plan.repayFraction).toBe(1);
+    });
+  });
+
+  // The promote-to-exit threshold is regime-dependent. What these pin is the
+  // PLUMBING: the crash number is a live risk parameter, and until it is chosen
+  // it is deliberately equal to the calm one, so both branches decide alike.
+  describe("rule 3 promotion: regime-dependent threshold", () => {
+    const CRASH_ASSET_RISK = CRASH_REGIME.assetRiskAtOrAbove + 10;
+    // Just OUTSIDE rule 2's proximity half. At or below it the leg leaves as a
+    // crash-regime CRITICAL and never reaches the sizing at all.
+    const HF = CRASH_REGIME.hfAtOrBelow + 0.01;
+    const DEBT = 10_000;
+    const ratioAt = (targetHf: number) => repayToTargetHf(DEBT, HF, targetHf) / DEBT;
+    const legAt = (assetRisk: number) =>
+      adviseLeg(
+        leg({
+          total: 60,
+          band: "HIGH",
+          healthFactor: HF,
+          borrowValueUsd: DEBT,
+          subScores: { positionHealth: 60, assetRisk, protocolSafety: 10, systemicRisk: 10 },
+        }),
+        "conservative",
+      );
+
+    it("PLACEHOLDER: the crash ratio is still the calm ratio", () => {
+      // Change this test in the same commit as the constant. It failing is the
+      // intended alarm that a live risk parameter moved, not a regression.
+      expect(REDUCE_TO_EXIT_RATIO).toBe(0.9);
+      expect(REDUCE_TO_EXIT_RATIO_CRASH).toBe(0.9);
+    });
+
+    it("picks the ratio by regime; an unknown asset risk is not a crash", () => {
+      expect(reduceToExitRatio(false)).toBe(REDUCE_TO_EXIT_RATIO);
+      expect(reduceToExitRatio(true)).toBe(REDUCE_TO_EXIT_RATIO_CRASH);
+      expect(crashMarketRegime(CRASH_ASSET_RISK)).toBe(true);
+      expect(crashMarketRegime(CRASH_REGIME.assetRiskAtOrAbove)).toBe(true);
+      expect(crashMarketRegime(CRASH_REGIME.assetRiskAtOrAbove - 1)).toBe(false);
+      expect(crashMarketRegime(null)).toBe(false);
+    });
+
+    it("sizes against the CRASH ratio in a saturated sell-off", () => {
+      const rec = legAt(CRASH_ASSET_RISK);
+      expect(rec.triggers).toContain("regime:market_crash");
+      // Rule 2 did not take this leg: it is further out than the proximity half,
+      // so the full-conjunction trigger the UI reads must NOT appear.
+      expect(rec.triggers).not.toContain("regime:crash");
+      expect(rec.action).toBe(
+        ratioAt(TARGET_HF.conservative) > reduceToExitRatio(true) ? "EXIT" : "REDUCE",
+      );
+    });
+
+    it("sizes against the CALM ratio in a calm market", () => {
+      const rec = legAt(CRASH_REGIME.assetRiskAtOrAbove - 1);
+      expect(rec.triggers).not.toContain("regime:market_crash");
+      expect(rec.action).toBe(
+        ratioAt(TARGET_HF.conservative) > reduceToExitRatio(false) ? "EXIT" : "REDUCE",
+      );
+    });
+
+    it("records the ceiling a crash value must beat to change any outcome", () => {
+      // Wallet-funded sizing is R/D = 1 - HF/T, and this branch only ever sees
+      // legs above the proximity gate, so a crash ratio at or above these is
+      // exactly as inert as the calm 0.9 already is.
+      expect(1 - CRASH_REGIME.hfAtOrBelow / TARGET_HF.conservative).toBeCloseTo(0.375, 12);
+      expect(1 - CRASH_REGIME.hfAtOrBelow / TARGET_HF.moderate).toBeCloseTo(0.2857, 4);
+      expect(1 - CRASH_REGIME.hfAtOrBelow / TARGET_HF.aggressive).toBeCloseTo(0.1667, 4);
     });
   });
 

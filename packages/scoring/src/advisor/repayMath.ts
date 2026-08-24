@@ -114,8 +114,48 @@ export const TARGET_DRAWDOWN: Record<RiskProfile, number> = {
  * a founder decision, not an engineering one; the measurement is recorded here
  * and on the issue so the next reader inherits the numbers instead of the
  * question. `tests/advisor.test.ts` locks the ceiling as a regression.
+ *
+ * This is the CALM value; `REDUCE_TO_EXIT_RATIO_CRASH` is the same threshold in
+ * a saturated sell-off, and `reduceToExitRatio` picks between them.
  */
 export const REDUCE_TO_EXIT_RATIO = 0.9;
+
+/**
+ * PLACEHOLDER - deliberately equal to the calm value, so this commit changes NO
+ * behaviour. The number is the founder's to pick; the plumbing that carries it
+ * is what landed here.
+ *
+ * The case for a lower one: mid-crash a partial repay to target does not hold,
+ * because the collateral keeps falling for hours after the advice is read (the
+ * measurement behind CRASH_REGIME in params.ts). Past some repay size the user
+ * is paying most of the debt for protection the crash then eats anyway, and the
+ * exit is the better of the two.
+ *
+ * REACHABILITY, and it constrains the choice hard (this is arithmetic, not a
+ * measurement): the promotion compares the WALLET-FUNDED repay, R/D = 1 - HF/T,
+ * against this ratio, and the crash branch is only consulted below the CRITICAL
+ * band with HF above CRASH_REGIME.hfAtOrBelow = 1.25 (rule 2 exits first). So
+ * R/D < 1 - 1.25/2.00 = 0.375 for conservative, 0.286 for moderate, 0.167 for
+ * aggressive. Any crash value at or above 0.375 is inert for every profile -
+ * exactly as inert as the calm 0.9 already is.
+ *
+ * `scripts/backtest/crash-repay-futility.ts` measures how often a repay to
+ * target was futile in the real crash windows, bucketed by repay size; its
+ * output is the evidence for whatever value replaces this one. Change the
+ * number here and the pin in `tests/advisor.test.ts` - nothing else.
+ */
+export const REDUCE_TO_EXIT_RATIO_CRASH = 0.9;
+
+/**
+ * The promote-to-exit threshold for the regime the leg is actually in.
+ *
+ * Takes a BOOLEAN, not a score: the crash detector lives in `rules.ts` beside
+ * the CRASH_REGIME gates it already evaluates twice, and a second copy of it
+ * here is how the two would eventually disagree about what a crash is.
+ */
+export function reduceToExitRatio(crashRegime: boolean): number {
+  return crashRegime ? REDUCE_TO_EXIT_RATIO_CRASH : REDUCE_TO_EXIT_RATIO;
+}
 
 /**
  * Dollars of debt to repay (collateral untouched) to lift HF to `targetHf`.

@@ -27,3 +27,19 @@ node --env-file=.env scripts/backtest/fetch-survivors-multi.mjs  # → *-hf.json
 
 `price-walk.ts`, `survivor-matrix-multi.mjs`, `survivor-matrix-real.ts` read it with no
 existence check. `export-csv.mjs` guards and skips missing inputs.
+
+## Scripts that run on a fresh clone (no key, no network)
+
+Both read only `datasets/` and the price fixtures in `packages/scoring/tests/fixtures/`,
+and both carry their measured output in the file docblock so the result travels with the
+method:
+
+```bash
+node --import tsx scripts/backtest/holdout-recall.ts   # recall by calibration/holdout split
+node --import tsx scripts/backtest/crash-drawdown.ts   # crash-conditional drawdown + repay futility
+```
+
+`holdout-recall.ts` is the offline twin of `survivor-matrix-real.ts`: it reproduces the
+published per-event recall exactly from the exported CSVs, then labels each event by
+whether the shipped thresholds were chosen on it. FTX is absent from both because no
+price series for Nov 2022 is committed here.
