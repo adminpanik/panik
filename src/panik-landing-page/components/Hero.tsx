@@ -37,8 +37,7 @@ export function Hero({ cta }: { cta: WaitlistCta }) {
   return (
     <section className="mx-auto grid max-w-7xl items-center gap-12 px-6 pt-16 pb-16 md:px-16 lg:grid-cols-2 lg:pt-32 lg:pb-24">
       <div className="flex flex-col gap-6">
-        <p className="flex items-center gap-3 label-type text-xs text-text-primary">
-          <span aria-hidden="true" className="size-3 shrink-0 hard-edge bg-brand" />
+        <p className="label-type text-xs text-text-primary">
           Liquidation early warning for Base
         </p>
         <h1 className="text-4xl font-black uppercase tracking-tight md:text-display">
