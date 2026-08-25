@@ -350,7 +350,7 @@ interface NavTabsProps {
  * Two states and no third. The selected tab is a solid cobalt plate with white
  * ink (5.03:1) and the same 3px edge every other box on the screen carries;
  * every other tab is the white plate. That is the whole treatment, in one map,
- * shared by the desktop rail and the phone bar — the two were separate ternaries
+ * shared by the desktop rail and the phone bar: the two were separate ternaries
  * inside one `className` expression and had already drifted apart on which
  * property carried the state, the rail using a border plus a weight change and
  * the bar using a weight change alone.
@@ -458,7 +458,7 @@ type WatchSource = "positions" | "recommendations";
  * `Record<Band, string>` rather than a chain, for the reason every other table
  * in this product is one: a band added to the engine fails the build here
  * instead of falling through to the raw token. The chain's final `else` was
- * that failure waiting to happen — it painted anything that was not one of the
+ * that failure waiting to happen: it painted anything that was not one of the
  * first three as "LOW RISK".
  *
  * `RiskChip` uppercases these itself, so they are written as words.
@@ -478,8 +478,8 @@ const BAND_WORD: Record<Band, string> = {
  * `text-text-primary` twice). Both strings were also dark-theme artefacts that
  * had stopped working on paper: the number fields were `bg-black/40`, a 40%
  * black wash that made a typed figure white-on-charcoal inside a white card,
- * and the slider tracks were `bg-white/10`, which on white is nothing at all —
- * a range control whose track is invisible has no length to read a value
+ * and the slider tracks were `bg-white/10`, which on white is nothing at all.
+ * A range control whose track is invisible has no length to read a value
  * against.
  *
  * `accent-brand`, not `accent-text-primary`: the thumb is the one moving part
@@ -2918,7 +2918,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           /* `stripNote` is gone from here, because the row above now promotes
              it into the VALUE. It is non-null in exactly the two cases the
              engine will not express as a percentage, which are the two cases
-             the value reads "Liquidatable now" or "None" — so leaving it here
+             the value reads "Liquidatable now" or "None", so leaving it here
              printed the same fact twice on two consecutive lines. */
           watchOutlook.stripNote === null && watchLiqPrice > 0
             ? `${activeMarket.collateralAsset} at ${formatCurrency(watchLiqPrice)}`
@@ -3642,7 +3642,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                              to what a title looks like (`tracking-wide` where
                              the system's headline tracking is tight). The
                              hover, which faded the whole heading to muted, went
-                             with it — there is no motion here, and the trigger's
+                             with it. There is no motion here, and the trigger's
                              affordance is the chevron the listbox draws beside
                              it, which does not have to dim a heading to be
                              found. */

@@ -30,7 +30,7 @@ import { InfoTip } from "./InfoTip";
  *
  * The tone is a DEMOTION, not a hue. Colour on this system is either a risk
  * band or a brand accent and a heading is neither, so `muted` changes the ink
- * to `text-muted` and nothing else — for the title of a control group, which
+ * to `text-muted` and nothing else, for the title of a control group, which
  * names what a reader is about to adjust rather than what they should read.
  */
 /**
