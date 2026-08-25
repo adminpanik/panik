@@ -159,18 +159,24 @@ const FONT_FILES = [
   join(FONT_DIR, "JetBrainsMono-Regular.ttf"),
 ];
 
-/** `public/panik-logo.png`, inlined. Null when it cannot be read; the card then omits it. */
-let logoDataUri: string | null | undefined;
-function logo(): string | null {
-  if (logoDataUri === undefined) {
+/**
+ * `public/panik-mark.svg`'s path `d`, extracted once. Null when the file
+ * cannot be read or the path cannot be found; the card then omits the mark
+ * but still carries the "PANIK" wordmark, which is the part that actually
+ * has to survive - see `alertCardSvg`.
+ */
+let brandMarkD: string | null | undefined;
+function brandMarkPath(): string | null {
+  if (brandMarkD === undefined) {
     try {
-      const png = readFileSync(join(HERE, "..", "public", "panik-logo.png"));
-      logoDataUri = `data:image/png;base64,${png.toString("base64")}`;
+      const svg = readFileSync(join(HERE, "..", "public", "panik-mark.svg"), "utf8");
+      const match = svg.match(/<path[^>]*\sd="([^"]+)"/);
+      brandMarkD = match ? match[1] : null;
     } catch {
-      logoDataUri = null;
+      brandMarkD = null;
     }
   }
-  return logoDataUri;
+  return brandMarkD;
 }
 
 export interface AlertCardInput {
@@ -323,7 +329,7 @@ export function alertCardSvg(input: AlertCardInput): string {
   const arcColor = BAND_COLOR[input.band] ?? UNKNOWN_COLOR;
   const eventColor = headlineColor(input.status, input.band);
   const headline = CARD_HEADLINE[input.status] ?? CARD_HEADLINE.approaching;
-  const mark = logo();
+  const markPath = brandMarkPath();
   const left = CONTENT_LEFT;
 
   /**
@@ -393,10 +399,14 @@ export function alertCardSvg(input: AlertCardInput): string {
 
   // One vertical rhythm down the right column; y positions are stated rather
   // than accumulated so a change to one line cannot silently shift the rest.
-  const brand = mark
-    ? `<image x="${left}" y="40" width="30" height="30" href="${mark}"/>
-       <text x="${left + 40}" y="62" fill="${TEXT_MUTED}" font-family="Plus Jakarta Sans" font-weight="700" font-size="17" letter-spacing="2.4">PANIK</text>`
+  // The mark is drawn from its path, not omitted along with the wordmark: a
+  // card missing the icon still has to say "PANIK", which is what the test
+  // named after this guards.
+  const icon = markPath
+    ? `<path d="${markPath}" fill="${TEXT_MUTED}" transform="translate(${left} 40) scale(${30 / 1024})"/>`
     : "";
+  const brand = `${icon}
+       <text x="${left + 40}" y="62" fill="${TEXT_MUTED}" font-family="Plus Jakarta Sans" font-weight="700" font-size="17" letter-spacing="2.4">PANIK</text>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${SURFACE}"/>
