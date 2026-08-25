@@ -3,109 +3,116 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef } from "react";
-import { motion, useScroll, useTransform } from "motion/react";
-import { Info } from "lucide-react";
-import { ScrollReveal } from "./ScrollReveal";
+import React from "react";
+import { ArrowRight } from "lucide-react";
+import { Button, RiskChip } from "../../panik-core/ui";
+import { PanikLogoMark } from "./PanikLogo";
+import { Rule } from "./Rule";
+import type { WaitlistCta } from "./cta";
 
-interface HeroProps {
-  subscriberCount: number;
-  hasSubscribed: boolean;
-  onLaunchMockup: () => void;
-  onOpenWaitlistModal: (initialEmail?: string) => void;
-}
-
-export function Hero({ subscriberCount, hasSubscribed, onLaunchMockup, onOpenWaitlistModal }: HeroProps) {
-  const sectionRef = useRef<HTMLDivElement>(null);
-
-  // Track the scroll position of the Hero section as it scrolls up
-  const { scrollYProgress } = useScroll({
-    target: sectionRef,
-    offset: ["start start", "end start"],
-  });
-
-  // Map the scroll progress to shrinking size overlay and fading opacity
-  const textScale = useTransform(scrollYProgress, [0, 0.35], [1.0, 0.45]);
-  const textOpacity = useTransform(scrollYProgress, [0, 0.3], [1.0, 0]);
-
+/**
+ * The hero, and the fragment of product beside it.
+ *
+ * THE FRAGMENT IS THE ONLY PLACE ON THIS PAGE THAT SPENDS RISK COLOUR. One
+ * HIGH chip, rendered by `RiskChip` so the band still becomes pixels in exactly
+ * one place (`RISK_CHIP` in panik-core/lib/utils), against the Portfolio tab's
+ * own handful. Everything else that wants to be loud here is cobalt or
+ * lavender, neither of which is on the ramp, so no other block on the page can
+ * be misread as a claim about a position.
+ *
+ * The numbers in it are an illustration of the product's output, which is why
+ * they are a named pair and a stated buffer rather than a live reading: the
+ * page has no wallet to score. The same figure appears twice on purpose (the
+ * sentence and the big readout are one quantity, not two), which is the only
+ * way this card can obey "never show the same quantity twice with different
+ * numbers".
+ *
+ * "See a live score" is an underlined brand link rather than a second bordered
+ * block. It navigates to another page, so it has to be an anchor, and the
+ * `Button` primitive renders a `<button>`; mirroring its variant string onto an
+ * `<a>` would put a second copy of the control skin on the landing page, which
+ * is the drift the primitive exists to prevent. The system's answer for a
+ * navigation is a 3px cobalt underline, so that is what it gets.
+ */
+export function Hero({ cta }: { cta: WaitlistCta }) {
   return (
-    <section 
-      ref={sectionRef}
-      id="hero" 
-      className="relative min-h-[95vh] pt-24 pb-20 px-6 flex flex-col justify-center items-center bg-transparent z-10"
-    >
-      {/* Absolute Decorative Grid Elements */}
-      <div className="absolute inset-0 panik-dot-bg opacity-30 pointer-events-none"></div>
-      
-      {/* Dynamic Grid Overlay lines */}
-      <div className="absolute top-0 left-0 w-full h-full bg-cover opacity-15 pointer-events-none panik-grid-bg"></div>
+    <section className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-12 md:px-16 md:py-16 lg:grid-cols-2">
+      <div className="flex flex-col gap-6">
+        <p className="flex items-center gap-3 label-type text-xs text-text-primary">
+          <span aria-hidden="true" className="size-3 shrink-0 hard-edge bg-brand" />
+          Liquidation early warning for Base
+        </p>
+        <h1 className="text-4xl font-black uppercase tracking-tight md:text-display">
+          We warn you before the liquidation
+        </h1>
+        <p className="max-w-xl text-base text-text-secondary md:text-lg">
+          PANIK scores your lending positions on Base, shows the price drop that would liquidate
+          each one, and messages you before it gets there.
+        </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-6">
+            <Button size="lg" onClick={cta.onClick} disabled={cta.disabled}>
+              {cta.label}
+              <ArrowRight aria-hidden="true" className="size-5" />
+            </Button>
+            <a href="/app" className="flex h-6 items-center text-sm font-bold text-text-primary">
+              See a live score
+            </a>
+          </div>
+          <p className="text-sm text-text-secondary">No wallet connection needed to start.</p>
+        </div>
+      </div>
 
-      <div className="max-w-4xl mx-auto w-full flex flex-col items-center text-center relative z-20 pt-8 pointer-events-none" id="hero-content-wrapper">
-        
-        {/* Main centered text blocks - mouse events pass through to interactive globe */}
-        <ScrollReveal className="flex flex-col items-center w-full pointer-events-none" id="hero-pitch-container" duration={0.6} yOffset={15} once={true}>
-          
-          {/* Scroll Animate Container wrapping only the typography to let it shrink/fade into background */}
-          <motion.div 
-            style={{ scale: textScale, opacity: textOpacity }}
-            className="flex flex-col items-center pointer-events-none w-full"
-          >
-            {/* Heading - centered display style */}
-            <h1 className="font-sans font-medium text-4xl md:text-display tracking-tight leading-[1.05] text-text-primary max-w-3xl mb-6 select-none">
-              Institutional-grade risk intelligence. Built for your <span className="text-panik-orange font-semibold">DeFi positions.</span>
-            </h1>
+      <div className="flex w-full flex-col gap-4 lg:max-w-xl lg:justify-self-end">
+        <span className="self-start hard-edge bg-highlight px-4 py-2 font-mono text-xs font-bold tracking-widest text-text-primary shadow-hard-sm">
+          TELEGRAM, 2 MIN BEFORE
+        </span>
 
-            {/* Subheading - centered readable layout */}
-            <p className="text-text-secondary font-sans text-sm sm:text-base leading-relaxed max-w-2xl mb-10 select-none">
-              Panik scores your DeFi positions against your personal risk tolerance using the Panik Risk Scoring Engine. Know your risk before you enter. Act before it costs you.
-            </p>
-          </motion.div>
-
-          {/* Centered Swapped CTA Buttons kept outside of shrink-fade wrappers to remain visible */}
-          <div className="w-full max-w-xl mt-6 mb-12 flex flex-col items-center pointer-events-auto relative z-30">
-            <div className="flex flex-col sm:flex-row items-center gap-5 justify-center w-full px-4">
-              
-              <button
-                type="button"
-                onClick={() => {
-                  const target = document.querySelector('#scoring');
-                  if (target) {
-                    const navHeight = 80;
-                    const elementPosition = target.getBoundingClientRect().top + window.scrollY;
-                    window.scrollTo({ top: elementPosition - navHeight, behavior: 'smooth' });
-                  }
-                }}
-                className="w-full sm:w-auto h-13 px-7 bg-transparent border border-border-subtle hover:border-border-strong hover:bg-white/[0.04] text-text-primary font-mono text-xs uppercase tracking-wider rounded-md transition-all duration-300 cursor-pointer pointer-events-auto active:scale-[0.98]"
-              >
-                <span>HOW IT WORKS</span>
-              </button>
-
-              {!hasSubscribed && (
-                <a
-                  href="/try"
-                  className="w-full sm:w-auto h-13 px-9 bg-panik-orange hover:bg-panik-orange/95 text-surface-base font-mono text-xs uppercase tracking-widest font-extrabold rounded-md flex items-center justify-center gap-2.5 cursor-pointer transition-all duration-300 transform hover:scale-[1.03] active:scale-[0.98] pointer-events-auto shadow-lg shadow-panik-orange/20 panik-glow-orange shrink-0 no-underline"
-                  id="hero-btn-try-now"
-                >
-                  <span>TRY IT NOW →</span>
-                </a>
-              )}
-
-            </div>
-
-            {/* Honesty gate: scoring is live on mainnet, execution is not yet.
-                Stated plainly, before the "Try It Now" CTA, not after. */}
-            <p className="mt-5 flex items-start justify-center gap-1.5 text-2xs sm:text-xs text-text-muted font-sans leading-relaxed max-w-md text-center pointer-events-none">
-              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
-              <span>
-                Risk scoring runs live on Base mainnet. The one-click exit runs on Base
-                Sepolia today, starting with Aave V3. All four protocols unlock at
-                mainnet cutover.
+        {/*
+          The `raised` tone's three utilities, written out rather than taken
+          from `Card`, and it is the padding that forces it: `Card` bakes in
+          `p-4` and APPENDS the caller's classes, so a `p-0` passed through
+          `className` ties with it and Tailwind's emit order settles it. It was
+          settled the wrong way here (measured: 16px, not 0), which left this
+          card's divider floating short of its own edges. This divider has to
+          run the full height of the card, so the padding has to belong to the
+          two halves and not to the box around them.
+        */}
+        <div className="flex flex-col gap-4 hard-edge bg-surface-raised shadow-hard sm:flex-row">
+          <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-mono text-xs font-bold tracking-widest text-text-secondary">
+                AAVE V3 / BASE
               </span>
+              <RiskChip band="HIGH">HIGH</RiskChip>
+            </div>
+            <p className="font-mono text-lg font-bold tracking-tight text-text-primary">
+              cbBTC / USDC
+            </p>
+            <p className="text-sm text-text-primary">
+              Liquidates if cbBTC falls <span className="font-mono font-bold">4.8%</span>
             </p>
           </div>
+          <Rule className="sm:h-auto sm:w-0.75" />
+          <div className="flex flex-col items-start justify-center gap-1 p-4 sm:items-end">
+            <span className="font-mono text-4xl font-bold tracking-tight text-text-primary">
+              4.8%
+            </span>
+            <span className="font-mono text-xs font-bold tracking-widest text-text-secondary">
+              PRICE BUFFER
+            </span>
+          </div>
+        </div>
 
-        </ScrollReveal>
-
+        <div className="flex w-64 flex-col justify-between gap-6 hard-edge bg-brand p-4 shadow-hard sm:self-end">
+          <PanikLogoMark size={36} className="text-white" />
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-lg font-bold tracking-wide text-white">ALERT SENT</span>
+            <span className="font-mono text-2xs font-bold tracking-widest text-white">
+              BEFORE THE PRICE GOT THERE
+            </span>
+          </div>
+        </div>
       </div>
     </section>
   );
