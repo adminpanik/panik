@@ -17,8 +17,9 @@ const FULL = {
   walletsConnected: 12,
   positionsMonitored: 19,
   positionsPriced: 17,
+  positionsFresh: 18,
+  freshWindowMinutes: 15,
   collateralUsd: 482_300.55,
-  oldestReadingAt: "2026-08-14T09:00:00Z",
   eventsReady: true,
   txCount: 640,
   txVolumeUsd: 1_204_000,
@@ -48,7 +49,8 @@ describe("toMetrics", () => {
       positionsMonitored: 2,
       positionsPriced: 0,
       collateralUsd: null,
-      oldestReadingAt: null,
+      positionsFresh: 0,
+      freshWindowMinutes: 15,
       eventsReady: false,
       txCount: null,
       txVolumeUsd: null,
@@ -60,8 +62,10 @@ describe("toMetrics", () => {
     expect(m.txCount).toBeNull();
     expect(m.txVolumeUsd).toBeNull();
     expect(m.txUnpriced).toBeNull();
-    expect(m.oldestReadingAt).toBeNull();
     expect(m.txOldestAt).toBeNull();
+    // A freshness ratio of 0-of-2 is a known fact, not an unknown: the counts
+    // are always known even when every figure derived from them is missing.
+    expect(m.positionsFresh).toBe(0);
     expect(m.eventsReady).toBe(false);
     // Counts the schema guarantees stay numbers.
     expect(m.walletsConnected).toBe(4);

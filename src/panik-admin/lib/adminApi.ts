@@ -138,16 +138,19 @@ export const expireCampaign = (session: Session, id: string) =>
  * is false where the Goldsky pipeline is not provisioned, which is a different
  * statement from "no transactions happened" and is shown as such.
  *
- * The two `*At` fields are both the OLDEST of their set, not the newest: they
- * exist to bound how much of the figure beside them is stale, and a best-case
- * timestamp cannot do that.
+ * Freshness is `positionsFresh` out of `positionsMonitored`, not a timestamp.
+ * Neither extreme of the distribution summarised it: the newest reading called
+ * the whole total current, and the oldest reported a week-old figure forever
+ * because one closed leg keeps its final snapshot. `freshWindowMinutes` comes
+ * from SQL so the copy never states a window of its own.
  */
 export interface AdminMetrics {
   walletsConnected: number;
   positionsMonitored: number;
   positionsPriced: number;
+  positionsFresh: number;
+  freshWindowMinutes: number;
   collateralUsd: number | null;
-  oldestReadingAt: string | null;
   eventsReady: boolean;
   txCount: number | null;
   txVolumeUsd: number | null;
