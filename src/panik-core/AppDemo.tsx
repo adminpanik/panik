@@ -27,12 +27,12 @@ import {
   FileText,
   X,
   Plus,
-  WalletCards,
+  UserRound,
 } from "lucide-react";
 import {
   assetLoanToValue,
-  bandOfScore,
   calculateDynamicPosition,
+  checkedAgo,
   depegAwareOutlook,
   formatCompactUsd,
   formatCurrency,
@@ -48,7 +48,6 @@ import {
   RISK_CHIP,
   RISK_PROFILES,
   RISK_SCORE_NAME,
-  RISK_TEXT,
   sameAssetDepegNote,
   simulatedHealthFactor,
   truncateAddress,
@@ -148,7 +147,7 @@ import { AdvisorPanel } from "./components/AdvisorPanel";
 import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
 import { DelegationManager } from "./components/DelegationManager";
 import { ExitApprovals } from "./components/ExitApprovals";
-import { ChainModeBadge, ChainModeSwitch } from "./components/ChainModeSwitch";
+import { ChainModeSwitch } from "./components/ChainModeSwitch";
 import { CHAIN_MODE_LABEL, useChainMode } from "./lib/chainMode";
 import { canOpenInApp } from "./lib/openProtocols";
 import { OpenFlow } from "./components/OpenFlow";
@@ -183,8 +182,7 @@ import {
   viewParamWallet,
 } from "./lib/watchlist";
 import type { SessionState } from "./lib/session";
-import type { AccountState } from "./lib/account";
-import { AccountMenu } from "./components/AccountMenu";
+import { describeMembership, type AccountState } from "./lib/account";
 import { WalletsPanel } from "./components/WalletsPanel";
 import { WalletSelector } from "./components/WalletSelector";
 import { ReadOnlyBanner, SessionCard, SessionNote } from "./components/SessionControls";
@@ -1824,13 +1822,6 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
     [onboardedWallet, onboardingIntent],
   );
 
-  // Live gas price for the header strip. This is the ONLY piece of chain
-  // telemetry this component still keeps: the block number, the rolling event
-  // log and a one-second refresh countdown were all held in state that nothing
-  // rendered. The countdown in particular re-rendered this entire component
-  // once a second, forever, to update a number with no reader.
-  const [gasPrice, setGasPrice] = useState<number>(2.8);
-
   // Settings tab preferences (auto-repayment trigger).
   const [automaticRepayTarget, setAutomaticRepayTarget] = useState<number>(30);
   const [isRepayActive, setIsRepayActive] = useState<boolean>(true);
@@ -2285,6 +2276,17 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
    * timestamp.
    */
   const lastScoredAt = ownLive.updatedAt > 0 ? SCORED_AT_FORMAT.format(ownLive.updatedAt) : null;
+  /**
+   * The same reading as an ELAPSED time, for the sidebar's watching block.
+   *
+   * Two wordings of one timestamp, and they are not interchangeable. The stale
+   * notice above says WHEN the last successful read was ("from 07:41"), because
+   * a reader deciding whether to trust a frozen figure wants the wall clock.
+   * The sidebar says HOW LONG AGO, because it is a background fact glanced at
+   * rather than read, and "2 minutes ago" answers "is this current" without any
+   * arithmetic. Both come from `ownLive.updatedAt`, so they cannot disagree.
+   */
+  const walletCheckedAt = checkedAgo(ownLive.updatedAt);
   const portfolioLoading = portfolioPositions === null && !portfolioFeedDown;
   const portfolioEmpty = portfolioPositions !== null && portfolioPositions.length === 0;
   const hasPositions = portfolioPositions !== null && portfolioPositions.length > 0;
@@ -2975,14 +2977,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           .filter(Boolean)
           .join(" · ");
 
-  // LIVE chain telemetry: real Base gas price via the API (the previous
-  // random-walk simulation is gone). The block number arrives on the same poll
-  // and is deliberately not stored: nothing renders it.
-  useEffect(() => {
-    if (chainTel.gasGwei !== null) {
-      setGasPrice(+chainTel.gasGwei.toFixed(4));
-    }
-  }, [chainTel.gasGwei]);
+  // The gas reading used to be mirrored into local state, seeded with a
+  // literal 2.8 that was on screen until the first poll landed - a fabricated
+  // market figure in a product whose whole rule is not to state facts it does
+  // not have. The hook's own value is passed straight to the one surface that
+  // reads it now (the exit flow's review step), and null there renders no line.
 
   // Custom simulation handlers for Watch Cockpit
   const handleSimulateCollateralInflow = () => {
@@ -3118,13 +3117,31 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           />
         </div>
 
-        {/* Sidebar Footer Bottom exit button */}
+        {/* The bottom of the rail: which wallet everything above is about, and
+            the way out.
+
+            The wallet lives HERE now rather than in the header, and this is the
+            fix for three separate complaints at once. The header carried a
+            wallet chip that opened onboarding, a "Wallets 2" button that opened
+            a sheet, and an account menu, and two of the three were shadowed
+            panels that appeared over whatever the reader was looking at. Whose
+            money is on screen is true on every tab, so it belongs on the one
+            surface that is also on every tab; and the sidebar had 208px of
+            permanent empty space under the nav to put it in. */}
         <div className="space-y-4">
+          {viewedWallet && portfolioWalletOptions.length > 0 && (
+            <WalletSelector
+              options={portfolioWalletOptions}
+              value={viewedWallet}
+              onChange={setViewedWalletChoice}
+              checkedAt={walletCheckedAt}
+            />
+          )}
           <a
             href="/"
-            className="flex items-center gap-2 text-xs font-sans text-text-secondary hover:text-text-primary transition-colors cursor-pointer pt-2 group"
+            className="group flex cursor-pointer items-center gap-2 font-sans text-xs text-text-secondary no-underline hover:text-text-primary"
           >
-            <ArrowLeft className="w-3.5 h-3.5 text-text-muted group-hover:-translate-x-0.5 transition-transform" />
+            <ArrowLeft className="h-3.5 w-3.5 text-text-muted" />
             <span>Back to landing</span>
           </a>
         </div>
@@ -3141,171 +3158,59 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             different poll than the numbers below it (lib/live.ts). */}
         {activeSimulation && <SimulationBanner simulation={activeSimulation} now={simulationNow} />}
 
-        {/* TOP STATUS BAR (Gas feeds, Block Number precisely simulating real active smart contracts) */}
-        <header className="h-16 shrink-0 border-b border-border-subtle px-4 md:px-8 flex items-center justify-between gap-3 bg-surface-raised/40 backdrop-blur-md">
-          <div className="flex items-center gap-2.5 min-w-0">
-            {/* Brand, phone only. The sidebar carries it on desktop, and with
-                the sidebar gone the app had neither a mark nor any way back to
-                the landing page. One element does both jobs. */}
+        {/* THE HEADER STRIP IS GONE, and what it held is now wherever the
+            reader would go looking for it.
+
+            It was a 64px band carrying, left to right: a risk-profile chip that
+            reopened the onboarding quiz, a TESTNET marker that opened Settings,
+            a gas reading, a wallet chip that reopened onboarding, a "Wallets 2"
+            button that opened a sheet, and an account menu. Six controls, four
+            of them navigation to somewhere else, three of them opening a
+            floating panel over whatever was being read, and none of them a
+            property of the page you were standing on. It is where every
+            identifier in the product had accumulated because there was room.
+
+            Where each went, and why there rather than here:
+              risk profile   Settings. It is a setting.
+              TESTNET        Settings, next to the switch that sets it.
+              gas            The exit flow's review step, which is the one place
+                             in the product a gas figure changes a decision.
+              wallet         The sidebar's watching block, beside the control
+                             that switches it.
+              Wallets        The Portfolio's own "Add wallet" action.
+              account        Settings' account card, with sign out.
+
+            Each tab draws its own `PageHeader` now: the page's name and its one
+            action, at 72px, which is the header height this system sets.
+
+            A phone keeps ONE strip, below, and it carries the two things the
+            desktop sidebar carries that a bottom tab bar cannot: the mark, and
+            the way back to the landing page. */}
+        {!isDesktop && (
+          <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b-[3px] border-solid border-border-strong bg-surface-raised px-4">
             <a
               href="/"
               title="Back to landing"
-              className="md:hidden flex items-center gap-2 shrink-0"
+              className="flex shrink-0 items-center gap-2 no-underline"
             >
               <img src="/panik-mark.svg" alt="" width={24} height={24} style={{ objectFit: "contain" }} />
-              <span className="font-sans font-extrabold text-sm text-text-primary leading-none">PANIK</span>
+              <span className="font-sans text-sm font-extrabold leading-none text-text-primary">
+                PANIK
+              </span>
             </a>
-
-            {/* The user-segment badge ("Risk Optimizer", "Yield Seeker", …)
-                used to sit here. It is gone.
-
-                It was the onboarding quiz's segment output, and it drove
-                nothing: no threshold, no recommendation, no filter, no copy.
-                Grepping it finds a localStorage write, a backfill into the
-                per-wallet profile store, and this badge — and a chip whose only
-                job is to be looked at is a chip that answers "what is this
-                supposed to be?" with "nothing you can act on". The value is
-                still computed and still persisted, so the day something
-                actually consumes a segment it is there; it just no longer
-                occupies the top-left of every screen claiming to matter.
-
-                The RISK TIER stays, because it does drive things — it is what
-                the alert thresholds and every position's `profileStatus` are
-                measured against. But it has to say so. A bare word in a box is
-                exactly as unexplained as the one above it was, so it now
-                carries an InfoTip naming what it changes, and it is a BUTTON:
-                the profile is set by the onboarding quiz, so the chip that
-                names it is the control that reopens it. */}
-            {riskTier && (
-              /* The vertical padding is on the BUTTON, not on this wrapper.
-                 With `py-1` here the chip measured 92x26 while the only thing
-                 anyone can press inside it measured 53x16, which is under the
-                 24px floor SC 2.5.8 sets. Moving the same padding one level in
-                 gives the control a 24px hit area and leaves the chip the
-                 height it already was, so nothing about how quiet it looks
-                 changes. */
-              <span className={`flex shrink-0 items-center gap-1.5 pl-2.5 pr-2 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}>
-                <button
-                  type="button"
-                  onClick={() => setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")}
-                  title="Change your risk profile"
-                  className="inline-flex min-h-6 cursor-pointer items-center pr-0.5 hover:text-text-primary transition-colors"
-                >
-                  {RISK_TIER_LABELS[riskTier]}
-                </button>
-                <InfoTip
-                  text={`Your risk profile, from the onboarding questions. It sets the limit each position is measured against, so it decides which positions read as "over your risk limit" and when PANIK alerts you. Click it to retake the questions.`}
-                />
-              </span>
-            )}
-
-            {/* The network marker, present only while the test network is
-                selected. It sits in the shell rather than on a tab because the
-                mode changes what EVERY figure in the app refers to, and it is
-                the control that took you there: pressing it opens Settings,
-                where the switch is. */}
-            <ChainModeBadge onOpenSettings={() => setActiveTab("settings")} />
-          </div>
-
-          <div className="flex items-center gap-3 md:gap-6 min-w-0 text-2xs font-sans text-text-muted">
-            <div className="hidden md:flex items-center gap-1.5">
-              <span>Est. gas</span>
-              {/* Gas is a market reading, not a verdict on this wallet. It was
-                  painted with the safe-risk green, which put a risk colour on a
-                  number that carries no risk statement at all. */}
-              <strong className="text-text-secondary bg-white/[0.03] px-2 py-0.5 rounded-sm border border-border-subtle tabular-nums">{gasPrice} GWEI</strong>
-            </div>
-            <div className="h-4 w-px bg-white/10 hidden md:block"></div>
-            <button
-              type="button"
-              onClick={() => setOnboardingIntent("switch-wallet")}
-              title={
-                onboardedWallet
-                  ? "Change wallet - an address with a saved profile skips the questions"
-                  : "Add the wallet PANIK should watch"
-              }
-              className="flex min-w-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer group"
-            >
-              {/* Identifier, not an action and not a status: the whole chip
-                  stays neutral so the eye skips it on the way to the data. */}
-              <Wallet className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-              {/* The label is the only elastic thing in the header, so it is
-                  the only thing allowed to give: it must not be able to push
-                  the refresh glyph off a 390px screen. */}
-              <span className="truncate">
-                {onboardedWallet ? truncateAddress(onboardedWallet) : "Add your wallet"}
-              </span>
-              <RefreshCw className="w-3 h-3 shrink-0 text-text-muted group-hover:text-text-primary transition-colors" />
-            </button>
-
-            {/* The list of wallets PANIK watches, beside the chip naming the
-                one it is bound to: the reader is already thinking about which
-                wallet here, and the two facts ("this is you" / "these are the
-                ones being watched") belong next to each other.
-
-                Not a sixth tab. The nav holds five flat destinations and one of
-                them is already called Watch; this is a panel over the content,
-                the same shape as the risk breakdown.
-
-                The count is stated only once the list has been read. A "0"
-                standing in for "we have not asked yet" is the same unknown
-                rendered as a zero the dashboard cards are careful not to
-                print, and here it would read as "PANIK is watching nothing". */}
-            {boundMode && (
-              <button
-                type="button"
-                onClick={() => setWalletsPanelOpen(true)}
-                title="Wallets PANIK watches for you"
-                aria-label={
-                  watchlist.subscriptions
-                    ? `Wallets, ${watchlist.subscriptions.length} watched`
-                    : "Wallets"
-                }
-                className="flex shrink-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer"
+            {/* The wallet as an identifier and nothing else: the control that
+                changes it is in the Portfolio, which is where a phone reader
+                chooses what they are looking at. */}
+            {viewedWallet && (
+              <span
+                title={viewedWallet}
+                className="truncate font-mono text-xs font-bold text-text-primary"
               >
-                <WalletCards className="w-3.5 h-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-                {/* The word goes at `sm`, not the control: at 390 the header
-                    already carries a tier chip, the wallet chip and this, and
-                    the glyph plus its accessible name is the honest way to give
-                    up width without giving up the destination. */}
-                <span className="hidden sm:inline">Wallets</span>
-                {watchlist.subscriptions && (
-                  <span className="rounded-full bg-white/10 px-1.5 tabular-nums">
-                    {watchlist.subscriptions.length}
-                  </span>
-                )}
-              </button>
+                {truncateAddress(viewedWallet)}
+              </span>
             )}
-
-            {/* WHO IS SIGNED IN, which is now an account rather than a browser.
-                It replaces the "Stay signed in" chip that used to sit here.
-
-                That chip offered the SIWE `session-start` signature, and the
-                offer has not gone anywhere: it is on the read-only banner under
-                this header and in Settings' account card, which is where a
-                deliberate, rare action belongs. What it stopped being is the
-                first identity in the header, because past the gate there is
-                normally an account and the wallet session is a detail of how
-                one wallet is read.
-
-                SHOWN WHENEVER AN ACCOUNT SESSION EXISTS, read-only or not. A
-                member who taps their own alert link arrives with a `?sid=`
-                wallet session AND the account they signed in with, and hiding
-                their own address and sign-out control because of how they got
-                here would be the header lying about who this browser is. The
-                bypass in AppShell decides what they may SEE; what they may DO
-                is `readOnlySession` below, and the two are separate on
-                purpose. A reader who genuinely has no account renders nothing
-                here, because `account` is null. */}
-            {accountState.account && (
-              <AccountMenu
-                account={accountState.account}
-                busy={accountState.busy}
-                onSignOut={() => void accountState.signOut()}
-              />
-            )}
-          </div>
-        </header>
+          </header>
+        )}
 
         {/* Session-level truths, between the header and the content they
             qualify: a read-only view has to be visible from every tab, and a
@@ -3328,33 +3233,41 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             {/* VIEW A: COMPASS TAB (Fully interactive and identical to the requested design layout!) */}
             {activeTab === "compass" && (
               <TabPanel key="compass" tab="compass" gap="space-y-8">
-                {/* No subtitle. "Find and open positions matched to your risk
-                    profile" restated the tab you are standing in, the heading
-                    above it and the section heading below it, which already
-                    names the profile by name. Portfolio's header is an h1 and a
-                    button; this one is an h1 and the control that changes what
-                    the page shows. */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle pb-5">
-                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Compass</h1>
+                {/* No action in the header, and no subtitle. The profile
+                    toggle used to sit in the action slot, which is where every
+                    other tab puts its one verb: a three-way chooser there made
+                    the same slot mean "do this" on one tab and "change what
+                    this shows" on another. It is a control over the sections
+                    below, so it sits with them. */}
+                <PageHeader title="Compass" />
 
-                  {/* Three copies of one button became a map over the three
-                      profiles, so the selected/unselected treatment cannot
-                      drift between them. */}
-                  <div className="bg-white/[0.02] border border-border-subtle p-1 rounded-md flex items-center max-w-sm">
-                    {RISK_PROFILES.map((profile) => (
+                {/* Which profile the two sections below are partitioned on.
+                    Three copies of one button became a map over the three
+                    profiles, so the selected and unselected treatments cannot
+                    drift between them. Lavender for the selected plate, not
+                    cobalt: cobalt is the nav's block and means "the section you
+                    are in". */}
+                <div
+                  role="group"
+                  aria-label="Which risk profile to browse against"
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  {RISK_PROFILES.map((profile) => {
+                    const active = selectedRiskProfile === profile;
+                    return (
                       <button
                         key={profile}
+                        type="button"
+                        aria-pressed={active}
                         onClick={() => setSelectedRiskProfile(profile)}
-                        className={`px-3 py-1.5 text-2xs font-sans rounded-md capitalize transition-all cursor-pointer ${
-                          selectedRiskProfile === profile
-                            ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
-                            : "text-text-secondary hover:text-text-primary"
+                        className={`flex h-12 cursor-pointer items-center hard-edge px-4 label-type text-xs text-text-primary shadow-hard-sm hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none ${
+                          active ? "bg-highlight" : "bg-surface-raised"
                         }`}
                       >
                         {profile}
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
 
                 {/* What this toggle does NOT do, said only when it matters.
@@ -3478,6 +3391,13 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             {/* VIEW B: WATCH TAB (The high-fidelity mathematical simulator control cockpit!) */}
             {activeTab === "watch" && (
               <TabPanel key="watch" tab="watch">
+                {/* Watch had no page heading at all, which is why the shared
+                    header exists: four tabs each drew their own and the fifth
+                    forgot. No action, because the tab's one control is the
+                    source toggle under it and that changes what the page shows
+                    rather than doing anything. */}
+                <PageHeader title="Watch" />
+
                 {/* Source toggle. Business requirement: Watch mirrors the
                     positions this wallet actually holds on-chain (Current
                     Positions). Recommendations keeps the Compass-derived
@@ -4267,9 +4187,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     their positions. The one line of AI provenance that is
                     genuinely owed is `AI_PROSE_NOTE`, at the foot of the panel
                     below, where it states the fact and stops. */}
-                <div className="border-b border-border-subtle pb-5">
-                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Advisor</h1>
-                </div>
+                <PageHeader title="Advisor" />
 
                 {advisorLive.report ? (
                   <AdvisorPanel
@@ -4426,6 +4344,20 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     )
                   }
                 />
+
+                {/* The watching block, on a phone, where there is no sidebar to
+                    put it in. Here rather than in the phone's top strip because
+                    it is three lines and a control, and because the Portfolio
+                    is the tab a reader chooses a wallet on: the strip carries
+                    the address as an identifier and this carries the switch. */}
+                {!isDesktop && viewedWallet && portfolioWalletOptions.length > 0 && (
+                  <WalletSelector
+                    options={portfolioWalletOptions}
+                    value={viewedWallet}
+                    onChange={setViewedWalletChoice}
+                    checkedAt={walletCheckedAt}
+                  />
+                )}
 
                 {/* What the Advisor would say about this wallet, under the
                     header and over the figures it is about. It renders nothing
@@ -5055,13 +4987,79 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         `tracking-wide`, `pb-3`), so moving between tabs restated
                         the heading at two sizes with no rule saying which was
                         which. */}
-                    <div className="border-b border-border-subtle pb-5">
-                      <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Settings</h1>
-                    </div>
+                    <PageHeader title="Settings" />
 
-                    {/* First, because it decides what the cards under it are
-                        even about: which chain the positions, scores and exits
-                        on every other tab belong to. */}
+                    {/* WHO THIS BROWSER IS, first, because everything under it
+                        is scoped to that.
+
+                        It used to be a menu button in the app header: an
+                        address, a membership line and a sign-out, in a portalled
+                        panel that opened over whatever was being read, on every
+                        tab. None of those three is a thing anyone does twice a
+                        session, and sign-out in particular is a deliberate, rare
+                        action a user goes LOOKING for. */}
+                    {accountState.account && (
+                      <Card tone="raised" className="space-y-3">
+                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
+                          <UserRound className="h-4 w-4 text-text-primary" />
+                          <h3 className="text-sm font-sans font-semibold text-text-primary">Account</h3>
+                        </div>
+                        <p className="font-sans text-sm font-bold text-text-primary">
+                          {accountState.account.email}
+                        </p>
+                        {/* Stated from the grant the server returned, never
+                            assumed: a membership with no expiry gets no date
+                            rather than an invented one. */}
+                        <p className="font-sans text-xs text-text-secondary">
+                          {describeMembership(accountState.account)}
+                        </p>
+                        <Button
+                          variant="secondary"
+                          disabled={accountState.busy}
+                          onClick={() => void accountState.signOut()}
+                        >
+                          {accountState.busy ? "Signing out..." : "Sign out"}
+                        </Button>
+                      </Card>
+                    )}
+
+                    {/* The risk profile, which was a chip in the header wearing
+                        a tooltip that explained what it changed.
+
+                        It is a SETTING: it decides the limit every position on
+                        every tab is measured against, and where alerts fire.
+                        The line under it is the threshold itself, from the
+                        engine, which is the one thing the tier's name cannot
+                        say. */}
+                    {riskTier && (
+                      <Card tone="raised" className="space-y-3">
+                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
+                          <Sliders className="h-4 w-4 text-text-primary" />
+                          <h3 className="text-sm font-sans font-semibold text-text-primary">
+                            Risk profile
+                          </h3>
+                        </div>
+                        <p className="font-sans text-sm font-bold text-text-primary">
+                          {RISK_TIER_LABELS[riskTier]}
+                        </p>
+                        <p className="font-sans text-xs text-text-secondary">
+                          Alerts fire at {ALERT_THRESHOLD[selectedRiskProfile]} on the 0 to 100
+                          score.
+                        </p>
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")
+                          }
+                        >
+                          Retake the questions
+                        </Button>
+                      </Card>
+                    )}
+
+                    {/* Which chain the positions, scores and exits on every
+                        other tab belong to. The TESTNET marker that used to ride
+                        in the header is the selected state of this control. */}
                     <ChainModeSwitch />
 
                     {/* Identity, above the two cards that depend on it: where
@@ -5414,7 +5412,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
       {/* Atomic Exit / Reduce flow (Phase 2) - real transactions, user-signed */}
       {exitPrefill && (
-        <ExitFlow prefill={exitPrefill} onClose={() => setExitPrefill(null)} />
+        <ExitFlow
+          prefill={exitPrefill}
+          onClose={() => setExitPrefill(null)}
+          gasGwei={chainTel.gasGwei}
+        />
       )}
 
       {/* In-app open flow (Phase 2) - the selected chain, user-signed */}
