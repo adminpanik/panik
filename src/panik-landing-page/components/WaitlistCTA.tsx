@@ -69,6 +69,7 @@ export function WaitlistCTA({ subscribersList, hasSubscribed, onOpenWaitlistModa
           parallax={26}
           glow="rgb(from var(--color-panik-orange) r g b / 0.34)"
           opacity={0.98}
+          blend="normal"
         />
 
         {/* MEGAPHONE (Right) - the call to join the waitlist. */}
@@ -87,6 +88,7 @@ export function WaitlistCTA({ subscribersList, hasSubscribed, onOpenWaitlistModa
           parallax={-24}
           glow="rgb(from var(--color-panik-orange) r g b / 0.32)"
           opacity={0.98}
+          blend="normal"
         />
 
         {/* Main CTA structure */}

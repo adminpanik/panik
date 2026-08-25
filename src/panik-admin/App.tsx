@@ -98,7 +98,7 @@ export default function App() {
     <div className="min-h-screen bg-surface-base text-text-primary">
       <header className="border-b border-border-subtle">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-3 gap-y-2 px-5 py-4">
-          <img src="/panik-logo.png" alt="" width={28} height={28} className="rounded-sm object-contain" />
+          <img src="/panik-mark.svg" alt="" width={28} height={28} className="rounded-sm object-contain" />
           <span className="text-base font-sans font-bold text-text-primary">Admin</span>
           <div className="ml-auto flex items-center gap-2">
             <span className="mr-1 hidden text-xs font-sans text-text-secondary sm:inline">{session.email}</span>

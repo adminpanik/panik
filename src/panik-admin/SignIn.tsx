@@ -38,7 +38,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: Session) => void 
     <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-5 py-12">
       <form onSubmit={submit} className="rounded-md border border-border-subtle bg-surface-raised/50 p-6">
         <div className="mb-6 flex items-center gap-2.5">
-          <img src="/panik-logo.png" alt="" width={28} height={28} className="rounded-sm object-contain" />
+          <img src="/panik-mark.svg" alt="" width={28} height={28} className="rounded-sm object-contain" />
           <h1 className="text-lg font-sans font-bold text-text-primary">PANIK admin</h1>
         </div>
 

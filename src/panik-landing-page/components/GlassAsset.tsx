@@ -7,25 +7,27 @@ import React, { useRef } from "react";
 import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
 
 /**
- * Brand glass renders (public/assets/PanikXPost). Named by what each depicts so
- * placements read semantically instead of by opaque file number.
+ * Brand glass placements. Named by what each depicts so call sites read
+ * semantically instead of by opaque file number. All keys currently point at
+ * the single brand mark pending dedicated glass renders for the new mark.
  */
 export const GLASS = {
-  shieldKey: "/assets/PanikXPost/14.png", // security / gated early access
-  question: "/assets/PanikXPost/15.png", // FAQ / answers
-  dataCoins: "/assets/PanikXPost/16.png", // multi-asset data / coverage
-  ethCoin: "/assets/PanikXPost/17.png", // performance / on-chain returns
-  megaphone: "/assets/PanikXPost/18.png", // announcement / join the waitlist
+  shieldKey: "/panik-mark.svg", // security / gated early access
+  question: "/panik-mark.svg", // FAQ / answers
+  dataCoins: "/panik-mark.svg", // multi-asset data / coverage
+  ethCoin: "/panik-mark.svg", // performance / on-chain returns
+  megaphone: "/panik-mark.svg", // announcement / join the waitlist
 } as const;
 
 /**
  * GlassAsset - a single floating, glowing 3D-glass brand icon.
  *
- * The source art (PanikXPost renders) is amber glass on a solid black frame at
- * 16:9. On this near-black site we composite with `mix-blend-mode: screen`,
- * which drops the black to transparent and makes each icon read as a real light
- * source rather than a pasted PNG. The wide transparent margin is harmless: it
- * simply vanishes under the blend, so boxes may overlap freely.
+ * Historically the source art was amber glass on a solid black frame at 16:9,
+ * composited with `mix-blend-mode: screen` on this near-black site so the
+ * black dropped to transparent and each icon read as a real light source
+ * rather than a pasted PNG. The current placements use the flat brand mark
+ * (`GLASS`, see above) and pass `blend="normal"` since a solid-fill mark has
+ * no black frame to knock out.
  *
  * "Different angles" from a fixed raster set are faked convincingly with CSS:
  * a base `rotate`, an optional horizontal `flip`, and a 3D `tiltX`/`tiltY`
@@ -34,7 +36,7 @@ export const GLASS = {
  * depth. All motion is disabled under `prefers-reduced-motion`.
  */
 export interface GlassAssetProps {
-  /** Public path, e.g. "/assets/PanikXPost/14.png". */
+  /** Public path, e.g. "/panik-mark.svg". */
   src: string;
   alt?: string;
   /** Positioning + width utilities, e.g. "absolute left-[-6%] top-[20%] w-[320px]". */

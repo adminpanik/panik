@@ -589,7 +589,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess, initialEmail = "
             <motion.div key="s5" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3 }} className="py-4 text-center space-y-6">
               <div className="relative w-40 h-40 mx-auto flex items-center justify-center select-none">
                 <div className="absolute inset-0 bg-panik-orange/15 rounded-full blur-3xl scale-150 pointer-events-none" />
-                <img src="/panik-shield.png" alt="" aria-hidden="true" className="w-40 h-40 object-contain relative z-10 drop-shadow-[0_0_32px_rgb(from var(--color-panik-orange) r g b / 0.5)]" />
+                <img src="/panik-mark.svg" alt="" aria-hidden="true" className="w-40 h-40 object-contain relative z-10 drop-shadow-[0_0_32px_rgb(from var(--color-panik-orange) r g b / 0.5)]" />
               </div>
               <div className="space-y-2">
                 <h2 className="font-sans font-medium text-2xl text-text-primary tracking-tight">You're on the list.</h2>
