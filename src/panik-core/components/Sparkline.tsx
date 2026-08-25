@@ -85,7 +85,7 @@ export function SparklinePlaceholder({
                carries is a green check, and "we have not scored this wallet
                twice yet" is not a safety claim. */
             <div
-              className={`flex h-full w-full items-center justify-center rounded-md border px-5 ${CLEAR_TONE_BOX}`}
+              className={`flex h-full w-full items-center justify-center px-5 ${CLEAR_TONE_BOX}`}
             >
               <p className="max-w-md text-center text-sm font-sans leading-relaxed text-text-secondary">
                 {note}

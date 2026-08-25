@@ -71,11 +71,11 @@ export function RosterPanel({
           Trials on file: {loading && grants.length === 0 ? "..." : grants.length}
         </h2>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="outline" onClick={copyEmails} disabled={emails.length === 0}>
+          <Button variant="secondary" onClick={copyEmails} disabled={emails.length === 0}>
             {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
             {copied ? "Copied" : `Copy ${emails.length} email${emails.length === 1 ? "" : "s"}`}
           </Button>
-          <Button variant="quiet" onClick={refresh} aria-label="Reload the roster">
+          <Button variant="ghost" onClick={refresh} aria-label="Reload the roster">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
             Reload
           </Button>
@@ -88,7 +88,7 @@ export function RosterPanel({
           title="Could not load the roster"
           hint={error}
           action={
-            <Button variant="outline" onClick={refresh}>
+            <Button variant="secondary" onClick={refresh}>
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
             </Button>
           }

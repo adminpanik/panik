@@ -104,7 +104,7 @@ export function RedemptionsPanel({
           title="Could not load redemptions"
           hint={error}
           action={
-            <Button variant="outline" onClick={refresh}>
+            <Button variant="secondary" onClick={refresh}>
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
             </Button>
           }
@@ -120,7 +120,7 @@ export function RedemptionsPanel({
           <h4 className="text-sm font-sans font-bold text-text-primary">
             Redeemed by {redemptions.length}
           </h4>
-          <Button variant="quiet" onClick={refresh} aria-label="Reload redemptions">
+          <Button variant="ghost" onClick={refresh} aria-label="Reload redemptions">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
             Reload
           </Button>

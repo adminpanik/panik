@@ -269,7 +269,7 @@ export function AdvisorPopup({
                 </Button>
               ) : null}
               <Button
-                variant="outline"
+                variant="secondary"
                 onClick={() => {
                   onView();
                   setNotification(null);
@@ -283,7 +283,7 @@ export function AdvisorPopup({
               announced as "button" and nothing else. `Button` also gives it a
               44x32 hit area, over the 24px floor SC 2.5.8 sets and well over
               the 16x16 the bare `<X>` measured. */}
-          <Button variant="quiet" onClick={dismiss} aria-label="Dismiss this advisor notice">
+          <Button variant="ghost" onClick={dismiss} aria-label="Dismiss this advisor notice">
             <X className="w-3.5 h-3.5" aria-hidden="true" />
           </Button>
         </motion.div>

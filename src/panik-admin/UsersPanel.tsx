@@ -80,7 +80,7 @@ export function UsersPanel({
             <span className="ml-2 text-xs font-normal text-text-muted">(more available)</span>
           ) : null}
         </h2>
-        <Button variant="quiet" className="ml-auto" onClick={reload} aria-label="Reload the accounts">
+        <Button variant="ghost" className="ml-auto" onClick={reload} aria-label="Reload the accounts">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           Reload
         </Button>
@@ -92,7 +92,7 @@ export function UsersPanel({
           title="Could not load the accounts"
           hint={error}
           action={
-            <Button variant="outline" onClick={reload}>
+            <Button variant="secondary" onClick={reload}>
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
             </Button>
           }
@@ -175,7 +175,7 @@ export function UsersPanel({
 
           {hasMore ? (
             <div className="mt-4">
-              <Button variant="outline" onClick={() => load(page + 1, true)} disabled={loading}>
+              <Button variant="secondary" onClick={() => load(page + 1, true)} disabled={loading}>
                 {loading ? "Loading" : "Load more"}
               </Button>
             </div>

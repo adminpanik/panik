@@ -129,7 +129,7 @@ export function MetricsPanel({
     <Card tone="panel" className="mb-6">
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <h2 className="text-base font-sans font-bold text-text-primary">What PANIK is watching</h2>
-        <Button variant="quiet" className="ml-auto" onClick={refresh} aria-label="Reload the figures">
+        <Button variant="ghost" className="ml-auto" onClick={refresh} aria-label="Reload the figures">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           Reload
         </Button>
@@ -141,7 +141,7 @@ export function MetricsPanel({
           title="Could not load the figures"
           hint={error}
           action={
-            <Button variant="outline" onClick={refresh}>
+            <Button variant="secondary" onClick={refresh}>
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
             </Button>
           }

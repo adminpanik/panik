@@ -240,7 +240,7 @@ export function WalletsPanel({
           </div>
         </div>
         <Button
-          variant="outline"
+          variant="secondary"
           onClick={onClose}
           aria-label="Close wallets"
           title={ops.length > 0 ? "Close without saving your changes" : "Close wallets"}
@@ -280,7 +280,7 @@ export function WalletsPanel({
             title="Your watchlist could not be loaded"
             hint="That does not mean it is empty. We could not reach the list of wallets PANIK watches for you, so what is on it is unknown right now."
             action={
-              <Button variant="outline" onClick={state.reload}>
+              <Button variant="secondary" onClick={state.reload}>
                 Try again
               </Button>
             }
@@ -436,7 +436,7 @@ function WalletRow({
               : "Staged for removal."}
           </span>
           <Button
-            variant="outline"
+            variant="secondary"
             disabled={disabled}
             onClick={() => onChange({ removed: false })}
             aria-label={`Keep watching ${name}`}
@@ -468,7 +468,7 @@ function WalletRow({
             onChange={(profile) => onChange({ profile })}
           />
           <Button
-            variant="outline"
+            variant="secondary"
             disabled={disabled}
             onClick={() => onChange({ removed: true })}
             aria-label={`Stop watching ${name}`}

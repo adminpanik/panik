@@ -476,7 +476,7 @@ export function LivePositions({
                   <RiskDial score={p.total} band={p.band} subScores={p.subScores} />
                   {onStressTest && (
                     <Button
-                      variant="quiet"
+                      variant="ghost"
                       onClick={() => onStressTest(p)}
                       title="Stress-test this position in Watch"
                       aria-label={`Stress-test the ${PROTOCOL_LABEL[p.protocol]} position in Watch`}

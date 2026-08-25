@@ -93,7 +93,7 @@ function QrBlock({ code }: { code: string }) {
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" /> Download QR
           </a>
-          <Button variant="outline" onClick={copy}>
+          <Button variant="secondary" onClick={copy}>
             {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
             {copied ? "Copied" : "Copy link"}
           </Button>
@@ -248,7 +248,7 @@ function CampaignRow({
         )}
         <div className="ml-auto flex items-center gap-2">
           <Button
-            variant="quiet"
+            variant="ghost"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
             aria-controls={panelId}
@@ -257,7 +257,7 @@ function CampaignRow({
             {open ? "Hide" : "Details"}
           </Button>
           {campaign.is_active && (
-            <Button variant="outline" onClick={expire} disabled={busy}>
+            <Button variant="secondary" onClick={expire} disabled={busy}>
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Ban className="h-3.5 w-3.5" aria-hidden="true" />}
               Switch off
             </Button>
@@ -372,7 +372,7 @@ export function CampaignsPanel({
       <Card tone="panel">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-base font-sans font-bold text-text-primary">Voucher codes</h2>
-          <Button variant="quiet" onClick={refresh} aria-label="Reload voucher codes">
+          <Button variant="ghost" onClick={refresh} aria-label="Reload voucher codes">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
             Reload
           </Button>
@@ -384,7 +384,7 @@ export function CampaignsPanel({
             title="Could not load the voucher codes"
             hint={error}
             action={
-              <Button variant="outline" onClick={refresh}>
+              <Button variant="secondary" onClick={refresh}>
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
               </Button>
             }

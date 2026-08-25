@@ -87,11 +87,7 @@ export function WalletSelector({ options, value, onChange }: WalletSelectorProps
         optionLabel={(i) =>
           `${spokenName(options[i])}, ${options[i].own ? "your wallet" : "watch only"}`
         }
-        optionClassName={({ active }) =>
-          `flex cursor-pointer items-center gap-2 px-3 py-2.5 transition-colors hover:bg-white/[0.06] ${
-            active ? "bg-white/[0.06]" : ""
-          }`
-        }
+        optionClassName={() => "flex cursor-pointer items-center gap-2 px-3 py-2.5"}
         renderOption={(i, { selected: isSelected }) => {
           const o = options[i];
           return (

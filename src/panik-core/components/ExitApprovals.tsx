@@ -222,7 +222,7 @@ export function RevokeExitApprovals({ approvals }: { approvals: readonly Approva
       {result ? <p className="text-xs font-sans text-text-secondary">{result}</p> : null}
       {failure ? <Notice text={failure} /> : null}
       {live.length > 0 ? (
-        <Button variant="outline" onClick={() => void revoke()} disabled={busy !== null}>
+        <Button variant="secondary" onClick={() => void revoke()} disabled={busy !== null}>
           {busy === "revoking" ? (
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status || "Revoking..."}
@@ -549,7 +549,7 @@ export function ExitApprovals() {
               )}
             </Button>
             {grantedCount > 0 ? (
-              <Button variant="outline" onClick={() => void revoke()} disabled={busy !== null}>
+              <Button variant="secondary" onClick={() => void revoke()} disabled={busy !== null}>
                 {busy === "revoking" ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status || "Revoking..."}

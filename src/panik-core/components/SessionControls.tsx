@@ -59,7 +59,7 @@ export interface SignInButtonProps {
   scope: SessionState;
   busy: boolean;
   onClick: () => void;
-  variant?: "primary" | "outline";
+  variant?: "primary" | "secondary";
 }
 
 /**
@@ -72,7 +72,7 @@ export interface SignInButtonProps {
  * not vouch for, and hand-typed copies of that ternary are how one of them ends
  * up saying the wrong thing about what pressing it does.
  */
-export function SignInButton({ scope, busy, onClick, variant = "outline" }: SignInButtonProps) {
+export function SignInButton({ scope, busy, onClick, variant = "secondary" }: SignInButtonProps) {
   const label = busy
     ? "Sign in wallet..."
     : scope === "readonly"
@@ -130,7 +130,7 @@ export function SessionNote({ text, onDismiss }: { text: string; onDismiss: () =
     >
       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
       <span className={`min-w-0 flex-1 ${PROSE}`}>{text}</span>
-      <Button variant="quiet" onClick={onDismiss} aria-label="Dismiss this message">
+      <Button variant="ghost" onClick={onDismiss} aria-label="Dismiss this message">
         <X className="h-3.5 w-3.5" />
       </Button>
     </div>
@@ -172,7 +172,7 @@ export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: Sess
           {until ? ` PANIK will recognise it until ${until}.` : ""} Signing out revokes that here
           and everywhere the same session was open.
         </p>
-        <Button variant="outline" onClick={onSignOut} disabled={busy}>
+        <Button variant="secondary" onClick={onSignOut} disabled={busy}>
           {busy ? "Signing out..." : "Sign out"}
         </Button>
       </>
@@ -191,7 +191,7 @@ export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: Sess
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {wallet && <SignInButton scope="readonly" busy={busy} onClick={onSignIn} variant="primary" />}
-          <Button variant="outline" onClick={onSignOut} disabled={busy}>
+          <Button variant="secondary" onClick={onSignOut} disabled={busy}>
             Sign out
           </Button>
         </div>
