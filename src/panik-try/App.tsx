@@ -45,18 +45,24 @@ function XMark() {
   );
 }
 
-/** Every row on the card reads the same, and hovers the same as the gate's links. */
+/**
+ * Every row on the card reads the same, and hovers the same as the gate's
+ * links. No `transition-colors`: this look has no motion, states snap
+ * (docs/DESIGN_SYSTEM.md).
+ */
 const ROW =
-  "inline-flex min-h-6 items-center gap-2.5 text-xs font-sans text-text-secondary transition-colors hover:text-text-primary";
+  "inline-flex min-h-6 items-center gap-2.5 text-xs font-sans text-text-secondary hover:text-text-primary";
 
 /**
  * The card the printed one points at. Neutral: two links are not a risk state
  * and not the thing on this page to press, so nothing here takes the accent.
+ * The heading is `label-type`, the same caption treatment `Stat` and `Chip`
+ * use, so a card that is not the gate itself does not invent a second one.
  */
 function Socials() {
   return (
     <Card tone="raised" className="space-y-3">
-      <h2 className="text-xs font-sans font-bold text-text-primary">Follow our socials</h2>
+      <h2 className="label-type text-xs text-text-primary">Find PANIK online</h2>
       <div className="flex flex-col items-start gap-2">
         <a href={SITE_URL} target="_blank" rel="noreferrer noopener" className={ROW}>
           <Globe className="h-4 w-4 shrink-0" aria-hidden="true" />
