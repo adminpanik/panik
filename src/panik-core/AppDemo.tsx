@@ -4043,8 +4043,15 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             {/* VIEW C: ADVISOR TAB (Autonomous Alert Rules Configuration & Diagnosing Engine) */}
             {activeTab === "advisor" && (
               <TabPanel key="advisor" tab="advisor">
+                {/* "Advisor", not "AI Advisor". The tab in the rail says
+                    Advisor, and a screen whose heading names the technology
+                    rather than the job is the same leak as printing an engine
+                    enum: what the reader came here for is what to do about
+                    their positions. The one line of AI provenance that is
+                    genuinely owed is `AI_PROSE_NOTE`, at the foot of the panel
+                    below, where it states the fact and stops. */}
                 <div className="border-b border-border-subtle pb-5">
-                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">AI Advisor</h1>
+                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Advisor</h1>
                 </div>
 
                 {advisorLive.report ? (
@@ -4080,20 +4087,42 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     />
                   </div>
                 ) : (
-                <div className="bg-surface-raised/50 border border-border-subtle p-12 rounded-lg flex flex-col items-center text-center max-w-2xl mx-auto my-8">
-                  <div className="w-12 h-12 rounded-full bg-white/[0.06] border border-border-subtle flex items-center justify-center mb-6">
-                    <Sparkles className="w-5 h-5 text-text-primary" />
+                /* `lead`, and it is the only card on this branch, which is the
+                   condition the tone is rationed to: there is one thing to read
+                   here and lavender says so without making a claim about a
+                   position, because `highlight` is nowhere on the risk ramp.
+
+                   Left-aligned, like every other card in the product. The
+                   centred column this replaces was a 12th-scale `p-12` well with
+                   a rounded avatar plate on top, which is three things the
+                   system does not have: a radius, a tinted translucent surface,
+                   and a layout that agrees with nothing beside it. */
+                <Card tone="lead" className="mx-auto my-8 flex max-w-2xl flex-col gap-4">
+                  <div className="flex items-start gap-3">
+                    <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <CardTitle as="h2" size="lg">
+                        The Advisor is not open yet
+                      </CardTitle>
+                      {/* What it will DO, in the reader's terms. What this
+                          replaced was "guardrail recommendations and sized
+                          action plans are still in parameter audit on Base",
+                          which is four pieces of jargon and no statement of
+                          what the reader gets or when. The second sentence is
+                          the honest half: it says what is holding it, without
+                          promising a date the code does not know. */}
+                      <p className="mt-2 font-sans text-sm leading-relaxed text-text-secondary">
+                        It will read the positions in this wallet and say what to do about each
+                        one, sized to the risk profile you set. We are still checking those
+                        numbers against Base, and nothing lands on this screen until they hold.
+                      </p>
+                    </div>
                   </div>
-                  
-                  <h3 className="text-lg font-sans font-bold text-text-primary tracking-tight mb-3">
-                    Advisor is not live yet
-                  </h3>
 
-                  <p className="text-sm text-text-secondary leading-relaxed font-sans max-w-md">
-                    Guardrail recommendations and sized action plans are still in parameter audit on Base.
-                  </p>
-
-                  <label className="mt-6 flex items-center gap-3 cursor-pointer select-none group">
+                  {/* Recorded in this browser and nowhere else, which is what
+                      the wording has to survive: "notify me" promised a message
+                      from a service that has no address to send one to. */}
+                  <label className="flex cursor-pointer select-none items-center gap-3 self-start">
                     <input
                       type="checkbox"
                       checked={advisorNotifyChecked}
@@ -4101,13 +4130,13 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         setAdvisorNotifyChecked(e.target.checked);
                         localStorage.setItem("panik_advisor_notify", String(e.target.checked));
                       }}
-                      className="w-4 h-4 rounded-sm border border-border-subtle bg-surface-raised accent-text-primary cursor-pointer"
+                      className="h-5 w-5 shrink-0 cursor-pointer hard-edge bg-surface-raised accent-brand"
                     />
-                    <span className="text-xs font-sans text-text-secondary group-hover:text-text-primary transition-colors">
-                      Notify me when Advisor goes live
+                    <span className="font-sans text-sm text-text-secondary">
+                      Remember that I want this when it opens
                     </span>
                   </label>
-                </div>
+                </Card>
                 )}
               </TabPanel>
             )}
