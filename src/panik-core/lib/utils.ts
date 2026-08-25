@@ -956,9 +956,46 @@ export function checkedAgo(updatedAt: number, now: number = Date.now()): string 
   const minutes = Math.floor((now - updatedAt) / 60_000);
   if (minutes < 0) return null;
   if (minutes < 1) return "Checked just now";
-  if (minutes < 60) return `Checked ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
-  const hours = Math.floor(minutes / 60);
-  return `Checked ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  if (minutes < 60) return `Checked ${plural(minutes, "minute")} ago`;
+  return `Checked ${plural(Math.floor(minutes / 60), "hour")} ago`;
+}
+
+/**
+ * `1 protocol`, `4 protocols`. The regular-plural case, once.
+ *
+ * Seven call sites in this file's consumers spell out `n === 1 ? "x" : "xs"`
+ * inline, and the failure mode is not that one of them gets the grammar wrong
+ * but that one of them forgets: "Across 1 protocols" is the kind of thing that
+ * survives a review because nobody is reading for it.
+ *
+ * REGULAR NOUNS ONLY, and deliberately not a general pluralizer. Every noun
+ * this product counts (position, protocol, feed, minute, hour, alert) takes a
+ * bare `s`, and a helper that tried to handle the irregular cases would be a
+ * dictionary nothing here needs. A noun that does not take a bare `s` must not
+ * be passed to this; it should be written out at its call site.
+ */
+export function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * Worst first, over a composite score.
+ *
+ * A leg the engine could NOT score sorts first, not last: an unmeasured risk is
+ * not a low one, and a missing score read as 0 would file it under every
+ * healthy position. Equal scores keep the caller's own order (`sort` is stable
+ * per spec).
+ *
+ * Here rather than in one surface's file, because two lists now order
+ * themselves by this rule and they must not disagree about where an unscorable
+ * position goes: the Advisor's leg cards and the Portfolio's positions table.
+ * The Portfolio's copy was a plain `b.total - a.total`, which leaves a NaN
+ * score in an undefined position rather than at the top.
+ */
+export function worseScoreFirst(a: number, b: number): number {
+  const scored = (n: number) => (Number.isFinite(n) ? 1 : 0);
+  if (scored(a) !== scored(b)) return scored(a) - scored(b);
+  return scored(a) === 0 ? 0 : b - a;
 }
 
 /**

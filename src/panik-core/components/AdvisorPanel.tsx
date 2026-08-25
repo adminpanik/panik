@@ -78,6 +78,7 @@ import {
   URGENCY_VERDICT,
   USD_UNAVAILABLE_HINT,
   USD_UNAVAILABLE_LABEL,
+  worseScoreFirst,
 } from "../lib/utils";
 import { Button, Card, Chip, EmptyState, RiskChip, RiskDial } from "../ui";
 import { exitAvailabilityLine, exitControlState, useChainMode } from "../lib/chainMode";
@@ -219,9 +220,7 @@ function verdictLines(
  * position. Equal scores keep the report's own order (`sort` is stable per spec).
  */
 function worstFirst(a: AdvisorRecommendation, b: AdvisorRecommendation): number {
-  const scored = (r: AdvisorRecommendation) => (Number.isFinite(r.numbers.total) ? 1 : 0);
-  if (scored(a) !== scored(b)) return scored(a) - scored(b);
-  return scored(a) === 0 ? 0 : b.numbers.total - a.numbers.total;
+  return worseScoreFirst(a.numbers.total, b.numbers.total);
 }
 
 function ActionButton({
@@ -1008,6 +1007,14 @@ export interface AdvisorPanelProps {
 
 export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorPanelProps) {
   const chainMode = useChainMode();
+  /**
+   * The chain caveat, or null on the chain the exit works on.
+   *
+   * Read ONCE and held: it was called twice in the JSX below, as its own guard
+   * and again as its own value, which is one string derived twice per render of
+   * a panel that re-renders on every 60s advisor poll.
+   */
+  const chainNote = exitAvailabilityLine(chainMode);
   const { overall, recommendations, opportunities, walletInsights } = report;
 
   /* Provenance, on hover. "Based on your history: Levered ETH borrower · 17mo
@@ -1123,9 +1130,7 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
                 Sepolia, against whatever this wallet holds there") restated the
                 button beside it, which is the copy rule's delete case; the one
                 a reader needs is the one saying the button will not work. */}
-            {exitAvailabilityLine(chainMode) && (
-              <p className="text-xs font-sans text-text-muted">{exitAvailabilityLine(chainMode)}</p>
-            )}
+            {chainNote && <p className="text-xs font-sans text-text-muted">{chainNote}</p>}
           </div>
           {legs.map((rec) => (
             <RecommendationCard

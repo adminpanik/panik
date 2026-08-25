@@ -35,6 +35,7 @@ import {
   PROTOCOL_LABEL,
   RISK_CHIP,
   USD_UNAVAILABLE_HINT,
+  worseScoreFirst,
 } from "../lib/utils";
 import { Button, Card, Chip, EmptyState, RiskChip, RiskDial, SimulationChip, Skeleton } from "../ui";
 import { exitControlState, useChainMode } from "../lib/chainMode";
@@ -91,6 +92,26 @@ function chainProvenance(chain: ScoringChainInfo | null): { badge: string | null
  */
 const TH = "h-14 whitespace-nowrap px-3 label-type text-xs text-white";
 const TD = "px-3 py-3 align-middle";
+
+/**
+ * WHEN each column is up, defined ONCE per column and read by both the header
+ * and the cell.
+ *
+ * The two were retyped separately, and nothing made them agree: an edit that
+ * moved the Debt header to `2xl` and left its cells at `xl` would put a column
+ * of figures under the wrong label, which is the one failure a table cannot
+ * survive and the one a screenshot does not obviously show.
+ *
+ * Protocol and Risk are absent because they are never hidden: they are the two
+ * facts a 390px phone still has to carry, and everything dropped below them is
+ * repeated in the row's disclosure.
+ */
+const COL = {
+  asset: "hidden sm:table-cell",
+  collateral: "hidden xl:table-cell",
+  debt: "hidden xl:table-cell",
+  outlook: "hidden md:table-cell",
+} as const;
 /** Every figure in the table, in the one face this product sets numerals in. */
 const FIGURE = "whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary";
 /**
@@ -100,9 +121,22 @@ const FIGURE = "whitespace-nowrap font-mono text-sm font-bold tabular-nums text-
  */
 const NOT_MEASURED = "whitespace-nowrap font-sans text-sm text-text-muted";
 
-/** Worst first, which is the order the reader is scanning for. */
-function worstFirst(a: LiveWalletPosition, b: LiveWalletPosition): number {
-  return b.total - a.total;
+/**
+ * One money column's cell: the figure, or the words when the price feed could
+ * not be read.
+ *
+ * A function rather than two copies of the same ternary, because the two
+ * columns differ only in which field they read and the branch they share is the
+ * one that must never emit a zero.
+ */
+function moneyCell(usd: number | null, unpriced: boolean) {
+  return unpriced ? (
+    <span className={NOT_MEASURED} title={USD_UNAVAILABLE_HINT}>
+      Not measured
+    </span>
+  ) : (
+    <span className={FIGURE}>{formatUsd(usd)}</span>
+  );
 }
 
 interface LivePositionsProps {
@@ -191,6 +225,27 @@ export function LivePositions({
     row.focus({ preventScroll: true });
   }, [highlightKey]);
 
+  /**
+   * The rows, worst first. Memoised on the array identity: `positions` is a
+   * fresh array only when a poll lands, and this component re-renders whenever
+   * anything in the shell changes - a tab switch, a modal, a chain-telemetry
+   * poll - so an unmemoised copy-and-sort ran on every one of them.
+   *
+   * `worseScoreFirst` is the Advisor's ordering rule, from lib/utils, so an
+   * unscorable position lands at the top of both lists rather than wherever a
+   * NaN subtraction leaves it here.
+   *
+   * ABOVE the offline return, because a hook after a conditional return is a
+   * hook that is not always called.
+   */
+  const rows = React.useMemo(
+    () =>
+      positions === null
+        ? null
+        : [...positions].sort((a, b) => worseScoreFirst(a.total, b.total)),
+    [positions],
+  );
+
   if (offline) {
     return (
       <EmptyState
@@ -200,8 +255,6 @@ export function LivePositions({
       />
     );
   }
-
-  const rows = positions === null ? null : [...positions].sort(worstFirst);
 
   return (
     <Card tone="raised" padded={false} className="flex min-w-0 flex-col">
@@ -259,18 +312,18 @@ export function LivePositions({
               <th scope="col" className={TH}>
                 Protocol
               </th>
-              <th scope="col" className={`${TH} hidden sm:table-cell`}>
+              <th scope="col" className={`${TH} ${COL.asset}`}>
                 Asset
               </th>
-              <th scope="col" className={`${TH} hidden xl:table-cell`}>
+              <th scope="col" className={`${TH} ${COL.collateral}`}>
                 Collateral
               </th>
-              <th scope="col" className={`${TH} hidden xl:table-cell`}>
+              <th scope="col" className={`${TH} ${COL.debt}`}>
                 Debt
               </th>
               {/* The one elastic column: everything else is a name or a figure
                   of known width, and the slack belongs to the sentence. */}
-              <th scope="col" className={`${TH} hidden md:table-cell w-full`}>
+              <th scope="col" className={`${TH} w-full ${COL.outlook}`}>
                 Outlook
               </th>
               <th scope="col" className={TH}>
@@ -324,28 +377,16 @@ export function LivePositions({
                         {PROTOCOL_LABEL[p.protocol]}
                       </button>
                     </td>
-                    <td className={`${TD} hidden sm:table-cell`}>
+                    <td className={`${TD} ${COL.asset}`}>
                       <span className={FIGURE}>{p.scoredCollateralSymbol}</span>
                     </td>
-                    <td className={`${TD} hidden xl:table-cell`}>
-                      {unpriced ? (
-                        <span className={NOT_MEASURED} title={USD_UNAVAILABLE_HINT}>
-                          Not measured
-                        </span>
-                      ) : (
-                        <span className={FIGURE}>{formatUsd(p.collateralValueUsd)}</span>
-                      )}
+                    <td className={`${TD} ${COL.collateral}`}>
+                      {moneyCell(p.collateralValueUsd, unpriced)}
                     </td>
-                    <td className={`${TD} hidden xl:table-cell`}>
-                      {unpriced ? (
-                        <span className={NOT_MEASURED} title={USD_UNAVAILABLE_HINT}>
-                          Not measured
-                        </span>
-                      ) : (
-                        <span className={FIGURE}>{formatUsd(p.borrowValueUsd)}</span>
-                      )}
+                    <td className={`${TD} ${COL.debt}`}>
+                      {moneyCell(p.borrowValueUsd, unpriced)}
                     </td>
-                    <td className={`${TD} hidden md:table-cell`}>
+                    <td className={`${TD} ${COL.outlook}`}>
                       {/* The health factor as the price move it means, worded
                           and rounded by the engine (`liquidationOutlook`),
                           never by this file. The exact ratio opens the hover,

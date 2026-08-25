@@ -42,6 +42,7 @@ import {
   type LiquidationOutlook,
   listedLiquidationThreshold,
   loanToValuePct,
+  plural,
   LOAN_TO_VALUE_HINT,
   LOAN_TO_VALUE_UNAVAILABLE_HINT,
   PROTOCOL_LABEL,
@@ -2596,9 +2597,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
    */
   const closestToLiquidation = useMemo(() => {
     let closest: LiveWalletPosition | null = null;
+    let thinnest = Infinity;
     for (const p of portfolioPositions ?? []) {
-      if (p.healthFactor === null) continue;
-      if (closest === null || p.healthFactor < (closest.healthFactor as number)) closest = p;
+      if (p.healthFactor === null || p.healthFactor >= thinnest) continue;
+      closest = p;
+      thinnest = p.healthFactor;
     }
     return closest;
   }, [portfolioPositions]);
@@ -4493,7 +4496,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       ? null
                       : unpriced === 1
                         ? "One position not priced"
-                        : `${unpriced} positions not priced`;
+                        : `${plural(unpriced, "position")} not priced`;
                   // One rendering for "we could not measure this", in the value
                   // slot where a number would otherwise go. The treatment is
                   // `RISK_CHIP.UNKNOWN`, the same hatch a degraded position row
@@ -4554,7 +4557,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           size="lg"
                           label="Positions"
                           value={liveMacro.positions}
-                          sub={`Across ${liveMacro.protocols} ${liveMacro.protocols === 1 ? "protocol" : "protocols"}`}
+                          sub={`Across ${plural(liveMacro.protocols, "protocol")}`}
                         />
                       </Card>
 
@@ -4673,17 +4676,23 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         outage is the reader working out which is the real one.
                         It names the asset, which is the one thing the stat
                         card's truncated sub-line cannot. */}
-                    {liveMacro !== null && liveMacro.capital !== null && stalePriceAssets.length > 0 && (
-                      <Card tone="raised" className="space-y-2">
-                        <span className="flex items-center gap-2 label-type text-xs text-text-muted">
-                          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                          {stalePriceAssets.length === 1 ? "One feed missing" : `${stalePriceAssets.length} feeds missing`}
-                        </span>
-                        <p className="font-sans text-sm leading-relaxed text-text-secondary">
-                          {`The ${stalePriceAssets.join(", ")} price ${stalePriceAssets.length === 1 ? "feed is" : "feeds are"} stale, so ${stalePriceAssets.length === 1 ? "that position is" : "those positions are"} left blank rather than counted as zero.`}
-                        </p>
-                      </Card>
-                    )}
+                    {liveMacro !== null && liveMacro.capital !== null && stalePriceAssets.length > 0 && (() => {
+                      // One test, four readings of it. Spelled out at each of
+                      // the four and they can disagree, which in English means
+                      // "The cbBTC price feeds are stale, so that position is".
+                      const one = stalePriceAssets.length === 1;
+                      return (
+                        <Card tone="raised" className="space-y-2">
+                          <span className="flex items-center gap-2 label-type text-xs text-text-muted">
+                            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            {one ? "One feed missing" : plural(stalePriceAssets.length, "feed") + " missing"}
+                          </span>
+                          <p className="font-sans text-sm leading-relaxed text-text-secondary">
+                            {`The ${stalePriceAssets.join(", ")} price ${one ? "feed is" : "feeds are"} stale, so ${one ? "that position is" : "those positions are"} left blank rather than counted as zero.`}
+                          </p>
+                        </Card>
+                      );
+                    })()}
 
                     {/* What was actually scanned, from the payload rather than
                         from a constant: a Base Sepolia reader must not be told
@@ -4705,7 +4714,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         covered={coveredProtocols}
                       />
                       <span className="mt-auto font-mono text-sm font-bold tabular-nums text-text-primary">
-                        {`${coveredProtocols.length} ${coveredProtocols.length === 1 ? "protocol" : "protocols"} on ${coveredChainLabel}`}
+                        {`${plural(coveredProtocols.length, "protocol")} on ${coveredChainLabel}`}
                       </span>
                     </Card>
                     )}
