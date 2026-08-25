@@ -4,96 +4,95 @@
  */
 
 import React from "react";
-import { ShieldAlert, BookOpen, Twitter, Github, Globe } from "lucide-react";
-import { PanikLogoMark } from "./PanikLogo";
+import { Card } from "../../panik-core/ui";
+import { MarkPlate } from "./MarkPlate";
 
-interface FooterProps {
-  onScrollTo: (sectionId: string) => void;
-}
+/**
+ * Three columns, and EVERY LINK IN THEM GOES SOMEWHERE THAT EXISTS today: a
+ * section of this page, the product, or an account we actually run.
+ *
+ * That is why the columns are uneven and why the third is "Elsewhere" rather
+ * than the "Legal" the mockup carried. Terms and Privacy pages have not been
+ * written; a footer link to a page that 404s is a worse promise than an absent
+ * one, and padding the grid to a tidy three-by-three would have meant either
+ * inventing those pages or pointing two labels at one anchor. The risk notice
+ * below is a real document, so it is the legal item that ships. When the other
+ * two exist they join that column and the heading goes back.
+ */
+const LINK_COLUMNS = [
+  {
+    heading: "Product",
+    links: [
+      { label: "Live score", href: "/app" },
+      { label: "How it works", href: "#how" },
+      { label: "Why PANIK", href: "#why" },
+    ],
+  },
+  {
+    heading: "Answers",
+    links: [
+      { label: "FAQ", href: "#faq" },
+      { label: "Risk notice", href: "#risk-notice" },
+    ],
+  },
+  {
+    heading: "Elsewhere",
+    links: [
+      { label: "Follow on X", href: "https://x.com/panik_fi" },
+      { label: "Built on Base", href: "https://base.org" },
+    ],
+  },
+];
 
-export function Footer({ onScrollTo }: FooterProps) {
-  const currentYear = new Date().getFullYear();
-
+export function Footer() {
   return (
-    <footer className="bg-surface-base border-t border-border-subtle py-16 px-6 relative overflow-hidden">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 relative z-10">
-        
-        {/* Left footer: logo and subtitle */}
-        <div className="flex flex-col items-center md:items-start text-center md:text-left">
-          <div 
-            onClick={() => onScrollTo("hero")}
-            className="flex items-center gap-2.5 cursor-pointer group mb-3"
-            id="footer-brand-container"
-          >
-            <PanikLogoMark size={24} />
-            <span className="font-sans font-bold text-lg tracking-wider text-text-primary group-hover:text-text-primary transition-colors">
-              PANIK
-            </span>
-          </div>
-          <p className="text-xs text-text-secondary font-mono max-w-sm leading-relaxed">
-            DeFi risk intelligence layer. Your positions, protected against systemic liquidation vectors.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-center gap-8 text-2xs font-mono tracking-wider text-text-secondary">
-          <button 
-            type="button"
-            onClick={() => onScrollTo("scoring")} 
-            className="hover:text-text-primary uppercase transition-colors py-1 cursor-pointer"
-          >
-            How It Works
-          </button>
-          <button 
-            type="button"
-            onClick={() => onScrollTo("products")} 
-            className="hover:text-text-primary uppercase transition-colors py-1 cursor-pointer"
-          >
-            Products
-          </button>
-          <button 
-            type="button"
-            onClick={() => onScrollTo("backtest")} 
-            className="hover:text-text-primary uppercase transition-colors py-1 cursor-pointer"
-          >
-            Performance
-          </button>
-          <button
-            type="button"
-            onClick={() => onScrollTo("faq")} 
-            className="hover:text-text-primary uppercase transition-colors py-1 cursor-pointer"
-          >
-            FAQ
-          </button>
-          <span className="text-white/10 hidden sm:inline">•</span>
-          <span className="flex items-center gap-1.5 text-panik-orange bg-panik-orange/10 border border-panik-orange/20 px-2.5 py-0.5 rounded-sm text-2xs font-bold">
-            BUILT ON BASE
-          </span>
-        </div>
-
-        {/* Right footer: socials */}
-        <div className="flex items-center gap-4">
-          <a
-            href="https://x.com/panik_fi"
-            target="_blank"
-            rel="noreferrer noopener"
-            className="w-8 h-8 rounded-md bg-white/[0.01] border border-border-subtle flex items-center justify-center hover:border-panik-orange hover:text-panik-orange transition-colors"
-            aria-label="Twitter / X Profile"
-          >
-            <Twitter className="w-4 h-4" />
-          </a>
-        </div>
-
-      </div>
-
-      {/* Disclaimers & Copyright bar */}
-      <div className="max-w-7xl mx-auto mt-12 pt-6 border-t border-border-subtle flex flex-col sm:flex-row justify-between items-center gap-4 text-2xs font-mono text-text-secondary">
-        <div>
-          © {currentYear} PANIK Intelligence. All rights reserved.
-        </div>
-        <div className="text-center sm:text-right max-w-lg leading-normal">
-          DISCLAIMER: PANIK is a non-custodial risk intelligence telemetry provider. All analytics, simulations, and recommendation outputs are for informational and educational purposes only, and do not constitute financial, legal, or investment advice. Smart contract interactions and capital locked in decentralized protocols carry inherent risks, including code vulnerabilities and liquidation.
+    <footer className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-12 md:px-16">
+      <div className="flex flex-col justify-between gap-8 md:flex-row md:items-start">
+        <a href="#top" className="flex items-center gap-4 no-underline">
+          <MarkPlate />
+          <span className="text-2xl font-black tracking-tight text-text-primary">PANIK</span>
+        </a>
+        <div className="grid gap-8 sm:grid-cols-3 md:gap-16">
+          {LINK_COLUMNS.map((column) => (
+            <nav key={column.heading} aria-label={column.heading} className="flex flex-col gap-3">
+              <p className="label-type text-xs text-text-secondary">{column.heading}</p>
+              {column.links.map((link) => {
+                /* Derived rather than a flag on the row: a link that leaves the
+                   site is exactly a link whose href does, and the two cannot
+                   disagree if only one of them is written down. */
+                const external = link.href.startsWith("http");
+                return (
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    className="flex h-6 items-center text-sm text-text-primary"
+                    {...(external ? { target: "_blank", rel: "noreferrer noopener" } : {})}
+                  >
+                    {link.label}
+                  </a>
+                );
+              })}
+            </nav>
+          ))}
         </div>
       </div>
+
+      {/*
+        The one thing on this page that has to survive being skimmed: what
+        PANIK does not do. `lead` is the lavender plate, which is the loudest
+        card tone available and is nowhere near the risk ramp, so the notice can
+        be unmissable without reading as a warning about a position.
+      */}
+      <Card id="risk-notice" tone="lead">
+        <p className="text-sm text-text-primary">
+          PANIK watches positions and sends warnings. It never moves your funds, it is not financial
+          advice, and a warning can arrive late or not at all if a price source goes quiet.
+        </p>
+      </Card>
+
+      <p className="font-mono text-xs text-text-secondary">
+        Copyright {new Date().getFullYear()} PANIK. Built on Base.
+      </p>
     </footer>
   );
 }
