@@ -445,6 +445,90 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
  * catalog for what-if auditing before opening a position.
  */
 type WatchSource = "positions" | "recommendations";
+
+/**
+ * A band, as the word the Watch chip wears.
+ *
+ * The chip used to read the band off a `?:` chain that had grown its own
+ * vocabulary: CRITICAL came out "CRITICAL THREAT", HIGH "HIGH RISK", ELEVATED
+ * bare, LOW "LOW RISK". Four bands, three different constructions, and "threat"
+ * appearing on exactly one of them, which makes the loudest band read as a
+ * different KIND of statement rather than as one more step on the same scale.
+ *
+ * `Record<Band, string>` rather than a chain, for the reason every other table
+ * in this product is one: a band added to the engine fails the build here
+ * instead of falling through to the raw token. The chain's final `else` was
+ * that failure waiting to happen — it painted anything that was not one of the
+ * first three as "LOW RISK".
+ *
+ * `RiskChip` uppercases these itself, so they are written as words.
+ */
+const BAND_WORD: Record<Band, string> = {
+  LOW: "Low risk",
+  ELEVATED: "Elevated risk",
+  HIGH: "High risk",
+  CRITICAL: "Critical risk",
+};
+
+/**
+ * The Watch simulator's two control skins, written once.
+ *
+ * Eight controls wore these, as eight hand-typed strings that had already
+ * drifted (one number field spelled its utilities in a different order and set
+ * `text-text-primary` twice). Both strings were also dark-theme artefacts that
+ * had stopped working on paper: the number fields were `bg-black/40`, a 40%
+ * black wash that made a typed figure white-on-charcoal inside a white card,
+ * and the slider tracks were `bg-white/10`, which on white is nothing at all —
+ * a range control whose track is invisible has no length to read a value
+ * against.
+ *
+ * `accent-brand`, not `accent-text-primary`: the thumb is the one moving part
+ * of the control and cobalt is what this system paints a control with. It is
+ * nowhere on the risk ramp, so a slider dragged to a dangerous price never
+ * looks like a verdict about the position.
+ *
+ * No `focus:` rule on the field. The one global `:focus-visible` ring in
+ * index.css draws it, and the rule that was here set the border to the colour
+ * it already had.
+ *
+ * The field COMPOSES `FIELD_BOX` rather than restating it. That constant is
+ * exported from ui/TextField for exactly this case, a surface that cannot use
+ * the component because its label is an `aria-label` rather than a visible one,
+ * and taking it brings the 48px height the design system sets for every input
+ * in the product. Hand-rolling the plate is what made these four fields shorter
+ * than every other field in the app, and it silently dropped the disabled
+ * treatment that comes with the box.
+ *
+ * The four utilities added to it set properties `FIELD_BOX` does not, so
+ * nothing here is two rules deciding a tie by emit order.
+ */
+const WATCH_NUMBER_FIELD = `w-24 shrink-0 text-right font-mono tabular-nums ${FIELD_BOX}`;
+
+const WATCH_SLIDER = "w-full h-1.5 cursor-pointer appearance-none bg-border-subtle accent-brand";
+
+/** A slider's two end labels: a figure each, so both are set in mono. */
+const WATCH_SLIDER_ENDS =
+  "flex justify-between font-mono text-xs tabular-nums text-text-muted";
+
+/**
+ * What the band MEANS for this position, in one clause.
+ *
+ * A verdict that needs two sentences is not a verdict. These say what is true
+ * and, where there is something to do, what to do; none of them reassures, and
+ * none names a number the reading beside it already carries.
+ *
+ * "Spot price is close to your liquidation benchmark" is what CRITICAL used to
+ * say. "Spot" and "benchmark" are both trade jargon with no referent on this
+ * screen, and the fact underneath them is the one the whole product is built to
+ * state plainly: the price is near the level that liquidates you.
+ */
+const BAND_VERDICT: Record<Band, string> = {
+  LOW: "The collateral here comfortably covers the debt.",
+  ELEVATED: "Steady for now, and a short move in the price would change that.",
+  HIGH: "There is more debt here than the collateral carries comfortably. Repay some, or add collateral.",
+  CRITICAL: "The price is close to the level that liquidates this position.",
+};
+
 // RiskProfile is the engine's union (packages/scoring/src/types.ts) - a local
 // re-declaration drifted-by-construction the day the engine adds a profile.
 
@@ -1043,18 +1127,24 @@ function MarketOptionRow({ choice, selected }: { choice: MarketChoice; selected:
   return (
     <>
       <div className="min-w-0">
-        <span className="block text-xs font-sans text-text-muted">{choice.protocol}</span>
+        <span className="block label-type text-xs text-text-muted">{choice.protocol}</span>
+        {/* The leg is a size or an asset pair, so it is a reading either way. */}
         <span
-          className={`block text-sm font-sans font-semibold truncate tabular-nums ${
+          className={`block truncate font-mono text-sm font-bold tabular-nums ${
             selected ? "text-text-primary" : "text-text-secondary"
           }`}
         >
           {choice.line}
         </span>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <RiskChip band={choice.band}>{choice.band}</RiskChip>
-        <span className="text-xs font-sans text-text-muted tabular-nums">{choice.score}</span>
+      <div className="flex shrink-0 items-center gap-2">
+        {/* The band as a WORD, from the one table. This printed `choice.band`
+            straight through, so an engine token reached the screen in the one
+            place a reader compares four positions before acting on one. */}
+        <RiskChip band={choice.band}>{BAND_WORD[choice.band]}</RiskChip>
+        <span className="font-mono text-xs font-bold tabular-nums text-text-muted">
+          {choice.score}
+        </span>
       </div>
     </>
   );
@@ -1117,7 +1207,12 @@ function BreakdownRow({
         </span>
         {value !== undefined && (
           <span className="shrink-0 text-right">
-            <span className="block text-sm font-sans font-semibold tabular-nums text-text-primary">
+            {/* MONO, because every value this row carries is a reading: a
+                percentage, a dollar amount, a sub-score, or the short phrase
+                the engine substitutes when there is no figure to print. A
+                column of them lines up on its own, which is the whole reason
+                the system has a second face. */}
+            <span className="block font-mono text-sm font-bold tabular-nums text-text-primary">
               {value}
             </span>
             {note !== undefined && (
@@ -1145,10 +1240,12 @@ function BreakdownSection({
 }) {
   return (
     <section className="space-y-1">
-      <h4 className="flex items-center gap-1 text-xs font-sans font-semibold text-text-muted">
+      {/* `CardTitle`, so a section heading looks the same here as it does two
+          cards over. `heading` is a plain string at all four call sites and
+          none of them names an asset, so the uppercase transform is safe. */}
+      <CardTitle as="h4" size="sm" muted hint={hint}>
         {heading}
-        {hint !== undefined && <InfoTip text={hint} />}
-      </h4>
+      </CardTitle>
       <div className="divide-y divide-border-subtle border-t border-border-subtle">{children}</div>
     </section>
   );
@@ -1181,15 +1278,20 @@ function ScoreBreakdownSection({ valueOf }: { valueOf: (driver: RiskDriver) => n
         const value = valueOf(driver);
         return (
           <BreakdownRow key={driver.key} label={driver.label} hint={driver.hint} value={value}>
-            {/* The transition is kept on both call sites rather than neither:
-                Watch's sliders move these four bars continuously, and a panel
-                whose values never change within a mount pays nothing for a
-                transition that never fires. */}
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.03]">
-              <div
-                className="h-full rounded-full bg-text-secondary transition-all duration-300"
-                style={{ width: `${value}%` }}
-              />
+            {/* A visible TRACK and a square bar. The track was `bg-white/[0.03]`
+                and the bar `rounded-full`, which is a dark-theme rule and a
+                radius this system does not have: on a white card a 3% white
+                track is white, so the bar had no length to be read against and
+                four sub-scores of 78, 38, 30 and 30 all looked like four bars
+                floating in nothing.
+
+                The transition is gone with the rest of the motion in this
+                system. It existed for Watch, whose sliders move these four bars
+                continuously, and a 300ms ease on a risk figure that is being
+                dragged is the bar reporting a value the position no longer
+                has. */}
+            <div className="h-1.5 w-full overflow-hidden bg-border-subtle">
+              <div className="h-full bg-text-primary" style={{ width: `${value}%` }} />
             </div>
           </BreakdownRow>
         );
@@ -2813,7 +2915,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           positionState.healthFactor === null
             ? null
             : `Health factor ${positionState.healthFactor.toFixed(2)}`,
-          watchOutlook.stripNote,
+          /* `stripNote` is gone from here, because the row above now promotes
+             it into the VALUE. It is non-null in exactly the two cases the
+             engine will not express as a percentage, which are the two cases
+             the value reads "Liquidatable now" or "None" — so leaving it here
+             printed the same fact twice on two consecutive lines. */
           watchOutlook.stripNote === null && watchLiqPrice > 0
             ? `${activeMarket.collateralAsset} at ${formatCurrency(watchLiqPrice)}`
             : null,
@@ -3375,19 +3481,50 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                            content flattened with no separators: the count pill
                            beside the label announces as "Current positions4". */
                         aria-label={opt.count === null ? opt.label : `${opt.label}, ${opt.count}`}
-                        className={`flex h-9 items-center gap-2 rounded-md border px-3.5 text-xs font-sans font-bold transition-colors cursor-pointer ${
-                          active
-                            ? "bg-text-primary text-surface-base border-text-primary"
-                            : "bg-white/[0.02] text-text-secondary border-border-subtle hover:bg-white/[0.06] hover:text-text-primary"
+                        /* Selected is the LAVENDER plate, resting is the white
+                           one, and both keep the same edge and shadow. Two
+                           plates rather than two greys, which is the same
+                           distinction `Card` draws between `lead` and `raised`.
+
+                           Not cobalt: that is the tab rail's block and it means
+                           "the section you are in". This chooses which catalog
+                           one panel reads, and a second cobalt block on the
+                           screen would make the two look like the same kind of
+                           control. Not the risk ramp either, for the obvious
+                           reason.
+
+                           No hover fill on the resting plate. Filling it with
+                           `highlight` would paint it the selected colour under
+                           the pointer, which is a control that lies about its
+                           own state; the press travel is the affordance.
+
+                           That travel is `BUTTON_PRESS` from ui/Button, copied
+                           verbatim rather than approximated: three positions
+                           off a `shadow-hard-sm` plate, 3px on hover and 6px
+                           and no shadow on active. A shorter two-position
+                           version of it is how a screen ends up with two
+                           pressable blocks that answer a press differently.
+                           The constant is not exported yet, so this is a copy
+                           with a note on it rather than an import. */
+                        className={`flex h-12 cursor-pointer items-center gap-2 hard-edge px-4 label-type text-xs text-text-primary shadow-hard-sm hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none ${
+                          active ? "bg-highlight" : "bg-surface-raised"
                         }`}
                       >
-                        {opt.key === "positions" ? <Eye className="w-3.5 h-3.5" /> : <CompassIcon className="w-3.5 h-3.5" />}
+                        {opt.key === "positions" ? (
+                          <Eye className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        ) : (
+                          <CompassIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        )}
                         <span>{opt.label}</span>
-                        {/* Tinted from the surface token, not from white: on the
-                            selected plate the fill IS near-white, so a white
-                            wash renders the count invisible. */}
+                        {/* The count as a NUMERAL, in the mono face every other
+                            figure in the product is set in. It used to be a
+                            pill, which is a rounded tinted box on a system with
+                            no radius and no tints, and both of its fills were
+                            translucent white: one of them rendered the digit
+                            invisible on the selected plate the moment the plate
+                            stopped being dark. */}
                         {opt.count !== null && opt.count > 0 && (
-                          <span className={`rounded-full px-1.5 text-xs tabular-nums ${active ? "bg-surface-base/15" : "bg-white/10"}`}>
+                          <span className="font-mono text-xs font-bold tabular-nums">
                             {opt.count}
                           </span>
                         )}
@@ -3475,7 +3612,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                             watched wallet's leg would name the wrong owner on
                             the one screen whose numbers are somebody's real
                             money. */}
-                        <span className="block text-xs font-sans text-text-muted mb-1">
+                        <span className="mb-1 block label-type text-xs text-text-muted">
                           {watchingOwnPosition
                             ? viewingWatchOnly
                               ? "Watched position"
@@ -3500,10 +3637,21 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           selectedIndex={marketSelectedIndex}
                           onCommit={(i) => marketChoices[i].commit()}
                           triggerClassName="group flex items-center gap-2 cursor-pointer"
+                          /* `CardTitle`: this is the card's name, and it was the
+                             loudest of the five different answers this app gave
+                             to what a title looks like (`tracking-wide` where
+                             the system's headline tracking is tight). The
+                             hover, which faded the whole heading to muted, went
+                             with it — there is no motion here, and the trigger's
+                             affordance is the chevron the listbox draws beside
+                             it, which does not have to dim a heading to be
+                             found. */
                           trigger={
-                            <h2 className="text-lg font-sans font-extrabold text-text-primary tracking-wide group-hover:text-text-muted transition-colors">
+                            /* `caseSensitive`: the pair is two tickers, and
+                               "CBBTC / USDC" is not the name of a market. */
+                            <CardTitle as="h2" size="lg" caseSensitive>
                               {activeMarket.protocol} · {activeMarket.assetPair}
-                            </h2>
+                            </CardTitle>
                           }
                           /* The selected row keeps its left rail, which is the
                              marker this list has always used for "this is the
@@ -3556,31 +3704,37 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         {/* No icon. Portfolio's stat labels carry none, and a
                             generic pulse glyph beside the score's name adds no
                             information the words are missing. */}
-                        <div className="flex items-center gap-1 text-text-muted font-sans text-xs">
-                          <span>{RISK_SCORE_NAME}</span>
-                          <InfoTip text={`${RISK_SCORE_HINT} Your risk profile sets where alerts fire.`} />
-                        </div>
+                        <CardTitle
+                          as="h3"
+                          size="sm"
+                          muted
+                          hint={`${RISK_SCORE_HINT} Your risk profile sets where alerts fire.`}
+                        >
+                          {RISK_SCORE_NAME}
+                        </CardTitle>
 
                         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
                           <div className="flex items-baseline gap-2">
                             {/* Neutral ink, like every other figure in the
-                                product. A 40px saturated numeral is the loudest
-                                thing a dashboard can emit, and it was saying in
-                                the same hue what the chip beside it says. The
-                                chip is the band. */}
-                            <span className="text-4xl font-sans font-black tracking-tight tabular-nums text-text-primary">
+                                product, and set in MONO like every other
+                                numeral: a score, a price and a dollar amount
+                                all read as readings rather than as prose, and
+                                this is the largest reading on the tab. A 40px
+                                saturated numeral is the loudest thing a
+                                dashboard can emit, and it was saying in the
+                                same hue what the chip beside it says. The chip
+                                is the band. */}
+                            <span className="font-mono text-4xl font-bold tabular-nums text-text-primary">
                               {positionState.riskScore}
                             </span>
-                            <span className="text-sm font-sans text-text-muted tabular-nums">/ 100</span>
+                            <span className="font-mono text-sm tabular-nums text-text-muted">/ 100</span>
 
                             {/* Beside the figure, not at the far edge: a band
                                 pushed to the other end of a 690px row leaves a
                                 score and the word that reads it with the width
                                 of the card between them. */}
                             <RiskChip band={positionState.status} className="ml-1">
-                              {positionState.status === "CRITICAL" ? "CRITICAL THREAT" :
-                               positionState.status === "HIGH" ? "HIGH RISK" :
-                               positionState.status === "ELEVATED" ? "ELEVATED" : "LOW RISK"}
+                              {BAND_WORD[positionState.status]}
                             </RiskChip>
                           </div>
 
@@ -3590,27 +3744,27 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                               — the arrow says the direction, and the chip beside
                               it already says the band. */}
                           {scoreDelta !== 0 && (
-                            <p className="flex items-center gap-1 font-sans text-xs text-text-secondary tabular-nums">
+                            <p className="flex items-center gap-1 font-sans text-xs text-text-secondary">
                               {scoreDelta > 0 ? (
-                                <ArrowUp className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                <ArrowUp className="h-4 w-4 shrink-0" aria-hidden="true" />
                               ) : (
-                                <ArrowDown className="w-3 h-3 shrink-0" aria-hidden="true" />
+                                <ArrowDown className="h-4 w-4 shrink-0" aria-hidden="true" />
                               )}
-                              {scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta} vs{" "}
-                              {watchingOwnPosition ? "your position" : "this market"} now
+                              <span className="font-mono font-bold tabular-nums">
+                                {scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta}
+                              </span>{" "}
+                              vs {watchingOwnPosition ? "your position" : "this market"} now
                             </p>
                           )}
                         </div>
 
-                        <p className="text-sm text-text-secondary leading-relaxed font-sans">
-                          {/* One clause each: a verdict that needs two
-                              sentences is not a verdict, and the brochure
-                              language that used to wrap these read as
-                              reassurance we had not measured. */}
-                          {positionState.status === "CRITICAL" && "Spot price is close to your liquidation benchmark."}
-                          {positionState.status === "HIGH" && "Leverage is high. Repay or add collateral."}
-                          {positionState.status === "ELEVATED" && "Stable, but exposed to short-term volatility."}
-                          {positionState.status === "LOW" && "Collateral buffer is comfortable."}
+                        {/* One table, not four `&&` branches over the same
+                            value: a band the engine gains renders NOTHING under
+                            a chain like that, so the card silently loses its
+                            verdict rather than failing the build. See
+                            `BAND_VERDICT` for the wording. */}
+                        <p className="font-sans text-sm leading-relaxed text-text-secondary">
+                          {BAND_VERDICT[positionState.status]}
                         </p>
                       </div>
 
@@ -3672,7 +3826,26 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                               ? UNLISTED_MARKET_HINT
                               : watchLiquidationRow.hint
                           }
-                          value={watchMarketUnlisted ? "Not measured" : watchOutlook.strip}
+                          /* `statValue` wherever there is no drop to state, and
+                             `strip` only when there is one.
+
+                             `statesADrop` is false in exactly the two cases the
+                             engine refuses to express as a percentage, and this
+                             row was printing `strip` through both of them. On a
+                             liquidatable-now position that rendered "Liquidation
+                             risk / 0%", which is the precise inverse of the
+                             truth and the reason `statLabel`/`statValue` exist:
+                             the label already stopped saying "Drop to
+                             liquidation" here, so the value beside it had to
+                             stop being a drop as well. It reads "Liquidatable
+                             now" now, and "None" on a position with no debt. */
+                          value={
+                            watchMarketUnlisted
+                              ? "Not measured"
+                              : watchLiquidationRow.statesADrop
+                                ? watchOutlook.strip
+                                : watchOutlook.statValue
+                          }
                           note={watchMarketUnlisted ? undefined : watchDropSub || undefined}
                         />
                         <BreakdownRow
@@ -3728,10 +3901,14 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       hand-typed copy of the raised tone that had drifted to
                       p-6. */}
                   <Card tone="raised" className="space-y-3">
-                    <span className="flex items-center gap-1 text-xs font-sans font-semibold text-text-muted">
+                    <CardTitle
+                      as="h3"
+                      size="sm"
+                      muted
+                      hint="Crash and black-swan magnitudes mirror the backtest event set. Each row states how much further the collateral could fall from that price before liquidation, measured with the same liquidation threshold the score uses; hover it for the exact health factor."
+                    >
                       Price scenarios
-                      <InfoTip text="Crash and black-swan magnitudes mirror the backtest event set. Each row states how much further the collateral could fall from that price before liquidation, measured with the same liquidation threshold the score uses; hover it for the exact health factor." />
-                    </span>
+                    </CardTitle>
                     {/* A same-asset market gets the reason instead of the chips.
                         Run against USDC collateral and USDC debt, the four
                         scenarios were reporting "black swan -55%, HF ~1.48",
@@ -3815,17 +3992,26 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                               .filter(Boolean)
                               .join(", ")}
                             onClick={() => applyScenario(s.key, s.pct)}
-                            className={`block w-full cursor-pointer border-l-2 py-3 pl-3 pr-1 text-left transition-colors ${
+                            /* The selected row is a 3px black rail and the
+                               sunken plate, which is `Card`'s own `set-back`
+                               pair. Both of the fills this replaces were
+                               translucent WHITE, so on paper the selected row
+                               and the hovered row were the same white as the
+                               card and the rail was carrying the state alone at
+                               2px. */
+                            className={`block w-full cursor-pointer border-l-[3px] border-solid py-3 pl-3 pr-1 text-left ${
                               active
-                                ? "border-l-border-strong bg-white/[0.06]"
-                                : "border-l-transparent hover:bg-white/[0.04]"
+                                ? "border-l-border-strong bg-surface-sunken"
+                                : "border-l-transparent hover:bg-surface-sunken"
                             }`}
                           >
                             <span className="flex items-baseline justify-between gap-3">
-                              <span className={`text-xs font-sans ${active ? "text-text-primary font-semibold" : "text-text-secondary"}`}>
+                              <span
+                                className={`font-sans text-xs ${active ? "font-bold text-text-primary" : "text-text-secondary"}`}
+                              >
                                 {s.label}
                               </span>
-                              <span className="shrink-0 text-sm font-sans font-semibold tabular-nums text-text-primary">
+                              <span className="shrink-0 font-mono text-sm font-bold tabular-nums text-text-primary">
                                 {priceText}
                               </span>
                             </span>
@@ -3834,7 +4020,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                                   anything. It defines which row this is ("Crash"
                                   is -40%), so it reads as a label and is inked
                                   like one, beside the event it is named for. */}
-                              <span className="text-xs font-sans text-text-muted tabular-nums">
+                              <span className="font-sans text-xs text-text-muted">
                                 {magnitude}
                               </span>
                               {consequence !== null && (
@@ -3856,7 +4042,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                                    for the same clause. */
                                 <span
                                   title={outlook.hover}
-                                  className="shrink-0 cursor-help text-xs font-sans font-semibold tabular-nums text-text-secondary"
+                                  className="shrink-0 cursor-help font-mono text-xs font-bold tabular-nums text-text-secondary"
                                 >
                                   {consequence}
                                 </span>
@@ -3879,9 +4065,9 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       a container the pointer was only crossing to reach the
                       slider, and it stated nothing about state. */}
                   <Card tone="raised" className="flex flex-col xl:flex-auto">
-                    <span className="text-xs font-sans font-semibold text-text-muted block">
+                    <CardTitle as="h3" size="sm" muted>
                       Adjust the position
-                    </span>
+                    </CardTitle>
 
                     <div className="mt-3 divide-y divide-border-subtle border-t border-border-subtle">
                     {/* Collateral amount */}
@@ -3894,7 +4080,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           step={activeMarket.defaultCollateral < 10 ? 0.1 : 100}
                           value={collateralAmount}
                           onChange={(e) => setCollateralAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-text-primary text-sm font-sans focus:border-border-strong tabular-nums"
+                          className={WATCH_NUMBER_FIELD}
                           aria-label="Collateral amount"
                         />
                       </div>
@@ -3905,7 +4091,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         step={activeMarket.defaultCollateral < 10 ? 0.05 : 50}
                         value={Math.min(collateralAmount, activeMarket.defaultCollateral * 2.5)}
                         onChange={(e) => setCollateralAmount(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
+                        className={WATCH_SLIDER}
                         id="watch-collateral-slider"
                       />
                       {/* Both ends state the END, in the shape the price slider
@@ -3913,7 +4099,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           $128,500" where the dollars were the CURRENT holding,
                           not the maximum the label names: one clause, two
                           unrelated facts, and the reader gets the wrong one. */}
-                      <div className="flex justify-between text-xs font-sans text-text-muted tabular-nums">
+                      <div className={WATCH_SLIDER_ENDS}>
                         <span>0</span>
                         <span>2.5x ({formatCurrency(activeMarket.defaultCollateral * 2.5 * assetPrice)})</span>
                       </div>
@@ -3944,7 +4130,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                              simulated price means for this position is the
                              score, the chip and the drop tile's job; the input
                              is a control. */
-                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-sm font-sans text-text-primary focus:border-border-strong tabular-nums"
+                          className={WATCH_NUMBER_FIELD}
                           aria-label="Collateral asset price in USD"
                         />
                       </div>
@@ -3958,10 +4144,10 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           setAssetPrice(Number(e.target.value));
                           setActiveScenario("custom");
                         }}
-                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
+                        className={WATCH_SLIDER}
                         id="watch-price-slider"
                       />
-                      <div className="flex justify-between text-xs font-sans text-text-muted tabular-nums">
+                      <div className={WATCH_SLIDER_ENDS}>
                         <span>-60% ({formatCurrency(activeMarket.defaultPrice * 0.4)})</span>
                         <span>+30% ({formatCurrency(activeMarket.defaultPrice * 1.3)})</span>
                       </div>
@@ -3977,7 +4163,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           step={activeMarket.defaultBorrow < 10 ? 0.1 : 50}
                           value={borrowAmount}
                           onChange={(e) => setBorrowAmount(Math.max(0, Number(e.target.value)))}
-                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-sm font-sans text-text-primary focus:border-border-strong tabular-nums"
+                          className={WATCH_NUMBER_FIELD}
                           aria-label="Borrowed amount"
                         />
                       </div>
@@ -3988,10 +4174,10 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         step={activeMarket.defaultBorrow < 10 ? "0.1" : "50"}
                         value={Math.min(borrowAmount, activeMarket.defaultBorrow * 1.6)}
                         onChange={(e) => setBorrowAmount(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
+                        className={WATCH_SLIDER}
                         id="watch-borrow-slider"
                       />
-                      <div className="flex justify-between text-xs font-sans text-text-muted tabular-nums">
+                      <div className={WATCH_SLIDER_ENDS}>
                         <span>0</span>
                         <span>+60% debt</span>
                       </div>
@@ -4007,7 +4193,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           step={0.005}
                           value={debtPrice}
                           onChange={(e) => setDebtPrice(Math.max(0, Number(e.target.value)))}
-                          className="w-24 shrink-0 bg-black/40 border border-border-strong rounded-sm px-2 py-0.5 text-right text-sm font-sans text-text-primary focus:border-border-strong tabular-nums"
+                          className={WATCH_NUMBER_FIELD}
                           aria-label="Borrowed asset price in USD"
                         />
                       </div>
@@ -4018,10 +4204,10 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         step={0.005}
                         value={Math.min(Math.max(debtPrice, 0.85), 1.05)}
                         onChange={(e) => setDebtPrice(Number(e.target.value))}
-                        className="w-full h-1.5 bg-white/10 rounded-md appearance-none cursor-pointer accent-text-primary"
+                        className={WATCH_SLIDER}
                         id="watch-debt-price-slider"
                       />
-                      <div className="flex justify-between text-xs font-sans text-text-muted tabular-nums">
+                      <div className={WATCH_SLIDER_ENDS}>
                         <span className="flex items-center gap-1">
                           $0.85 depeg
                           <InfoTip text="USDC fell to $0.87 during the SVB weekend in March 2023, which is the event this end of the range is scaled to." />
