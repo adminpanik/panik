@@ -73,33 +73,33 @@ lines, ever.** `/simpcommit` enforces this.
 ## UI and design
 
 **Read `docs/DESIGN_SYSTEM.md` before building or redesigning any screen.** It is the
-product's design contract and it was written after PRs #12-#15 rebuilt the whole app UI,
-so most rules exist because their absence caused a specific, named bug.
+product's design contract: neo-brutalist, light mode only (3px black borders, hard
+shadows with no blur or transitions, radius 0, Archivo plus Space Mono for every number,
+cobalt as the one brand accent, the risk ramp used only as status colour, a handful per
+screen).
 
-The parts that bite hardest:
-
-- **`src/index.css` `@theme` is the only place a value may be defined.** Everything else is
-  reset to `initial`, so an off-token utility renders as nothing. If you want a value that
-  is not there, that is a decision to raise, not a class to invent.
-- **Use the primitives in `src/panik-core/ui/`** (`Card`, `Stat`, `Button`, `RiskChip`,
-  `RiskDial`, `EmptyState`, `Skeleton`, `TabPanel`). `RISK_CHIP` in `lib/utils.ts` is the
-  single place a risk band becomes pixels.
-- **Colour is earned.** The risk ramp belongs to risk indicators only, a handful per screen.
-  Categorical data uses the cool chart palette, which contains no red or green so a series
-  can never read as a risk state. Never colour a stat value, a whole sentence, or a verb.
+- **`src/index.css` `@theme` is the only place a value may be defined.** Everything else
+  resets to `initial`, so an off-token utility renders as nothing. A value that is not
+  there is a decision to raise, not a class to invent.
+- **Use the primitives in `src/panik-core/ui/`** (`Card`, `Stat`, `Button`, `Chip`,
+  `RiskChip`, `RiskDial`, `EmptyState`, `Skeleton`, `TabPanel`, `Listbox`). `RISK_CHIP` in
+  `lib/utils.ts` is the single place a risk band becomes pixels.
 - **No jargon and no engine enums in UI copy.** `ProfileStatus` values go through
   `LIMIT_STATE`/`LIMIT_EVENT`; health factor goes through `liquidationOutlook`, which leads
   with the price-drop buffer ("Liquidates if cbBTC falls 4.8%") and keeps the exact ratio in
   the hover.
 - **Never render an unknown value as a zero.** No `$0`, `0%` or `Infinity%` standing in for
-  "unknown" or "not applicable" — a degraded feed once made a $120,000 debt read as $40.
+  "unknown" or "not applicable": a degraded feed once made a $120,000 debt read as $40.
 - **Never state a fact the code does not know.** No hardcoded status strings, no invented
   trends, no two cards showing the same quantity with different numbers.
 - No em dashes in UI copy. No pulsing or live indicators. No text below 11px. No
   hand-drawn SVG icons (Lucide only). No new runtime dependencies.
+- **Verification gates:** `npm run lint` 0 errors, `npm test` and `npm run test:scoring`
+  pass, `npm run build` succeeds, plus the in-browser checklist in
+  `docs/DESIGN_SYSTEM.md`.
 
 `packages/scoring` owns scoring, money math and thresholds. If the UI needs a derived
-number, **export it from the engine** rather than recomputing it — and grep for an existing
+number, **export it from the engine** rather than recomputing it, and grep for an existing
 helper first. This branch shipped a second copy of `1 - 1/HF` that disagreed with the
 existing one on invalid input, which is exactly what that rule exists to prevent.
 
