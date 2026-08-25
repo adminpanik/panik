@@ -5,7 +5,6 @@
 
 import React, { useState } from "react";
 import { CtaBand } from "./components/CtaBand";
-import { Faq } from "./components/Faq";
 import { Footer } from "./components/Footer";
 import { Hero } from "./components/Hero";
 import { HowItWorks } from "./components/HowItWorks";
@@ -52,7 +51,6 @@ export default function App() {
       <WhyPanik />
       <HowItWorks />
       <CtaBand cta={cta} />
-      <Faq />
       <Footer />
 
       <WaitlistModal
