@@ -73,6 +73,8 @@ The Founding-User pitch:
 
 ## 4. Journey A — Paid early access (the hero path)
 
+> **Removed 2026-08-25 (PR #122):** the Founding-User escrow deposit flow (`/founding`, `src/panik-founding/`) was deleted from the codebase. This section is kept for history only and no longer describes a live journey.
+
 **Shared onboarding (same as free), then branch to payment.**
 
 ```
@@ -135,6 +137,8 @@ No payment, no Turnstile. The wallet is collected as an unverified hint (it only
 
 ## 6. Journey C — Refund claim (we missed the deadline)
 
+> **Removed 2026-08-25 (PR #122):** the Founding-User escrow deposit flow (`/founding`, `src/panik-founding/`) was deleted from the codebase, so there is no live deposit to refund. This section is kept for history only.
+
 The novel, highest-trust, and easiest-to-get-wrong path. **$5 is small, so people will forget to claim** — the system must actively bring them back. The 90-day clock is **a single global deadline**, fixed when the contract was deployed and identical for every depositor. A wallet that deposits on day 85 has 5 days left, not 90 — reminder timing must key off the contract's `refundDeadline()`, never off `depositTime[wallet]`.
 
 ```
@@ -160,6 +164,8 @@ User          Return → Connect wallet → app reads contract:
 ---
 
 ## 7. Journey D — We shipped (release)
+
+> **Removed 2026-08-25 (PR #122):** the Founding-User escrow deposit flow (`/founding`, `src/panik-founding/`) was deleted from the codebase, so there is no escrow balance to sweep and no `hasPaid` wallet to gate on. This section is kept for history only.
 
 ```
 Before        Team calls ship() from the multisig. One call, no arguments; it
@@ -272,6 +278,8 @@ visitor ──(email+onboarding)──► waitlist_free ──(deposit $5, verif
 ---
 
 ## 13. Founding User Role (Escrow) — spec from business-dev doc
+
+> **Removed 2026-08-25 (PR #122):** the Founding-User escrow deposit flow (`/founding`, `src/panik-founding/`) was deleted from the codebase before this spec was built. This section is kept for history only.
 
 > **Not built yet.** Hidden page, **direct-URL only, not linked from main nav.** Accessible only to people given the link.
 
