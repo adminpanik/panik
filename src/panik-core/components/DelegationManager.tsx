@@ -46,7 +46,7 @@ import {
   EXIT_CHAIN_ID,
 } from "../lib/exit.generated";
 import { asContractClient, EXIT_ENV, getExitChain } from "../lib/exit";
-import { exitUnavailableLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
+import { exitsExecutableOn, useChainMode } from "../lib/chainMode";
 import { PROTOCOL_ID } from "../lib/exitLegs";
 import type { LiveProtocol } from "../lib/live";
 import { liquidationOutlook, PROTOCOL_LABEL } from "../lib/utils";
@@ -389,7 +389,7 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
       <Card tone="raised" className="space-y-3">
         {header}
         <p className="text-xs text-text-secondary leading-relaxed font-sans">
-          {exitUnavailableLine(chainMode)} There is nothing to grant here yet.
+          There is nothing to grant here yet.
         </p>
       </Card>
     );

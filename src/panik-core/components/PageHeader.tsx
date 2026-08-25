@@ -42,10 +42,17 @@ export function PageHeader({
 }) {
   return (
     <div className="flex h-18 shrink-0 items-center justify-between gap-4 border-b-[3px] border-solid border-border-strong">
-      {/* Truncates rather than wraps. At 390 the title and the action share the
-          row, and a two-line heading would take the header past the 72px every
-          other tab is drawn at, so the elastic half is the words. */}
-      <h1 className="min-w-0 truncate font-sans text-2xl font-black uppercase tracking-tight text-text-primary">
+      {/* 28px from `sm` up, 20px below it. Measured at 390: "PORTFOLIO" at 28px
+          is 208px and the action beside it is 165px, which is 15px past the
+          358px the padded column has, so the title ellipsised to "PORTFOL…" -
+          a page heading that cannot say which page it is. 20px is 118px and
+          both fit whole.
+
+          Truncates rather than wraps at any width. A two-line heading would
+          take the header past the 72px every other tab is drawn at, so the
+          elastic half is the words, and this is the one size step that keeps it
+          from ever having to give. */}
+      <h1 className="min-w-0 truncate font-sans text-lg font-black uppercase tracking-tight text-text-primary sm:text-2xl">
         {title}
       </h1>
       {action ? <div className="shrink-0">{action}</div> : null}

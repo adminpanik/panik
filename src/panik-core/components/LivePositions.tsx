@@ -89,8 +89,8 @@ function chainProvenance(chain: ScoringChainInfo | null): { badge: string | null
  * (`w-full` below): a money column that wraps is a money column that stops
  * lining up, which is the entire reason these figures are in a table.
  */
-const TH = "h-14 whitespace-nowrap px-4 label-type text-xs text-white";
-const TD = "px-4 py-3 align-middle";
+const TH = "h-14 whitespace-nowrap px-3 label-type text-xs text-white";
+const TD = "px-3 py-3 align-middle";
 /** Every figure in the table, in the one face this product sets numerals in. */
 const FIGURE = "whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary";
 /**
@@ -246,6 +246,13 @@ export function LivePositions({
           />
         </div>
       ) : (
+        /* The one horizontal scroller in the product, and it is the honest
+           answer for a table: six columns of names and figures have a width
+           below which they stop being a table, and the PAGE must never be the
+           thing that scrolls sideways. Below `xl` the two money columns drop
+           into the row's own disclosure instead, so this only engages in the
+           narrow band where all six are up and the column is tight. */
+        <div className="min-w-0 grow overflow-x-auto">
         <table className="w-full border-collapse text-left">
           <thead>
             <tr className="bg-text-primary">
@@ -255,10 +262,10 @@ export function LivePositions({
               <th scope="col" className={`${TH} hidden sm:table-cell`}>
                 Asset
               </th>
-              <th scope="col" className={`${TH} hidden lg:table-cell`}>
+              <th scope="col" className={`${TH} hidden xl:table-cell`}>
                 Collateral
               </th>
-              <th scope="col" className={`${TH} hidden lg:table-cell`}>
+              <th scope="col" className={`${TH} hidden xl:table-cell`}>
                 Debt
               </th>
               {/* The one elastic column: everything else is a name or a figure
@@ -320,7 +327,7 @@ export function LivePositions({
                     <td className={`${TD} hidden sm:table-cell`}>
                       <span className={FIGURE}>{p.scoredCollateralSymbol}</span>
                     </td>
-                    <td className={`${TD} hidden lg:table-cell`}>
+                    <td className={`${TD} hidden xl:table-cell`}>
                       {unpriced ? (
                         <span className={NOT_MEASURED} title={USD_UNAVAILABLE_HINT}>
                           Not measured
@@ -329,7 +336,7 @@ export function LivePositions({
                         <span className={FIGURE}>{formatUsd(p.collateralValueUsd)}</span>
                       )}
                     </td>
-                    <td className={`${TD} hidden lg:table-cell`}>
+                    <td className={`${TD} hidden xl:table-cell`}>
                       {unpriced ? (
                         <span className={NOT_MEASURED} title={USD_UNAVAILABLE_HINT}>
                           Not measured
@@ -374,7 +381,7 @@ export function LivePositions({
                                 {outlook.sentence}
                               </span>
                             </p>
-                            <p className="font-sans text-sm text-text-secondary lg:hidden">
+                            <p className="font-sans text-sm text-text-secondary xl:hidden">
                               {unpriced ? (
                                 <span title={USD_UNAVAILABLE_HINT}>
                                   Collateral and debt not measured
@@ -465,6 +472,7 @@ export function LivePositions({
             })}
           </tbody>
         </table>
+        </div>
       )}
 
       {/* The table's footer line. The sort order is the one thing about this

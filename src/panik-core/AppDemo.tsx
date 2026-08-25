@@ -4603,7 +4603,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       holding rows. The zero-position case is the page-level
                       empty state above and never reaches here. */}
                   {showPositionsCard && (
-                  <div className="grid lg:col-span-8">
+                  <div className="grid min-w-0 lg:col-span-9">
                     <LivePositions
                       positions={portfolioPositions}
                       highlightKey={highlightedPositionKey}
@@ -4633,7 +4633,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       what was scanned. None of them is a position, which is why
                       none of them is in the table. */}
                   {showPositionsCard && (
-                  <div className="flex flex-col gap-6 lg:col-span-4">
+                  <div className="flex flex-col gap-6 lg:col-span-3">
                     {/* The screen's ONE `lead` card, and it is spent here on
                         purpose: whether an alert can reach this reader away
                         from this page is the single thing on the tab they

@@ -27,18 +27,17 @@
  *
  * WHAT THE ROWS CARRY, and why none of it is colour. The current wallet is
  * marked with a check (SC 1.4.1: never state anything by hue alone, and the
- * lavender behind it is the second signal, not the first). The owner's row
- * wears `Chip`, literally the marker WalletsPanel gives it, so one wallet does
- * not have two names for the same fact across two surfaces. Every other row is
- * watch-only by construction and wears the eye. No risk hue anywhere: which
- * wallet you are looking at is not a risk band.
+ * lavender behind it is the second signal, not the first). A watch-only row
+ * wears the eye and the owner's wears nothing, which is the same distinction
+ * WalletsPanel draws with a `Chip` and is all a 208px rail has room for. No
+ * risk hue anywhere: which wallet you are looking at is not a risk band.
  */
 
 import React, { useId, useState } from "react";
 import { Check, Eye } from "lucide-react";
 import { truncateAddress } from "../lib/utils";
 import type { WalletChoice } from "../lib/watchlist";
-import { Button, Chip } from "../ui";
+import { Button } from "../ui";
 
 export interface WalletSelectorProps {
   /** Built by `viewableWallets`, which is the authority on what may be shown. */
@@ -162,12 +161,20 @@ export function WalletSelector({ options, value, onChange, checkedAt }: WalletSe
                       {truncateAddress(o.wallet)}
                     </span>
                   </span>
-                  {o.own ? (
-                    <Chip>Your wallet</Chip>
-                  ) : (
-                    /* No `title`: the glyph is decoration for a fact the row's
-                       own `aria-label` already states, and a second hover
-                       wording is a second thing to keep true. */
+                  {/* The eye marks a watch-only row, and its ABSENCE marks the
+                      owner's. The owner's row used to wear the `Chip`
+                      WalletsPanel gives it, which is the right marker on a
+                      panel and the wrong one in a 208px rail: measured, "Your
+                      wallet" at 90px left the name and the address 60px between
+                      them and both ellipsised to "Moc…" and "0x4c…". The fact
+                      is not lost, it is in the row's `aria-label`, and losing
+                      the address is losing the only thing that identifies the
+                      wallet.
+
+                      No `title` on the glyph: it is decoration for a fact the
+                      row's own accessible name already states, and a second
+                      hover wording is a second thing to keep true. */}
+                  {!o.own && (
                     <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                   )}
                   {/* Reserved either way, so committing a different row does not

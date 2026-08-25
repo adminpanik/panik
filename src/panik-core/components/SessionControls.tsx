@@ -182,8 +182,13 @@ export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: Sess
           {truncateAddress(session.wallet)}
           {until ? `, until ${until}` : ""}
         </p>
+        {/* "Forget this browser", not "Sign out": the account card above this
+            one on the Settings tab has a Sign out of its own, and it ends a
+            different thing. Two identical labels on one screen ending two
+            different sessions is the worst kind of ambiguity a settings page
+            can have. */}
         <Button variant="secondary" onClick={onSignOut} disabled={busy}>
-          {busy ? "Signing out..." : "Sign out"}
+          {busy ? "Forgetting..." : "Forget this browser"}
         </Button>
       </>
     );
@@ -198,7 +203,7 @@ export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: Sess
         <div className="flex flex-wrap items-center gap-2">
           {wallet && <SignInButton scope="readonly" busy={busy} onClick={onSignIn} variant="primary" />}
           <Button variant="secondary" onClick={onSignOut} disabled={busy}>
-            Sign out
+            Forget this browser
           </Button>
         </div>
       </>

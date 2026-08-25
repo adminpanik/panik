@@ -50,7 +50,7 @@ import { useAccount, useConnect, usePublicClient, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../lib/exit.generated";
 import { asContractClient, EXIT_ERC20_ABI, EXIT_NETWORK_LABEL, getExitChain, isExitExecutable } from "../lib/exit";
-import { exitUnavailableLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
+import { exitsExecutableOn, useChainMode } from "../lib/chainMode";
 import { classifyExitError } from "../lib/exitRpc";
 import { readUserReserves } from "../lib/exitPosition";
 import { resolveATokens } from "../lib/exitReserves";
@@ -380,7 +380,7 @@ export function ExitApprovals() {
       <Card tone="raised" className="space-y-3">
         {header}
         <p className="text-xs font-sans leading-relaxed text-text-secondary">
-          {exitUnavailableLine(chainMode)} There is nothing to pre-approve here yet.
+          There is nothing to pre-approve here yet.
         </p>
       </Card>
     );
