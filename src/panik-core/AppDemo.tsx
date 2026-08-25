@@ -349,16 +349,17 @@ interface NavTabsProps {
  *
  * Two states and no third. The selected tab is a solid cobalt plate with white
  * ink (5.03:1) and the same 3px edge every other box on the screen carries;
- * every other tab is the white plate. That is the whole treatment, in one map,
- * shared by the desktop rail and the phone bar: the two were separate ternaries
- * inside one `className` expression and had already drifted apart on which
- * property carried the state, the rail using a border plus a weight change and
- * the bar using a weight change alone.
+ * every other tab is FLAT: no fill, no border, no shadow, black ink, and a
+ * lavender wash on hover with no movement. That is the whole treatment, in one
+ * map, shared by the desktop rail and the phone bar: the two were separate
+ * ternaries inside one `className` expression and had already drifted apart on
+ * which property carried the state, the rail using a border plus a weight
+ * change and the bar using a weight change alone.
  *
- * Both of those were `bg-white/[0.06]` washes, which is a dark-theme idiom: on
- * white paper a 6% white fill is white, so the selected tab and the four
- * unselected ones rendered as the same plate and the nav stopped answering the
- * one question it exists to answer.
+ * The resting state used to be `bg-surface-raised` with an unconditional
+ * `hard-edge` on every tab, which made all five tabs read as the same bordered
+ * white plate the selected one was supposed to stand apart from. The border
+ * now lives on `selected` alone, so it appears exactly where the state does.
  *
  * Cobalt is safe to spend here. It is the brand accent and it shares nothing
  * with the risk ramp, so the loudest block in the shell can never be read as a
@@ -371,8 +372,8 @@ interface NavTabsProps {
  * copy of the state that can disagree with the first.
  */
 const TAB_STATE = {
-  selected: "bg-brand text-white",
-  resting: "bg-surface-raised text-text-primary hover:bg-highlight",
+  selected: "hard-edge bg-brand text-white",
+  resting: "text-text-primary hover:bg-highlight",
 } as const;
 
 /**
@@ -422,7 +423,7 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
             className={`cursor-pointer label-type ${
               vertical
                 ? /* 48px, the height of every other control in the product. */
-                  "flex min-h-12 w-full items-center gap-3 hard-edge px-4 text-left text-xs"
+                  "flex min-h-12 w-full items-center gap-3 px-4 text-left text-xs"
                 : /* 56px tall and a fifth of the viewport wide: comfortably past
                      the 24px WCAG 2.5.8 floor and past the 44px that a thumb
                      actually wants for primary navigation. */
@@ -3058,10 +3059,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
         <div className="space-y-8">
           <div className="flex items-center gap-2.5">
             <img src="/panik-mark.svg" alt="PANIK" width={32} height={32} style={{ objectFit: "contain" }} />
-            <div className="flex flex-col">
-              <span className="font-sans font-extrabold text-lg text-text-primary leading-none">PANIK</span>
-              <span className="text-2xs font-sans text-text-muted mt-0.5">Risk intelligence</span>
-            </div>
+            <span className="font-sans font-extrabold text-lg text-text-primary leading-none">PANIK</span>
           </div>
 
           <NavTabs
