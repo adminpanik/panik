@@ -75,10 +75,6 @@ Everything below runs today against live mainnet chain data. The escrow contract
 - **In-app exit and open flows.** Approve → repay → withdraw sequences are simulated before every signature, gas is taken from the simulation, and reverted receipts are treated as failures rather than success.
 - **Resume, never replay.** Multi-step opens persist a plan-keyed cursor with a frozen collateral amount, so retrying after a failed borrow can never re-supply collateral that already landed.
 
-### Founding escrow (Base Sepolia)
-- **5 USDC deposit, one global refund deadline.** `PanikEscrow` holds founding deposits until the team calls `ship()` or the deadline passes, after which every depositor can `claimRefund()` forever — no sweep, no expiry.
-- **The docs say what the contract does.** `ship()` is an unconditional owner action before the deadline and the explainer says so plainly, rather than claiming funds are untouchable.
-
 ### Platform + safety
 - **Rate limiting on every route**, tiered by real cost — the endpoints that spend Dune credits, OpenRouter tokens, or RPC calls are strictest. Eviction can never free a live or locked entry, so flooding cannot refund a throttled caller.
 - **Deny-all RLS on every table** holding emails, wallets, or Telegram links. The publishable key reaches nothing sensitive; the service key never leaves the server.
@@ -103,7 +99,7 @@ A Vite SPA on Vercel, an Express API and a 24/7 watch worker on Railway, Supabas
    Browser (panik.fi)                         Telegram
   ┌──────────────────┐                    ┌──────────────┐
   │ landing · /app   │                    │  bot chat    │
-  │ /founding · /try │                    └──────▲───────┘
+  │ /try             │                    └──────▲───────┘
   └────────┬─────────┘                           │ alerts
            │ same-origin /api/*                  │
            ▼                                     │
@@ -281,13 +277,12 @@ cd executor && npm ci && npx hardhat compile && npx hardhat test test/executor.s
 
 ## 🎥 Demo
 
-The public landing page is at [panik.fi](https://panik.fi); the product app is at `/app`. Founding-user escrow is at `/founding`.
+The public landing page is at [panik.fi](https://panik.fi); the product app is at `/app`.
 
 ## 📚 Docs
 
 - [System architecture](docs/technical-docs/SYSTEM_ARCHITECTURE.md)
 - [Backtest overview](docs/technical-docs/BACKTEST_OVERVIEW.md) · [methodology](docs/technical-docs/BACKTEST_METHODOLOGY.md) · [results](docs/technical-docs/BACKTEST_RESULTS.md)
-- [Escrow system](docs/technical-docs/ESCROW_SYSTEM.md) · [plain-English explainer](docs/ESCROW_EXPLAINER.md)
 - [Telegram alerts](docs/technical-docs/TELEGRAM_ALERTS.md)
 - [Advisor and atomic exit](docs/technical-docs/PHASE2_ADVISOR_EXIT.md) · [executor deployment notes](executor/deploy/README.md)
 - [Deployment](docs/DEPLOY.md)
