@@ -20,9 +20,7 @@ export default defineConfig(({mode}) => {
         configureServer(server) {
           server.middlewares.use((req, res, next) => {
             const url = req.url ? req.url.split('?')[0] : '';
-            if (url === '/founding' || url === '/early-access') {
-              req.url = '/founding.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
-            } else if (url === '/app') {
+            if (url === '/app') {
               req.url = '/app.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
             } else if (url === '/try') {
               req.url = '/try.html' + (req.url?.includes('?') ? req.url.slice(req.url.indexOf('?')) : '');
@@ -66,8 +64,6 @@ export default defineConfig(({mode}) => {
           landing: path.resolve(__dirname, 'index.html'),
           // "panik core" — the isolated product app (separate bundle / surface)
           app: path.resolve(__dirname, 'app.html'),
-          // "founding user" — hidden escrow page (direct URL only, not linked from nav)
-          founding: path.resolve(__dirname, 'founding.html'),
           // "try" - where a scanned business card lands: the account gate, prefilled
           try: path.resolve(__dirname, 'try.html'),
           // "admin" - hidden, secret-gated campaign console (direct URL only)
