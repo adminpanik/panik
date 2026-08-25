@@ -1,5 +1,4 @@
 import React from "react";
-import { motion } from "motion/react";
 
 /**
  * One measure for every tab panel, centred. The five panels had drifted to four
@@ -23,12 +22,16 @@ const PANEL = "mx-auto w-full max-w-[1600px]";
  * panel it is in. Deriving both ids from `tab` is what makes them unable to
  * disagree.
  *
- * The transition is a fade with 5px of travel, mounted under an
- * `AnimatePresence mode="wait"` in the caller so the outgoing panel finishes
- * before the incoming one starts. The caller must pass `key` as well as `tab`:
- * a key set in here would be on the inner element, and AnimatePresence reads
- * the key of the child IT renders. Without one, five sibling `<TabPanel>`s of
- * the same component type reconcile as one element and no swap is detected.
+ * NO TRANSITION. This used to be a `motion.div` that faded in over 180ms with
+ * 5px of travel. There is no motion anywhere in this system: a tab swap is an
+ * instantaneous fact about which panel you are in, and animating it puts a
+ * moving element on a risk dashboard, which is the one thing the house rules
+ * forbid outright. The panel is a plain `div` now.
+ *
+ * The caller still passes `key`. It mounts these inside an `AnimatePresence`
+ * for the sibling overlays around them, and five `<TabPanel>`s of the same
+ * component type reconcile as one element without distinct keys, so the swap
+ * would not be detected at all.
  */
 export function TabPanel({
   tab,
@@ -41,17 +44,13 @@ export function TabPanel({
   children: React.ReactNode;
 }) {
   return (
-    <motion.div
+    <div
       role="tabpanel"
       id={`panel-${tab}`}
       aria-labelledby={`tab-${tab}`}
-      initial={{ opacity: 0, y: 5 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -5 }}
-      transition={{ duration: 0.18 }}
       className={`${PANEL} ${gap}`}
     >
       {children}
-    </motion.div>
+    </div>
   );
 }

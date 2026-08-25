@@ -4,26 +4,47 @@ import React from "react";
  * One level of emphasis and two ways of being quiet, because a screen with two
  * levels of emphasis has one obvious next step and a screen with four has none.
  *
- * `primary` is a NEUTRAL high-contrast fill: near-white plate, near-black
- * label (18.1:1). It used to be brand orange, which put a saturated hue on
- * every screen and made buttons compete with the risk chips for the eye. A
- * button is the loudest thing on a page by position and weight; it does not
- * also need to be the loudest by hue. Nothing here accepts a risk band.
+ * `primary` is the brand cobalt with white text (5.03:1). It used to be a
+ * neutral near-white plate, because the accent then shared a hue with the HIGH
+ * risk band and a saturated button competed with the chips. Cobalt is nowhere
+ * on the risk ramp, so the loudest control on a screen can be coloured again
+ * without ever being mistaken for a warning. Nothing here accepts a risk band.
  *
- * `outline` is `quiet` with its edge drawn: the same ink and the same hover, for
- * a full-width row action that has to read as a control while it sits alone at
- * the bottom of a card. It exists as a variant because it was being made at a
- * call site by passing `variant="quiet"` and overriding the border in
- * `className`, which produced two `border-*` utilities on one element and left
- * which of them won to Tailwind's emit order.
+ * `secondary` is the white plate with black ink and the same hard edge: the
+ * second action in a pair, and the full-width row action a card ends on. Its
+ * hover fills with `highlight` rather than moving to a different grey, which
+ * is the one place lavender appears on a control.
+ *
+ * `ghost` is the only variant with no edge and no shadow, for a control that
+ * has to sit inside dense text without drawing a box around itself. It
+ * underlines on hover, because with the box gone the underline is the whole
+ * affordance.
+ *
+ * The old `quiet` and `outline` names are gone. `outline` existed only because
+ * a caller was building it out of `quiet` plus a border override in
+ * `className`, and on this look every non-ghost button carries the same 3px
+ * edge, so the distinction it encoded no longer exists: `outline` became
+ * `secondary` and `quiet` became `ghost`.
  */
 const BUTTON_VARIANT = {
-  primary: "bg-text-primary text-surface-base border-transparent hover:opacity-90",
-  quiet:
-    "bg-transparent text-text-secondary border-transparent hover:text-text-primary hover:bg-white/[0.04]",
-  outline:
-    "bg-transparent text-text-secondary border-border-subtle hover:text-text-primary hover:bg-white/[0.04]",
+  primary: "hard-edge shadow-hard-sm bg-brand text-white",
+  secondary: "hard-edge shadow-hard-sm bg-surface-raised text-text-primary hover:bg-highlight",
+  ghost: "border-0 bg-transparent text-text-primary hover:underline",
 } as const;
+
+/**
+ * Which variants MOVE. A pressable block on this look reports a press by
+ * sliding into its own shadow: 3px on hover (the shadow is still there, just
+ * shorter), 6px on active (the shadow is gone and the block has landed on it).
+ * `ghost` has no shadow to travel into, so it is not in this map, and a
+ * disabled button is excluded at the call below — a control that moves under
+ * the pointer while refusing the click is the worst of both.
+ *
+ * Written as translate rather than as a transition: there is no motion in this
+ * system, only two static positions the block can be in.
+ */
+const BUTTON_PRESS =
+  "hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none";
 
 /**
  * Two sizes, and `md` is every button in the product. `lg` exists for a card
@@ -31,22 +52,27 @@ const BUTTON_VARIANT = {
  * than as a footer control: the Advisor's EXIT and REDUCE legs, where the thing
  * being offered is closing a position or repaying debt to avoid liquidation.
  *
- * Size and weight are the only currency available for that. `primary` is a
- * neutral fill on purpose and nothing here accepts a risk band, so emphasis
- * cannot be bought with hue.
+ * Size and weight are the only currency available for that; nothing here
+ * accepts a risk band, so emphasis cannot be bought with hue.
  *
- * A prop rather than a `className` override at the call site, because overriding
- * `px-*` and `text-*` there puts two of each utility on one element and leaves
- * which of them wins to Tailwind's emit order — the same failure the `outline`
- * variant was added to fix.
- *
- * `min-h-6 min-w-6` on the base is the 24px tap-target floor (WCAG 2.5.8),
- * written once where the size tokens live rather than at the icon-only call
- * sites; every size here already clears it, so it binds only if one shrinks.
+ * A prop rather than a `className` override at the call site, because
+ * overriding `px-*` and `text-*` there puts two of each utility on one element
+ * and leaves which of them wins to Tailwind's emit order.
  */
 const BUTTON_SIZE = {
-  md: "px-3.5 py-2 text-xs",
-  lg: "px-4 py-2.5 text-sm",
+  /**
+   * `h-12` is 48px, and it is the same 48px as `FIELD_BOX` in ui/TextField.
+   * THE TWO TRAVEL TOGETHER: they sit side by side in every form in the
+   * product, and a 40px field beside a 48px button is the kind of 8px nobody
+   * can name and everybody can see. Change one and change the other.
+   *
+   * Two literals rather than a token, unlike `--border-width-hard`: that one is
+   * read at forty call sites and a drifted copy is invisible, whereas this is
+   * two places that already point at each other in prose and disagree the
+   * moment anyone opens a form.
+   */
+  md: "h-12 px-5 text-sm",
+  lg: "h-14 px-6 text-base",
 } as const;
 
 /**
@@ -68,13 +94,16 @@ export function Button({
   size = "md",
   className = "",
   type = "button",
+  disabled,
   children,
   ...rest
 }: ButtonProps) {
+  const press = variant === "ghost" || disabled ? "" : BUTTON_PRESS;
   return (
     <button
       type={type}
-      className={`inline-flex min-h-6 min-w-6 cursor-pointer items-center gap-1.5 rounded-md border font-sans font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_SIZE[size]} ${BUTTON_VARIANT[variant]} ${className}`}
+      disabled={disabled}
+      className={`inline-flex cursor-pointer items-center justify-center gap-2 font-sans font-bold uppercase tracking-[0.02em] disabled:cursor-not-allowed disabled:opacity-40 ${BUTTON_SIZE[size]} ${BUTTON_VARIANT[variant]} ${press} ${className}`}
       {...rest}
     >
       {children}

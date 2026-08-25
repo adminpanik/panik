@@ -51,8 +51,10 @@ export const LAYER = {
  *
  * Four surfaces hardcoded `bg-black/70` or `bg-black/80` with three different
  * blurs while the sheet used the surface token, so the app dimmed itself four
- * ways depending on which control you pressed. `surface-base` is the page's own
- * black, which is what a scrim should be receding towards, and 85% keeps the
- * layout underneath legible as context rather than deleting it.
+ * ways depending on which control you pressed. Half-strength black, and no
+ * blur: on a light page a blur behind an overlay reads as a smear rather than
+ * as depth, and 50% keeps the layout underneath legible as context rather than
+ * deleting it. The overlay above it is separated by its own 3px edge and hard
+ * shadow, which is this system's whole answer to depth.
  */
-export const SCRIM = "bg-surface-base/85 backdrop-blur-xs";
+export const SCRIM = "bg-black/50";
