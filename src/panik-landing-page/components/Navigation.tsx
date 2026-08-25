@@ -28,7 +28,7 @@ const NAV_LINKS = [
  */
 export function Navigation({ cta }: { cta: WaitlistCta }) {
   return (
-    <header id="top">
+    <header id="top" className="border-b-hard border-solid border-b-border-strong">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-4 md:px-16">
         <a href="#top" className="flex items-center gap-4 no-underline">
           <MarkPlate />

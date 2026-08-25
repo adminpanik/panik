@@ -46,7 +46,7 @@ const LINK_COLUMNS = [
 
 export function Footer() {
   return (
-    <footer className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-12 md:px-16">
+    <footer className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-16 md:px-16 lg:py-24">
       <div className="flex flex-col justify-between gap-8 md:flex-row md:items-start">
         <a href="#top" className="flex items-center gap-4 no-underline">
           <MarkPlate />

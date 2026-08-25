@@ -43,7 +43,7 @@ const REASONS: { icon: LucideIcon; title: string; body: React.ReactNode }[] = [
 
 export function WhyPanik() {
   return (
-    <section id="why" className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-12 md:px-16 md:py-16">
+    <section id="why" className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-16 md:px-16 lg:py-24">
       <SectionHeading eyebrow="Why PANIK" title="Three fair doubts, answered" />
       <div className="grid gap-6 md:grid-cols-3">
         {REASONS.map(({ icon: Icon, title, body }) => (

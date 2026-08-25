@@ -55,7 +55,7 @@ export function Faq() {
   return (
     <section
       id="faq"
-      className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-12 md:flex-row md:gap-12 md:px-16 md:py-16"
+      className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-16 md:flex-row md:gap-12 md:px-16 lg:py-24"
     >
       <div className="md:w-80 md:shrink-0">
         <SectionHeading

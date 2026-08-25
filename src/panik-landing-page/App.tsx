@@ -11,7 +11,6 @@ import { Hero } from "./components/Hero";
 import { HowItWorks } from "./components/HowItWorks";
 import { Navigation } from "./components/Navigation";
 import { ProofStrip } from "./components/ProofStrip";
-import { Rule } from "./components/Rule";
 import { WaitlistModal } from "./components/WaitlistModal";
 import { WhyPanik } from "./components/WhyPanik";
 import type { WaitlistCta } from "./components/cta";
@@ -48,19 +47,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-surface-base text-text-primary">
       <Navigation cta={cta} />
-      <Rule />
       <Hero cta={cta} />
-      <Rule />
       <ProofStrip />
-      <Rule />
       <WhyPanik />
-      <Rule />
       <HowItWorks />
-      <Rule />
       <CtaBand cta={cta} />
-      <Rule />
       <Faq />
-      <Rule />
       <Footer />
 
       <WaitlistModal

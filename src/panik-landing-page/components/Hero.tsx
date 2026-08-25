@@ -7,7 +7,6 @@ import React from "react";
 import { ArrowRight } from "lucide-react";
 import { Button, RiskChip } from "../../panik-core/ui";
 import { PanikLogoMark } from "./PanikLogo";
-import { Rule } from "./Rule";
 import type { WaitlistCta } from "./cta";
 
 /**
@@ -36,7 +35,7 @@ import type { WaitlistCta } from "./cta";
  */
 export function Hero({ cta }: { cta: WaitlistCta }) {
   return (
-    <section className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-12 md:px-16 md:py-16 lg:grid-cols-2">
+    <section className="mx-auto grid max-w-7xl items-center gap-12 px-6 pt-16 pb-16 md:px-16 lg:grid-cols-2 lg:pt-32 lg:pb-24">
       <div className="flex flex-col gap-6">
         <p className="flex items-center gap-3 label-type text-xs text-text-primary">
           <span aria-hidden="true" className="size-3 shrink-0 hard-edge bg-brand" />
@@ -93,7 +92,11 @@ export function Hero({ cta }: { cta: WaitlistCta }) {
               Liquidates if cbBTC falls <span className="font-mono font-bold">4.8%</span>
             </p>
           </div>
-          <Rule className="sm:h-auto sm:w-0.75" />
+          {/* The one divider this page keeps: it splits the position card's two
+              halves, so it is a card border rather than a between-section rule.
+              Horizontal while the card is stacked, vertical once it is side by
+              side. */}
+          <div aria-hidden="true" className="h-0.75 w-full bg-border-strong sm:h-auto sm:w-0.75" />
           <div className="flex flex-col items-start justify-center gap-1 p-4 sm:items-end">
             <span className="font-mono text-4xl font-bold tracking-tight text-text-primary">
               4.8%
