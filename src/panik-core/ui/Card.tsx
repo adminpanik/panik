@@ -37,12 +37,30 @@ const CARD_TONE = {
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   tone?: keyof typeof CARD_TONE;
+  /**
+   * Whether the box pads its own content. True everywhere but a card whose
+   * content is FULL BLEED: the positions table draws a black header row and 3px
+   * row rules that have to meet the card's own edge, and 16px of inset around
+   * them turns the table into a floating block inside a frame.
+   *
+   * A prop rather than `className="p-0"` at the call site, because both are
+   * padding utilities and which one wins is Tailwind's emit order rather than
+   * the order they were written in. The call site would look correct and render
+   * with 16px of padding.
+   */
+  padded?: boolean;
   children: React.ReactNode;
 }
 
-export function Card({ tone = "panel", className = "", children, ...rest }: CardProps) {
+export function Card({
+  tone = "panel",
+  padded = true,
+  className = "",
+  children,
+  ...rest
+}: CardProps) {
   return (
-    <div className={`p-4 ${CARD_TONE[tone]} ${className}`} {...rest}>
+    <div className={`${padded ? "p-4" : ""} ${CARD_TONE[tone]} ${className}`} {...rest}>
       {children}
     </div>
   );

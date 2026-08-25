@@ -61,7 +61,6 @@ import type {
   AdvisorOpenPlan,
   AdvisorRecommendation,
   AdvisorReport,
-  AdvisorUrgency,
 } from "../lib/live";
 import { recommendedExitAction } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
@@ -77,6 +76,7 @@ import {
   marketContextMissing,
   PROTOCOL_LABEL,
   RISK_CHIP,
+  URGENCY_VERDICT,
   USD_UNAVAILABLE_HINT,
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
@@ -169,34 +169,6 @@ const DELEVERAGE_NOT_LIVE = "Not ready to sign yet.";
  * screen belongs to the dials and to the one banner.
  */
 const ENGINE_WORDED_NOTE = "Wording on this one is the risk engine's, not AI.";
-
-/**
- * The wallet's verdict, as a band and the word that names it.
- *
- * `Urgency` is the engine's own union and it is not a risk band: it is a
- * property of the WALLET, decided by its worst leg, where a band is a property
- * of one position. The two ride the same ramp on purpose, because a reader who
- * has learned that red means "deal with this" on a position card must not have
- * to learn a second scale for the sentence above them.
- *
- * `info` maps to nothing at all. There is no such thing as a band meaning "we
- * looked and there is nothing to do", and painting that state LOW green would
- * be the ramp making a safety claim about a whole wallet from the absence of a
- * finding. The eye glyph beside it is the entire statement.
- *
- * The word names the SEVERITY ("Critical risk", "Elevated risk"), not a verb.
- * It used to be "Act now" / "Act soon", a coloured imperative sitting inside a
- * band-hued block - a chip is allowed to state a fact the ramp already colours,
- * never to colour an instruction. What to do lives in the headline beside it.
- */
-const WALLET_URGENCY: Record<
-  AdvisorUrgency,
-  { band: keyof typeof RISK_CHIP; word: string } | null
-> = {
-  info: null,
-  warning: { band: "ELEVATED", word: "Elevated risk" },
-  critical: { band: "CRITICAL", word: "Critical risk" },
-};
 
 /**
  * The verdict card's two lines, from the same recommendation data the
@@ -1082,7 +1054,7 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
   const readOnly = watchOnlyNote !== undefined;
 
   /** Null on an `info` report, which is the branch that gets no chip at all. */
-  const walletVerdict = WALLET_URGENCY[overall.urgency];
+  const walletVerdict = URGENCY_VERDICT[overall.urgency];
 
   /** The verdict card's title and (optional) secondary line; see `verdictLines`. */
   const verdict = verdictLines(overall.action, recommendations);

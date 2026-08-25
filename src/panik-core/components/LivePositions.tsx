@@ -1,16 +1,31 @@
 /**
- * LIVE positions — real wallets from the Supabase watch registry, scored by
- * the actual PANIK engine against live Base mainnet state. Data arrives via
- * props from AppDemo's useLiveScores() hook (shared with the Portfolio
- * metrics) — this component only renders.
+ * The wallet's positions, as a TABLE.
+ *
+ * It was a list of cards, three lines and a rail each, and the shape was the
+ * problem: four positions is four columns of the same four facts, and a reader
+ * comparing "which of these is closest to liquidation" had to read four
+ * paragraphs to find four percentages that never lined up. A table puts the
+ * comparable things in a column, which is what a column is for, and the money
+ * lines up because every figure in it is set in the one tabular face.
+ *
+ * WHAT MOVED, rather than went. The score dial, the limit-state clause, the
+ * degraded-feed markers, the simulated-price chip and the exit control are all
+ * still here; they are in the row's DISCLOSURE now instead of on its face. Six
+ * facts per row across four rows is not a table anyone reads, and five of the
+ * six are things a reader wants for one position at a time rather than for all
+ * of them at once. The row's own button is the disclosure, so the position's
+ * name is what opens it.
+ *
+ * Data arrives via props from AppDemo's live hooks (shared with the Portfolio
+ * stat row) - this component only renders.
  */
 
-import React, { useEffect, useRef } from "react";
-import { AlertTriangle, ArrowRight, Eye } from "lucide-react";
+import React, { useEffect, useId, useRef, useState } from "react";
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, Eye } from "lucide-react";
 import type { LiveWalletPosition, ScoringChainInfo } from "../lib/live";
-import { ProtocolLogo } from "./ProtocolLogo";
-import { InfoTip } from "./InfoTip";
+import { CardTitle } from "./CardTitle";
 import {
+  BAND_WORD,
   formatUsd,
   limitStateCopy,
   liquidationOutlook,
@@ -20,9 +35,8 @@ import {
   PROTOCOL_LABEL,
   RISK_CHIP,
   USD_UNAVAILABLE_HINT,
-  USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
-import { Button, Card, EmptyState, RiskDial, SimulationChip, Skeleton } from "../ui";
+import { Button, Card, Chip, EmptyState, RiskChip, RiskDial, SimulationChip, Skeleton } from "../ui";
 import { exitControlState, useChainMode } from "../lib/chainMode";
 import type { ExitPrefill } from "./ExitFlow";
 
@@ -60,6 +74,35 @@ function chainProvenance(chain: ScoringChainInfo | null): { badge: string | null
       "price history and no protocol TVL to read, so market risk is left unmeasured and " +
       "the score is weighted over position health and protocol safety. Refreshes every 60s.",
   };
+}
+
+/**
+ * The column head and the cell, written once each.
+ *
+ * The header row is a BLACK PLATE with white ink, which is the one place this
+ * look inverts: a table's head is the only element on the page that has to be
+ * findable while carrying no state at all, and every other device available
+ * here (a border, a shadow, a fill) is already spoken for by something that
+ * does carry state.
+ *
+ * `whitespace-nowrap` on both, and the Outlook column is the only elastic one
+ * (`w-full` below): a money column that wraps is a money column that stops
+ * lining up, which is the entire reason these figures are in a table.
+ */
+const TH = "h-14 whitespace-nowrap px-4 label-type text-xs text-white";
+const TD = "px-4 py-3 align-middle";
+/** Every figure in the table, in the one face this product sets numerals in. */
+const FIGURE = "whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary";
+/**
+ * A cell whose figure could not be measured. Words, in the demoted ink, never a
+ * zero: a stale price feed rendering "$0" is the failure this product is least
+ * able to survive, and it reads as a real, tiny position rather than as a gap.
+ */
+const NOT_MEASURED = "whitespace-nowrap font-sans text-sm text-text-muted";
+
+/** Worst first, which is the order the reader is scanning for. */
+function worstFirst(a: LiveWalletPosition, b: LiveWalletPosition): number {
+  return b.total - a.total;
 }
 
 interface LivePositionsProps {
@@ -111,18 +154,24 @@ export function LivePositions({
    * disagree about whether the action is available. What differs is what they
    * do with the answer, and deliberately: the Advisor is a page of advice, so
    * an unavailable action stays on screen with its reason on hover. A position
-   * row is a scanning surface, and a row led by a large grey plate that cannot
-   * fire is a dead primary on the money path. Here the control is WITHHELD, and
-   * its presence is the whole statement that pressing it works.
+   * row is a scanning surface, and a control that cannot fire is withheld here,
+   * so its presence is the whole statement that pressing it works.
    */
   const { enabled: exitEnabled } = exitControlState(onExit, useChainMode());
   const provenance = chainProvenance(chain);
+  /**
+   * Which row's disclosure is open. ONE at a time, and it is a key rather than
+   * a set: two open rows push the table's other rows off the fold, and the
+   * disclosure exists so a reader can look at one position closely.
+   */
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const detailIds = useId();
   /**
    * One ref, attached to the highlighted row only. Refs are set during commit,
    * before effects run, so the row this points at is always the one the current
    * `highlightKey` names.
    */
-  const highlightedRow = useRef<HTMLLIElement | null>(null);
+  const highlightedRow = useRef<HTMLTableRowElement | null>(null);
 
   /**
    * Scrolling is not enough on its own. A sighted mouse user sees the row move
@@ -141,10 +190,6 @@ export function LivePositions({
     row.scrollIntoView({ block: "center", behavior: "smooth" });
     row.focus({ preventScroll: true });
   }, [highlightKey]);
-  // The address only disambiguates in the registry ("ALL wallets") view. On a
-  // single wallet it is the same string on every row, so it is noise competing
-  // with the score chip for the end of line 1.
-  const showWallet = new Set((positions ?? []).map((p) => p.wallet)).size > 1;
 
   if (offline) {
     return (
@@ -156,341 +201,283 @@ export function LivePositions({
     );
   }
 
+  const rows = positions === null ? null : [...positions].sort(worstFirst);
+
   return (
-    <Card className="space-y-4">
-      {/* The count lives HERE, on the list it describes, rather than in a
+    <Card tone="raised" padded={false} className="flex min-w-0 flex-col">
+      {/* The card's name and its count, on one 56px band over the black head.
+          The count lives HERE, on the list it describes, rather than in a
           subline on a card three columns away that read the same array through
           different props and could therefore disagree with it. The provenance
-          moved into the InfoTip: it is an answer to a question asked once, not a
+          is on the title's tip: an answer to a question asked once, not a
           caption needed on every glance.
 
-          Only rendered once the array has arrived: "0 Positions" while the first
+          Only rendered once the array has arrived: "0 open" while the first
           fetch is still in flight is a claim we cannot make yet, and it is the
           exact claim this product must never make by accident. */}
-      <h3 className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-sans font-semibold text-text-primary">
-        {positions === null
-          ? "Positions"
-          : `${positions.length} ${positions.length === 1 ? "Position" : "Positions"}`}
-        <InfoTip text={provenance.tip} />
-        {/* Neutral, never the risk ramp: which chain you are on is not a risk
-            band, and the ramp on this screen is spoken for by the dials. Same
-            treatment as the standing-permission card's marker. */}
-        {provenance.badge && (
-          <span className="rounded-sm border border-border-strong px-2 py-0.5 text-2xs font-sans font-bold text-text-secondary">
-            {provenance.badge}
+      <div className="flex h-14 shrink-0 items-center justify-between gap-4 border-b-[3px] border-solid border-border-strong px-4">
+        <CardTitle as="h3" size="lg" hint={provenance.tip}>
+          Positions
+        </CardTitle>
+        {rows !== null && (
+          <span className="shrink-0 whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-secondary">
+            {rows.length} open
           </span>
         )}
-      </h3>
+      </div>
 
-      {positions === null && (
-        <div className="space-y-3">
+      {rows === null ? (
+        <div className="space-y-3 p-4">
           {[0, 1].map((i) => (
-            <div key={i} className="flex items-start gap-3 rounded-md border border-border-subtle bg-surface-raised/50 p-4">
-              <Skeleton className="h-8 w-8 rounded-md" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <Skeleton className="h-3.5 w-40" />
-                <Skeleton className="h-3 w-56" />
-                <Skeleton className="h-3 w-48" />
-              </div>
-              {/* The rail is reserved while loading. A skeleton that omits it
-                  hands the real row a 44px shove sideways the moment data
-                  lands, which is the jump the skeleton exists to prevent. */}
-              <Skeleton className="h-11 w-11 shrink-0 rounded-full" />
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="h-8 w-8" />
+              <Skeleton className="h-4 flex-1" />
+              <Skeleton className="h-7 w-24 shrink-0" />
             </div>
           ))}
-          <p className="text-xs font-sans text-text-secondary">Reading positions from chain…</p>
+          <p className="font-sans text-xs text-text-secondary">Reading positions from chain...</p>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="p-4">
+          <EmptyState
+            tone="clear"
+            title="No open positions"
+            hint="New positions are picked up within a minute of opening."
+          />
+        </div>
+      ) : (
+        <table className="w-full border-collapse text-left">
+          <thead>
+            <tr className="bg-text-primary">
+              <th scope="col" className={TH}>
+                Protocol
+              </th>
+              <th scope="col" className={`${TH} hidden sm:table-cell`}>
+                Asset
+              </th>
+              <th scope="col" className={`${TH} hidden lg:table-cell`}>
+                Collateral
+              </th>
+              <th scope="col" className={`${TH} hidden lg:table-cell`}>
+                Debt
+              </th>
+              {/* The one elastic column: everything else is a name or a figure
+                  of known width, and the slack belongs to the sentence. */}
+              <th scope="col" className={`${TH} hidden md:table-cell w-full`}>
+                Outlook
+              </th>
+              <th scope="col" className={TH}>
+                Risk
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((p, i) => {
+              const key = positionKey(p);
+              const open = openKey === key;
+              const detailId = `${detailIds}-${i}`;
+              const highlighted = key === highlightKey;
+              const outlook = liquidationOutlook(p.healthFactor, p.scoredCollateralSymbol);
+              const unpriced = p.usdValuesUnavailable === true;
+              // Both terms, resolved once: the engine has to have named an
+              // action AND it has to be pressable. A row that satisfies only
+              // the first offers no exit control rather than a dead one.
+              const exitAction = exitEnabled ? exitActions?.[p.protocol] : undefined;
+              const Chevron = open ? ChevronDown : ChevronRight;
+              return (
+                <React.Fragment key={key}>
+                  <tr
+                    ref={highlighted ? highlightedRow : undefined}
+                    tabIndex={-1}
+                    /* Emphasis, not a risk statement. The alert feed points
+                       here, so the row has to be findable the moment it scrolls
+                       into view - but the risk ramp is spoken for on this
+                       screen by the chip at the end of the row, and a row
+                       painted because it was NAVIGATED to would be the ramp
+                       asserting something about danger that the score does not
+                       support. Lavender is nowhere on the ramp. */
+                    className={`${i > 0 ? "border-t-[3px] border-solid border-border-strong" : ""} ${
+                      highlighted ? "bg-highlight" : ""
+                    }`}
+                  >
+                    <td className={TD}>
+                      {/* The position's NAME is the disclosure control, so
+                          there is no second column of chevron buttons and no
+                          clickable row (a `div` with an onClick has no role, no
+                          focus and no keyboard). `aria-expanded` is what tells
+                          a screen reader this does something. */}
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-controls={detailId}
+                        onClick={() => setOpenKey(open ? null : key)}
+                        className="flex min-h-8 w-full cursor-pointer items-center gap-2 whitespace-nowrap text-left font-sans text-sm font-bold text-text-primary"
+                      >
+                        <Chevron className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        {PROTOCOL_LABEL[p.protocol]}
+                      </button>
+                    </td>
+                    <td className={`${TD} hidden sm:table-cell`}>
+                      <span className={FIGURE}>{p.scoredCollateralSymbol}</span>
+                    </td>
+                    <td className={`${TD} hidden lg:table-cell`}>
+                      {unpriced ? (
+                        <span className={NOT_MEASURED} title={USD_UNAVAILABLE_HINT}>
+                          Not measured
+                        </span>
+                      ) : (
+                        <span className={FIGURE}>{formatUsd(p.collateralValueUsd)}</span>
+                      )}
+                    </td>
+                    <td className={`${TD} hidden lg:table-cell`}>
+                      {unpriced ? (
+                        <span className={NOT_MEASURED} title={USD_UNAVAILABLE_HINT}>
+                          Not measured
+                        </span>
+                      ) : (
+                        <span className={FIGURE}>{formatUsd(p.borrowValueUsd)}</span>
+                      )}
+                    </td>
+                    <td className={`${TD} hidden md:table-cell`}>
+                      {/* The health factor as the price move it means, worded
+                          and rounded by the engine (`liquidationOutlook`),
+                          never by this file. The exact ratio opens the hover,
+                          which is where every other surface keeps it. */}
+                      <span
+                        className="cursor-help font-sans text-sm text-text-secondary"
+                        title={outlook.hover}
+                      >
+                        {outlook.sentence}
+                      </span>
+                    </td>
+                    <td className={TD}>
+                      <RiskChip band={p.band}>{BAND_WORD[p.band]}</RiskChip>
+                    </td>
+                  </tr>
+
+                  {open && (
+                    <tr id={detailId} className="border-t border-border-subtle">
+                      <td colSpan={6} className="px-4 pt-3 pb-4">
+                        <div className="flex flex-wrap items-start gap-4">
+                          <RiskDial
+                            score={p.total}
+                            band={p.band}
+                            subScores={p.subScores}
+                          />
+                          <div className="min-w-0 flex-1 space-y-2">
+                            {/* The columns this width could not show, so the
+                                disclosure is a complete reading of the position
+                                at every viewport rather than a phone-shaped
+                                subset of one. */}
+                            <p className="font-sans text-sm text-text-secondary md:hidden">
+                              <span className="cursor-help" title={outlook.hover}>
+                                {outlook.sentence}
+                              </span>
+                            </p>
+                            <p className="font-sans text-sm text-text-secondary lg:hidden">
+                              {unpriced ? (
+                                <span title={USD_UNAVAILABLE_HINT}>
+                                  Collateral and debt not measured
+                                </span>
+                              ) : (
+                                <>
+                                  <span className={FIGURE}>
+                                    {formatUsd(p.collateralValueUsd)}
+                                  </span>{" "}
+                                  collateral,{" "}
+                                  <span className={FIGURE}>{formatUsd(p.borrowValueUsd)}</span>{" "}
+                                  debt
+                                </>
+                              )}
+                            </p>
+
+                            {/* Where this position stands against the limit the
+                                READER set, which is a different fact from the
+                                band beside it: the band is how exposed the
+                                position is in the absolute, this is whether
+                                that reading has crossed the level they asked to
+                                be told about. The engine sets it; no threshold
+                                is invented here. */}
+                            <p className="font-sans text-sm text-text-secondary">
+                              {limitStateCopy(p.profileStatus)}
+                            </p>
+
+                            {/* A market-context term the engine could not read.
+                                Separate from the unpriced cells above and never
+                                merged with them: the two failures are
+                                independent (a leg can be priced exactly and
+                                still lose its asset-risk lookup), and they
+                                withhold different things - that one withholds
+                                the dollars, this one withholds part of the
+                                score. The grey is `risk-unknown`, which is NOT
+                                a band, so it spends none of the screen's risk
+                                budget. */}
+                            {marketContextMissing(p.subScores) && (
+                              <span
+                                title={MARKET_CONTEXT_MISSING_HINT}
+                                className={`inline-flex cursor-help items-center gap-1.5 hard-edge px-2 py-0.5 font-sans text-xs font-semibold ${RISK_CHIP.UNKNOWN}`}
+                              >
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                {MARKET_CONTEXT_MISSING_LABEL}
+                              </span>
+                            )}
+
+                            {/* A row whose figures came from a simulated price.
+                                PER ROW, not per screen: a scenario names
+                                assets, so one position can be simulated while
+                                the one under it is real. Deliberately NOT
+                                merged with the marker above: that one says "we
+                                could not measure this", this one says "we
+                                measured this against a price we invented", and
+                                a simulated figure is exact arithmetic on a
+                                stated price. */}
+                            {p.simulation && <SimulationChip />}
+
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                              {/* The way out, offered ONLY where it can fire.
+                                  Three facts hold and none of them is this
+                                  component's to decide: the engine named an
+                                  action for this protocol, the caller passed a
+                                  handler for a wallet a connected key can sign
+                                  for, and the selected chain can settle it.
+                                  When they do not hold there is no button, not
+                                  a greyed one. */}
+                              {exitAction && (
+                                <Button onClick={() => onExit?.(exitAction.prefill)}>
+                                  {exitAction.label}
+                                  <ArrowRight className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {onStressTest && (
+                                <Button variant="secondary" onClick={() => onStressTest(p)}>
+                                  <Eye className="h-4 w-4" />
+                                  Stress-test
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {/* The table's footer line. The sort order is the one thing about this
+          list a reader cannot see by looking at it, and the chain badge is here
+          rather than beside the heading because which network was read is a
+          property of the whole table. Neutral, never the risk ramp: a chain is
+          not a band. */}
+      {rows !== null && rows.length > 0 && (
+        <div className="flex h-12 shrink-0 items-center justify-between gap-4 border-t-[3px] border-solid border-border-strong px-4">
+          <span className="label-type text-xs text-text-muted">Sorted by risk, worst first</span>
+          {provenance.badge && <Chip>{provenance.badge}</Chip>}
         </div>
       )}
-
-      {positions !== null && positions.length === 0 && (
-        <EmptyState
-          tone="clear"
-          title="No open positions"
-          hint="New positions are picked up within a minute of opening."
-        />
-      )}
-
-      {positions !== null && positions.length > 0 && (
-        <ul className="space-y-3">
-          {(positions ?? []).map((p) => {
-            const status = limitStateCopy(p.profileStatus);
-            const outlook = liquidationOutlook(p.healthFactor, p.scoredCollateralSymbol);
-            const key = positionKey(p);
-            const highlighted = key === highlightKey;
-            /**
-             * The marker rations itself to the legs measured OUTSIDE the user's
-             * risk limit, which is `profileStatus` and is a different fact from
-             * the band: the band is how exposed the position is in the absolute,
-             * the limit state is whether that reading has crossed the level this
-             * user asked to be told about. The clause at the end of line 3 states
-             * it in words; this is the same fact made findable in a scan of four
-             * rows. No new threshold is invented, the engine sets it.
-             *
-             * It used to fire on `p.band !== "LOW"`, which is the quantity the
-             * DIAL on the same row already carries - the band drawn twice, once
-             * as an arc and once as a hue on a glyph beside it.
-             */
-            const actionable = p.profileStatus !== "within";
-            // Both terms, resolved once: the engine has to have named an action
-            // AND it has to be pressable. A row that satisfies only the first
-            // renders no exit control rather than a dead one.
-            const exitAction = exitEnabled ? exitActions?.[p.protocol] : undefined;
-            return (
-              <li
-                key={key}
-                ref={highlighted ? highlightedRow : undefined}
-                tabIndex={-1}
-                /* Emphasis, not a risk statement. The alert feed points here,
-                   so the row has to be findable the moment it scrolls into
-                   view — but the risk ramp is spoken for on this screen, and a
-                   row painted because it was NAVIGATED to would be the ramp
-                   asserting something about danger that the score does not
-                   support. A stronger edge on the neutral border token says
-                   "this one" without saying anything about how dangerous it
-                   is. */
-                className={`flex items-start gap-3 rounded-md border p-4 transition-colors ${
-                  highlighted
-                    ? "border-border-strong bg-white/[0.05]"
-                    : "border-border-subtle bg-surface-raised/50"
-                }`}
-              >
-                <ProtocolLogo protocol={PROTOCOL_LABEL[p.protocol]} size="w-8 h-8" />
-
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  {/* Line 1 — identity. The protocol never shrinks; only the
-                      asset symbol may truncate, because "Aave V3" truncated to
-                      "Aav…" is unreadable while "wstE…" is still placeable. The
-                      score is not here: on the rail instead, which is what keeps
-                      this line three short strings on a 390px phone. */}
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
-                      {PROTOCOL_LABEL[p.protocol]}
-                    </h4>
-                    <span className="truncate text-xs font-sans text-text-secondary">
-                      {p.scoredCollateralSymbol}
-                    </span>
-                    {/* "This one has crossed your limit", on the line that
-                        identifies the position. NEUTRAL INK, and that is the
-                        point of it: the risk ramp on this screen is spent on the
-                        four dials plus the aggregate glyph, which is the whole
-                        budget DESIGN_SYSTEM.md sets for Portfolio, and this
-                        glyph took `RISK_TEXT[p.band]` on top of a dial drawn
-                        from the same `p.band` inches away. Measured, that put
-                        eleven risk-hued elements on the tab against a documented
-                        five. Shape is findability; hue is a claim, and the claim
-                        was already made by the dial.
-
-                        `aria-hidden`, because `RiskDial` on the rail already
-                        announces "PANIK risk score 75 of 100, CRITICAL" and the
-                        limit clause on line 3 is read out in full. Nothing here
-                        is carried by colour, which is what SC 1.4.1 asks and
-                        what a neutral glyph satisfies by construction. */}
-                    {actionable && (
-                      <AlertTriangle
-                        className="h-3.5 w-3.5 shrink-0 self-center text-text-secondary"
-                        aria-hidden="true"
-                      />
-                    )}
-                    {showWallet && (
-                      <span className="ml-auto shrink-0 text-xs font-mono text-text-muted">
-                        {p.wallet.slice(0, 6)}…{p.wallet.slice(-4)}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Line 2 — magnitudes, and the reason this row exists. 14px
-                      with the figures in primary ink and the units left
-                      secondary, so the money is what the eye lands on. Two
-                      nowrap chunks, not one: the pair must never break in half
-                      (half a pair reads as a whole number) but at 14px a single
-                      span overflowed a 390px row, so it wraps BETWEEN its
-                      halves.
-
-                      A degraded price feed REPLACES this line rather than
-                      dimming it. "$… collateral" is indistinguishable from a
-                      truncated string, so the honest statement got read as a
-                      broken component; a sentence cannot be misread that way.
-                      Distinctness from a healthy row is a CORRECTNESS
-                      requirement here, and it holds on four axes: shape,
-                      colour, icon, and words. No branch of this can emit "$0".
-
-                      The treatment comes from `RISK_CHIP.UNKNOWN`, not a local
-                      copy: that entry carries no fill because a 10% wash of
-                      this grey under this grey label measures 4.26:1, and a
-                      contrast decision re-typed in a second file holds only
-                      until someone types it differently.
-
-                      This marker is the ONLY place the degraded state is
-                      stated; the explanation is on its hover, and `cursor-help`
-                      is what advertises that the hover exists.
-
-                      `py-0.5`, not `py-1`: this block stands in for the money
-                      line, and the row only matches its siblings' height if its
-                      substitute matches what it replaces. */}
-                  {p.usdValuesUnavailable ? (
-                    <div className="flex">
-                      <span
-                        title={USD_UNAVAILABLE_HINT}
-                        className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
-                      >
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                        {USD_UNAVAILABLE_LABEL}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums text-text-secondary">
-                      <span className="whitespace-nowrap">
-                        <span className="font-semibold text-text-primary">
-                          {formatUsd(p.collateralValueUsd)}
-                        </span>{" "}
-                        collateral
-                      </span>
-                      <span className="whitespace-nowrap">
-                        <span className="font-semibold text-text-primary">
-                          {formatUsd(p.borrowValueUsd)}
-                        </span>{" "}
-                        debt
-                      </span>
-                    </div>
-                  )}
-
-                  {/* A market-context term the engine could not read. Separate
-                      from the USD marker above and never merged with it: the
-                      two failures are independent (a leg can be priced exactly
-                      and still lose its asset-risk lookup), and they withhold
-                      different things — that one withholds the dollars, this
-                      one withholds part of the score.
-
-                      Same treatment as the USD marker, from the same
-                      `RISK_CHIP.UNKNOWN`: unfilled, dashed edge, icon and
-                      words, so "not measured" survives greyscale and is
-                      distinguishable from a healthy row on four axes. The grey
-                      is `risk-unknown`, which is NOT a band, so this marker
-                      spends none of the row's risk-hue budget and must never
-                      take a band colour: "we could not measure this" is not a
-                      severity.
-
-                      `text-xs`, one step under the money line it sits below:
-                      this is a caveat about the score on the rail, not the
-                      row's headline. */}
-                  {marketContextMissing(p.subScores) && (
-                    <div className="flex">
-                      <span
-                        title={MARKET_CONTEXT_MISSING_HINT}
-                        className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
-                      >
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        {MARKET_CONTEXT_MISSING_LABEL}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* A row whose figures came from a simulated price. PER ROW,
-                      not per screen: a scenario names assets, so one position
-                      can be simulated while the one under it is real, and the
-                      banner at the top of the app cannot say which is which.
-
-                      Deliberately NOT merged with the two markers above. Those
-                      say "we could not measure this"; this one says "we
-                      measured this against a price we invented". A simulated
-                      figure is KNOWN - it is exact arithmetic on a stated
-                      price - and rendering it in the not-measured treatment
-                      would collapse two states the rest of this file spends
-                      considerable effort keeping apart. It also spends no risk
-                      hue: a simulated position can be perfectly safe. */}
-                  {p.simulation && (
-                    <div className="flex">
-                      <SimulationChip />
-                    </div>
-                  )}
-
-                  {/* Line 3 — verdict, as one sentence. A health factor as the
-                      price move it means, because a ratio on an unstated scale
-                      is not something a non-expert can decide on. The
-                      arithmetic and the wording are the engine's
-                      (`liquidationOutlook`), never this file's.
-
-                      A `title` rather than an InfoTip: the tip's anchor is
-                      `inline-flex` and cannot wrap, and this column is ~186px
-                      on a 390px phone, so a non-wrapping clause here is
-                      horizontal overflow.
-
-                      The same sentence on every row, including the degraded
-                      one. The degraded caveat is stated once, by the marker on
-                      line 2. */}
-                  <p className="text-sm font-sans text-text-secondary">
-                    <span className="cursor-help tabular-nums" title={outlook.hover}>
-                      {outlook.sentence}
-                    </span>
-                    , {status}
-                  </p>
-
-                  {/* Line 4 — the way out, and nothing else.
-
-                      The exit is offered ONLY where it can fire. Three facts
-                      have to hold and none of them is this component's to
-                      decide: the ENGINE named an action for this protocol (so a
-                      row never offers a door the Advisor is not also pointing
-                      at, with the Advisor's own label and prefill rather than a
-                      second vocabulary for the same two outcomes), the caller
-                      passed a handler for a wallet a connected key can sign for,
-                      and the selected chain can settle the transaction. When all
-                      three hold it takes the Advisor's own treatment - `lg`
-                      primary, 14px label on the near-white plate - because it is
-                      the same action opening the same modal with the same
-                      prefill. `Button` accepts no risk band, so being the loudest
-                      control on the row costs nothing from the risk ramp.
-
-                      When they do not hold there is no button, not a greyed one.
-                      A disabled primary is the largest element on the row
-                      asserting an action the product cannot perform, and the
-                      hover that explained why was reachable by neither a phone
-                      nor a keyboard. */}
-                  {exitAction && (
-                    <Button size="lg" className="mt-2" onClick={() => onExit?.(exitAction.prefill)}>
-                      {exitAction.label}
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-
-                {/* Right rail — the score, and the one thing you can do about
-                    it. Grouped because "this is 75" and "simulate 75 under a
-                    price move" are one thought.
-
-                    Icon-only, because the rail is as wide as the dial (44px)
-                    and a labelled button would take a third of a 390px row from
-                    the figures. It keeps its name for everyone who is not a
-                    sighted mouse user: `title` plus `aria-label`. Eye, not
-                    sliders - this button lands on Watch, and Watch wears the
-                    eye in the nav - so the icon names where it goes.
-
-                    `quiet`, so the row's loudest control stays the one that
-                    moves money; a control is not a risk indicator. Default `md`
-                    padding, no override: `Button` owns the tap-target floor.
-
-                    `shrink-0` is on the wrapper rather than left to the dial:
-                    the dial carries its own, but it arrives wrapped in
-                    `InfoTip`, whose anchor does not. */}
-                <div className="flex shrink-0 flex-col items-center gap-1">
-                  <RiskDial score={p.total} band={p.band} subScores={p.subScores} />
-                  {onStressTest && (
-                    <Button
-                      variant="ghost"
-                      onClick={() => onStressTest(p)}
-                      title="Stress-test this position in Watch"
-                      aria-label={`Stress-test the ${PROTOCOL_LABEL[p.protocol]} position in Watch`}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
     </Card>
   );
 }
