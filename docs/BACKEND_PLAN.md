@@ -4,7 +4,7 @@
 > Last updated: 2026-06-14
 > Scope: Waitlist signup backend, onboarding data capture, beta-tester list management, and magic-link beta access.
 > Source of truth for fields/flow is the business-dev doc; this plan now mirrors it.
-> The Founding-User Escrow ($5 USDC / 90-day refund) is a SEPARATE journey — see USER_JOURNEY.md, not built here.
+> The Founding-User Escrow ($5 USDC / 90-day refund) was a SEPARATE journey (see USER_JOURNEY.md); it was removed 2026-08-25 in PR #122, and was never built against this plan.
 
 ---
 
@@ -64,7 +64,7 @@ why, and update docs/BACKEND_PLAN.md so the plan stays the source of truth.
 
 ## 2. Architecture Decision
 
-**Supabase** (Postgres + RLS + RPC functions + Auth) + **Resend** (email, later). **No Edge Function, no third-party CAPTCHA** for the free waitlist (lean decision, 2026-06-14).
+**Supabase** (Postgres + RLS + RPC functions + Auth) + **Resend** (email, planned, never implemented; see §7). **No Edge Function, no third-party CAPTCHA** for the free waitlist (lean decision, 2026-06-14).
 
 Why: one service covers storage, admin viewing/export (dashboard table editor + CSV), and magic-link auth that the beta app will reuse — so the waitlist and beta app share one user system with no migration. The site stays a static Vite deploy; zero servers to run. The browser writes through a `SECURITY DEFINER` RPC over PostgREST (publishable key) — deny-all RLS keeps the table closed; the function is the only door. No Deno deploy. Lock-in risk is negligible (one table, exportable any time).
 
@@ -78,6 +78,8 @@ Why: one service covers storage, admin viewing/export (dashboard table editor + 
 ---
 
 ## 3. Data Model
+
+> **Note (2026-08-25, PR #122):** the Founding-User escrow deposit flow (`/founding`, `src/panik-founding/`) referenced below (the `early_access`/`early_access_paid`/`refund_available`/`refunded` values and the "reserved for the escrow journey" columns) was removed from the codebase. The columns and CHECK values below are unchanged in the live schema, but nothing in this repo writes them anymore. Kept for history only.
 
 ### `waitlist_signups` (created in Phase 1 — migration `20260614000001_waitlist.sql`)
 
@@ -176,8 +178,10 @@ Files touched: [`src/panik-landing-page/components/WaitlistModal.tsx`](../src/pa
 
 ## 7. Email (Resend)
 
-- Configured as Supabase's **custom SMTP provider**. Supabase's built-in mailer is rate-limited to a few emails/hour — unusable for batch invites.
-- **Requires a verified sending domain** with SPF and DKIM DNS records. A Gmail address cannot be the sender. **Do this in week one** — DNS propagation has lead time and it blocks everything downstream.
+> **Not implemented (checked 2026-08-25).** `server/`, `src/`, `scripts/`, and `package.json` have no Resend dependency, no SMTP client, and no code path that sends an email. **No transactional email is sent today.** The plan below is the original design and is kept as the reference for whoever builds it; treat every bullet as still to do, not as done.
+
+- Configured as Supabase's **custom SMTP provider**. Supabase's built-in mailer is rate-limited to a few emails/hour, unusable for batch invites.
+- **Requires a verified sending domain** with SPF and DKIM DNS records. A Gmail address cannot be the sender. **Do this in week one**: DNS propagation has lead time and it blocks everything downstream.
 - **Signup confirmation email is required, not optional.** It is the deliverability check. The modal's client-side regex accepts typos (`name@gmial.com`); without a confirmation send, bad addresses surface on beta launch day. Include the waitlist position in the email for delight and reduce churn.
 
 ---
@@ -190,7 +194,7 @@ Files touched: [`src/panik-landing-page/components/WaitlistModal.tsx`](../src/pa
 
 **Correct flow:**
 
-1. Invite script selects rows with `status = 'waitlist_free'`, **pre-creates Supabase Auth users** for them via `auth.admin.createUser`, sends a plain invite email (via Resend) with a normal link to the beta app's login page, and flips `status` to `'invited'`.
+1. Invite script selects rows with `status = 'waitlist_free'`, **pre-creates Supabase Auth users** for them via `auth.admin.createUser`, sends a plain invite email (via Resend, not implemented; see §7) with a normal link to the beta app's login page, and flips `status` to `'invited'`.
 2. The beta app's login page collects the email and calls `signInWithOtp({ shouldCreateUser: false })` — a **fresh** magic link, generated on demand, only when the user is actually at the keyboard.
 3. `shouldCreateUser: false` means **only pre-created (invited) emails can log in at all**. Uninvited visitors — including anyone with the beta URL or a spoofed client flag — get "no account found." The gate is the auth system itself; no client-side state is involved.
 4. On first login, join the auth identity back to `waitlist_signups` by email, flip `status` to `'shipped_active'`, and begin in-app onboarding (pre-fills risk appetite from the derived `waitlist_enriched.risk_appetite`, writes the confirmed answer to `user_profiles.risk_appetite`).
