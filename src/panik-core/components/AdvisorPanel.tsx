@@ -201,9 +201,14 @@ const WALLET_URGENCY: Record<
 /**
  * The verdict card's two lines, from the same recommendation data the
  * engine's `overallHeadline` sentence already reads (protocol, action, repay
- * plan, per-leg `usdValuesUnavailable`) - never a second copy of its logic,
- * just the protocol and the degraded caveat pulled out onto their own line
- * instead of packed into one sentence a card had to carry as its whole body.
+ * plan, per-leg `usdValuesUnavailable`) rather than a data-blind split of that
+ * sentence, which would have tied this component to the engine's exact
+ * phrasing. The wording still says the same thing `overallHeadline` says for
+ * the same inputs; it is punctuated with a period rather than the engine's
+ * " - " because this card's copy may not use a hyphen as a dash. Known
+ * duplication: if `packages/scoring` ever gains a structured
+ * `{ title, detail }` return for the wallet verdict, this switch should be
+ * retired in favour of it rather than kept in sync by hand.
  *
  * `detail` is the secondary line; when it is missing (no degraded leg, no
  * repay amount) the card shows a title alone rather than an empty line.
@@ -212,8 +217,6 @@ function verdictLines(
   action: AdvisorAction,
   recs: AdvisorRecommendation[],
 ): { title: string; detail?: string } {
-  const protocolsFor = (a: AdvisorAction) =>
-    recs.filter((r) => r.action === a).map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol);
   const degradedLegs = recs
     .filter((r) => r.numbers.usdValuesUnavailable)
     .map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol);
@@ -223,8 +226,10 @@ function verdictLines(
       : undefined;
 
   switch (action) {
-    case "EXIT":
-      return { title: `Exit recommended on ${protocolsFor("EXIT").join(", ")}`, detail: degradedNote };
+    case "EXIT": {
+      const legs = recs.filter((r) => r.action === "EXIT").map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol);
+      return { title: `Exit recommended on ${legs.join(", ")}`, detail: degradedNote };
+    }
     case "REDUCE": {
       const r = recs.find((x) => x.action === "REDUCE");
       const where = r ? (PROTOCOL_LABEL[r.protocol] ?? r.protocol) : "your position";
@@ -1141,17 +1146,13 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
             {walletVerdict && <RiskChip band={walletVerdict.band}>{walletVerdict.word}</RiskChip>}
             <div className="min-w-0 flex-1 space-y-1">
               <p className="font-sans text-base font-bold text-text-primary">{verdict.title}</p>
-              {verdict.detail ? (
+              {(verdict.detail || insightsText) && (
                 <p className="text-sm font-sans leading-relaxed text-text-secondary">
                   {verdict.detail}
-                  {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
+                  {insightsText && (
+                    <InfoTip text={insightsText} className={verdict.detail ? "ml-1.5" : undefined} />
+                  )}
                 </p>
-              ) : (
-                insightsText && (
-                  <p className="text-sm font-sans leading-relaxed text-text-secondary">
-                    <InfoTip text={insightsText} />
-                  </p>
-                )
               )}
             </div>
           </>
