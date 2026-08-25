@@ -4,10 +4,16 @@ import React from "react";
  * A placeholder block, deliberately static. The usual shimmer/pulse is the
  * one animation this product cannot have: a moving element in a risk dashboard
  * reads as a value changing, and here it means the opposite — nothing has
- * arrived yet. Shape and dimming carry "pending" on their own.
+ * arrived yet. Shape and texture carry "pending" on their own.
+ *
+ * The texture is the shared 45-degree hatch, the same one the UNKNOWN risk chip
+ * and `EmptyState tone="problem"` wear. All three are one statement at three
+ * sizes — there is nothing here, and that is not a verdict — so a reader who
+ * has learned the hatch once has learned all three. A flat grey block would
+ * instead be indistinguishable from a real empty surface on a light ground.
  */
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div aria-hidden="true" className={`rounded-sm bg-white/[0.05] ${className}`} />;
+  return <div aria-hidden="true" className={`hard-edge hatch ${className}`} />;
 }
 
 /**

@@ -255,7 +255,7 @@ function ActionButton({
             recommendation above. */}
         {rec.alternative ? (
           <Button
-            variant="quiet"
+            variant="ghost"
             onClick={
               enabled ? () => onExit?.({ protocol: rec.protocol, kind: "full_repay" }) : undefined
             }

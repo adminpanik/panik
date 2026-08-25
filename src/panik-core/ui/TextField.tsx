@@ -8,16 +8,27 @@ import React, { useId } from "react";
  * address field on the Wallets panel is `w-full font-mono`, the name beside it
  * is `min-w-40 flex-1 font-sans`, and a constant that decided either would have
  * been copied around it rather than used. Everything that makes the control
- * look like this product's control - the height, the radius, the edge, the sunk
- * surface, the placeholder colour, the disabled dimming - is here, so the four
- * hand-typed copies of that string cannot drift apart again. Same arrangement
- * as `CLEAR_TONE_BOX` in EmptyState.
+ * look like this product's control - the 48px height, the hard black edge, the
+ * white plate, the placeholder colour, the disabled dimming - is here, so the
+ * four hand-typed copies of that string cannot drift apart again. Same
+ * arrangement as `CLEAR_TONE_BOX` in EmptyState.
+ *
+ * A WHITE plate, where this used to be the sunken one. An input on the previous
+ * dark look was found by being darker than the card around it; here it is found
+ * by its 3px black edge, and a grey fill would be the only recessed thing on a
+ * page of white plates.
+ *
+ * 48px tall, and it is the same 48px as `BUTTON_SIZE.md` in ui/Button: the two
+ * sit side by side in every form in the product, and a 40px field beside a 48px
+ * button is the kind of 8px nobody can name and everybody can see. Change one
+ * and change the other; the reasoning for keeping it two literals rather than a
+ * token is on `BUTTON_SIZE`.
  *
  * No `focus:` classes. src/index.css carries one global `:focus-visible` rule,
  * which is what stops a control shipping without a ring.
  */
 export const FIELD_BOX =
-  "h-10 rounded-md border border-border-strong bg-surface-sunken px-3 text-sm text-text-primary placeholder:text-text-muted disabled:opacity-50";
+  "h-12 hard-edge bg-surface-raised px-3 text-sm text-text-primary placeholder:text-text-muted disabled:opacity-40";
 
 interface TextFieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
   /** Always visible. A placeholder is a hint, never a label (SC 3.3.2). */
@@ -36,7 +47,10 @@ export function TextField({ label, mono = false, id, className = "", ...rest }: 
   const inputId = id ?? generated;
   return (
     <div className="space-y-2">
-      <label htmlFor={inputId} className="block text-xs font-sans font-bold text-text-primary">
+      <label
+        htmlFor={inputId}
+        className="block label-type text-xs text-text-primary"
+      >
         {label}
       </label>
       <input

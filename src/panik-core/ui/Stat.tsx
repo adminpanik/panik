@@ -4,10 +4,21 @@ import React from "react";
  * A stat value is always neutral. It used to accept a `tone`, which is how a
  * dashboard ends up with a giant orange "4 Positions" next to a giant red
  * "57 / 100": once the figure itself carries hue, every card competes, and the
- * one element that genuinely encodes a risk band — the chip on a position row —
- * stops being the loudest thing on the screen.
+ * one element that genuinely encodes a risk band stops being the loudest thing
+ * on the screen.
  *
  * A band still has a home. It is the RiskChip, and it is small on purpose.
+ *
+ * THE FIGURE IS SET IN MONO. Space Mono 700, tabular, which is this system's
+ * one rule for a numeral: a money value, a percentage, a score and an address
+ * all read as READINGS rather than as prose, and a column of them lines up on
+ * its own without each call site remembering `tabular-nums`. The label and the
+ * subline stay in Archivo, because they are words.
+ *
+ * `text-2xl` is 28px, not the 32 the look was drawn at: the type scale has
+ * seven steps and 32 is not one of them, and a one-off size here is how a scale
+ * acquires an eighth step nobody voted for. 28 at mono 700 is heavier on the
+ * page than 32 at the old sans anyway.
  */
 interface StatProps {
   label: React.ReactNode;
@@ -30,10 +41,10 @@ interface StatProps {
 export function Stat({ label, value, sub }: StatProps) {
   return (
     <div>
-      <span className="flex items-center gap-1 truncate text-xs font-sans font-medium text-text-muted">
+      <span className="flex items-center gap-1 truncate label-type text-xs text-text-muted">
         {label}
       </span>
-      <span className="mt-2 block truncate text-2xl font-sans font-bold tabular-nums text-text-primary">
+      <span className="mt-2 block truncate font-mono text-2xl font-bold tabular-nums text-text-primary">
         {value}
       </span>
       {/* Every line is exactly one line. A row of stat cards where one subtitle
@@ -41,7 +52,7 @@ export function Stat({ label, value, sub }: StatProps) {
           the figure, and the eye reads that raggedness as disorder rather than
           as "this card had more to say". */}
       {sub ? (
-        <span className="mt-2 block truncate text-xs font-sans text-text-secondary">{sub}</span>
+        <span className="mt-2 block truncate font-sans text-sm text-text-secondary">{sub}</span>
       ) : null}
     </div>
   );

@@ -103,11 +103,11 @@ export default function App() {
           <div className="ml-auto flex items-center gap-2">
             <span className="mr-1 hidden text-xs font-sans text-text-secondary sm:inline">{session.email}</span>
             {isAdmin && !passwordPanelOpen && (
-              <Button variant="quiet" onClick={() => setChangingPassword(true)}>
+              <Button variant="ghost" onClick={() => setChangingPassword(true)}>
                 <KeyRound className="h-3.5 w-3.5" aria-hidden="true" /> Password
               </Button>
             )}
-            <Button variant="outline" onClick={endSession}>
+            <Button variant="secondary" onClick={endSession}>
               <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> Sign out
             </Button>
           </div>
@@ -152,7 +152,7 @@ export default function App() {
               You are signed in as {session.email}. The console is limited to {ADMIN_EMAIL}. Sign out
               and try that account.
             </p>
-            <Button variant="outline" className="mt-5" onClick={endSession}>
+            <Button variant="secondary" className="mt-5" onClick={endSession}>
               <LogOut className="h-3.5 w-3.5" aria-hidden="true" /> Sign out
             </Button>
           </Card>

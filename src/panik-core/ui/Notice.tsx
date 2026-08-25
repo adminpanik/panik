@@ -12,8 +12,10 @@ import { PROBLEM_TONE_BOX } from "./EmptyState";
  * away from disagreeing.
  *
  * WHY NOT THE RISK RAMP. A refused invite code is not a liquidation. The five
- * risk hues mean one thing here (docs/DESIGN_SYSTEM.md) and `risk-unknown` is
- * the only one borrowed, because its whole meaning is "we could not find out".
+ * risk hues mean one thing here (docs/DESIGN_SYSTEM.md), and none of them is
+ * spent on this: the hatch says "there is nothing here" without ranking it
+ * against a position, which is the same job `risk-unknown` used to be borrowed
+ * for and one fewer place the ramp appears.
  *
  * `role="alert"`, not `status`: it answers a control the reader just pressed and
  * replaces the outcome they were expecting, so it is worth interrupting for.
@@ -22,9 +24,9 @@ export function Notice({ text }: { text: string }) {
   return (
     <p
       role="alert"
-      className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs font-sans leading-relaxed text-text-secondary ${PROBLEM_TONE_BOX}`}
+      className={`flex items-start gap-2 px-3 py-2 font-sans text-xs leading-relaxed text-text-primary ${PROBLEM_TONE_BOX}`}
     >
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-risk-unknown" aria-hidden="true" />
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-primary" aria-hidden="true" />
       <span className="min-w-0 flex-1">{text}</span>
     </p>
   );

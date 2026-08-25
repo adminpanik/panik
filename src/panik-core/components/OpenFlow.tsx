@@ -596,7 +596,7 @@ export function OpenFlow({
             <button
               onClick={() => void execute()}
               disabled={executing || collateralUsd <= 0}
-              className="w-full py-3 rounded-md bg-text-primary text-black font-sans font-bold text-sm hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-md bg-text-primary text-surface-base font-sans font-bold text-sm hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {executing ? (
                 <>

@@ -394,14 +394,15 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
                   }`
             }
           >
-            {/* No accent rail here on purpose. `--color-panik-orange` and
-                `--color-risk-high` are the same hex, so any orange in the
-                shell is the same colour a user has just been taught means
-                HIGH. The raised surface and the brighter, heavier label
-                already answer "where am I" on their own, so the rail was
-                buying nothing and costing that ambiguity. Colour in this
-                product is either a risk band or a chart category; being
-                brand is not a third job it does. */}
+            {/* No accent rail here on purpose. It was written when the brand
+                accent and `--color-risk-high` were the same hex, so any orange
+                in the shell was the same colour a user had just been taught
+                means HIGH. `--color-panik-orange` is gone and `--color-brand`
+                is cobalt, which shares nothing with the ramp, so that
+                particular ambiguity no longer applies — but the rail is still
+                not back, because the raised surface and the heavier label
+                already answer "where am I" on their own. Restyling this row to
+                the cobalt tab block is the app-shell pass, not this one. */}
             <Icon
               className={`${vertical ? "w-4 h-4" : "w-4.5 h-4.5 shrink-0"} ${
                 selected ? "text-text-primary" : "text-text-secondary"
@@ -875,7 +876,7 @@ function MarketCard({
             the glyph; the quiet variant's own padding takes the target to
             44x32, clear of the 24px floor. */}
         <Button
-          variant="quiet"
+          variant="ghost"
           onClick={onSimulate}
           aria-label="Stress-test this market in the simulator"
           title="Stress-test this market in the simulator"
@@ -1317,7 +1318,7 @@ function RiskBreakdownPanel({
           </div>
         </div>
         <Button
-          variant="outline"
+          variant="secondary"
           onClick={onClose}
           aria-label="Close the risk breakdown"
           title="Close the risk breakdown"
@@ -1472,10 +1473,10 @@ function RiskBreakdownPanel({
 
       {/* One primary action, and it is the only filled button in the panel. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-base p-4">
-        <Button variant="outline" onClick={onClose}>
+        <Button variant="secondary" onClick={onClose}>
           Close
         </Button>
-        <Button variant="outline" onClick={onSimulate}>
+        <Button variant="secondary" onClick={onSimulate}>
           Open simulator
         </Button>
         <Button onClick={onOpen}>
@@ -3488,9 +3489,9 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                              tint the pointer's does, and only a row that is
                              neither gets the hover. */
                           optionClassName={({ selected, active }) =>
-                            `flex items-center justify-between gap-3 px-4 py-3 cursor-pointer transition-colors border-l-2 ${
-                              selected ? "border-l-border-strong" : "border-l-transparent"
-                            } ${selected || active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]"}`
+                            `flex cursor-pointer items-center justify-between gap-3 px-4 py-3 ${
+                              selected ? "border-l-[3px] border-solid border-l-border-strong" : ""
+                            }`
                           }
                           renderOption={(i, { selected }) => (
                             <MarketOptionRow choice={marketChoices[i]} selected={selected} />
@@ -4204,7 +4205,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     }
                     action={
                       viewingWatchOnly ? undefined : (
-                        <Button variant="quiet" onClick={() => setActiveTab("compass")}>
+                        <Button variant="ghost" onClick={() => setActiveTab("compass")}>
                           Explore Compass →
                         </Button>
                       )
@@ -4705,7 +4706,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           {alertsNewestFirst.length > ALERT_PREVIEW_COUNT && (
                             <Button
                               ref={alertHistoryTrigger}
-                              variant="outline"
+                              variant="secondary"
                               className="mt-3 lg:mt-auto w-full shrink-0 justify-center"
                               onClick={() => setAlertHistoryOpen(true)}
                             >
@@ -5230,7 +5231,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
               <button
                 onClick={retryMonitoring}
                 disabled={monitoringBusy}
-                className="shrink-0 px-3 py-1.5 rounded-md bg-text-primary hover:opacity-90 disabled:opacity-50 text-2xs font-sans font-bold text-black transition-colors cursor-pointer"
+                className="shrink-0 px-3 py-1.5 rounded-md bg-text-primary hover:opacity-90 disabled:opacity-50 text-2xs font-sans font-bold text-surface-base transition-colors cursor-pointer"
               >
                 {monitoringBusy ? "Verifying..." : blocked ? "Retry" : "Connect"}
               </button>

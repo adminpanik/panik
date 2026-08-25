@@ -157,7 +157,7 @@ export function ChangePassword({
             {busy ? "Saving" : "Save new password"}
           </Button>
           {onDismiss && (
-            <Button type="button" variant="quiet" onClick={onDismiss}>
+            <Button type="button" variant="ghost" onClick={onDismiss}>
               {firstRun ? "Not now" : "Cancel"}
             </Button>
           )}

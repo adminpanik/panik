@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700;800;900&family=Space+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
 
 /**
@@ -9,112 +9,142 @@
  * `initial` further down, which deletes the utility entirely — a stray
  * `text-red-400` or `rounded-2xl` then renders as nothing and is caught in
  * review instead of quietly reintroducing a fifth green.
+ *
+ * THIS IS A LIGHT THEME AND IT IS THE ONLY THEME. There is no dark set behind
+ * a `prefers-color-scheme` query, because a two-theme contract doubles every
+ * contrast argument below and nothing in the product reads the second one.
+ * The look is neo-brutalist: paper ground, black ink, hard 3px edges and
+ * offset black shadows instead of blur, and no radius anywhere except an
+ * avatar. Depth is drawn, not simulated.
  */
 @theme {
   /**
-   * Two families, down from three. Space Grotesk was the display face on a
-   * couple of dozen headings, and a second sans that close to the first buys
-   * nothing a weight step does not.
+   * Two families, and the split between them is now a rule rather than a
+   * preference: Archivo sets every word, Space Mono sets every FIGURE. A
+   * numeral, a percentage, a money value and an address all render in mono 700
+   * with `tabular-nums`, which is what makes a column of dollar amounts line
+   * up and what makes a figure read as a reading rather than as prose.
    *
-   * Mono is now reserved for hexadecimal addresses. It used to set labels,
-   * buttons, headings and prose — ~600 call sites — which is most of why this
-   * UI read as hard work: monospace is tuned for character-cell alignment, not
-   * for reading words. Plus Jakarta Sans ships real tabular figures (measured
-   * in-browser: digit advances collapse from a 36.1px spread at 100px to a
-   * uniform 60px under `font-variant-numeric: tabular-nums`), so numeric
-   * columns align in the sans face and mono is no longer load-bearing.
+   * Archivo carries the whole weight range this look needs in one family: 700
+   * for labels and controls, 900 for the uppercase headings. Space Grotesk and
+   * Plus Jakarta Sans are gone; a third face bought nothing a weight step does
+   * not.
    */
-  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, monospace;
 
   /**
    * Surfaces — four depths, in stacking order. Depth is the only thing that
-   * varies; nothing tints a surface by state. Seventeen near-blacks collapsed
-   * onto these four, so "which grey is this card" stopped being a decision.
+   * varies; nothing tints a surface by state.
+   *
+   * The page is warm paper rather than pure white so a `raised` card can be
+   * white and still read as lifted off it without a blur. `overlay` is the
+   * same white as `raised`: on this look a popover is separated by its 3px
+   * edge and its offset shadow, not by being a lighter grey.
    */
-  --color-surface-base: #09090B;
-  --color-surface-sunken: #0C0D11;
-  --color-surface-raised: #111318;
-  --color-surface-overlay: #16181F;
+  --color-surface-base: #F4F4EF;
+  --color-surface-sunken: #EBEBE4;
+  --color-surface-raised: #FFFFFF;
+  --color-surface-overlay: #FFFFFF;
 
   /**
    * Text — three roles, no more. Each clears 4.5:1 on the LIGHTEST surface it
-   * can land on (overlay), not just on the page background: text-muted is
-   * 4.81:1 there. This is why the old #475569 (2.45:1 on raised) and #64748B
-   * (3.90:1) are gone rather than merely renamed.
+   * can land on (white), not just on the page ground: `text-muted` at #6B6B6B
+   * is 5.30:1 on white and 4.96:1 on `surface-base`.
    */
-  --color-text-primary: #F8FAFC;
-  --color-text-secondary: #94A3B8;
-  --color-text-muted: #7A8699;
+  --color-text-primary: #000000;
+  --color-text-secondary: #4A4A4A;
+  --color-text-muted: #6B6B6B;
 
   /**
-   * Borders — two families, because they do two unrelated jobs. Collapsing
-   * them into one alpha is the standard dark-UI mistake: a card divider wants
-   * to disappear, an input edge has to be findable. `strong` holds 3.27–3.34:1
-   * across all four surfaces (WCAG 1.4.11); `subtle` is decorative and makes
-   * no contrast claim.
-   */
-  --color-border-subtle: rgba(255, 255, 255, 0.08);
-  --color-border-strong: rgba(255, 255, 255, 0.36);
-
-  /**
-   * Brand accent, and in the product it now has exactly two jobs: the logo
-   * mark and the `:focus-visible` ring below. Nothing else.
+   * Borders — two families, because they do two unrelated jobs. `strong` is
+   * the structural black edge this whole look is built from: it is what draws
+   * a card, a button, a chip and a panel, at `--border-width-hard`. `subtle`
+   * is decoration inside a box (a row rule, a chart axis) and makes no
+   * contrast claim.
    *
-   * It used to fill primary buttons, tint selected chips, paint sidebar icons
-   * and set the wallet pill, which meant a saturated hue appeared eight or ten
-   * times on a screen whose actual job is to make FOUR risk chips findable.
-   * A neutral near-white fill is louder by contrast (18.1:1) and quieter by
-   * hue, so the only saturated pixels left on a dashboard are the ones stating
-   * a risk band. If a new control feels like it wants orange, it wants
-   * `bg-text-primary`.
+   * Collapsing them into one alpha is the standard mistake: a divider wants to
+   * disappear, a control edge has to be findable.
    */
-  --color-panik-orange: #F97316;
+  --color-border-subtle: rgba(0, 0, 0, 0.12);
+  --color-border-strong: #000000;
 
   /**
-   * Risk ramp — four bands plus "we do not know". STATUS ONLY, and always as
-   * a tint (`bg-risk-x/10 text-risk-x border-risk-x/25`), never a solid fill.
-   * risk-high shares the brand hue on purpose: one hue, two treatments, so an
-   * orange chip is never mistaken for a button and vice versa.
+   * The structural edge width, in one place. Every hard-bordered primitive is
+   * this number, and the `hard-edge` utility defined below is the only thing
+   * that should read it, so "how thick is a PANIK edge" has one answer.
+   */
+  --border-width-hard: 3px;
+
+  /**
+   * Brand, and it is a SIGNAL colour rather than a decoration: the focus ring,
+   * a link's underline, the active tab, the one primary button on a screen.
+   *
+   * Cobalt rather than the old orange, and the swap is the point. The accent
+   * used to share a hue with the HIGH risk band, which meant the loudest
+   * saturated thing on a dashboard was sometimes a button and sometimes a
+   * warning and the reader had to know which. Cobalt is nowhere on the risk
+   * ramp, so a blue pixel is never a risk statement and an orange one always
+   * is.
+   *
+   * `highlight` is the quiet half of the same idea: a lavender wash for the
+   * row the pointer is on or the option the arrows are on. It is not on the
+   * ramp either, and it is light enough to keep black text at 15.6:1.
+   */
+  --color-brand: #2B5CFF;
+  --color-highlight: #D8CCFF;
+
+  /**
+   * WHAT REMOVING `--color-panik-orange` BREAKS, stated rather than discovered.
+   * This is a deliberate, acknowledged breakage, and it is the opposite of the
+   * treatment the cool families get further down, so the difference should not
+   * look like an oversight.
+   *
+   * 211 utility call sites across 15 files in `src/panik-landing-page` still
+   * name it, as do the four `.panik-glow-orange` / `.panik-glass` /
+   * `.panik-grid-bg` / `.panik-dot-bg` classes that used to sit at the bottom
+   * of this file and are gone with it. All of them compile and build clean;
+   * they simply render without that colour and those textures until the
+   * landing-page pass rewrites them.
+   *
+   * The cool families are kept "on notice" instead because they are still
+   * carrying WORKING surfaces in the product - seven of them in `panik-core` -
+   * and blanking those would be a regression with nothing to show for it. The
+   * orange has no such claim: every remaining consumer is on the landing page,
+   * which is being rebuilt against this palette anyway, and keeping the token
+   * alive would mean the new system shipped with the old accent still in it.
+   */
+
+  /**
+   * Risk ramp — four bands plus "we do not know". STATUS ONLY. On this look a
+   * band is a FLAT BLOCK (band colour, black edge, black text), not a tint:
+   * `RISK_CHIP` in panik-core/lib/utils.ts is still the single place a band
+   * becomes pixels, and the recipe lives there.
+   *
+   * risk-high is a literal now. It used to be `var(--color-panik-orange)`,
+   * because the brand accent and the HIGH band were deliberately the same hue
+   * and writing the value twice would have made that agreement a coincidence.
+   * The accent is cobalt now and shares nothing with the ramp, so the
+   * indirection was pointing at a relationship that no longer exists; #FF5C00
+   * is HIGH's own colour and answers to nothing else.
    *
    * risk-unknown is not cosmetic. A position we could not price and a position
    * that is genuinely safe used to render the same neutral grey, which in a
-   * liquidation product reads as a safety claim we cannot make.
+   * liquidation product reads as a safety claim we cannot make. It is also the
+   * one band that is NOT a flat block: it is white under a black hatch, so
+   * "we did not measure this" cannot be read as a fifth severity.
    */
-  --color-risk-low: #10B981;
+  --color-risk-low: #22C55E;
   --color-risk-elevated: #F59E0B;
-  /**
-   * Not a second literal. The brand hue and the HIGH band are the same colour
-   * BY DESIGN (see the accent note above, and the sidebar comment in AppDemo),
-   * and writing #F97316 twice made that a coincidence two independent edits
-   * could break — at which point the "one hue, two treatments" argument the
-   * whole accent policy rests on is quietly false and nothing fails.
-   *
-   * Brand is the source and risk-high is the borrower, not the other way
-   * round: the accent has two jobs (the logo mark and the focus ring) that
-   * exist whether or not there is a risk ramp, whereas risk-high is documented
-   * above as *sharing* the brand hue.
-   */
-  --color-risk-high: var(--color-panik-orange);
-  --color-risk-critical: #F87171;
-  --color-risk-unknown: #7A8699;
-
-  /**
-   * Chart series. Identical to sky-400, and named because a chart cannot
-   * depend on sky-400 being EMITTED: Tailwind v4 only writes a theme variable
-   * to :root when it finds a utility that uses it somewhere in source, so
-   * `--color-sky-400` resolves today only because unrelated files happen to
-   * contain `bg-sky-400` and `text-sky-400`. Change those strings and every
-   * sparkline stroke silently becomes no colour at all — the failure is a
-   * blank chart, with nothing to grep for. A token declared here is the
-   * dependency stated out loud.
-   */
-  --color-chart-series: oklch(74.6% 0.16 232.661);
+  --color-risk-high: #FF5C00;
+  --color-risk-critical: #EF4444;
+  --color-risk-unknown: #9CA3AF;
 
   /**
    * Type scale — seven steps plus one display size, each with its line-height
    * pinned to a 4px multiple. Dense numeric rows take the tighter ratio (~1.3),
-   * prose the looser (~1.5).
+   * prose the looser (~1.5). Unchanged from the previous system: the steps
+   * were right, the faces filling them were not.
    *
    * The floor is 11px. It used to be 5.5px, and 313 usages sat at or under
    * 9.5px, which is the single loudest "this is a mockup, not a product"
@@ -146,10 +176,18 @@
   --text-8xl: initial;
   --text-9xl: initial;
 
-  /* Radii — chips/inputs, cards, modals. `rounded-full` stays for avatars and dots. */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  /**
+   * Radii — all zero. The three steps survive as names rather than as values
+   * so the several hundred existing `rounded-sm` / `rounded-md` / `rounded-lg`
+   * call sites keep compiling and all resolve to the same square corner. A
+   * softened corner is not available in this system; if a surface feels like
+   * it wants one, that is a conversation, not a class.
+   *
+   * `rounded-full` stays, and it is for AVATARS and nothing else.
+   */
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
 
   --radius-xs: initial;
   --radius-xl: initial;
@@ -158,11 +196,33 @@
   --radius-4xl: initial;
 
   /**
+   * Shadows. Every blurred shadow in Tailwind's default set is deleted first,
+   * then two hard offsets are put back: depth here is a black rectangle sitting
+   * behind the element, which is a drawn fact rather than a simulated light
+   * source. `shadow-hard` is the resting state for a card or a panel;
+   * `shadow-hard-sm` is the 3px version a control collapses to on hover, and
+   * the small chip's resting state.
+   *
+   * The `initial` line has to come FIRST: it clears the namespace, and
+   * anything declared after it survives.
+   */
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --shadow-hard: 6px 6px 0 #000000;
+  --shadow-hard-sm: 3px 3px 0 #000000;
+
+  /**
    * Every warm and neutral family is deleted. Greys must come from the text /
    * surface / border tokens above, and anything red, amber, orange or green is
-   * a risk statement that has to name its band. The cool families (sky, cyan,
-   * blue, indigo, violet) survive as the chart palette — charts must never
-   * borrow red or green, or a series gets read as a risk state.
+   * a risk statement that has to name its band.
+   *
+   * The cool families (sky, cyan, blue, indigo, violet) are still here, and
+   * they are on notice rather than endorsed: seven surfaces in `panik-core` and
+   * twenty-six on the landing page still reach for them, and deleting the
+   * families would blank those out silently rather than fail loudly. New charts
+   * use the three named series tokens below. Once the app-shell and landing
+   * passes have moved the existing call sites over, these join the list.
    */
   --color-red-*: initial;
   --color-orange-*: initial;
@@ -183,16 +243,103 @@
   --color-stone-*: initial;
 }
 
-/* Custom structural styles for financial style aesthetics */
+/**
+ * Chart series. Cool only, and three steps of one hue rather than three hues: a
+ * categorical series must never borrow red, amber or green, or it gets read as
+ * a risk state. Series 1 is the brand cobalt on purpose — a single-series
+ * sparkline is the commonest chart in the product and it should read as the
+ * product's line.
+ *
+ * `static` IS THE POINT OF THIS BLOCK. Tailwind v4 only writes a theme variable
+ * to :root when it finds the name somewhere in the scanned source, and these
+ * are consumed as raw `var(--color-chart-series)` in SVG `stroke` attributes
+ * rather than as utilities. Series 1 survives that by accident, because the
+ * literal string happens to appear in `AppDemo` and `Sparkline`; series 2 and 3
+ * are new, appear nowhere yet, and were being dropped from the build entirely.
+ * The first chart to reach for one would have got `stroke: ` and drawn nothing,
+ * with no error and nothing to grep for. `static` emits all three whether they
+ * are referenced or not, which is the dependency stated out loud.
+ */
+@theme static {
+  --color-chart-series: #2B5CFF;
+  --color-chart-series-2: #7D9BFF;
+  --color-chart-series-3: #C2CFFF;
+}
+
+/**
+ * The structural edge, as one utility. Three properties always travel together
+ * on this look and every hard-bordered primitive wants all three, so they are
+ * named once here rather than retyped as `border-3 border-solid
+ * border-border-strong` at forty call sites where one of the three can go
+ * missing and the element quietly loses its edge.
+ *
+ * It is also the only reader of `--border-width-hard`, which is what makes that
+ * token mean something.
+ *
+ * NOT CALLED `border-hard`, and that is not a style preference: `border-width-`
+ * is one of Tailwind v4's own theme namespaces, so declaring the token already
+ * generates a `border-hard` utility that sets the WIDTH alone. Defining a
+ * second rule under the same name emitted the class twice with different
+ * property sets, and which one won for `border-style` was Tailwind's emit
+ * order. A name outside every Tailwind namespace cannot collide with one.
+ */
+@utility hard-edge {
+  border-width: var(--border-width-hard);
+  border-style: solid;
+  border-color: var(--color-border-strong);
+}
+
+/**
+ * A LABEL, typographically. Archivo 700, uppercase, 0.06em of tracking — the
+ * four properties that make a stat's caption, a chip's word, a field's label
+ * and the simulation banner's heading read as the same kind of thing.
+ *
+ * Here rather than as a class string in `panik-core/ui`, because 0.06em is a
+ * VALUE and index.css is the only place a value may be defined. It was written
+ * out at five call sites across five files, which is how the tracking on one of
+ * them ends up at 0.05 and nobody can say whether that was a decision.
+ *
+ * SIZE AND COLOUR ARE NOT HERE. Those genuinely vary by rank — a stat caption
+ * is `text-xs text-text-muted`, a chip's word is `text-2xs text-text-primary` —
+ * and folding them in would mean a caller overriding half the utility.
+ *
+ * `Button` deliberately does not use this: its label is 0.02em, because
+ * tracking that opens up a 12px caption makes a 14px control look gappy.
+ */
+@utility label-type {
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/**
+ * The 45-degree hatch, at the one weight the product uses it. Three surfaces
+ * need it and they must not drift apart: the UNKNOWN risk chip (a band we
+ * could not measure), `EmptyState tone="problem"` (a panel we could not fill)
+ * and `Skeleton` (a block that has not arrived). All three are the same
+ * statement at three sizes — there is nothing here yet, and that is not a
+ * safety claim — so they are one texture.
+ */
+@utility hatch {
+  background-color: var(--color-surface-raised);
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgb(0 0 0 / 0.15) 0 1px,
+    transparent 1px 6px
+  );
+}
+
 @layer base {
   body {
     background-color: var(--color-surface-base);
     color: var(--color-text-primary);
     font-family: var(--font-sans);
     /**
-     * Every digit in the product is tabular by default. This is what lets the
-     * sans face replace mono wholesale: a column of dollar amounts lines up on
-     * its own, without each call site having to remember `tabular-nums`.
+     * Every digit in the product is tabular by default, in both faces. The
+     * primitives put figures in mono 700 explicitly; this is the floor under
+     * the call sites that have not been reached yet, so a column of numbers
+     * never jitters while the rest of the app catches up.
      */
     font-variant-numeric: tabular-nums;
     overflow-x: clip;
@@ -201,74 +348,41 @@
 
   /**
    * One global focus indicator instead of per-input `focus:` classes, so a
-   * control cannot ship without one. 2px of brand orange at 7.10:1 against the
-   * page and 3.5:1 against the resting input border satisfies both WCAG 1.4.11
-   * and 2.4.13.
+   * control cannot ship without one. 3px of cobalt at 5.03:1 against the page
+   * ground and offset clear of the element's own black edge, which is what
+   * makes it findable on a look where nearly everything already has a 3px
+   * border.
    */
   :focus-visible {
-    outline: 2px solid var(--color-panik-orange);
+    outline: 3px solid var(--color-brand);
     outline-offset: 2px;
   }
 
-  body::after {
-    content: "";
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    pointer-events: none;
-    z-index: 9999;
-    opacity: 0.025;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  /**
+   * Links are underlined, thickly, in brand. The underline is the affordance —
+   * colour alone would fail WCAG 1.4.1 for anyone who cannot separate the
+   * cobalt from the black around it — and 3px matches the border weight
+   * everything else on the page is drawn at.
+   */
+  a {
+    text-decoration: underline;
+    text-decoration-color: var(--color-brand);
+    text-decoration-thickness: 3px;
+    text-underline-offset: 3px;
+  }
+
+  a:hover {
+    color: var(--color-brand);
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 10px;
+    height: 10px;
   }
   ::-webkit-scrollbar-track {
-    background: var(--color-surface-base);
+    background: var(--color-surface-sunken);
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.14);
-    border-radius: var(--radius-sm);
+    background: var(--color-border-strong);
   }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.24);
-  }
-}
-
-/* Marketing only — the two landing-page CTAs. The product UI has no glow. */
-.panik-glow-orange {
-  box-shadow: 0 0 25px -3px rgb(from var(--color-panik-orange) r g b / 0.45), 0 0 10px -2px rgb(from var(--color-panik-orange) r g b / 0.2);
-}
-
-/* Glassmorphism treatment */
-.panik-glass {
-  background: rgb(from var(--color-surface-overlay) r g b / 0.45);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--color-border-subtle);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05), 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-  transition: border-color 0.3s ease, background 0.3s ease;
-}
-
-.panik-glass:hover {
-  border-color: rgba(255, 255, 255, 0.13);
-  background: rgb(from var(--color-surface-overlay) r g b / 0.55);
-}
-
-/* Dynamic Grid Background with slow fade effect */
-.panik-grid-bg {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 40px 40px;
-  background-position: center top;
-}
-
-.panik-dot-bg {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 24px 24px;
 }

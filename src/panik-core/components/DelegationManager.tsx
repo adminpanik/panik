@@ -498,7 +498,7 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
                     </p>
                   </div>
                   <Button
-                    variant="outline"
+                    variant="secondary"
                     onClick={() => void revoke(d)}
                     disabled={revokingId !== null}
                     className="shrink-0"
@@ -516,7 +516,7 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
             })}
             {delegations.length > 1 ? (
               <Button
-                variant="quiet"
+                variant="ghost"
                 onClick={() => void revoke("all")}
                 disabled={revokingId !== null}
               >

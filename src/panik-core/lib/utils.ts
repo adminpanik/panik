@@ -352,24 +352,38 @@ export function calculateDynamicPosition(
 }
 
 /**
- * The one place a risk band turns into pixels. Every band gets the same tint
- * recipe so the hue is the only variable: 10% fill, full-strength label, 25%
- * edge. Risk never appears as a solid fill, which is what keeps HIGH (orange)
- * from being mistaken for the brand accent on a button.
+ * The one place a risk band turns into pixels. Every band gets the same recipe
+ * so the hue is the only variable: a FLAT BLOCK of the band colour, a 3px
+ * black edge, black text, and a 3px black shadow offset behind it.
+ *
+ * A flat fill, where the previous system used a 10% tint. The tint rule existed
+ * because the accent and the HIGH band shared a hue, so a solid orange chip and
+ * a solid orange button were the same object to the eye and the tint was what
+ * told them apart. The accent is cobalt now and shares nothing with the ramp,
+ * which buys back the strongest signal available: a chip is the only saturated
+ * rectangle on a dashboard, and at four per screen it is findable from across
+ * the room.
+ *
+ * The text is black on every band rather than the band colour. That is what
+ * makes one recipe work for all four: amber-on-white ink fails contrast at this
+ * size, and black clears 4.5:1 on all four fills (LOW 9.4:1, ELEVATED 10.4:1,
+ * HIGH 7.0:1, CRITICAL 5.8:1). It also stops the ramp appearing as text
+ * anywhere, so a hued pixel is always a block and never a word.
  *
  * UNKNOWN is a band, not an absence of one. A position we could not price is
  * not a safe position, and rendering it in the same neutral grey as chrome was
- * a silent safety claim.
+ * a silent safety claim. It is the one band that is not a flat block: white
+ * under the shared 45-degree hatch, so "we did not measure this" cannot be read
+ * as a fifth severity between LOW and CRITICAL. The old dashed edge is gone —
+ * every edge in this system is 3px solid black, and a dashed one now reads as
+ * a mistake rather than as a distinction.
  */
 export const RISK_CHIP: Record<Band | "UNKNOWN", string> = {
-  LOW: "bg-risk-low/10 text-risk-low border-risk-low/25",
-  ELEVATED: "bg-risk-elevated/10 text-risk-elevated border-risk-elevated/25",
-  HIGH: "bg-risk-high/10 text-risk-high border-risk-high/25",
-  CRITICAL: "bg-risk-critical/10 text-risk-critical border-risk-critical/25",
-  // No fill: the grey is dark enough that a 10% wash of itself drags the label to
-  // 4.26:1 on the lightest surface. Unfilled, it clears 4.5:1 on all four, and the
-  // dashed edge carries the "not measured" distinction without relying on hue.
-  UNKNOWN: "text-risk-unknown border-risk-unknown/40 border-dashed",
+  LOW: "bg-risk-low text-text-primary",
+  ELEVATED: "bg-risk-elevated text-text-primary",
+  HIGH: "bg-risk-high text-text-primary",
+  CRITICAL: "bg-risk-critical text-text-primary",
+  UNKNOWN: "hatch text-text-primary",
 };
 
 /**

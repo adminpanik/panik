@@ -198,11 +198,11 @@ function SignInScreen({
         <p className={PROSE}>The link can be used once.</p>
         {message && <Notice text={message} />}
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={send} disabled={account.busy || cooldown > 0}>
+          <Button variant="secondary" onClick={send} disabled={account.busy || cooldown > 0}>
             {cooldown > 0 ? `Send another link in ${cooldown}s` : "Send another link"}
           </Button>
           <Button
-            variant="quiet"
+            variant="ghost"
             onClick={() => {
               setSent(null);
               setError(null);
@@ -229,7 +229,7 @@ function SignInScreen({
       {message && <Notice text={message} />}
 
       <Button
-        variant="outline"
+        variant="secondary"
         onClick={account.startGoogle}
         disabled={account.busy}
         className="w-full justify-center"
@@ -380,7 +380,7 @@ function VoucherScreen({ account }: { account: AccountState }) {
         <span className="min-w-0 truncate text-xs font-sans text-text-muted">
           Signed in as {email}
         </span>
-        <Button variant="quiet" onClick={() => void account.signOut()} disabled={account.busy}>
+        <Button variant="ghost" onClick={() => void account.signOut()} disabled={account.busy}>
           Sign out
         </Button>
       </div>
@@ -401,13 +401,13 @@ function UnavailableScreen({ account }: { account: AccountState }) {
           "The account service did not answer, so PANIK cannot tell whether your beta access is live."
         }
         action={
-          <Button variant="outline" onClick={() => void account.reload()} disabled={account.busy}>
+          <Button variant="secondary" onClick={() => void account.reload()} disabled={account.busy}>
             {account.busy ? "Checking..." : "Try again"}
           </Button>
         }
       />
       <div className="flex justify-end">
-        <Button variant="quiet" onClick={() => void account.signOut()} disabled={account.busy}>
+        <Button variant="ghost" onClick={() => void account.signOut()} disabled={account.busy}>
           Sign out
         </Button>
       </div>

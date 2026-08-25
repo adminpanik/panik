@@ -192,7 +192,7 @@ export function SimulationPanel({
         <h2 className="text-base font-sans font-bold text-text-primary">Market event simulator</h2>
         {active ? <StatusPill tone="live">Armed</StatusPill> : null}
         <Button
-          variant="quiet"
+          variant="ghost"
           className="ml-auto"
           onClick={refresh}
           aria-label="Reload the simulator state"
@@ -217,7 +217,7 @@ export function SimulationPanel({
           title="The simulator did not respond"
           hint={error}
           action={
-            <Button variant="outline" onClick={refresh}>
+            <Button variant="secondary" onClick={refresh}>
               <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
             </Button>
           }
@@ -392,7 +392,7 @@ function ArmedView({
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1.5">
-            <Button variant="outline" onClick={onStop} disabled={busy}>
+            <Button variant="secondary" onClick={onStop} disabled={busy}>
               <Square className="h-3.5 w-3.5" aria-hidden="true" />
               {busy ? "Stopping..." : "Stop now"}
             </Button>

@@ -5,26 +5,29 @@ import { CheckCircle2, AlertTriangle } from "lucide-react";
  * Two empty states that must never look alike.
  *
  * `clear` means we looked and there is nothing to report. In a liquidation
- * product that is good news, and it is safe to say so.
+ * product that is good news, and it is safe to say so: a plain white plate with
+ * the same hard edge every other box has.
  *
  * `problem` means we could not look. That is NOT good news, and it is not a
- * safety claim we are allowed to make. It borrows the risk-unknown treatment
- * from the score chips — dashed edge, grey label — so "we don't know" reads
- * the same everywhere it appears, whether it is one number or a whole panel.
+ * safety claim we are allowed to make. It takes the 45-degree hatch, which is
+ * the same texture the UNKNOWN risk chip and the loading `Skeleton` wear, so
+ * "there is nothing here and that is not a verdict" reads the same everywhere
+ * it appears, whether it is one chip, one block or a whole panel.
  *
- * Rendering both as the same grey box, which is what this replaces, silently
- * turns a failed fetch into "you're fine".
+ * Rendering both as the same box, which is what this replaces, silently turns a
+ * failed fetch into "you're fine". The hatch does that job better than the
+ * dashed border it replaces: a dashed edge is a 1px difference a reader has to
+ * look for, and on this look every other edge is 3px solid black anyway, so a
+ * dashed one now reads as a rendering fault rather than as a distinction.
  */
 const EMPTY_TONE = {
   clear: {
     icon: CheckCircle2,
-    box: "border-border-subtle bg-white/[0.02]",
-    mark: "text-risk-low",
+    box: "hard-edge bg-surface-raised",
   },
   problem: {
     icon: AlertTriangle,
-    box: "border-dashed border-risk-unknown/40 bg-transparent",
-    mark: "text-risk-unknown",
+    box: "hard-edge hatch",
   },
 } as const;
 
@@ -33,8 +36,8 @@ const EMPTY_TONE = {
  * without the component: `SparklinePlaceholder` holds a chart's exact frame
  * open and centres a sentence in it, which `EmptyState`'s own layout (icon
  * beside a title, height set by its content) cannot do. It hand-copied these
- * two classes, so the two "nothing to report here" boxes on the Portfolio tab
- * were one edit away from reading as different kinds of statement.
+ * classes, so the two "nothing to report here" boxes on the Portfolio tab were
+ * one edit away from reading as different kinds of statement.
  */
 export const CLEAR_TONE_BOX = EMPTY_TONE.clear.box;
 
@@ -54,17 +57,19 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ tone, title, hint, action }: EmptyStateProps) {
-  const { icon: Icon, box, mark } = EMPTY_TONE[tone];
+  const { icon: Icon, box } = EMPTY_TONE[tone];
   return (
     <div
-      className={`flex flex-col gap-3 rounded-md border p-5 sm:flex-row sm:items-center sm:justify-between ${box}`}
+      className={`flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between ${box}`}
     >
       <div className="flex items-start gap-3">
-        <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${mark}`} />
+        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-text-primary" />
         <div>
-          <span className="block text-sm font-sans font-bold text-text-primary">{title}</span>
+          <span className="block font-sans text-lg font-black uppercase tracking-tight text-text-primary">
+            {title}
+          </span>
           {hint && (
-            <span className="mt-1 block text-xs font-sans leading-relaxed text-text-secondary">
+            <span className="mt-1 block font-sans text-sm leading-relaxed text-text-secondary">
               {hint}
             </span>
           )}

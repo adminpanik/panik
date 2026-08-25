@@ -1,5 +1,7 @@
 import { FlaskConical } from "lucide-react";
 
+import { Chip } from "./Chip";
+
 import type { SimulationInfo } from "../lib/live";
 /**
  * A VALUE import from the engine, deep into `simulation.ts`, which has no
@@ -46,7 +48,7 @@ export function SimulationBanner({ simulation, now }: { simulation: SimulationIn
        one guarantee this element must make is that it cannot leave the frame. */
     <div
       role="status"
-      className="shrink-0 border-b border-border-strong bg-surface-overlay px-4 py-2.5"
+      className="shrink-0 border-b-hard border-solid border-b-border-strong bg-surface-overlay px-4 py-2.5"
     >
       <div className="mx-auto flex max-w-[1600px] items-start gap-3">
         <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-text-primary" aria-hidden="true" />
@@ -57,7 +59,7 @@ export function SimulationBanner({ simulation, now }: { simulation: SimulationIn
               user's screen; and which positions are affected is answered
               precisely by the per-row chip rather than approximately by a list
               here. */}
-          <p className="text-xs font-sans font-bold text-text-primary">
+          <p className="label-type text-xs text-text-primary">
             {SIMULATION_MARKER_TITLE}: {simulation.label}
           </p>
           <p className="mt-0.5 text-2xs font-sans leading-relaxed text-text-secondary">
@@ -79,12 +81,12 @@ export function SimulationBanner({ simulation, now }: { simulation: SimulationIn
  */
 export function SimulationChip({ className = "" }: { className?: string }) {
   return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded-sm border border-border-strong bg-surface-overlay px-1.5 py-0.5 text-2xs font-sans font-medium text-text-primary ${className}`}
+    <Chip
+      className={className}
       title="This figure was produced from a simulated price. Real market prices have not moved."
     >
       <FlaskConical className="h-3 w-3" aria-hidden="true" />
       {SIMULATION_CHIP_LABEL}
-    </span>
+    </Chip>
   );
 }

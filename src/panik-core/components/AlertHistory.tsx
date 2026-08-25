@@ -259,7 +259,7 @@ export function AlertLogEmptyState({
       hint="Nothing has crossed your risk limit. PANIK records every crossing here, but no alert channel is connected, so nothing will reach you away from this page."
       action={
         onConnectAlerts ? (
-          <Button variant="quiet" onClick={onConnectAlerts}>
+          <Button variant="ghost" onClick={onConnectAlerts}>
             Connect alerts
           </Button>
         ) : undefined
@@ -362,7 +362,7 @@ export function AlertHistoryView({
       <div className="border-b border-border-subtle pb-5 space-y-3">
         {/* Above the title, not beside it: a back affordance that stacks under
             its own heading on a phone is a back affordance you find last. */}
-        <Button variant="quiet" onClick={onClose}>
+        <Button variant="ghost" onClick={onClose}>
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to portfolio
         </Button>

@@ -30,12 +30,19 @@
  * them: on a phone a left-hung panel is the only one that fits, and once the
  * sidebar appears the same panel would run past the window.
  *
- * WHAT THE CONSUMER OWNS: the trigger's content and skin, and each row's content
- * and skin. Those genuinely differ (one lists wallets with a check, the other
- * markets with a band chip), and pretending otherwise would mean one of them
- * rendering a row it did not want. Everything else - the panel's own box, and
- * the chevron that says which way it opens - is decided here so the two lists
- * cannot drift apart again.
+ * WHAT THE CONSUMER OWNS: the trigger's content and skin, each row's CONTENT,
+ * and any per-row decoration that is the consumer's own fact (the market
+ * picker's left rule on the selected row). Those genuinely differ - one lists
+ * wallets with a check, the other markets with a band chip - and pretending
+ * otherwise would mean one of them rendering a row it did not want.
+ *
+ * WHAT THIS FILE OWNS: the panel's box, the chevron that says which way it
+ * opens, and - since the light theme - a row's HEIGHT and its active/hover
+ * fill. That last pair moved in from the consumers, and the reason is on the
+ * `<li>` below: both were painting the active row `bg-white/[0.06]`, which is a
+ * visible wash on a dark panel and nothing at all on a white one. A listbox
+ * whose active row is invisible has no keyboard affordance left, which is not a
+ * fact either consumer should be able to get wrong on its own.
  */
 
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -248,9 +255,7 @@ export function Listbox({
             glyph repeating it would be read as a second thing. */}
         <ChevronDown
           aria-hidden="true"
-          className={`h-4 w-4 shrink-0 text-text-muted transition-transform ${
-            open ? "rotate-180" : ""
-          }`}
+          className={`h-4 w-4 shrink-0 text-text-primary ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -264,9 +269,13 @@ export function Listbox({
           // focusable, so without this the browser drops focus on the body and
           // the reader's next Tab starts from the top of the document.
           onMouseDown={(e) => e.preventDefault()}
-          /* `overlay` is the token for a popover; `border-subtle` because this
-             edge is decoration around content, not the boundary of a control. */
-          className={`absolute top-full ${LAYER.popover} mt-2 max-h-72 w-80 overflow-y-auto rounded-md border border-border-subtle bg-surface-overlay py-1 shadow-2xl ${
+          /* A hard-edged white block with the 6px offset shadow, like every
+             other floating surface here. The edge is `strong` rather than the
+             old `subtle`: a popover on a light page is a control's boundary,
+             and there is no darker surface underneath to separate it by tone.
+             `shadow-hard` replaces `shadow-2xl` — the blurred shadow scale is
+             gone from the theme entirely. */
+          className={`absolute top-full ${LAYER.popover} mt-2 max-h-72 w-80 overflow-y-auto hard-edge bg-surface-overlay shadow-hard ${
             alignRight ? "right-0" : "left-0"
           }`}
         >
@@ -280,10 +289,21 @@ export function Listbox({
                 aria-selected={state.selected}
                 aria-label={optionLabel?.(i)}
                 onClick={() => commit(i)}
-                /* The pointer's highlight stays in CSS (`hover:`). Letting the
+                /* The row's HEIGHT and its highlight are the primitive's, and
+                   they moved here from the two consumers for the same reason
+                   the panel's own box did: both were painting the active row
+                   `bg-white/[0.06]`, which was a visible wash on a dark panel
+                   and is nothing at all on a white one. A listbox whose active
+                   row is invisible has no keyboard affordance left, and that is
+                   not a fact either consumer should be able to get wrong on its
+                   own. `highlight` is the lavender the rest of the system uses
+                   for "the thing you are on", and it is off the risk ramp, so a
+                   highlighted market row is never read as a verdict.
+
+                   The pointer's highlight stays in CSS (`hover:`). Letting the
                    mouse write `active` would have a stray pointer move silently
                    redirect what Enter commits. */
-                className={optionClassName(state)}
+                className={`min-h-12 hover:bg-highlight ${state.active ? "bg-highlight" : ""} ${optionClassName(state)}`}
               >
                 {renderOption(i, state)}
               </li>
