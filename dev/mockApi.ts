@@ -330,9 +330,26 @@ const watchlistDown = () => process.env.PANIK_MOCK_WATCHLIST_DOWN === "1";
 /**
  * PANIK_MOCK_SESSION=full|readonly|none seeds the session this dev server
  * starts with, so the three boot paths (restore, read-only view, first run) can
- * each be opened and measured without a Supabase row or a wallet. Unset means
- * `none`, which is the previous behaviour exactly: every load is a signed-out
- * one.
+ * each be opened and measured without a Supabase row or a wallet.
+ *
+ * UNSET NOW MEANS `full`, and that is a deliberate change. It used to mean
+ * `none`, which made `npm run dev:mock` open on the first-run invitation with
+ * no wallet bound - so the dashboard the fixtures exist to populate was three
+ * clicks and a pasted address away, and anyone who did not paste the exact
+ * fixture wallet got "No positions yet" from a mock that was answering
+ * correctly for a wallet it holds nothing for. Every screenshot, measurement
+ * and design review of this app starts by wanting the populated dashboard, so
+ * that is what the default has to produce.
+ *
+ * It does NOT weaken the rule the wallet binding exists for. The rule is that a
+ * bare string in localStorage is never restored as identity; this is a SESSION,
+ * minted by the server and handed over as an HttpOnly cookie on the document
+ * request, which is exactly the mechanism production uses. The mock is telling
+ * the browser who it is, which is the one thing that is allowed to.
+ *
+ * `PANIK_MOCK_SESSION=none` still gets the signed-out boot, so the first-run
+ * path is one environment variable away rather than the thing everybody has to
+ * click past.
  */
 interface MockSession {
   token: string;
@@ -391,7 +408,10 @@ function mintMockSession(
 
 /** The session this dev server starts with, or null for a signed-out boot. */
 function seedSession(): SessionScope | null {
-  const scope = process.env.PANIK_MOCK_SESSION?.trim().toLowerCase();
+  const raw = process.env.PANIK_MOCK_SESSION?.trim().toLowerCase();
+  // Unset is `full`; only an explicit `none` (or any other unrecognised value)
+  // opts out. See the note on the interface above for why the default flipped.
+  const scope = raw === undefined || raw === "" ? "full" : raw;
   if (scope !== "full" && scope !== "readonly") return null;
   mintMockSession(MOCK_WALLET, scope, MOCK_SESSION_TOKEN);
   return scope;
@@ -664,12 +684,15 @@ export function mockApi(mode: string): Plugin[] {
             `\n     ${MOCK_WALLET}\n`,
         );
         const seededScope = seedSession();
-        if (seededScope) {
-          server.config.logger.info(
-            `  \x1b[33m➜\x1b[0m  MOCK SESSION: this browser boots with a ${seededScope} session` +
-              `\n     Alert-link token for ?sid= (single use): ${MOCK_SID}\n`,
-          );
-        }
+        server.config.logger.info(
+          seededScope
+            ? `  \x1b[33m➜\x1b[0m  MOCK SESSION: this browser boots with a ${seededScope} session` +
+                ` for ${MOCK_WALLET}` +
+                ` (PANIK_MOCK_SESSION=full|readonly|none)` +
+                `\n     Alert-link token for ?sid= (single use): ${MOCK_SID}\n`
+            : `  \x1b[33m➜\x1b[0m  MOCK SESSION: none, so /app opens on the first-run invitation` +
+                ` (PANIK_MOCK_SESSION=full|readonly|none)\n`,
+        );
         const seededAccount = seedAccount();
         server.config.logger.info(
           `  \x1b[33m➜\x1b[0m  MOCK ACCOUNT: ${seededAccount}` +
