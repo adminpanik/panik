@@ -14,6 +14,7 @@ import {
   EXIT_EXECUTABLE_MODE,
   defaultChainMode,
   exitAvailabilityLine,
+  exitUnavailableLine,
   exitsExecutableOn,
   getChainMode,
   resetChainModeCache,
@@ -123,11 +124,11 @@ describe("exit availability per mode", () => {
 });
 
 describe("exitAvailabilityLine", () => {
-  it("says the exit works, on the chain it works on", () => {
-    const line = exitAvailabilityLine("testnet");
-    expect(line).toContain("Base Sepolia");
-    expect(line).toMatch(/can be signed/);
-    expect(line).not.toMatch(/cannot/);
+  it("says nothing at all on the chain the exit works on", () => {
+    // The sentence that used to be here ("Exits can be signed and settled on
+    // Base Sepolia…") restated the affordance beside it. A working control is
+    // its own statement, so this branch renders no line.
+    expect(exitAvailabilityLine("testnet")).toBeNull();
   });
 
   it("says the exit does NOT work on Base, and why, and when", () => {
@@ -141,19 +142,19 @@ describe("exitAvailabilityLine", () => {
 
   it("never implies Base execution exists", () => {
     for (const mode of ["mainnet", "testnet"] as const) {
-      expect(exitAvailabilityLine(mode)).not.toMatch(/exits (are|run) live on Base\b/i);
+      expect(exitUnavailableLine(mode)).not.toMatch(/exits (are|run) live on Base\b/i);
     }
   });
 
   it("renders chain names, never the internal mode token", () => {
     for (const mode of ["mainnet", "testnet"] as const) {
-      expect(exitAvailabilityLine(mode)).not.toMatch(/mainnet|testnet/i);
+      expect(exitUnavailableLine(mode)).not.toMatch(/mainnet|testnet/i);
     }
   });
 
   it("carries no em dash", () => {
     for (const mode of ["mainnet", "testnet"] as const) {
-      expect(exitAvailabilityLine(mode)).not.toContain("—");
+      expect(exitUnavailableLine(mode)).not.toContain("—");
     }
   });
 });

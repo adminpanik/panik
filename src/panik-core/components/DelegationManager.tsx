@@ -46,7 +46,7 @@ import {
   EXIT_CHAIN_ID,
 } from "../lib/exit.generated";
 import { asContractClient, EXIT_ENV, getExitChain } from "../lib/exit";
-import { exitAvailabilityLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
+import { exitUnavailableLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
 import { PROTOCOL_ID } from "../lib/exitLegs";
 import type { LiveProtocol } from "../lib/live";
 import { liquidationOutlook, PROTOCOL_LABEL } from "../lib/utils";
@@ -373,13 +373,12 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
     </div>
   );
 
-  const intro = (
-    <p className="text-xs text-text-secondary leading-relaxed font-sans">
-      Grant PANIK a one-time, scoped permission to run a single exit for you if a position gets
-      close to liquidation, so you are protected even while you are away from your screen. You sign
-      it once, see exactly what it allows, and can revoke it in one click.
-    </p>
-  );
+  /**
+   * The introduction is gone. It described the feature in three clauses above a
+   * card whose heading already names it and whose disclosure below lists,
+   * exactly, what the permission allows. What a reader decides here is whether
+   * to grant it, and the terms are the list, not the paragraph over it.
+   */
 
   // The permission authorizes ONE thing: an exit. On a chain where no exit can
   // be executed it authorizes nothing, so the card states that instead of
@@ -389,10 +388,8 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
     return (
       <Card tone="raised" className="space-y-3">
         {header}
-        {intro}
         <p className="text-xs text-text-secondary leading-relaxed font-sans">
-          {exitAvailabilityLine(chainMode)} A standing permission would have nothing to run, so
-          there is nothing to grant here yet. Switch the network above to try it end to end.
+          {exitUnavailableLine(chainMode)} There is nothing to grant here yet.
         </p>
       </Card>
     );
@@ -402,7 +399,6 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
     return (
       <Card tone="raised" className="space-y-3">
         {header}
-        {intro}
         <Button onClick={() => connect({ connector: injected() })} className="mt-1">
           <Wallet className="w-3.5 h-3.5" /> Connect wallet
         </Button>
@@ -414,7 +410,6 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
     return (
       <Card tone="raised" className="space-y-3">
         {header}
-        {intro}
         <Button onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })} className="mt-1">
           Switch to {getExitChain().name}
         </Button>
@@ -427,7 +422,6 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   return (
     <Card tone="raised" className="space-y-5">
       {header}
-      {intro}
 
       {/* ── Active permissions ─────────────────────────────────────────── */}
       <div className="space-y-3">
@@ -706,8 +700,11 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
               </>
             )}
           </button>
+          {/* Two facts, not four clauses: what it costs and what it does not
+              do. A signature is the one control on this screen where a reader
+              genuinely cannot tell either from the button. */}
           <p className="text-2xs font-sans text-text-muted">
-            Free to sign, no transaction and no gas. Signing does not move any funds.
+            No gas. Signing moves no funds.
           </p>
         </div>
       </div>

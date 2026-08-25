@@ -5097,9 +5097,12 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                             <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
                           </h3>
                         </div>
-                        <p className="text-xs text-text-secondary leading-relaxed font-sans">
-                          Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit.
-                        </p>
+                        {/* "Get a Telegram message when this wallet nears your
+                            moderate risk limit" used to stand here. It restates
+                            the card's own heading and the profile card above it,
+                            and the threshold it alludes to is stated exactly
+                            there. The status line below is the fact this card
+                            carries. */}
                         <div className="flex flex-col sm:flex-row gap-3 pt-1">
                           <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-xs truncate">
                             {telegramLink.status === "connected" ? (
@@ -5134,28 +5137,29 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                              telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
                           </button>
                         </div>
-                        {telegramEligible && telegramLink.status !== "connected" && (
-                          <p className="text-xs font-sans text-text-secondary">
-                            Sign to prove wallet ownership - free, no transaction, no gas.
-                          </p>
-                        )}
+                        {/* "Sign to prove wallet ownership, free, no
+                            transaction, no gas" is gone: the account card above
+                            already says what a PANIK signature costs, and it
+                            said the same thing twice on one screen.
+
+                            The one line that survives on this branch is the one
+                            that says what to DO, because a control the reader
+                            cannot use has to say why. */}
                         {!telegramEligible && (
-                          <p className="text-xs font-sans text-text-secondary">Onboard with an EVM wallet (0x...) to enable alerts.</p>
-                        )}
-                        {telegramLink.status === "connected" && (
-                          <p className="text-xs font-sans text-risk-low">
-                            Alerts are on. Send /stop in the bot anytime to pause them.
+                          <p className="text-xs font-sans text-text-secondary">
+                            Add a wallet starting 0x to enable alerts.
                           </p>
                         )}
+                        {/* The instructions, and only while a link is open: a
+                            reader whose browser did not follow it has no other
+                            way to finish. Not decoration, not an explanation of
+                            the feature. */}
                         {telegramLink.status === "opened" && (
-                          <div className="space-y-1.5 pt-1.5 border-t border-border-subtle">
-                            <p className="text-xs font-sans text-risk-low flex items-center">
-                              Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
-                            </p>
+                          <div className="space-y-1.5 border-t border-border-subtle pt-1.5">
                             <p className="text-xs font-sans text-text-secondary leading-relaxed">
-                              If the link didn't open automatically, copy this command, open <strong className="text-text-primary">@{telegramBotUsername}</strong> in Telegram, and send it:
+                              Send this to <strong className="text-text-primary">@{telegramBotUsername}</strong> if the link did not open:
                             </p>
-                            <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-sans text-xs text-risk-low select-all break-all">
+                            <div className="flex items-center break-all hard-edge bg-surface-sunken px-2.5 py-1.5 font-mono text-xs select-all">
                               /start {telegramLink.code}
                             </div>
                           </div>
@@ -5166,22 +5170,22 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       </Card>
                     )}
 
-                    {/* Travels with the card it belongs to, and now sits under
-                        it rather than in a sidebar track beside it. It is a
-                        data-handling commitment about the Telegram link and the
-                        only place /stop is documented, so it is never deleted -
-                        but with that card withheld under a read-only session it
-                        would be a promise about a feature this screen is not
-                        offering, floating on its own.
+                    {/* A data-handling commitment and the only place /stop is
+                        documented, so it is never deleted - but it is now the
+                        two facts rather than the paragraph around them.
+                        Withheld with the card it belongs to, because a promise
+                        about a feature this screen is not offering has nothing
+                        to attach itself to.
 
                         Deliberately NOT the `Card` primitive the cards above it
                         are. It is a footnote to the card it follows, and giving
-                        it the same plate and the same padding would make it read
-                        as a fifth setting. */}
+                        it the same plate would make it read as a fifth
+                        setting. */}
                     {!readOnlySession && (
-                      <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
-                        We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
-                      </div>
+                      <p className="font-sans text-xs leading-relaxed text-text-secondary">
+                        Stored: your Telegram chat id and wallet address. Send /stop in the bot to
+                        disable.
+                      </p>
                     )}
 
                     {/* Two cards, two different things being granted, and they

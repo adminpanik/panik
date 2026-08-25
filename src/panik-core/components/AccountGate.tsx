@@ -72,12 +72,15 @@ function GoogleMark() {
 function GateShell({ children, after }: { children: React.ReactNode; after?: React.ReactNode }) {
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-6 bg-surface-base px-4 py-10 font-sans text-sm text-text-primary antialiased">
+      {/* The mark and the name. "Risk intelligence" used to sit under it as a
+          tagline, which is a category rather than a claim: it told a reader
+          nothing they could act on and nothing the product does. The heading
+          below already says what this screen is for. */}
       <div className="flex items-center gap-2.5">
         <img src="/panik-mark.svg" alt="" width={32} height={32} style={{ objectFit: "contain" }} />
-        <div className="flex flex-col">
-          <span className="text-lg font-sans font-extrabold leading-none text-text-primary">PANIK</span>
-          <span className="mt-0.5 text-2xs font-sans text-text-muted">Risk intelligence</span>
-        </div>
+        <span className="font-sans text-lg font-extrabold leading-none text-text-primary">
+          PANIK
+        </span>
       </div>
       <div className="w-full max-w-md space-y-4">
         {children}

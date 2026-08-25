@@ -61,22 +61,38 @@ export function exitsExecutableOn(mode: ChainMode): boolean {
 }
 
 /**
- * What this mode can DO, in one sentence, at the point of action.
+ * Why an exit cannot be signed on this mode, in one sentence.
  *
- * Four surfaces need to say this: the Settings switch, the Advisor's position
- * section, the disabled exit button's hover, and the exit modal's dead-end
- * step. One sentence, one place, so they cannot drift into contradicting each
- * other about whether a button works.
+ * Three surfaces need it: the Advisor's position section, the withheld exit
+ * control's hover, and the exit modal's dead-end step. One sentence, one place,
+ * so they cannot drift into contradicting each other about whether a button
+ * works.
  *
  * Derived rather than written down: the day `sync:exit-config` points
  * `EXIT_CHAIN_ID` at Base, this moves with it instead of standing there
  * insisting on Sepolia.
  */
-export function exitAvailabilityLine(mode: ChainMode): string {
+export function exitUnavailableLine(mode: ChainMode): string {
   const here = CHAIN_MODE_LABEL[mode];
-  return exitsExecutableOn(mode)
-    ? `Exits can be signed and settled on ${here}, against whatever this wallet holds there.`
-    : `Exits cannot be signed on ${here} yet. The exit executor is deployed on ${CHAIN_MODE_LABEL[EXIT_EXECUTABLE_MODE]}, and ${here} execution ships after the audit.`;
+  return `Exits cannot be signed on ${here} yet. The exit executor is deployed on ${CHAIN_MODE_LABEL[EXIT_EXECUTABLE_MODE]}, and ${here} execution ships after the audit.`;
+}
+
+/**
+ * The same sentence, or NULL when exits work here.
+ *
+ * The positive branch is gone, and it is worth saying what it was: "Exits can
+ * be signed and settled on Base Sepolia, against whatever this wallet holds
+ * there." It rode under the Settings switch, under the Advisor's position
+ * section and inside the approvals card, on the branch where the button beside
+ * it works. A sentence that says a working control works is the copy rule's
+ * delete case exactly - it restates the affordance, and it was the loudest
+ * thing on three cards whose actual subject was something else.
+ *
+ * Null rather than an empty string, so a caller has to decide what an absent
+ * line does to its layout instead of rendering a blank paragraph.
+ */
+export function exitAvailabilityLine(mode: ChainMode): string | null {
+  return exitsExecutableOn(mode) ? null : exitUnavailableLine(mode);
 }
 
 /**
@@ -187,7 +203,7 @@ export interface ControlState {
 
 export function exitControlState(handler: unknown, mode: ChainMode): ControlState {
   const executable = exitsExecutableOn(mode);
-  if (!executable) return { enabled: false, hint: exitAvailabilityLine(mode) };
+  if (!executable) return { enabled: false, hint: exitUnavailableLine(mode) };
   if (!handler) {
     return { enabled: false, hint: "Transaction flow ships with the Atomic Exit integration" };
   }

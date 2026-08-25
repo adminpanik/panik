@@ -50,7 +50,7 @@ import { useAccount, useConnect, usePublicClient, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../lib/exit.generated";
 import { asContractClient, EXIT_ERC20_ABI, EXIT_NETWORK_LABEL, getExitChain, isExitExecutable } from "../lib/exit";
-import { exitAvailabilityLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
+import { exitUnavailableLine, exitsExecutableOn, useChainMode } from "../lib/chainMode";
 import { classifyExitError } from "../lib/exitRpc";
 import { readUserReserves } from "../lib/exitPosition";
 import { resolveATokens } from "../lib/exitReserves";
@@ -363,24 +363,24 @@ export function ExitApprovals() {
     </div>
   );
 
-  const intro = (
-    <p className="text-xs font-sans leading-relaxed text-text-secondary">
-      An exit has to move your tokens, and every token movement needs your approval first.
-      Granting them now, while nothing is urgent, is what makes escaping a position later one
-      signature rather than one signature per approval. These are separate from the standing
-      permission below: approvals let the exit contract move tokens, the permission lets PANIK
-      start an exit for you.
-    </p>
-  );
+  /**
+   * The 60-word introduction is gone.
+   *
+   * It explained what an ERC-20 approval is, why granting one early is
+   * convenient, and how this card differs from the standing-permission card
+   * below it. Three paragraphs' worth of teaching above a list whose rows
+   * already say "Approve USDC" and whose heading already says "Exit approvals",
+   * on a settings screen where every card had one. What a reader acts on here
+   * is the row list and the one button; what each card grants is named by each
+   * card's own revoke control.
+   */
 
   if (!exitsExecutableOn(chainMode) || !isExitExecutable(PROTOCOL)) {
     return (
       <Card tone="raised" className="space-y-3">
         {header}
-        {intro}
         <p className="text-xs font-sans leading-relaxed text-text-secondary">
-          {exitAvailabilityLine(chainMode)} There is no exit to pre-approve here yet, so nothing
-          on this card would do anything. Switch the network above to try it end to end.
+          {exitUnavailableLine(chainMode)} There is nothing to pre-approve here yet.
         </p>
       </Card>
     );
@@ -390,7 +390,6 @@ export function ExitApprovals() {
     return (
       <Card tone="raised" className="space-y-3">
         {header}
-        {intro}
         <Button onClick={() => connect({ connector: injected() })} className="mt-1">
           <Wallet className="h-3.5 w-3.5" /> Connect wallet
         </Button>
@@ -402,7 +401,6 @@ export function ExitApprovals() {
     return (
       <Card tone="raised" className="space-y-3">
         {header}
-        {intro}
         <Button onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })} className="mt-1">
           Switch to {getExitChain().name}
         </Button>
@@ -431,7 +429,6 @@ export function ExitApprovals() {
   return (
     <Card tone="raised" className="space-y-4">
       {header}
-      {intro}
 
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-sans font-bold text-text-primary">

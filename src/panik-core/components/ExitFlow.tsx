@@ -36,7 +36,7 @@ import {
 } from "../lib/exit";
 import {
   CHAIN_MODE_LABEL,
-  exitAvailabilityLine,
+  exitUnavailableLine,
   exitsExecutableOn,
   useChainMode,
 } from "../lib/chainMode";
@@ -685,7 +685,7 @@ export function ExitFlow({
           <div className="space-y-4">
             <p className="text-sm text-text-secondary font-sans leading-relaxed">
               {!chainExecutable
-                ? exitAvailabilityLine(chainMode)
+                ? exitUnavailableLine(chainMode)
                 : `${prefill.protocol.replace("_", " ")} exits are proven against Base mainnet in the
               executor's fork suite, but this protocol has no Base Sepolia demo deployment - it
               unlocks with the mainnet release. The Aave V3 demo exit is available today.`}

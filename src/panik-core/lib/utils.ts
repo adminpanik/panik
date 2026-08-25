@@ -478,7 +478,7 @@ export const ADVISOR_ACTION: Record<AdvisorAction, string> = {
  * which is false.
  */
 export const AI_PROSE_NOTE =
-  "Summaries are worded by AI. Every number and recommendation is decided by the risk engine.";
+  "Summaries may be worded by AI. Every number and recommendation is decided by the risk engine.";
 
 export const RISK_TEXT: Record<Band, string> = {
   LOW: "text-risk-low",

@@ -43,9 +43,8 @@
  * prose, one of them describing a route the app cannot sign, is the shape that
  * made this block unreadable; see `routesFor`.
  *
- * The legs are ordered WORST FIRST here rather than as the report built them,
- * and a leg the panel's AI line would misdescribe says so. See `worstFirst` and
- * `ENGINE_WORDED_NOTE`.
+ * The legs are ordered WORST FIRST here rather than as the report built them.
+ * See `worstFirst`.
  *
  * The engine's prose is not edited here. Where it duplicates the strip that is
  * a copy problem in packages/scoring/src/advisor, out of this file's scope.
@@ -120,18 +119,15 @@ import {
 const REPAY_STEP_USD = 1_000;
 
 /**
- * The two costs this screen genuinely does not know, behind `Details`.
+ * The gas caveat that used to sit behind `Details` on every card is gone.
  *
- * Gas comes from the simulation the exit flow runs against the real position and
- * the price floor is read from the deployed swap config, so neither exists until
- * a wallet is connected. Naming them is the only honest option, because a
- * plausible-looking estimate here would be a number the code never had. What it
- * is not is something to read before deciding, which is why it moved off the
- * face of the card and into the disclosure with the rest of the second-order
- * explanation.
+ * "Gas is estimated at signing. The price floor for anything sold is shown at
+ * the same point." It said, at length, that two numbers would appear later on a
+ * different screen, which is a sentence about the product's plumbing rather
+ * than about this position. Both facts are stated where they are true: the exit
+ * flow's review step now carries the live gas reading, and the swap floor is
+ * read from the deployed config in that same flow.
  */
-const GAS_CAVEAT =
-  "Gas is estimated at signing. The price floor for anything sold is shown at the same point.";
 
 /**
  * What the card says about a collateral-funded repay it cannot yet perform.
@@ -145,30 +141,22 @@ const GAS_CAVEAT =
 const DELEVERAGE_NOT_LIVE = "Not ready to sign yet.";
 
 /**
- * The exception to the panel's AI disclosure, on the one card it is wrong about.
+ * The per-card provenance correction is gone: "Wording on this one is the risk
+ * engine's, not AI."
  *
- * `AI_PROSE_NOTE` at the foot covers the panel, and `report.narrated` is true as
- * soon as ONE leg is model-phrased while the narrator's guards reject legs one
- * at a time. So a report with a narrated leg and a fallback leg shows a footer
- * that over-claims on the fallback card. This line is that correction and
- * nothing else: it appears only on a leg the engine worded, and only while the
- * footer is up to contradict.
+ * It existed because `AI_PROSE_NOTE` at the foot says summaries are worded by
+ * AI while `report.narrated` is true as soon as ONE leg is model-phrased, so on
+ * a mixed report the footer over-claimed on the fallback legs. The correction
+ * was accurate and it was still a line of type on every such card about a
+ * distinction the reader cannot act on: the action, the numbers and the score
+ * are the engine's on every leg either way. Provenance per block had already
+ * been tried and deleted once for exactly that (see `AI_PROSE_NOTE`), and this
+ * was it growing back one card at a time.
  *
- * Not on every card, in either direction. Provenance per block was already tried
- * and deleted for being six markers about a distinction the reader cannot act on
- * (see `AI_PROSE_NOTE` in lib/utils.ts); restating "worded by AI" on each card
- * rebuilds exactly that, and on a report where nothing is narrated there is no
- * claim outstanding to correct.
- *
- * It says WORDING and stops there. The action, the numbers and the score are the
- * engine's on every leg, and on a critical leg the verdict sentence is the
- * engine's too (`AdvisorNarrator` puts its own sentence back). The engine's two
- * words for this are an enum and neither is printed.
- *
- * No hue and no glyph: provenance is not a risk state, and the ramp on this
- * screen belongs to the dials and to the one banner.
+ * The over-claim is closed at the footer instead, where the disclosure lives:
+ * `AI_PROSE_NOTE` now says summaries MAY be worded by AI, which is true of
+ * every report it appears on.
  */
-const ENGINE_WORDED_NOTE = "Wording on this one is the risk engine's, not AI.";
 
 /**
  * The verdict card's two lines, from the same recommendation data the
@@ -721,15 +709,12 @@ function RecommendationCard({
   onExit,
   onOpen,
   readOnly = false,
-  reportNarrated = false,
 }: {
   rec: AdvisorRecommendation;
   onExit?: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
   onOpen?: (plan: AdvisorOpenPlan) => void;
   /** This report is about a wallet the reader watches but cannot act on. */
   readOnly?: boolean;
-  /** The panel's AI line is up, so a leg the engine worded needs saying so. */
-  reportNarrated?: boolean;
 }) {
   const routes = routesFor(rec);
   /**
@@ -847,26 +832,15 @@ function RecommendationCard({
           child of this row is ever narrower than the card. */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-border-subtle pt-4">
         {hasAction ? <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} /> : null}
-        {/* The costs of a route the card demoted, and then the caveat that
-            applies to whichever one is signed. Both are money facts about a
-            transaction, which is why neither is deleted and why both sit behind
-            the same one click rather than on the face of the card. */}
+        {/* The costs of a route the card demoted. Money facts about a
+            transaction, which is why they are not deleted and why they sit
+            behind one click rather than on the face of the card. */}
         <Reasoning
           rec={rec}
-          notes={[
-            ...routes.alternates.map((a) => a.costs).filter((c): c is string => !!c),
-            ...(routes.lead ? [GAS_CAVEAT] : []),
-          ]}
+          notes={routes.alternates.map((a) => a.costs).filter((c): c is string => !!c)}
         />
       </div>
 
-      {/* Last line of the card, under the controls, where a standing fact about
-          how the card is written belongs rather than beside the sentence it is
-          about. Absent on a narrated leg and on every leg of a report with no
-          narration at all: see `ENGINE_WORDED_NOTE`. */}
-      {reportNarrated && rec.narrationSource !== "narrated" ? (
-        <p className="text-xs font-sans text-text-muted">{ENGINE_WORDED_NOTE}</p>
-      ) : null}
     </Card>
   );
 }
@@ -1143,9 +1117,15 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
                 of the selected network, not of a position, and the flow the
                 button opens states it again in its own header and banner before
                 anything can be signed.
-                It is stated in BOTH modes now, because the sentence a user most
-                needs is the one that says the button beside it will not work. */}
-            <p className="text-xs font-sans text-text-muted">{exitAvailabilityLine(chainMode)}</p>
+
+                On the mode where exits DO work it says nothing at all now. The
+                sentence there ("Exits can be signed and settled on Base
+                Sepolia, against whatever this wallet holds there") restated the
+                button beside it, which is the copy rule's delete case; the one
+                a reader needs is the one saying the button will not work. */}
+            {exitAvailabilityLine(chainMode) && (
+              <p className="text-xs font-sans text-text-muted">{exitAvailabilityLine(chainMode)}</p>
+            )}
           </div>
           {legs.map((rec) => (
             <RecommendationCard
@@ -1154,7 +1134,6 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
               onExit={onExit}
               onOpen={onOpen}
               readOnly={readOnly}
-              reportNarrated={report.narrated}
             />
           ))}
         </div>
@@ -1194,12 +1173,11 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
           sentences a model rephrased is not a thing the reader acts on, and the
           engine decides the recommendation either way.
 
-          It stays the whole disclosure for the panel. What it cannot do alone is
-          be accurate per leg: `narrated` is true as soon as ANY leg is
-          model-phrased, so on a mixed report it claims AI wording on legs that
-          fell back to the engine. Those legs, and only those, carry a correction
-          (`ENGINE_WORDED_NOTE`). Present only when there is something to
-          disclose. */}
+          It is the whole disclosure for the panel, and it is worded to survive
+          a MIXED report: `narrated` is true as soon as any one leg is
+          model-phrased, so a line claiming every summary was would over-claim on
+          the legs that fell back to the engine. Present only when there is
+          something to disclose. */}
       {report.narrated ? (
         <p className="text-xs font-sans text-text-muted">{AI_PROSE_NOTE}</p>
       ) : null}
