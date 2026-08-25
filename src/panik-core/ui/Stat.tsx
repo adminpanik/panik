@@ -15,11 +15,19 @@ import React from "react";
  * its own without each call site remembering `tabular-nums`. The label and the
  * subline stay in Archivo, because they are words.
  *
- * `text-2xl` is 28px, not the 32 the look was drawn at: the type scale has
- * seven steps and 32 is not one of them, and a one-off size here is how a scale
- * acquires an eighth step nobody voted for. 28 at mono 700 is heavier on the
- * page than 32 at the old sans anyway.
+ * TWO SIZES, and 28px is still the default. The scale had no 32 when this was
+ * written, so the look's 32 was rendered at 28 rather than inventing a step
+ * here; the Portfolio board then asked for 32 on the dashboard's four figures
+ * specifically, so `--text-stat` was added to the theme and `size="lg"` reads
+ * it. Every other `Stat` in the product is unchanged, which is the point of the
+ * prop: an eighth step that one surface opts into is a decision, an eighth step
+ * every surface silently gets is drift.
  */
+const VALUE_SIZE = {
+  md: "text-2xl",
+  lg: "text-stat",
+} as const;
+
 interface StatProps {
   label: React.ReactNode;
   value: React.ReactNode;
@@ -36,15 +44,19 @@ interface StatProps {
    * figure of all four sit on the same two baselines regardless.
    */
   sub?: React.ReactNode;
+  /** `lg` is the dashboard figure at 32px. See `VALUE_SIZE`. */
+  size?: keyof typeof VALUE_SIZE;
 }
 
-export function Stat({ label, value, sub }: StatProps) {
+export function Stat({ label, value, sub, size = "md" }: StatProps) {
   return (
     <div>
       <span className="flex items-center gap-1 truncate label-type text-xs text-text-muted">
         {label}
       </span>
-      <span className="mt-2 block truncate font-mono text-2xl font-bold tabular-nums text-text-primary">
+      <span
+        className={`mt-2 block truncate font-mono font-bold tabular-nums text-text-primary ${VALUE_SIZE[size]}`}
+      >
         {value}
       </span>
       {/* Every line is exactly one line. A row of stat cards where one subtitle

@@ -86,6 +86,37 @@ function at(turn: number, r: number) {
 /** Twelve o'clock on the wedge's radius: every sector starts here. */
 const WEDGE_START = at(0, WEDGE_R);
 
+/** Half the block's inner width: the distance from the centre to the frame. */
+const INNER = C - HARD;
+
+/**
+ * The needle's tip: where the ray at `turn` meets the INNER EDGE OF THE FRAME,
+ * not a point on the circle inscribed in it.
+ *
+ * The circle was the bug. A fixed radius lands on the frame only at the four
+ * compass points; at 45 degrees the frame is √2 · 25 ≈ 35px from the centre and
+ * a 25px needle stopped 10px short of it. So the hand reached the edge on a
+ * score of 25 and visibly did not on a score of 12 or 38, which reads as the
+ * needle's LENGTH carrying a meaning it never had, and is the "on some of the
+ * gauges the line doesn't even go to the edge" report. Scaling the ray to the
+ * box instead puts the tip on the frame at every score, which is also what the
+ * wedge behind it already does (`WEDGE_R` overshoots and is clipped by the same
+ * rectangle).
+ */
+function needleTip(turn: number): readonly [number, number] {
+  const t = turn * 2 * Math.PI;
+  const dx = Math.sin(t);
+  const dy = -Math.cos(t);
+  // The ray leaves the square through whichever pair of sides it reaches first.
+  // A component of the direction at zero would divide by it, and the answer
+  // there is "this ray never crosses that pair", which is what Infinity says.
+  const r = Math.min(
+    Math.abs(dx) < 1e-9 ? Infinity : INNER / Math.abs(dx),
+    Math.abs(dy) < 1e-9 ? Infinity : INNER / Math.abs(dy),
+  );
+  return [C + dx * r, C + dy * r] as const;
+}
+
 /**
  * The sector from twelve o'clock to `turn`, as a path.
  *
@@ -142,7 +173,7 @@ export function RiskDial({
   plain?: boolean;
 }) {
   const turn = Math.max(0, Math.min(100, score)) / 100;
-  const [nx, ny] = at(turn, C - HARD);
+  const [nx, ny] = needleTip(turn);
   /**
    * Per instance, because a `url(#…)` reference resolves against the whole
    * DOCUMENT: a Portfolio row renders one dial each, so a fixed id would put
