@@ -57,6 +57,7 @@
 import React from "react";
 import { AlertTriangle, ArrowRight, ChevronRight, Compass, Eye } from "lucide-react";
 import type {
+  AdvisorAction,
   AdvisorOpenPlan,
   AdvisorRecommendation,
   AdvisorReport,
@@ -170,7 +171,7 @@ const DELEVERAGE_NOT_LIVE = "Not ready to sign yet.";
 const ENGINE_WORDED_NOTE = "Wording on this one is the risk engine's, not AI.";
 
 /**
- * The wallet's verdict, as a band and the word that reads it.
+ * The wallet's verdict, as a band and the word that names it.
  *
  * `Urgency` is the engine's own union and it is not a risk band: it is a
  * property of the WALLET, decided by its worst leg, where a band is a property
@@ -183,18 +184,63 @@ const ENGINE_WORDED_NOTE = "Wording on this one is the risk engine's, not AI.";
  * be the ramp making a safety claim about a whole wallet from the absence of a
  * finding. The eye glyph beside it is the entire statement.
  *
- * The words are what to DO, not how bad it is, because the headline beside them
- * already says how bad it is and the four dials below say it per position. They
- * are the only place this panel spends the ramp outside those dials.
+ * The word names the SEVERITY ("Critical risk", "Elevated risk"), not a verb.
+ * It used to be "Act now" / "Act soon", a coloured imperative sitting inside a
+ * band-hued block - a chip is allowed to state a fact the ramp already colours,
+ * never to colour an instruction. What to do lives in the headline beside it.
  */
 const WALLET_URGENCY: Record<
   AdvisorUrgency,
   { band: keyof typeof RISK_CHIP; word: string } | null
 > = {
   info: null,
-  warning: { band: "ELEVATED", word: "Act soon" },
-  critical: { band: "CRITICAL", word: "Act now" },
+  warning: { band: "ELEVATED", word: "Elevated risk" },
+  critical: { band: "CRITICAL", word: "Critical risk" },
 };
+
+/**
+ * The verdict card's two lines, from the same recommendation data the
+ * engine's `overallHeadline` sentence already reads (protocol, action, repay
+ * plan, per-leg `usdValuesUnavailable`) - never a second copy of its logic,
+ * just the protocol and the degraded caveat pulled out onto their own line
+ * instead of packed into one sentence a card had to carry as its whole body.
+ *
+ * `detail` is the secondary line; when it is missing (no degraded leg, no
+ * repay amount) the card shows a title alone rather than an empty line.
+ */
+function verdictLines(
+  action: AdvisorAction,
+  recs: AdvisorRecommendation[],
+): { title: string; detail?: string } {
+  const protocolsFor = (a: AdvisorAction) =>
+    recs.filter((r) => r.action === a).map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol);
+  const degradedLegs = recs
+    .filter((r) => r.numbers.usdValuesUnavailable)
+    .map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol);
+  const degradedNote =
+    degradedLegs.length > 0
+      ? `Prices degraded on ${degradedLegs.join(", ")}. Position sizes unverified.`
+      : undefined;
+
+  switch (action) {
+    case "EXIT":
+      return { title: `Exit recommended on ${protocolsFor("EXIT").join(", ")}`, detail: degradedNote };
+    case "REDUCE": {
+      const r = recs.find((x) => x.action === "REDUCE");
+      const where = r ? (PROTOCOL_LABEL[r.protocol] ?? r.protocol) : "your position";
+      const amt = r?.repayPlan
+        ? `Repay ~${fmtUsd(r.repayPlan.repayUsd)} to bring it back in range.`
+        : undefined;
+      return { title: `Reduce your ${where} exposure`, detail: degradedNote ?? amt };
+    }
+    case "REBALANCE":
+      return { title: "Rebalance to a safer protocol", detail: degradedNote };
+    case "MONITOR":
+      return { title: "Positions approaching your risk threshold", detail: degradedNote };
+    default:
+      return { title: "All positions within your risk profile", detail: degradedNote };
+  }
+}
 
 /**
  * Worst first.
@@ -1033,6 +1079,9 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
   /** Null on an `info` report, which is the branch that gets no chip at all. */
   const walletVerdict = WALLET_URGENCY[overall.urgency];
 
+  /** The verdict card's title and (optional) secondary line; see `verdictLines`. */
+  const verdict = verdictLines(overall.action, recommendations);
+
   /* A COPY, sorted: `sort` mutates, and the array here is the caller's report
      object, which other surfaces read from. See `worstFirst`. */
   const legs = React.useMemo(() => [...recommendations].sort(worstFirst), [recommendations]);
@@ -1059,37 +1108,54 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
           same edge, as four cards two to three times its height, so the answer to
           "what is happening to my wallet" was the quietest element on the page
           that exists to answer it. It now takes the one functional border on the
-          screen, a type step (16px against the cards' 14px) and a glyph a size
-          up; the cards below stay where they were, which is a step down from
-          this rather than a demotion of themselves.
+          screen and a type step (16px against the cards' 14px); the cards below
+          stay where they were, which is a step down from this rather than a
+          demotion of themselves.
 
-          Container stays neutral, and the ramp appears here as a BLOCK rather
-          than as a word. The glyph used to carry it, through `RISK_TEXT`, which
-          is a bare text colour: `--color-risk-elevated` is amber, and amber ink
-          on this card clears 2.2:1, so on the one line of this panel that has
-          to be read the severity was encoded in the least legible way available.
-          A `RiskChip` is the same fact as a bordered plate with black ink, which
-          every band clears 4.5:1 in by construction, and it carries a WORD, so a
-          reader who cannot separate amber from red is not being asked to.
+          The card is a plain white surface, same as every other card on the
+          screen - not the lavender fill it used to carry. A tint behind the
+          whole block was a second, softer copy of the severity the chip already
+          states, and on `info` there was no severity to state at all, so the
+          calm branch of this card wore the same coloured wash as the alarming
+          one.
 
-          The glyph stays and turns neutral. Its job is shape, not severity: an
-          eye where there is nothing to do and a warning triangle where there is,
-          which is a distinction that survives being one colour. */}
-      <Card tone="lead" className="flex items-start gap-3">
+          The ramp appears here as ONE block: the `RiskChip`, at 4.5:1 by
+          construction on every band. It used to also live in a "Act now" /
+          "Act soon" word inside that chip and in a neutral warning triangle
+          beside it - a coloured verb and a decoration both saying the thing the
+          chip's hue already says. The chip alone carries the state; the icon is
+          gone on every severity, and the chip's word now names the SEVERITY
+          ("Critical risk") rather than an instruction, because what to do is the
+          headline's job, not the chip's. */}
+      <Card tone="raised" className="flex items-start gap-3">
         {overall.urgency === "info" ? (
-          <Eye className="mt-0.5 h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
+          <>
+            <Eye className="mt-0.5 h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
+            <p className="min-w-0 flex-1 text-base font-sans leading-relaxed text-text-primary">
+              {overall.headline}
+              {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
+            </p>
+          </>
         ) : (
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
+          <>
+            {walletVerdict && <RiskChip band={walletVerdict.band}>{walletVerdict.word}</RiskChip>}
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="font-sans text-base font-bold text-text-primary">{verdict.title}</p>
+              {verdict.detail ? (
+                <p className="text-sm font-sans leading-relaxed text-text-secondary">
+                  {verdict.detail}
+                  {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
+                </p>
+              ) : (
+                insightsText && (
+                  <p className="text-sm font-sans leading-relaxed text-text-secondary">
+                    <InfoTip text={insightsText} />
+                  </p>
+                )
+              )}
+            </div>
+          </>
         )}
-        <div className="min-w-0 flex-1 space-y-2">
-          {walletVerdict && (
-            <RiskChip band={walletVerdict.band}>{walletVerdict.word}</RiskChip>
-          )}
-          <p className="text-base font-sans leading-relaxed text-text-primary">
-            {overall.headline}
-            {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
-          </p>
-        </div>
       </Card>
 
       {/* Position legs */}
