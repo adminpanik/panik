@@ -225,7 +225,7 @@ export function Onboarding({
               {/* Header: brand + step indicator */}
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2.5">
-                  <img src="/panik-logo.png" alt="PANIK" width={28} height={28} style={{ objectFit: "contain" }} />
+                  <img src="/panik-mark.svg" alt="PANIK" width={28} height={28} style={{ objectFit: "contain" }} />
                   <span className="font-sans font-extrabold text-base text-text-primary leading-none">PANIK</span>
                 </div>
                 <div className="flex items-center gap-3">

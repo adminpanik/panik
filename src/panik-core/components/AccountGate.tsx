@@ -73,7 +73,7 @@ function GateShell({ children, after }: { children: React.ReactNode; after?: Rea
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-6 bg-surface-base px-4 py-10 font-sans text-sm text-text-primary antialiased">
       <div className="flex items-center gap-2.5">
-        <img src="/panik-logo.png" alt="" width={32} height={32} style={{ objectFit: "contain" }} />
+        <img src="/panik-mark.svg" alt="" width={32} height={32} style={{ objectFit: "contain" }} />
         <div className="flex flex-col">
           <span className="text-lg font-sans font-extrabold leading-none text-text-primary">PANIK</span>
           <span className="mt-0.5 text-2xs font-sans text-text-muted">Risk intelligence</span>

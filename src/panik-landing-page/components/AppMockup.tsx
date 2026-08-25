@@ -319,7 +319,7 @@ export function AppMockup({ onBackToLanding, onJoinWaitlist, hasSubscribed }: Ap
         {/* Sidebar Header Brand block */}
         <div className="space-y-8">
           <div className="flex items-center gap-2.5">
-            <img src="/panik-logo.png" alt="PANIK" width={32} height={32} style={{ objectFit: "contain" }} />
+            <img src="/panik-mark.svg" alt="PANIK" width={32} height={32} style={{ objectFit: "contain" }} />
             <div className="flex flex-col">
               <span className="font-sans font-extrabold text-lg tracking-widest text-text-primary leading-none">PANIK</span>
               <span className="text-2xs font-mono tracking-widest text-text-muted uppercase mt-0.5">SENTRY PROTECTION</span>

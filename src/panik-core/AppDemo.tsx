@@ -2928,7 +2928,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
         {/* Sidebar Header Brand block */}
         <div className="space-y-8">
           <div className="flex items-center gap-2.5">
-            <img src="/panik-logo.png" alt="PANIK" width={32} height={32} style={{ objectFit: "contain" }} />
+            <img src="/panik-mark.svg" alt="PANIK" width={32} height={32} style={{ objectFit: "contain" }} />
             <div className="flex flex-col">
               <span className="font-sans font-extrabold text-lg text-text-primary leading-none">PANIK</span>
               <span className="text-2xs font-sans text-text-muted mt-0.5">Risk intelligence</span>
@@ -2978,7 +2978,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
               title="Back to landing"
               className="md:hidden flex items-center gap-2 shrink-0"
             >
-              <img src="/panik-logo.png" alt="" width={24} height={24} style={{ objectFit: "contain" }} />
+              <img src="/panik-mark.svg" alt="" width={24} height={24} style={{ objectFit: "contain" }} />
               <span className="font-sans font-extrabold text-sm text-text-primary leading-none">PANIK</span>
             </a>
 

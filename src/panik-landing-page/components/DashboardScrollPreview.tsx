@@ -293,7 +293,7 @@ export function DashboardScrollPreview() {
             <aside className="w-48 border-r border-surface-overlay bg-surface-sunken p-4 flex flex-col justify-between shrink-0 select-none z-30 font-mono">
               <div className="space-y-6">
                 <div className="flex items-center gap-2">
-                  <img src="/panik-logo.png" alt="PANIK" width={24} height={24} style={{ objectFit: "contain" }} />
+                  <img src="/panik-mark.svg" alt="PANIK" width={24} height={24} style={{ objectFit: "contain" }} />
                   <div className="flex flex-col text-left">
                     <span className="font-sans font-black text-2xs tracking-wider text-text-primary leading-none">PANIK</span>
                   </div>
