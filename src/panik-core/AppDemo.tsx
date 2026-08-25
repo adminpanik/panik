@@ -110,12 +110,14 @@ import {
 import { Sparkline, SparklinePlaceholder } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
+import { CardTitle } from "./components/CardTitle";
 import {
   Button,
   Card,
   Chip,
   DemoChip,
   EmptyState,
+  FIELD_BOX,
   LAYER,
   Listbox,
   RiskChip,
@@ -343,6 +345,37 @@ interface NavTabsProps {
 }
 
 /**
+ * Where you are, as a BLOCK.
+ *
+ * Two states and no third. The selected tab is a solid cobalt plate with white
+ * ink (5.03:1) and the same 3px edge every other box on the screen carries;
+ * every other tab is the white plate. That is the whole treatment, in one map,
+ * shared by the desktop rail and the phone bar — the two were separate ternaries
+ * inside one `className` expression and had already drifted apart on which
+ * property carried the state, the rail using a border plus a weight change and
+ * the bar using a weight change alone.
+ *
+ * Both of those were `bg-white/[0.06]` washes, which is a dark-theme idiom: on
+ * white paper a 6% white fill is white, so the selected tab and the four
+ * unselected ones rendered as the same plate and the nav stopped answering the
+ * one question it exists to answer.
+ *
+ * Cobalt is safe to spend here. It is the brand accent and it shares nothing
+ * with the risk ramp, so the loudest block in the shell can never be read as a
+ * verdict about a position. The old accent could not do that: it was the same
+ * hex as `--color-risk-high`, which is why the rail this replaces had no
+ * coloured marker at all.
+ *
+ * Neither state sets an ink colour on the icon. Lucide draws in `currentColor`,
+ * so the glyph follows the label for free; setting it a second time is a second
+ * copy of the state that can disagree with the first.
+ */
+const TAB_STATE = {
+  selected: "bg-brand text-white",
+  resting: "bg-surface-raised text-text-primary hover:bg-highlight",
+} as const;
+
+/**
  * The application tablist — ARIA APG tabs, one instance mounted at a time.
  * Roving tabindex: only the selected tab is in the page tab order, so Tab
  * reaches the nav once and the arrows move within it instead of forcing five
@@ -352,6 +385,11 @@ interface NavTabsProps {
  * `aria-orientation` tracks the variant, which is the contract for which arrow
  * keys a screen reader announces. The handler accepts both axes either way, so
  * a horizontal bar still responds to Up/Down and nothing regresses on the swap.
+ *
+ * The two variants differ in LAYOUT only, which is why the state map above is
+ * one map. The rail stacks separated blocks; the bar is one strip whose tabs
+ * are divided by the same 3px edge, drawn on the right of each but the last so
+ * two adjacent tabs do not stack their borders into a 6px rule.
  */
 function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsProps) {
   const vertical = variant === "sidebar";
@@ -360,7 +398,11 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
       role="tablist"
       aria-orientation={vertical ? "vertical" : "horizontal"}
       aria-label="Application sections"
-      className={vertical ? "space-y-1" : "flex items-stretch"}
+      className={
+        vertical
+          ? "space-y-2"
+          : "flex items-stretch border-t-[3px] border-solid border-border-strong"
+      }
       onKeyDown={onKeyDown}
     >
       {TABS.map(({ id, label, icon: Icon }) => {
@@ -377,38 +419,18 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
               tabRefs.current[id] = el;
             }}
             onClick={() => onSelect(id)}
-            className={
+            className={`cursor-pointer label-type ${
               vertical
-                ? `relative w-full flex items-center gap-3 px-4.5 py-3 rounded-md text-sm font-sans text-left transition-all cursor-pointer ${
-                    selected
-                      ? "bg-white/[0.06] border border-border-subtle text-text-primary font-semibold"
-                      : "text-text-secondary hover:text-text-primary hover:bg-white/[0.02] border border-transparent"
-                  }`
+                ? /* 48px, the height of every other control in the product. */
+                  "flex min-h-12 w-full items-center gap-3 hard-edge px-4 text-left text-xs"
                 : /* 56px tall and a fifth of the viewport wide: comfortably past
                      the 24px WCAG 2.5.8 floor and past the 44px that a thumb
                      actually wants for primary navigation. */
-                  `flex-1 min-w-0 flex flex-col items-center justify-center gap-1 min-h-14 px-1 text-2xs font-sans transition-colors cursor-pointer ${
-                    selected
-                      ? "bg-white/[0.06] text-text-primary font-bold"
-                      : "text-text-secondary"
-                  }`
-            }
+                  "flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 border-r-[3px] border-solid border-border-strong px-1 text-2xs last:border-r-0"
+            } ${TAB_STATE[selected ? "selected" : "resting"]}`}
           >
-            {/* No accent rail here on purpose. It was written when the brand
-                accent and `--color-risk-high` were the same hex, so any orange
-                in the shell was the same colour a user had just been taught
-                means HIGH. `--color-panik-orange` is gone and `--color-brand`
-                is cobalt, which shares nothing with the ramp, so that
-                particular ambiguity no longer applies — but the rail is still
-                not back, because the raised surface and the heavier label
-                already answer "where am I" on their own. Restyling this row to
-                the cobalt tab block is the app-shell pass, not this one. */}
-            <Icon
-              className={`${vertical ? "w-4 h-4" : "w-4.5 h-4.5 shrink-0"} ${
-                selected ? "text-text-primary" : "text-text-secondary"
-              }`}
-            />
-            <span className={vertical ? "" : "truncate max-w-full"}>{label}</span>
+            <Icon className={vertical ? "h-4 w-4 shrink-0" : "h-5 w-5 shrink-0"} aria-hidden="true" />
+            <span className="max-w-full truncate">{label}</span>
           </button>
         );
       })}
@@ -5148,7 +5170,10 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           `env(safe-area-inset-bottom)` keeps it clear of the home indicator. */}
       {!isDesktop && (
         <div
-          className={`shrink-0 border-t border-border-subtle bg-surface-base ${LAYER.chrome}`}
+          /* No border here: the tablist inside draws the 3px edge that separates
+             it from the content column, and a hairline above that read as a
+             rendering fault beside it. */
+          className={`shrink-0 bg-surface-base ${LAYER.chrome}`}
           style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <NavTabs
