@@ -52,10 +52,10 @@ lines, ever.** `/simpcommit` enforces this.
 
 ## Verification before a PR goes up
 
-- `npm run lint` (tsc --noEmit) — baseline is **0 errors**. The 3 long-standing wagmi
-  `chain`/`account` errors in `src/panik-founding/{DepositFlow,RefundBanner}.tsx`
-  disappeared once `@types/react` was installed (`feat/design-system`, Phase 0) — they
-  were an artifact of missing type packages, not a real wagmi incompatibility.
+- `npm run lint` (tsc --noEmit) — baseline is **0 errors**. 3 long-standing wagmi
+  `chain`/`account` errors disappeared once `@types/react` was installed
+  (`feat/design-system`, Phase 0) — they were an artifact of missing type
+  packages, not a real wagmi incompatibility.
   `strictNullChecks` is on. The CI ratchet still fails at >=4 and can now be replaced
   with a plain `npm run lint`.
 - `npm test` and `npm run test:scoring` must pass with zero failures. Do not trust a

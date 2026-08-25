@@ -2290,7 +2290,6 @@ if (process.env.SERVE_STATIC === "true") {
   // Mirror the vercel.json clean-URL rewrites for the multi-entry build.
   const pageFor = (p: string): string => {
     if (p === "/app") return "app.html";
-    if (p === "/founding" || p === "/early-access") return "founding.html";
     if (p === "/try") return "try.html";
     if (p === "/admin" || p === "/admin-neithan") return "admin.html";
     return "index.html";

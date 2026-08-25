@@ -685,7 +685,7 @@ export function mockApi(mode: string): Plugin[] {
              different mechanism than the one that ships.
 
              Scoped to /app.html for the same reason the html transform below
-             is: the landing, founding, try and admin entries have no dashboard
+             is: the landing, try and admin entries have no dashboard
              to unlock. Only while the row is still there, so a sign-out is not
              undone by the next reload. */
           const seeded = sessions.get(MOCK_SESSION_TOKEN);
@@ -931,7 +931,7 @@ export function mockApi(mode: string): Plugin[] {
       transformIndexHtml: {
         order: "pre",
         handler(_html, ctx) {
-          // app.html only — the landing / founding / try / admin entries have no
+          // app.html only — the landing / try / admin entries have no
           // dashboard to unlock and should behave normally.
           if (!ctx.path.startsWith("/app.html")) return;
           return [

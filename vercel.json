@@ -8,8 +8,6 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://panikrisk-scoring-production.up.railway.app/api/:path*" },
     { "source": "/app", "destination": "/app.html" },
-    { "source": "/founding", "destination": "/founding.html" },
-    { "source": "/early-access", "destination": "/founding.html" },
     { "source": "/try", "destination": "/try.html" },
     { "source": "/admin", "destination": "/admin.html" },
     { "source": "/admin-neithan", "destination": "/admin.html" }
