@@ -57,13 +57,16 @@
 import React from "react";
 import { AlertTriangle, ArrowRight, ChevronRight, Compass, Eye } from "lucide-react";
 import type {
+  AdvisorAction,
   AdvisorOpenPlan,
   AdvisorRecommendation,
   AdvisorReport,
+  AdvisorUrgency,
 } from "../lib/live";
 import { recommendedExitAction } from "../lib/live";
 import { ProtocolLogo } from "./ProtocolLogo";
 import { InfoTip } from "./InfoTip";
+import { CardTitle } from "./CardTitle";
 import {
   ADVISOR_ACTION,
   AI_PROSE_NOTE,
@@ -74,11 +77,10 @@ import {
   marketContextMissing,
   PROTOCOL_LABEL,
   RISK_CHIP,
-  RISK_TEXT,
   USD_UNAVAILABLE_HINT,
   USD_UNAVAILABLE_LABEL,
 } from "../lib/utils";
-import { Button, Card, EmptyState, RiskDial } from "../ui";
+import { Button, Card, Chip, EmptyState, RiskChip, RiskDial } from "../ui";
 import { exitAvailabilityLine, exitControlState, useChainMode } from "../lib/chainMode";
 import { openControlState } from "../lib/openProtocols";
 /**
@@ -116,29 +118,6 @@ import {
  * beside it is not "under 0.1%" on an ordinary position.
  */
 const REPAY_STEP_USD = 1_000;
-
-/**
- * The action, as a chip, in NEUTRAL ink, on the cards that have no button.
- *
- * It used to be painted off the risk ramp: EXIT red, REDUCE orange, HOLD green,
- * plus a sky blue and a violet for MONITOR and REBALANCE. Two problems. An
- * action is not a risk band - HOLD in risk-low green is the ramp making a
- * safety claim about a verb - and the genuine band was already on the same
- * card, in the strip, which meant a HIGH position could show a green chip and
- * an orange band six inches apart.
- *
- * The band now has exactly one home per card: the RiskDial, borrowed from the
- * Portfolio position rows so a score means the same thing on both screens.
- *
- * The chip is now WATCH, HOLD and MOVE only. On an EXIT or a REDUCE leg it said
- * the verb the primary button says two inches below it, which is a duplicate
- * that also flattens the two: the loudest statement of a call to action should
- * not be a 11px pill in the prose column. Cards that are not a call to action
- * keep it, because there it is the only place the verdict is stated, and it
- * stays quiet because "watch this" is not something to do today.
- */
-const ACTION_CHIP =
-  "inline-flex shrink-0 rounded-sm border border-border-subtle bg-white/[0.06] px-2 py-0.5 text-2xs font-sans font-bold text-text-primary";
 
 /**
  * The two costs this screen genuinely does not know, behind `Details`.
@@ -190,6 +169,83 @@ const DELEVERAGE_NOT_LIVE = "Not ready to sign yet.";
  * screen belongs to the dials and to the one banner.
  */
 const ENGINE_WORDED_NOTE = "Wording on this one is the risk engine's, not AI.";
+
+/**
+ * The wallet's verdict, as a band and the word that names it.
+ *
+ * `Urgency` is the engine's own union and it is not a risk band: it is a
+ * property of the WALLET, decided by its worst leg, where a band is a property
+ * of one position. The two ride the same ramp on purpose, because a reader who
+ * has learned that red means "deal with this" on a position card must not have
+ * to learn a second scale for the sentence above them.
+ *
+ * `info` maps to nothing at all. There is no such thing as a band meaning "we
+ * looked and there is nothing to do", and painting that state LOW green would
+ * be the ramp making a safety claim about a whole wallet from the absence of a
+ * finding. The eye glyph beside it is the entire statement.
+ *
+ * The word names the SEVERITY ("Critical risk", "Elevated risk"), not a verb.
+ * It used to be "Act now" / "Act soon", a coloured imperative sitting inside a
+ * band-hued block - a chip is allowed to state a fact the ramp already colours,
+ * never to colour an instruction. What to do lives in the headline beside it.
+ */
+const WALLET_URGENCY: Record<
+  AdvisorUrgency,
+  { band: keyof typeof RISK_CHIP; word: string } | null
+> = {
+  info: null,
+  warning: { band: "ELEVATED", word: "Elevated risk" },
+  critical: { band: "CRITICAL", word: "Critical risk" },
+};
+
+/**
+ * The verdict card's two lines, from the same recommendation data the
+ * engine's `overallHeadline` sentence already reads (protocol, action, repay
+ * plan, per-leg `usdValuesUnavailable`) rather than a data-blind split of that
+ * sentence, which would have tied this component to the engine's exact
+ * phrasing. The wording still says the same thing `overallHeadline` says for
+ * the same inputs; it is punctuated with a period rather than the engine's
+ * " - " because this card's copy may not use a hyphen as a dash. Known
+ * duplication: if `packages/scoring` ever gains a structured
+ * `{ title, detail }` return for the wallet verdict, this switch should be
+ * retired in favour of it rather than kept in sync by hand.
+ *
+ * `detail` is the secondary line; when it is missing (no degraded leg, no
+ * repay amount) the card shows a title alone rather than an empty line.
+ */
+function verdictLines(
+  action: AdvisorAction,
+  recs: AdvisorRecommendation[],
+): { title: string; detail?: string } {
+  const degradedLegs = recs
+    .filter((r) => r.numbers.usdValuesUnavailable)
+    .map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol);
+  const degradedNote =
+    degradedLegs.length > 0
+      ? `Prices degraded on ${degradedLegs.join(", ")}. Position sizes unverified.`
+      : undefined;
+
+  switch (action) {
+    case "EXIT": {
+      const legs = recs.filter((r) => r.action === "EXIT").map((r) => PROTOCOL_LABEL[r.protocol] ?? r.protocol);
+      return { title: `Exit recommended on ${legs.join(", ")}`, detail: degradedNote };
+    }
+    case "REDUCE": {
+      const r = recs.find((x) => x.action === "REDUCE");
+      const where = r ? (PROTOCOL_LABEL[r.protocol] ?? r.protocol) : "your position";
+      const amt = r?.repayPlan
+        ? `Repay ~${fmtUsd(r.repayPlan.repayUsd)} to bring it back in range.`
+        : undefined;
+      return { title: `Reduce your ${where} exposure`, detail: degradedNote ?? amt };
+    }
+    case "REBALANCE":
+      return { title: "Rebalance to a safer protocol", detail: degradedNote };
+    case "MONITOR":
+      return { title: "Positions approaching your risk threshold", detail: degradedNote };
+    default:
+      return { title: "All positions within your risk profile", detail: degradedNote };
+  }
+}
 
 /**
  * Worst first.
@@ -334,10 +390,13 @@ function Reasoning({ rec, notes = [] }: { rec: AdvisorRecommendation; notes?: st
         aria-expanded={open}
         aria-controls={bodyId}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex min-h-6 shrink-0 cursor-pointer items-center gap-1 text-xs font-sans font-semibold text-text-secondary transition-colors hover:text-text-primary"
+        /* No transition on either the ink or the chevron: the disclosure is
+           open or it is shut, and there is no motion in this system. The
+           chevron's rotation is still the state marker, it just arrives there. */
+        className="inline-flex min-h-6 shrink-0 cursor-pointer items-center gap-1 label-type text-xs text-text-secondary hover:text-text-primary hover:underline"
       >
         <ChevronRight
-          className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 ${open ? "rotate-90" : ""}`}
           aria-hidden="true"
         />
         Details
@@ -345,7 +404,7 @@ function Reasoning({ rec, notes = [] }: { rec: AdvisorRecommendation; notes?: st
       <div id={bodyId} hidden={!open} className="w-full space-y-2.5">
         {rows.map(([label, text]) => (
           <div key={label} className="flex flex-col sm:flex-row sm:gap-4">
-            <span className="w-28 shrink-0 pt-0.5 text-xs font-sans text-text-muted">{label}</span>
+            <span className="w-28 shrink-0 pt-0.5 label-type text-xs text-text-muted">{label}</span>
             <p className="flex-1 text-sm font-sans leading-relaxed text-text-secondary">{text}</p>
           </div>
         ))}
@@ -411,43 +470,53 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
     <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
       {items.map(({ label, value, hint }) => (
         <div className="flex items-baseline gap-2" key={label}>
-          <span className="flex items-center gap-1 text-xs font-sans text-text-muted">
+          <span className="flex items-center gap-1 label-type text-xs text-text-muted">
             {label}
             {hint && <InfoTip text={hint} />}
           </span>
-          <span className="whitespace-nowrap text-sm font-sans font-semibold tabular-nums text-text-primary">
+          {/* Mono, like every figure in the product. Two of the three values
+              here are dollar amounts and the third is a percentage or the short
+              phrase the engine prints in place of one, so the whole strip is
+              readings and it lines up across the three cards under it. */}
+          <span className="whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary">
             {value}
           </span>
         </div>
       ))}
       {/* Stands IN for the two money pairs rather than qualifying them, and it
-          takes its treatment from `RISK_CHIP.UNKNOWN` - unfilled, dashed edge,
-          icon and words - so it is the same marker, in the same shape, as the
-          one the position rows already show for this state. Distinctness from a
-          priced leg holds on four axes and no branch of it can emit "$0". */}
+          is the UNKNOWN band as `RiskChip` draws it: white under the shared
+          45-degree hatch, which is the one texture in this system meaning
+          "there is nothing here, and that is not a verdict". It hand-built that
+          block from `RISK_CHIP.UNKNOWN` plus a rounded box and a hairline
+          border, which is the exact drift the primitive exists to stop - and
+          the band's own recipe has since dropped the dashed edge the comment
+          here still described. Distinctness from a priced leg holds on four
+          axes and no branch of it can emit "$0".
+
+          The explanation is an `InfoTip` INSIDE the chip rather than a `title`
+          on it. A native tooltip is invisible to a keyboard and to a touch
+          screen, and the reason this strip reached for one - that a tip's
+          anchor cannot wrap - does not apply when the anchor sits inside a
+          `whitespace-nowrap` chip that wraps as one piece. */}
       {usdUnknown && (
-        <span
-          title={USD_UNAVAILABLE_HINT}
-          className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
-        >
+        <RiskChip band="UNKNOWN">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {USD_UNAVAILABLE_LABEL}
-        </span>
+          <InfoTip text={USD_UNAVAILABLE_HINT} />
+        </RiskChip>
       )}
       {/* A second, independent caveat: this one is about the SCORE on the rail,
           not the dollars. It is stated because the dial prints a real number
           either way — the composite renormalises over what was measured — and a
           reader has no way to tell a fully-measured 75 from a partly-measured
-          one unless the card says so. `title`, not an InfoTip: this strip
-          already wraps, and the tip's anchor cannot. */}
+          one unless the card says so. Same block and same tip placement as the
+          marker above it, for the same reasons. */}
       {marketContextMissing(n.subScores) && (
-        <span
-          title={MARKET_CONTEXT_MISSING_HINT}
-          className={`inline-flex cursor-help items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
-        >
+        <RiskChip band="UNKNOWN">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {MARKET_CONTEXT_MISSING_LABEL}
-        </span>
+          <InfoTip text={MARKET_CONTEXT_MISSING_HINT} />
+        </RiskChip>
       )}
     </div>
   );
@@ -721,10 +790,12 @@ function RecommendationCard({
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <h4 className="shrink-0 text-sm font-sans font-bold text-text-primary">
+            <CardTitle as="h4" size="sm" className="shrink-0">
               {PROTOCOL_LABEL[rec.protocol]}
-            </h4>
-            <span className="truncate text-xs font-sans text-text-secondary">
+            </CardTitle>
+            {/* The ticker keeps its source casing, which is why it is a sibling
+                of the title rather than part of it. */}
+            <span className="truncate font-mono text-xs font-bold text-text-secondary">
               {rec.numbers.scoredCollateralSymbol}
             </span>
             {/* This leg is one to act on TODAY, marked by shape on the line
@@ -762,9 +833,14 @@ function RecommendationCard({
               sentence that elaborates it. `ADVISOR_ACTION`, not `rec.action` -
               the raw union is an engine enum and this screen does not shout. */}
           <div className="space-y-1.5">
-            {hasAction ? null : (
-              <span className={ACTION_CHIP}>{ADVISOR_ACTION[rec.action]}</span>
-            )}
+            {/* The `Chip` primitive, which is exactly this: a neutral marker
+                beside a thing, white plate, no hue, no state. It was a local
+                eleven-utility string with a `rounded-sm` box, a hairline border
+                and a `bg-white/[0.06]` fill, i.e. a radius this system does not
+                have and a translucent white plate that renders as nothing on a
+                white card. `ADVISOR_ACTION`, not `rec.action`, so the engine's
+                union never reaches the screen. */}
+            {hasAction ? null : <Chip>{ADVISOR_ACTION[rec.action]}</Chip>}
             <p className="text-sm font-sans leading-relaxed text-text-primary">
               {rec.sections.recommendation}
             </p>
@@ -848,27 +924,43 @@ function OpportunityCard({
     <Card tone="raised" className="flex h-full flex-col gap-3">
       <div className="flex items-center gap-3">
         <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
-        <h4 className="min-w-0 flex-1 truncate text-sm font-sans font-bold text-text-primary">
+        {/* `caseSensitive`: the title opens with a ticker. */}
+        <CardTitle as="h4" size="sm" caseSensitive className="min-w-0 flex-1 truncate">
           {plan.collateralSymbol} on {PROTOCOL_LABEL[rec.protocol]}
-        </h4>
+        </CardTitle>
       </div>
 
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums text-text-secondary">
+      {/* The figures in mono and the words that qualify them in Archivo, rather
+          than one `tabular-nums` span over both: "$25,000" is a reading and
+          "collateral" is a word, and the mono face is what tells the two apart
+          at a glance in a card only ~380px wide. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 font-sans text-sm text-text-secondary">
         <span className="whitespace-nowrap">
-          <span className="font-semibold text-text-primary">{formatUsd(plan.collateralUsd)}</span>{" "}
+          <span className="font-mono font-bold tabular-nums text-text-primary">
+            {formatUsd(plan.collateralUsd)}
+          </span>{" "}
           collateral
         </span>
         {plan.borrowUsd > 0 && (
           <span className="whitespace-nowrap">
-            <span className="font-semibold text-text-primary">{formatUsd(plan.borrowUsd)}</span>{" "}
+            <span className="font-mono font-bold tabular-nums text-text-primary">
+              {formatUsd(plan.borrowUsd)}
+            </span>{" "}
             borrow
           </span>
         )}
       </div>
 
-      <p className="text-sm font-sans tabular-nums text-text-secondary">
-        Projected score {plan.projectedScore}
-        {plan.apy !== null ? `, ${(plan.apy * 100).toFixed(1)}% APY` : ""}
+      <p className="font-sans text-sm text-text-secondary">
+        Projected score{" "}
+        <span className="font-mono font-bold tabular-nums text-text-primary">
+          {plan.projectedScore}
+        </span>
+        {plan.apy !== null ? (
+          <>
+            , <span className="font-mono font-bold tabular-nums text-text-primary">{`${(plan.apy * 100).toFixed(1)}%`}</span> APY
+          </>
+        ) : null}
       </p>
 
       {/* The same action row as the position cards: control, then `Details`.
@@ -922,17 +1014,23 @@ function openCompassTab() {
  * The handoff, as the last card in the preview grid.
  *
  * A real `<button>`, so it has a role, a focus ring from the one global
- * `:focus-visible` rule, and a 24px+ target. The dashed edge is the idiom
- * `RISK_CHIP.UNKNOWN` already established for "this is not one of the filled
- * things beside it", on `border-strong` because this edge is functional rather
- * than decorative and has to hold 3:1.
+ * `:focus-visible` rule, and a 24px+ target.
+ *
+ * It is the SAME BLOCK as the opportunity cards it sits beside: white plate,
+ * 3px edge, 6px shadow. The dashed edge it had was borrowed from
+ * `RISK_CHIP.UNKNOWN` back when that band was a dashed outline, to say "not one
+ * of the filled things beside it" - but the band stopped being dashed, every
+ * edge in this system is now 3px solid black, and a dashed one reads as a
+ * rendering fault rather than as a distinction. This is not an absence anyway;
+ * it is a control, and what marks it as one is the press travel, which is the
+ * same two static positions every other pressable block uses.
  */
 function SeeAllInCompass() {
   return (
     <button
       type="button"
       onClick={openCompassTab}
-      className="flex h-full min-h-32 w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border-strong p-4 text-sm font-sans font-semibold text-text-secondary transition-colors hover:bg-white/[0.02] hover:text-text-primary"
+      className="flex h-full min-h-32 w-full cursor-pointer flex-col items-center justify-center gap-2 hard-edge bg-surface-raised p-4 label-type text-sm text-text-primary shadow-hard hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none"
     >
       <Compass className="h-5 w-5 shrink-0" aria-hidden="true" />
       See all in Compass
@@ -983,6 +1081,12 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
 
   const readOnly = watchOnlyNote !== undefined;
 
+  /** Null on an `info` report, which is the branch that gets no chip at all. */
+  const walletVerdict = WALLET_URGENCY[overall.urgency];
+
+  /** The verdict card's title and (optional) secondary line; see `verdictLines`. */
+  const verdict = verdictLines(overall.action, recommendations);
+
   /* A COPY, sorted: `sort` mutates, and the array here is the caller's report
      object, which other surfaces read from. See `worstFirst`. */
   const legs = React.useMemo(() => [...recommendations].sort(worstFirst), [recommendations]);
@@ -1009,40 +1113,59 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
           same edge, as four cards two to three times its height, so the answer to
           "what is happening to my wallet" was the quietest element on the page
           that exists to answer it. It now takes the one functional border on the
-          screen, a type step (16px against the cards' 14px) and a glyph a size
-          up; the cards below stay where they were, which is a step down from
-          this rather than a demotion of themselves.
+          screen and a type step (16px against the cards' 14px); the cards below
+          stay where they were, which is a step down from this rather than a
+          demotion of themselves.
 
-          Container stays neutral - the icon is the one hued element, which is the
-          treatment the Portfolio aggregate card already uses for exactly this
-          job, and it is absent below `warning` because a glyph that is always
-          there and only changes colour is a glyph people stop seeing. */}
-      <Card tone="lead" className="flex items-start gap-3">
+          The card is a plain white surface, same as every other card on the
+          screen - not the lavender fill it used to carry. A tint behind the
+          whole block was a second, softer copy of the severity the chip already
+          states, and on `info` there was no severity to state at all, so the
+          calm branch of this card wore the same coloured wash as the alarming
+          one.
+
+          The ramp appears here as ONE block: the `RiskChip`, at 4.5:1 by
+          construction on every band. It used to also live in a "Act now" /
+          "Act soon" word inside that chip and in a neutral warning triangle
+          beside it - a coloured verb and a decoration both saying the thing the
+          chip's hue already says. The chip alone carries the state; the icon is
+          gone on every severity, and the chip's word now names the SEVERITY
+          ("Critical risk") rather than an instruction, because what to do is the
+          headline's job, not the chip's. */}
+      <Card tone="raised" className="flex items-start gap-3">
         {overall.urgency === "info" ? (
-          <Eye className="mt-0.5 h-5 w-5 shrink-0 text-text-muted" aria-hidden="true" />
+          <>
+            <Eye className="mt-0.5 h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
+            <p className="min-w-0 flex-1 text-base font-sans leading-relaxed text-text-primary">
+              {overall.headline}
+              {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
+            </p>
+          </>
         ) : (
-          <AlertTriangle
-            className={`mt-0.5 h-5 w-5 shrink-0 ${
-              overall.urgency === "critical" ? RISK_TEXT.CRITICAL : RISK_TEXT.ELEVATED
-            }`}
-            aria-hidden="true"
-          />
+          <>
+            {walletVerdict && <RiskChip band={walletVerdict.band}>{walletVerdict.word}</RiskChip>}
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="font-sans text-base font-bold text-text-primary">{verdict.title}</p>
+              {(verdict.detail || insightsText) && (
+                <p className="text-sm font-sans leading-relaxed text-text-secondary">
+                  {verdict.detail}
+                  {insightsText && (
+                    <InfoTip text={insightsText} className={verdict.detail ? "ml-1.5" : undefined} />
+                  )}
+                </p>
+              )}
+            </div>
+          </>
         )}
-        <div className="min-w-0 flex-1">
-          <p className="text-base font-sans leading-relaxed text-text-primary">
-            {overall.headline}
-            {insightsText && <InfoTip text={insightsText} className="ml-1.5" />}
-          </p>
-        </div>
       </Card>
 
       {/* Position legs */}
       {recommendations.length > 0 ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h3 className="text-sm font-sans font-semibold text-text-primary">
+            <CardTitle as="h3" size="sm">
               {readOnly ? "Positions on this wallet" : "Your positions"}
-            </h3>
+            </CardTitle>
             {/* Once, for the section, instead of a pill beside every exit
                 button on every card. The chain you are signing on is a property
                 of the selected network, not of a position, and the flow the
@@ -1074,9 +1197,9 @@ export function AdvisorPanel({ report, onExit, onOpen, watchOnlyNote }: AdvisorP
       {/* Opportunities */}
       {opportunities.length > 0 ? (
         <div className="space-y-4">
-          <h3 className="text-sm font-sans font-semibold text-text-primary">
+          <CardTitle as="h3" size="sm">
             Opportunities within your profile
-          </h3>
+          </CardTitle>
           {/* Three across only once the window can actually spare it: at `md`
               the sidebar has already taken 256px, so three of these cards got
               ~137px each and every title ellipsised to a couple of letters. */}
