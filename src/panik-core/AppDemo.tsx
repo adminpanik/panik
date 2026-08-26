@@ -2291,6 +2291,21 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   const portfolioLoading = portfolioPositions === null && !portfolioFeedDown;
   const portfolioEmpty = portfolioPositions !== null && portfolioPositions.length === 0;
   const hasPositions = portfolioPositions !== null && portfolioPositions.length > 0;
+  /**
+   * Feed-down splits into two honest branches, not one.
+   *
+   * `positions` null with the feed down means this wallet was NEVER
+   * successfully read: its exposure is UNKNOWN and every figure below has to
+   * say so, never a number. `positions` an array (even an empty one) with the
+   * feed down means a PREVIOUS read succeeded and only the refresh failed:
+   * `useWalletPositions` keeps that array standing rather than clearing it, so
+   * the figures are STALE, not unknown, and get to keep showing what they last
+   * measured plus how long ago that was. The Positions table and the Advisor
+   * callout below key off the same two flags, so the whole tab tells one
+   * story instead of the table alone flipping to "unknown" while everything
+   * around it kept stating a stale number as current.
+   */
+  const positionsUnknown = portfolioFeedDown && portfolioPositions === null;
 
   // Presets with LIVE engine scores overlaid (fallback: static baseRisk).
   // Defined before activePreset so Compass, Portfolio and Watch all read
@@ -4367,8 +4382,18 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     unless there is a recommendation to make, and nothing at all
                     on a watched wallet: its whole shape is an offer to act, and
                     the action here would be exiting a position the reader does
-                    not hold. */}
-                {!viewingWatchOnly && (
+                    not hold.
+
+                    Also nothing while this wallet's positions are UNKNOWN.
+                    `advisorLive` is its own poll (`/api/advisor`), independent
+                    of the positions feed, so it can still hold a recommendation
+                    from its own last success while `/api/positions` has never
+                    answered at all - and an "Exit" button about a position this
+                    screen cannot currently confirm is still open is not advice,
+                    it is a guess wearing the Advisor's shape. A merely stale
+                    read is a different case: the position data itself stands,
+                    so the popup is left alone. */}
+                {!viewingWatchOnly && !positionsUnknown && (
                   <AdvisorPopup
                     report={advisorLive.report}
                     onExit={(prefill) => setExitPrefill(prefill)}
@@ -4446,7 +4471,21 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   <EmptyState
                     tone="problem"
                     title="These figures are not being updated"
-                    hint={`We could not reach the scoring feed, so everything below is the last successful read${lastScoredAt ? `, from ${lastScoredAt}` : ""}. Nothing here has been rescored.`}
+                    hint={`${walletCheckedAt ?? "Checked previously"}, feed unavailable since${lastScoredAt ? ` ${lastScoredAt}` : ""}. Nothing here has been rescored.`}
+                  />
+                )}
+
+                {/* The OTHER feed-down branch: this wallet has never answered
+                    at all, so there is no last successful read to fall back
+                    on. Separate from the notice above rather than one
+                    condition with two hints, because a reader must not be
+                    told "everything below is the last successful read" when
+                    there has never been one. */}
+                {positionsUnknown && (
+                  <EmptyState
+                    tone="problem"
+                    title="These figures could not be read"
+                    hint="We could not reach the scoring feed for this wallet, so nothing below has been measured yet."
                   />
                 )}
 
@@ -4467,18 +4506,65 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   />
                 )}
 
-                {/* The stat row. Rendered only when there are real positions to
-                    summarise, so every figure comes from `liveMacro` and there
-                    is no literal for it to fall back to. An empty wallet gets
-                    the EmptyState above and no cards at all, because "No
-                    positions yet" directly over a dashboard stating a monitored
-                    total is the screen contradicting itself.
+                {/* The stat row. Rendered whenever there is either something to
+                    summarise (`liveMacro`) or a reason every card should say
+                    "unknown" together (`positionsUnknown`) - an empty wallet
+                    with neither gets the EmptyState above and no cards at all,
+                    because "No positions yet" directly over a dashboard
+                    stating a monitored total is the screen contradicting
+                    itself.
 
                     1 -> 2 -> 4. The old jump straight from 1 to 4 at `sm` gave
                     each card ~150px at 640px wide, which is narrower than the
                     figure inside it, so every card in the row ellipsised at
                     once. Four across is only earned at `xl`. */}
-                {liveMacro && (() => {
+                {(liveMacro || positionsUnknown) && (() => {
+                  // One rendering for "we could not measure this", in the
+                  // value slot where a number would otherwise go. The
+                  // treatment is `RISK_CHIP.UNKNOWN`, the same hatch a
+                  // degraded position row uses, so the marker means the same
+                  // thing everywhere: shape, icon and words, no hue, and no
+                  // number standing in for a blank. Defined before the branch
+                  // split because both use it: a wallet that never answered
+                  // and a wallet with one unpriced leg are both "we do not
+                  // have this number", just at different scopes.
+                  const notMeasured = (
+                    <span
+                      className={`inline-flex items-center gap-1.5 hard-edge px-2 py-0.5 font-sans text-base font-semibold ${RISK_CHIP.UNKNOWN}`}
+                    >
+                      <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      Not measured
+                    </span>
+                  );
+
+                  if (!liveMacro) {
+                    // The feed has never answered for this wallet, so there is
+                    // no stale figure to fall back to either: all four cards
+                    // say so uniformly rather than each guessing at a number
+                    // they do not have. Coverage keeps its own literal
+                    // sub-line ("Not measured") rather than "Live feed
+                    // unavailable", because its usual sub-line names counts
+                    // this branch does not have either - "0 positions across 0
+                    // protocols" is exactly the zero-standing-in-for-unknown
+                    // this product bans.
+                    return (
+                      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+                        <Card tone="raised">
+                          <Stat size="lg" label="Total collateral" value={notMeasured} sub="Live feed unavailable" />
+                        </Card>
+                        <Card tone="raised">
+                          <Stat size="lg" label="Total debt" value={notMeasured} sub="Live feed unavailable" />
+                        </Card>
+                        <Card tone="raised">
+                          <Stat size="lg" label="Coverage" value={notMeasured} sub="Not measured" />
+                        </Card>
+                        <Card tone="raised">
+                          <Stat size="lg" label="Liquidation buffer" value={notMeasured} sub="Live feed unavailable" />
+                        </Card>
+                      </div>
+                    );
+                  }
+
                   // Legs the engine could not price contribute nothing to the
                   // dollar-weighted figures here, so each one is a FLOOR and
                   // not the wallet. A numeral that quietly drops a position is
@@ -4497,20 +4583,6 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       : unpriced === 1
                         ? "One position not priced"
                         : `${plural(unpriced, "position")} not priced`;
-                  // One rendering for "we could not measure this", in the value
-                  // slot where a number would otherwise go. The treatment is
-                  // `RISK_CHIP.UNKNOWN`, the same hatch a degraded position row
-                  // uses, so the marker means the same thing everywhere: shape,
-                  // icon and words, no hue, and no number standing in for a
-                  // blank.
-                  const notMeasured = (
-                    <span
-                      className={`inline-flex items-center gap-1.5 hard-edge px-2 py-0.5 font-sans text-base font-semibold ${RISK_CHIP.UNKNOWN}`}
-                    >
-                      <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                      Not measured
-                    </span>
-                  );
                   // The buffer's own wording comes from the engine's outlook
                   // helper, so "4.8%", "Liquidatable now" and "None" are the
                   // same three answers this figure gives on every other screen.

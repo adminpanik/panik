@@ -315,6 +315,39 @@ function applyMockOps(owner: string, ops: WatchOp[]): { watching: WatchSubscript
  */
 const watchlistDown = () => process.env.PANIK_MOCK_WATCHLIST_DOWN === "1";
 
+/**
+ * PANIK_MOCK_FEED=down|stale reproduces the two ways `/api/positions` can
+ * fail, so the Portfolio's unknown-vs-stale split (AppDemo.tsx,
+ * LivePositions.tsx) can be seen without unplugging anything:
+ *
+ *   down    every request fails, from the first: this wallet has never been
+ *           successfully read (the "unknown" branch - stat cards say "Not
+ *           measured", the table shows its hatched EmptyState).
+ *   stale   every request in the first 30s succeeds, then every one after
+ *           fails: a previous read stands and only the refresh is down (the
+ *           "stale" branch - stat cards keep their numbers with a "checked
+ *           ... ago" line, the table keeps its rows with a banner). This is
+ *           the branch the reported inconsistency bug was in.
+ *
+ * WALL-CLOCK, not a request count: `useWalletPositions` can fire more than
+ * one immediate request while the wallet/profile/chain it depends on settle
+ * at mount, and a "fail from the Nth request" rule could spend its one
+ * allowed success on a request the UI never rendered from. 30s comfortably
+ * covers mount plus however long it takes a dev to open the tab, and still
+ * leaves the 60s poll interval as the one that goes down.
+ *
+ * Same idiom as PANIK_MOCK_WATCHLIST_DOWN: the degraded path is the one a UI
+ * is least likely to get right, and here it is the one two surfaces most
+ * likely disagree about.
+ */
+const mockServerStartedAt = Date.now();
+function positionsFeedDown(): boolean {
+  const mode = process.env.PANIK_MOCK_FEED?.trim().toLowerCase();
+  if (mode === "down") return true;
+  if (mode === "stale") return Date.now() - mockServerStartedAt > 30_000;
+  return false;
+}
+
 // ── /api/session ─────────────────────────────────────────────────────────────
 //
 // The four identity routes, in memory. Same shapes and same statuses as
@@ -699,6 +732,12 @@ export function mockApi(mode: string): Plugin[] {
             ` (PANIK_MOCK_ACCOUNT=none|new|member)` +
             `\n     Invite code the voucher screen accepts: ${MOCK_VOUCHER_CODE}\n`,
         );
+        if (process.env.PANIK_MOCK_FEED) {
+          server.config.logger.info(
+            `  \x1b[33m➜\x1b[0m  MOCK FEED: /api/positions set to "${process.env.PANIK_MOCK_FEED}"` +
+              ` (PANIK_MOCK_FEED=down|stale)\n`,
+          );
+        }
 
         server.middlewares.use((req, res, next) => {
           /* Hand the seeded session to the browser on the APP DOCUMENT request,
@@ -952,6 +991,10 @@ export function mockApi(mode: string): Plugin[] {
               });
             }
             return send(405, { error: "method not allowed" });
+          }
+
+          if (url.pathname === "/api/positions" && req.method === "GET" && positionsFeedDown()) {
+            return send(502, { error: "mock positions feed is switched off" });
           }
 
           if (req.method !== "GET") return next();

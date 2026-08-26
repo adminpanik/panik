@@ -246,7 +246,17 @@ export function LivePositions({
     [positions],
   );
 
-  if (offline) {
+  /*
+   * `offline` alone used to be the whole check here, so a poll that failed
+   * AFTER a previous one had already landed rows collapsed this card straight
+   * to "positions are unknown right now" - discarding the very rows that made
+   * that sentence false, and disagreeing with the stat cards above, which keep
+   * showing the last successful read plus how old it is. The unknown case is
+   * real (a wallet that has never been read at all, `rows === null`), and it
+   * still gets the hatched EmptyState below. A wallet with rows on file gets
+   * to keep them, with a banner rather than a blank.
+   */
+  if (offline && rows === null) {
     return (
       <EmptyState
         tone="problem"
@@ -278,6 +288,20 @@ export function LivePositions({
           </span>
         )}
       </div>
+
+      {/* The STALE banner: a previous read stands (`rows` is not null) but the
+          feed that would refresh it is currently down. Deliberately not the
+          hatched EmptyState above - these rows are real, just not current,
+          and a reader who just saw the stat cards state a real number must
+          not then be told this table knows nothing. */}
+      {offline && (
+        <div className="flex items-center gap-2 border-b-[3px] border-solid border-border-strong px-4 py-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" />
+          <span className="font-sans text-sm text-text-secondary">
+            Showing the last successful read. The feed is unavailable, so these rows are not being rescored.
+          </span>
+        </div>
+      )}
 
       {rows === null ? (
         <div className="space-y-3 p-4">
