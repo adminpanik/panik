@@ -4547,20 +4547,23 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     // this branch does not have either - "0 positions across 0
                     // protocols" is exactly the zero-standing-in-for-unknown
                     // this product bans.
+                    // Every card carries the same value and near-identical
+                    // sub; only Coverage's differs (see the comment above), so
+                    // the four are a map over their two varying fields rather
+                    // than four copies of one JSX shape.
+                    const unknownCards: { label: string; sub: string }[] = [
+                      { label: "Total collateral", sub: "Live feed unavailable" },
+                      { label: "Total debt", sub: "Live feed unavailable" },
+                      { label: "Coverage", sub: "Not measured" },
+                      { label: "Liquidation buffer", sub: "Live feed unavailable" },
+                    ];
                     return (
                       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
-                        <Card tone="raised">
-                          <Stat size="lg" label="Total collateral" value={notMeasured} sub="Live feed unavailable" />
-                        </Card>
-                        <Card tone="raised">
-                          <Stat size="lg" label="Total debt" value={notMeasured} sub="Live feed unavailable" />
-                        </Card>
-                        <Card tone="raised">
-                          <Stat size="lg" label="Coverage" value={notMeasured} sub="Not measured" />
-                        </Card>
-                        <Card tone="raised">
-                          <Stat size="lg" label="Liquidation buffer" value={notMeasured} sub="Live feed unavailable" />
-                        </Card>
+                        {unknownCards.map(({ label, sub }) => (
+                          <Card tone="raised" key={label}>
+                            <Stat size="lg" label={label} value={notMeasured} sub={sub} />
+                          </Card>
+                        ))}
                       </div>
                     );
                   }

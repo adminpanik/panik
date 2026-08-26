@@ -37,7 +37,7 @@ import {
   USD_UNAVAILABLE_HINT,
   worseScoreFirst,
 } from "../lib/utils";
-import { Button, Card, Chip, EmptyState, RiskChip, RiskDial, SimulationChip, Skeleton } from "../ui";
+import { Button, Card, Chip, EmptyState, Notice, RiskChip, RiskDial, SimulationChip, Skeleton } from "../ui";
 import { exitControlState, useChainMode } from "../lib/chainMode";
 import type { ExitPrefill } from "./ExitFlow";
 
@@ -293,13 +293,14 @@ export function LivePositions({
           feed that would refresh it is currently down. Deliberately not the
           hatched EmptyState above - these rows are real, just not current,
           and a reader who just saw the stat cards state a real number must
-          not then be told this table knows nothing. */}
+          not then be told this table knows nothing. `Notice` rather than a
+          hand-rolled strip: it is already "a thing that did not work, in one
+          line" everywhere else in this product (AccountGate, ExitApprovals),
+          and a second, differently-bordered version of that exact statement
+          is the kind of drift its own docstring warns about. */}
       {offline && (
-        <div className="flex items-center gap-2 border-b-[3px] border-solid border-border-strong px-4 py-2">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-text-secondary" aria-hidden="true" />
-          <span className="font-sans text-sm text-text-secondary">
-            Showing the last successful read. The feed is unavailable, so these rows are not being rescored.
-          </span>
+        <div className="px-4 pt-3">
+          <Notice text="Showing the last successful read. The feed is unavailable, so these rows are not being rescored." />
         </div>
       )}
 
