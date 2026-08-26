@@ -4553,11 +4553,17 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       </Card>
 
                       <Card tone="raised">
+                        {/* Coverage folds in what used to be the right rail's
+                            own card: the same marks, same size and spacing,
+                            same bordered plates, so the fact ("N positions
+                            across N protocols") appears once instead of as a
+                            count here and a row of icons three columns over
+                            that a reader had to reconcile by hand. */}
                         <Stat
                           size="lg"
-                          label="Positions"
-                          value={liveMacro.positions}
-                          sub={`Across ${plural(liveMacro.protocols, "protocol")}`}
+                          label="Coverage"
+                          value={<ProtocolMarks protocols={liveMacro.protocolNames} covered={coveredProtocols} />}
+                          sub={`${plural(liveMacro.positions, "position")} across ${plural(liveMacro.protocols, "protocol")}`}
                         />
                       </Card>
 
@@ -4694,30 +4700,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       );
                     })()}
 
-                    {/* What was actually scanned, from the payload rather than
-                        from a constant: a Base Sepolia reader must not be told
-                        three protocols with no market there were checked and
-                        found empty. The marks are the same ones the coverage
-                        row has always drawn; the dimmed ones are covered and
-                        empty.
-
-                        Gated on the summary having arrived, because which marks
-                        are lit is a fact about the wallet: with no positions
-                        read yet every mark would be dimmed, which says PANIK
-                        looked and found nothing rather than that it has not
-                        looked. */}
-                    {liveMacro !== null && (
-                    <Card tone="raised" className="flex flex-1 flex-col gap-3">
-                      <span className="label-type text-xs text-text-muted">Coverage</span>
-                      <ProtocolMarks
-                        protocols={liveMacro.protocolNames}
-                        covered={coveredProtocols}
-                      />
-                      <span className="mt-auto font-mono text-sm font-bold tabular-nums text-text-primary">
-                        {`${plural(coveredProtocols.length, "protocol")} on ${coveredChainLabel}`}
-                      </span>
-                    </Card>
-                    )}
+                    {/* Coverage itself (the marks, the count, the "on Base"
+                        label) moved into the stat row above as the third
+                        card, so the fact appears once instead of twice: this
+                        rail used to redraw the same marks a stat card three
+                        columns over already named in its sub-line. */}
                   </div>
                   )}
 
