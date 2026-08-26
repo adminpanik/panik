@@ -10,7 +10,7 @@
  * ONE HEADING, ONE BUTTON: the same treatment `Settings` and the sign-in gate
  * get. This used to carry a subtitle, a three-step explainer and a read-only
  * footnote ahead of the control that matters, none of which changed what a
- * reader did here — the one thing to do is press "Add your wallet", and the
+ * reader did here: the one thing to do is press "Add your wallet", and the
  * wallet step behind it (`Onboarding`) is where the address itself, and its
  * own read-only line, live.
  *

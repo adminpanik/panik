@@ -367,7 +367,7 @@ function RevealStep(props: {
 }) {
   const { phase, data, quiz } = props;
 
-  // Loading — the background scan hasn't resolved yet. Static hatched blocks,
+  // Loading: the background scan hasn't resolved yet. Static hatched blocks,
   // the same "pending" texture as `Skeleton` everywhere else: this look has no
   // spinners, because a moving glyph in a risk product reads as a value
   // changing rather than as a wait.

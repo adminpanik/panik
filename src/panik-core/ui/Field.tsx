@@ -12,8 +12,8 @@ interface FieldProps extends React.InputHTMLAttributes<HTMLInputElement> {
 /**
  * One label, two positions, CSS only, no JS state. Default: centred inside
  * the input, standing in for a placeholder. Focused, or once a value is
- * typed: above it, in the product's usual label type. No transition — this
- * look has none — the two positions just snap.
+ * typed: above it, in the product's usual label type. No transition: this
+ * look has none, the two positions just snap.
  *
  * `placeholder=" "` (one space) is what makes `:placeholder-shown` true only
  * while the field is genuinely empty, which is what the CSS keys off. Focus
