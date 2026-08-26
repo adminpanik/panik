@@ -707,14 +707,23 @@ export function mockApi(mode: string): Plugin[] {
              design, and a mock that made it readable would be exercising a
              different mechanism than the one that ships.
 
-             Scoped to /app.html for the same reason the html transform below
+             Scoped to /app for the same reason the html transform below
              is: the landing, try and admin entries have no dashboard
              to unlock. Only while the row is still there, so a sign-out is not
-             undone by the next reload. */
+             undone by the next reload.
+
+             Matched against the URL BEFORE vite.config.ts's html-rewrite
+             middleware runs: this plugin's configureServer hook is registered
+             ahead of that one (see the ORDERING note at the top of this file),
+             so the browser's actual request of /app or /app/ reaches here
+             first and has not yet been rewritten to /app.html. Strip the query
+             string and accept all three forms so the cookie lands regardless
+             of which one the request arrives as. */
           const seeded = sessions.get(MOCK_SESSION_TOKEN);
+          const documentPath = req.url?.split("?")[0];
           if (
             seeded &&
-            req.url?.startsWith("/app.html") &&
+            (documentPath === "/app" || documentPath === "/app/" || documentPath === "/app.html") &&
             !presentedSession(req.headers.cookie)
           ) {
             res.setHeader("Set-Cookie", mockSessionCookie(seeded));
