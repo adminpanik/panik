@@ -16,5 +16,6 @@ export { Listbox } from "./Listbox";
 export { LAYER, SCRIM } from "./overlay";
 export { Skeleton, BootSkeleton } from "./Skeleton";
 export { TextField, FIELD_BOX } from "./TextField";
+export { Field } from "./Field";
 export { useDismissOnOutsidePress } from "./useDismissOnOutsidePress";
 export { SimulationBanner, SimulationChip } from "./SimulationMarker";
