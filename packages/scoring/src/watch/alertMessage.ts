@@ -237,8 +237,12 @@ export interface WhyNow {
 /**
  * The collateral the buffer is measured against. `(proxy)` is an engine detail,
  * and an unnamed asset becomes a phrase rather than a blank.
+ *
+ * Exported because the alert CARD (`server/alertCard.ts`) prints the same
+ * buffer sentence onto an image, and a card naming "cbBTC (proxy)" beside a
+ * message naming "cbBTC" is one asset under two names.
  */
-function assetName(symbol: string): string {
+export function assetName(symbol: string): string {
   return symbol.replace(" (proxy)", "").trim() || "your collateral";
 }
 

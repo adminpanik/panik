@@ -449,6 +449,13 @@ async function deliver(
         protocol: transition.protocol,
         label: extras.label ?? null,
         chainLabel: deps.chainLabel ?? null,
+        // The buffer the card's ledger row states, from the same two facts the
+        // message body uses for its own "liquidates if" sentence. Passed
+        // through undefined-as-undefined on purpose: `null` is "no debt" and
+        // absent is "this dispatcher does not hold one", and the card draws a
+        // different cell for each rather than a zero for both.
+        healthFactor: extras.healthFactor,
+        collateralSymbol: extras.why?.facts.scoredCollateralSymbol ?? null,
         simulated: extras.simulation != null || transition.simulation != null,
       },
       deps.log,
