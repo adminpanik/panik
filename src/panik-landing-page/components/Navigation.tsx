@@ -16,19 +16,18 @@ import type { WaitlistCta } from "./cta";
 const NAV_LINKS = [
   { href: "#why", label: "Why PANIK" },
   { href: "#how", label: "How it works" },
-  { href: "#faq", label: "FAQ" },
 ];
 
 /**
  * Below `md` the bar is the mark and the one button, and the links simply go
- * away rather than folding into a hamburger sheet: the three destinations are
- * the next three screens of this page, so a reader on a phone reaches them by
+ * away rather than folding into a hamburger sheet: both destinations are the
+ * next two screens of this page, so a reader on a phone reaches them by
  * scrolling. A menu that duplicates the scroll order is a second way to do one
  * thing and a third overlay to keep honest.
  */
 export function Navigation({ cta }: { cta: WaitlistCta }) {
   return (
-    <header id="top">
+    <header id="top" className="border-b-hard border-solid border-b-border-strong">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-4 md:px-16">
         <a href="#top" className="flex items-center gap-4 no-underline">
           <MarkPlate />

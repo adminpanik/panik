@@ -26,7 +26,7 @@ const FIGURES = [
 
 export function ProofStrip() {
   return (
-    <section className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-12 md:px-16">
+    <section className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-16 md:px-16 lg:py-24">
       <div className="grid gap-6 md:grid-cols-3">
         {FIGURES.map((figure) => (
           <Card key={figure.label} tone="raised" className="flex flex-col justify-between gap-2">

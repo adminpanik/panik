@@ -21,7 +21,7 @@ import type { WaitlistCta } from "./cta";
 export function CtaBand({ cta }: { cta: WaitlistCta }) {
   return (
     <section className="bg-brand">
-      <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 px-6 py-12 md:flex-row md:items-center md:px-16">
+      <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 px-6 py-16 md:flex-row md:items-center md:px-16 lg:py-24">
         <div className="flex items-center gap-6">
           <MarkPlate />
           <h2 className="text-2xl font-black uppercase tracking-tight text-white md:text-4xl">

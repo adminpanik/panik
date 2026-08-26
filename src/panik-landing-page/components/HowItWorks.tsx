@@ -4,7 +4,6 @@
  */
 
 import React from "react";
-import { Rule } from "./Rule";
 import { SectionHeading } from "./SectionHeading";
 
 /**
@@ -16,7 +15,7 @@ import { SectionHeading } from "./SectionHeading";
 const STEPS = [
   {
     title: "Paste an address",
-    body: "Drop in any wallet address, or connect one if you prefer. PANIK reads its open borrows on Aave, Compound and Moonwell.",
+    body: "Any public address works, or connect a wallet. PANIK reads its open borrows on Aave, Compound and Moonwell.",
   },
   {
     title: "Read the buffer",
@@ -30,12 +29,11 @@ const STEPS = [
 
 export function HowItWorks() {
   return (
-    <section id="how" className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-12 md:px-16 md:py-16">
-      <SectionHeading eyebrow="How it works" title="Three steps, about a minute" />
+    <section id="how" className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-16 md:px-16 lg:py-24">
+      <SectionHeading title="How it works" />
       <ol className="grid gap-8 md:grid-cols-3">
         {STEPS.map((step, index) => (
           <li key={step.title} className="flex flex-col gap-6">
-            <Rule />
             <div className="flex items-start gap-4">
               <span
                 aria-hidden="true"
