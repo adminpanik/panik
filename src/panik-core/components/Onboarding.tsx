@@ -4,8 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { ArrowLeft, ArrowRight, Check, Loader2, ShieldAlert, Sparkles, Wallet, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Sparkles, Wallet, X } from "lucide-react";
 import {
   QUESTIONS,
   computeProfile,
@@ -14,7 +13,7 @@ import {
   type ProfileResult,
 } from "../lib/profiling";
 import { useWalletProfile, type WalletProfileData } from "../lib/profileApi";
-import { LAYER, SCRIM } from "../ui";
+import { Button, Chip, Field, LAYER, Notice, SCRIM, Skeleton } from "../ui";
 
 /**
  * Address format check (purely client-side).
@@ -41,32 +40,14 @@ const REVEAL_STEP = TOTAL_QUESTIONS + 1;   // step 6 → AI analysis
 export type OnboardingMode = "first-run" | "switch-wallet" | "retake-quiz";
 
 /**
- * What the wallet step says, per job it is doing.
- *
- * A module-level table rather than a nested ternary building three object
- * literals on every render: the copy is compile-time constant, and the ternary
- * put its three variants far enough apart that "Switch wallet" and "Add a
- * wallet" could drift into two different explanations of the same field.
+ * The wallet step's title, per job it is doing. A module-level table rather
+ * than a nested ternary, so the copy is compile-time constant and the three
+ * variants cannot drift apart from each other.
  */
 const WALLET_COPY = {
-  "first-run": {
-    label: "Step 1: your wallet",
-    title: "Start with your wallet",
-    blurb:
-      "Paste your wallet address. Panik reads its public history while you answer a few questions.",
-  },
-  switch: {
-    label: "Switch wallet",
-    title: "Switch wallet",
-    blurb:
-      "Paste the address Panik should watch instead. An address you have onboarded before skips the questions.",
-  },
-  add: {
-    label: "Add a wallet",
-    title: "Add a wallet",
-    blurb:
-      "Paste the address Panik should watch. An address you have onboarded before skips the questions.",
-  },
+  "first-run": { label: "Step 1: your wallet", title: "Start with your wallet" },
+  switch: { label: "Switch wallet", title: "Switch wallet" },
+  add: { label: "Add a wallet", title: "Add a wallet" },
 } as const;
 
 type WalletCopy = (typeof WALLET_COPY)[keyof typeof WALLET_COPY];
@@ -114,7 +95,6 @@ export function Onboarding({
   const [answers, setAnswers] = useState<Answers>({});
   const [wallet, setWallet] = useState(retakeWallet ?? "");
   const [walletError, setWalletError] = useState("");
-  const [exiting, setExiting] = useState(false);
 
   const profile = useWalletProfile();
   // Destructured because the effect below depends on it: `profile` is a fresh
@@ -162,8 +142,7 @@ export function Onboarding({
     // Returning wallet: restore its saved profile and skip the quiz entirely.
     const saved = savedProfiles?.[trimmed.toLowerCase()];
     if (saved) {
-      setExiting(true);
-      window.setTimeout(() => onComplete(saved, trimmed), 320);
+      onComplete(saved, trimmed);
       return;
     }
     void profile.start(trimmed); // fire the background scan now
@@ -172,16 +151,13 @@ export function Onboarding({
 
   const selectAnswer = (qid: keyof Answers, key: OptionKey) => {
     setAnswers((prev) => ({ ...prev, [qid]: key }));
-    // Auto-advance; after the last question, go to the reveal.
-    window.setTimeout(() => setStep((s) => Math.min(s + 1, REVEAL_STEP)), 280);
+    setStep((s) => Math.min(s + 1, REVEAL_STEP));
   };
 
   const goBack = () => setStep((s) => Math.max(startStep, s - 1));
 
   const handleEnter = () => {
-    const result = computeProfile(answers);
-    setExiting(true);
-    window.setTimeout(() => onComplete(result, wallet.trim()), 320);
+    onComplete(computeProfile(answers), wallet.trim());
   };
 
   const handleWalletChange = (value: string) => {
@@ -199,111 +175,78 @@ export function Onboarding({
       : `Question ${step} of ${TOTAL_QUESTIONS}`;
 
   return (
-    <AnimatePresence>
-      {!exiting && (
-        <motion.div
-          key="onboarding-overlay"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-          /* The app's one scrim and one overlay rung, from `ui/overlay`. This
-             was `bg-black/80 backdrop-blur-md` against the exit flow's
-             `bg-black/70 backdrop-blur-sm` and the sheet's surface token. */
-          className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4 sm:p-6 ${SCRIM}`}
-        >
-
-          <motion.div
-            initial={{ scale: 0.96, y: 12, opacity: 0 }}
-            animate={{ scale: 1, y: 0, opacity: 1 }}
-            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-full max-w-lg panik-glass rounded-lg border border-border-subtle bg-surface-raised/95 shadow-2xl overflow-hidden"
-          >
-            <div className="h-1 w-full bg-gradient-to-r from-white/0 via-white/20 to-white/0" />
-
-            <div className="p-7 sm:p-9">
-              {/* Header: brand + step indicator */}
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-2.5">
-                  <img src="/panik-mark.svg" alt="PANIK" width={28} height={28} style={{ objectFit: "contain" }} />
-                  <span className="font-sans font-extrabold text-base text-text-primary leading-none">PANIK</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-2xs font-sans text-text-secondary">
-                    {stepLabel}
-                  </span>
-                  {onCancel && (
-                    <button
-                      type="button"
-                      onClick={onCancel}
-                      aria-label={retakeWallet ? "Cancel retaking the questions" : "Cancel wallet change"}
-                      title={retakeWallet ? "Keep your current risk profile" : "Keep current wallet"}
-                      className="p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-white/10 transition-colors cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Progress bar */}
-              <div className="h-1 w-full bg-white/[0.05] rounded-full overflow-hidden mb-7">
-                <motion.div
-                  className="h-full bg-text-primary rounded-full"
-                  initial={false}
-                  animate={{ width: `${progressPct}%` }}
-                  transition={{ duration: 0.4, ease: "easeOut" }}
-                />
-              </div>
-
-              <motion.div
-                key={onWalletStep ? "wallet" : onReveal ? "reveal" : `q-${step}`}
-                initial={{ opacity: 0, x: 24 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.22 }}
-                className="w-full"
-              >
-                {onWalletStep && (
-                  <WalletStep
-                    copy={walletCopy}
-                    wallet={wallet}
-                    walletValid={walletValid}
-                    walletError={walletError}
-                    onChange={handleWalletChange}
-                    onSubmit={submitWallet}
-                  />
-                )}
-
-                {!onWalletStep && !onReveal && (
-                  <QuestionStep
-                    qIndex={qIndex}
-                    selectedKey={answers[QUESTIONS[qIndex].id]}
-                    onSelect={selectAnswer}
-                    onBack={step > startStep ? goBack : undefined}
-                  />
-                )}
-
-                {onReveal && (
-                  <RevealStep
-                    phase={profile.phase}
-                    data={profile.data}
-                    quiz={computeProfile(answers)}
-                    onEnter={handleEnter}
-                  />
-                )}
-              </motion.div>
+    <div
+      className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4 sm:p-6 ${SCRIM}`}
+    >
+      <div className="relative w-full max-w-lg hard-edge shadow-hard bg-surface-raised">
+        <div className="p-6 sm:p-8">
+          {/* Header: brand + step indicator */}
+          <div className="flex items-center justify-between gap-4 border-b-[3px] border-solid border-border-strong pb-4">
+            <div className="flex items-center gap-2.5">
+              <img src="/panik-mark.svg" alt="" width={28} height={28} style={{ objectFit: "contain" }} />
+              <span className="font-sans font-extrabold text-base text-text-primary leading-none">PANIK</span>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+            <div className="flex items-center gap-3">
+              <span className="label-type text-2xs text-text-secondary">{stepLabel}</span>
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  aria-label={retakeWallet ? "Cancel retaking the questions" : "Cancel wallet change"}
+                  title={retakeWallet ? "Keep your current risk profile" : "Keep current wallet"}
+                  className="cursor-pointer text-text-secondary hover:text-text-primary"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Progress bar. A flat fill snapped to its width, not animated: this
+              look has no transitions, so the bar simply reads the current step
+              on every render. */}
+          <div className="mt-4 mb-6 h-2 w-full hard-edge bg-surface-sunken">
+            <div className="h-full bg-brand" style={{ width: `${progressPct}%` }} />
+          </div>
+
+          {onWalletStep && (
+            <WalletStep
+              copy={walletCopy}
+              wallet={wallet}
+              walletValid={walletValid}
+              walletError={walletError}
+              onChange={handleWalletChange}
+              onSubmit={submitWallet}
+            />
+          )}
+
+          {!onWalletStep && !onReveal && (
+            <QuestionStep
+              qIndex={qIndex}
+              selectedKey={answers[QUESTIONS[qIndex].id]}
+              onSelect={selectAnswer}
+              onBack={step > startStep ? goBack : undefined}
+            />
+          )}
+
+          {onReveal && (
+            <RevealStep
+              phase={profile.phase}
+              data={profile.data}
+              quiz={computeProfile(answers)}
+              onEnter={handleEnter}
+            />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
 // ── Wallet step ─────────────────────────────────────────────────────────────
 function WalletStep(props: {
-  /** One entry of `WALLET_COPY`, so the title and the blurb cannot be paired
-      from two different variants. */
+  /** One entry of `WALLET_COPY`, so the title cannot be paired with a
+      different variant's. */
   copy: WalletCopy;
   wallet: string;
   walletValid: boolean;
@@ -313,52 +256,36 @@ function WalletStep(props: {
 }) {
   return (
     <>
-      <h2 className="font-sans font-extrabold text-2xl text-text-primary tracking-tight mb-1.5">
+      <h2 className="mb-4 font-sans text-lg font-black uppercase tracking-tight text-text-primary sm:text-2xl">
         {props.copy.title}
       </h2>
-      <p className="text-text-secondary text-sm font-sans mb-6 leading-relaxed">
-        {props.copy.blurb}
-      </p>
 
-      <div className="relative">
-        <Wallet className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary pointer-events-none" />
-        <input
-          type="text"
-          inputMode="text"
-          autoComplete="off"
-          spellCheck={false}
-          autoFocus
-          value={props.wallet}
-          onChange={(e) => props.onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && props.walletValid) props.onSubmit();
-          }}
-          placeholder="0x... your Base wallet address"
-          aria-invalid={Boolean(props.walletError)}
-          aria-describedby={props.walletError ? "wallet-error" : undefined}
-          className={`w-full h-12 pl-10 pr-4 rounded-md bg-surface-sunken border text-sm font-sans text-text-primary placeholder:text-text-muted transition-all ${
-            props.walletError ? "border-risk-critical/50 focus:border-risk-critical/70" : "border-border-strong focus:border-border-strong"
-          }`}
-        />
-      </div>
+      <Field
+        id="onboarding-wallet"
+        label="Wallet address"
+        mono
+        autoComplete="off"
+        spellCheck={false}
+        autoFocus
+        value={props.wallet}
+        onChange={(e) => props.onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && props.walletValid) props.onSubmit();
+        }}
+        aria-invalid={Boolean(props.walletError)}
+      />
 
-      {props.walletError && (
-        <p id="wallet-error" role="alert" className="mt-2.5 flex items-center gap-1.5 text-risk-critical text-xs font-sans">
-          <ShieldAlert className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-          <span>{props.walletError}</span>
-        </p>
-      )}
+      {props.walletError && <Notice text={props.walletError} />}
 
-      <button
-        type="button"
+      <Button
         onClick={props.onSubmit}
         disabled={!props.walletValid}
-        className="mt-7 w-full h-12 rounded-md font-sans text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 bg-text-primary hover:opacity-90 text-surface-base disabled:bg-white/[0.06] disabled:text-text-secondary disabled:shadow-none"
+        className="mt-4 w-full justify-center"
       >
-        <span>Continue</span>
-        <ArrowRight className="w-4 h-4" />
-      </button>
-      <p className="mt-3 text-center text-2xs font-sans text-text-muted">
+        Continue
+        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+      </Button>
+      <p className="mt-3 text-center font-sans text-2xs text-text-muted">
         Read-only. Panik never moves funds.
       </p>
     </>
@@ -376,14 +303,14 @@ function QuestionStep(props: {
   const q = QUESTIONS[props.qIndex];
   return (
     <>
-      <h2 className="font-sans font-extrabold text-lg sm:text-2xl text-text-primary tracking-tight leading-snug mb-1.5">
+      <h2 className="mb-1.5 font-sans text-lg font-black uppercase tracking-tight text-text-primary sm:text-2xl">
         {q.text}
       </h2>
       {q.subtitle && (
-        <p className="text-text-secondary text-sm font-sans mb-5 leading-relaxed">{q.subtitle}</p>
+        <p className="mb-5 font-sans text-sm leading-relaxed text-text-secondary">{q.subtitle}</p>
       )}
 
-      <div role="radiogroup" aria-label={q.text} className="space-y-2.5">
+      <div role="radiogroup" aria-label={q.text} className="space-y-3">
         {q.options.map((o) => {
           const selected = props.selectedKey === o.key;
           return (
@@ -393,23 +320,19 @@ function QuestionStep(props: {
               role="radio"
               aria-checked={selected}
               onClick={() => props.onSelect(q.id, o.key)}
-              className={`w-full text-left flex items-start gap-3 p-3.5 rounded-md border transition-all cursor-pointer ${
-                selected
-                  ? "border-border-strong bg-white/[0.05] ring-2 ring-border-strong"
-                  : "border-border-subtle bg-white/[0.02] hover:bg-white/[0.04] hover:border-border-strong"
+              className={`flex w-full cursor-pointer items-start gap-3 p-3.5 text-left hard-edge font-sans ${
+                selected ? "bg-highlight" : "bg-surface-raised hover:bg-highlight"
               }`}
             >
               <span
                 aria-hidden="true"
-                className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
-                  selected ? "border-text-primary text-text-primary" : "border-border-subtle"
+                className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center hard-edge ${
+                  selected ? "bg-brand" : "bg-surface-raised"
                 }`}
               >
-                {selected && <Check className="w-3 h-3 stroke-[3.5]" />}
+                {selected && <Check className="h-3 w-3 stroke-[3.5] text-white" aria-hidden="true" />}
               </span>
-              <span className={`flex-1 text-sm leading-relaxed font-sans ${selected ? "text-text-primary" : "text-text-secondary"}`}>
-                {o.label}
-              </span>
+              <span className="flex-1 text-sm leading-relaxed text-text-primary">{o.label}</span>
             </button>
           );
         })}
@@ -419,9 +342,9 @@ function QuestionStep(props: {
         <button
           type="button"
           onClick={props.onBack}
-          className="mt-6 flex items-center gap-1.5 text-xs font-sans text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+          className="mt-6 flex cursor-pointer items-center gap-1.5 font-sans text-xs font-bold text-text-secondary hover:text-text-primary"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Back</span>
         </button>
       )}
@@ -430,10 +353,10 @@ function QuestionStep(props: {
 }
 
 // ── Reveal step (AI analyzer) ───────────────────────────────────────────────
-const ALIGN_COPY: Record<string, { label: string; cls: string }> = {
-  aligned: { label: "Matches your answers", cls: "text-risk-low border-risk-low/30 bg-risk-low/10" },
-  understated: { label: "Riskier than you said", cls: "text-text-primary border-border-subtle bg-white/[0.06]" },
-  overstated: { label: "Tamer than you said", cls: "text-sky-400 border-sky-400/30 bg-sky-400/10" },
+const ALIGN_LABEL: Record<string, string> = {
+  aligned: "Matches your answers",
+  understated: "Riskier than you said",
+  overstated: "Tamer than you said",
 };
 
 function RevealStep(props: {
@@ -444,14 +367,19 @@ function RevealStep(props: {
 }) {
   const { phase, data, quiz } = props;
 
-  // Loading — the background scan hasn't resolved yet.
+  // Loading — the background scan hasn't resolved yet. Static hatched blocks,
+  // the same "pending" texture as `Skeleton` everywhere else: this look has no
+  // spinners, because a moving glyph in a risk product reads as a value
+  // changing rather than as a wait.
   if (phase === "scanning" || phase === "revealing" || phase === "idle") {
     return (
-      <div className="py-8 flex flex-col items-center text-center">
-        <Loader2 className="w-7 h-7 text-text-primary animate-spin mb-4" />
-        <h2 className="font-sans font-extrabold text-lg text-text-primary tracking-tight mb-1.5">
-          Reading your on-chain history…
+      <div className="space-y-3 py-2">
+        <h2 className="font-sans text-lg font-black uppercase tracking-tight text-text-primary sm:text-2xl">
+          Reading your on-chain history
         </h2>
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-12 w-full" />
       </div>
     );
   }
@@ -460,9 +388,8 @@ function RevealStep(props: {
   if (phase === "error" || !data) {
     return (
       <RevealShell onEnter={props.onEnter} badge={quiz.segmentLabel} headline={`${quiz.riskTierLabel} risk profile`}>
-        <p className="text-text-secondary text-sm font-sans leading-relaxed">
-          We couldn't read your on-chain history right now, so this is based on your answers. Panik
-          will refine it from your live positions once you're in.
+        <p className="font-sans text-sm leading-relaxed text-text-secondary">
+          Based on your answers. Panik refines this from your live positions once you are in.
         </p>
       </RevealShell>
     );
@@ -472,36 +399,33 @@ function RevealStep(props: {
   if (data.features.lendingTxCount === 0) {
     return (
       <RevealShell onEnter={props.onEnter} badge={data.archetype} headline={data.tagline}>
-        <p className="text-text-secondary text-sm font-sans leading-relaxed">{data.description}</p>
+        <p className="font-sans text-sm leading-relaxed text-text-secondary">{data.description}</p>
       </RevealShell>
     );
   }
 
   // Full combined reveal.
-  const align = data.alignment ? ALIGN_COPY[data.alignment] : null;
+  const alignLabel = data.alignment ? ALIGN_LABEL[data.alignment] : null;
   const ratioPct = Math.round((data.features.borrowToDepositRatio ?? 0) * 100);
   return (
     <RevealShell onEnter={props.onEnter} badge={data.archetype} headline={data.tagline}>
-      <p className="text-text-secondary text-sm font-sans leading-relaxed mb-4">{data.description}</p>
+      <p className="mb-4 font-sans text-sm leading-relaxed text-text-secondary">{data.description}</p>
 
-      {/* Stated vs revealed */}
-      <div className="flex items-center gap-2 mb-4 text-2xs font-sans">
-        <span className="px-2 py-1 rounded-sm border border-border-subtle bg-white/[0.03] text-text-secondary">
-          You said: <span className="text-text-primary">{quiz.riskProfile3}</span>
-        </span>
-        <span className="text-text-secondary">→</span>
-        <span className="px-2 py-1 rounded-sm border border-border-subtle bg-white/[0.03] text-text-secondary">
-          On-chain: <span className="text-text-primary">{data.profile}</span>
-        </span>
-        {align && (
-          <span className={`ml-auto px-2 py-1 rounded-sm border font-bold tracking-wide ${align.cls}`}>
-            {align.label}
-          </span>
-        )}
+      {/* Stated vs revealed. Neutral chips, not the risk ramp: a quiz answer
+          disagreeing with on-chain history is not a risk state. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Chip>
+          You said <span className="font-mono normal-case">{quiz.riskProfile3}</span>
+        </Chip>
+        <ArrowRight className="h-3 w-3 shrink-0 text-text-muted" aria-hidden="true" />
+        <Chip>
+          On-chain <span className="font-mono normal-case">{data.profile}</span>
+        </Chip>
+        {alignLabel && <Chip className="ml-auto">{alignLabel}</Chip>}
       </div>
 
       {/* What was read off the chain, as labelled facts. */}
-      <div className="grid grid-cols-2 gap-2 mb-1">
+      <div className="grid grid-cols-2 gap-2">
         <Fact k="Chains" v={String(data.features.chainsActive)} />
         <Fact k="Protocols" v={String(data.features.protocolsUsed)} />
         <Fact k="Leverage" v={`${ratioPct}% borrow/deposit`} />
@@ -515,13 +439,14 @@ function RevealStep(props: {
  * A label over a figure, in a grid cell. Named `Fact` rather than `Chip`, which
  * is what it was: `ui/Chip` is a one-line neutral marker beside something, and
  * two different components answering to one name in one codebase is how a
- * reader ends up importing the wrong one.
+ * reader ends up importing the wrong one. The figure is Space Mono: every
+ * numeral in the product is.
  */
 function Fact(props: { k: string; v: string }) {
   return (
-    <div className="px-3 py-2 rounded-md border border-border-subtle bg-white/[0.02]">
-      <div className="text-2xs font-sans text-text-secondary">{props.k}</div>
-      <div className="text-sm font-bold text-text-primary mt-0.5 font-sans tabular-nums">{props.v}</div>
+    <div className="hard-edge bg-surface-sunken px-3 py-2">
+      <div className="font-sans text-2xs text-text-secondary">{props.k}</div>
+      <div className="mt-0.5 font-mono text-sm font-bold text-text-primary">{props.v}</div>
     </div>
   );
 }
@@ -534,22 +459,18 @@ function RevealShell(props: {
 }) {
   return (
     <>
-      <div className="inline-flex items-center gap-1.5 mb-3 px-2.5 py-1 rounded-full border border-border-subtle bg-white/[0.06]">
-        <Sparkles className="w-3 h-3 text-text-primary" />
-        <span className="text-2xs font-sans text-text-primary font-bold">{props.badge}</span>
-      </div>
-      <h2 className="font-sans font-extrabold text-lg sm:text-2xl text-text-primary tracking-tight leading-snug mb-3">
+      <Chip className="mb-3">
+        <Sparkles className="h-3 w-3" aria-hidden="true" />
+        {props.badge}
+      </Chip>
+      <h2 className="mb-3 font-sans text-lg font-black uppercase leading-snug tracking-tight text-text-primary sm:text-2xl">
         {props.headline}
       </h2>
       {props.children}
-      <button
-        type="button"
-        onClick={props.onEnter}
-        className="mt-7 w-full h-12 rounded-md font-sans text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer bg-text-primary hover:opacity-90 text-surface-base"
-      >
-        <span>Enter Panik</span>
-        <ArrowRight className="w-4 h-4" />
-      </button>
+      <Button onClick={props.onEnter} className="mt-6 w-full justify-center">
+        Enter Panik
+        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+      </Button>
     </>
   );
 }

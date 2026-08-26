@@ -1982,7 +1982,6 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
     if (!wire || wire.length === 0) return ALL_PROTOCOLS;
     return wire.map((p) => LIVE_PROTOCOL_LABEL[p] ?? p);
   }, [ownLive.chain]);
-  const coveredChainLabel = ownLive.chain?.label ?? "Base";
 
   /**
    * The armed market simulation, served with the positions it produced.
@@ -2004,14 +2003,6 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
     const t = setInterval(() => setSimulationNow(Date.now()), 30_000);
     return () => clearInterval(t);
   }, [ownLive.simulation]);
-  const coveredProtocolSentence = useMemo(
-    () =>
-      coveredProtocols.length > 1
-        ? `${coveredProtocols.slice(0, -1).join(", ")} and ${coveredProtocols[coveredProtocols.length - 1]}`
-        : (coveredProtocols[0] as string),
-    [coveredProtocols],
-  );
-
   // AI Advisor (Phase 2): live report for the wallet being VIEWED. Null while
   // offline or pre-onboarding - the tab keeps its Coming-Soon fallback then.
   // On a watched wallet the report is read-only; see `watchOnlyNote` at the
@@ -4333,11 +4324,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     not a smaller version of the dashboard, it is a different
                     and worse screen. */}
                 {!boundMode ? (
-                  <FirstRunInvite
-                    onAddWallet={() => setOnboardingIntent("switch-wallet")}
-                    chainLabel={coveredChainLabel}
-                    protocolSentence={coveredProtocolSentence}
-                  />
+                  <FirstRunInvite onAddWallet={() => setOnboardingIntent("switch-wallet")} />
                 ) : (
                 <>
                 {/* The shared header, on all five tabs. Which wallet this page
