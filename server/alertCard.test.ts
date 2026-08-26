@@ -48,12 +48,17 @@ const card = (over: Partial<AlertCardInput> = {}): AlertCardInput => ({
 /**
  * The two colour channels, read back off the SVG separately.
  *
- * Separately is the point: a `toContain("#10B981")` passes when the hue is
+ * Separately is the point: a `toContain("#22C55E")` passes when the hue is
  * ANYWHERE on the card, which is exactly how a green headline shipped beside a
- * green arc without a test noticing.
+ * green wedge without a test noticing.
+ *
+ * `arcColorOf` reads the dial's WEDGE fill rather than a ring's stroke: the
+ * dial is now the same square/needle/wedge shape as `RiskDial.tsx`, and colour
+ * appears exactly once on it, on the wedge, tagged `id="alert-card-wedge"` so
+ * this helper cannot accidentally match some other coloured element.
  */
 const arcColorOf = (svg: string): string | undefined =>
-  svg.match(/stroke="(#[0-9A-F]{6})" stroke-width="14"/i)?.[1];
+  svg.match(/id="alert-card-wedge"[^>]*fill="(#[0-9A-F]{6})"/i)?.[1];
 const headlineColorOf = (svg: string): string | undefined =>
   svg.match(/<text[^>]*fill="(#[0-9A-F]{6})"[^>]*font-size="34"/i)?.[1];
 
@@ -89,18 +94,18 @@ describe("alertCardSvg", () => {
     }
   });
 
-  it("colours the ARC by the band, the same one the app's dial uses", () => {
+  it("colours the WEDGE by the band, the same ramp RISK_CHIP uses", () => {
     for (const [band, hex] of [
-      ["LOW", "#10B981"],
+      ["LOW", "#22C55E"],
       ["ELEVATED", "#F59E0B"],
-      ["HIGH", "#F97316"],
-      ["CRITICAL", "#F87171"],
+      ["HIGH", "#FF5C00"],
+      ["CRITICAL", "#EF4444"],
     ] as const) {
       expect(arcColorOf(alertCardSvg(card({ band })))).toBe(hex);
     }
     // An unrecognised band is drawn as UNKNOWN rather than as the calmest
     // colour in the ramp: "we do not know" must never render as "you are fine".
-    expect(arcColorOf(alertCardSvg(card({ band: "UNMEASURED" as never })))).toBe("#7A8699");
+    expect(arcColorOf(alertCardSvg(card({ band: "UNMEASURED" as never })))).toBe("#9CA3AF");
   });
 
   /**
@@ -113,7 +118,7 @@ describe("alertCardSvg", () => {
     it("warns in amber even when the score itself is LOW", () => {
       // The exact case: a conservative reader is warned at 15, and 15 IS low.
       const svg = alertCardSvg(card({ status: "approaching", score: 15, band: "LOW" }));
-      expect(arcColorOf(svg)).toBe("#10B981");
+      expect(arcColorOf(svg)).toBe("#22C55E");
       expect(headlineColorOf(svg)).toBe("#F59E0B");
     });
 
@@ -126,9 +131,9 @@ describe("alertCardSvg", () => {
     it("states a breach in high orange, whatever the band underneath", () => {
       for (const band of ["LOW", "ELEVATED", "HIGH"] as const) {
         const svg = alertCardSvg(card({ status: "outside", band }));
-        expect(headlineColorOf(svg)).toBe("#F97316");
+        expect(headlineColorOf(svg)).toBe("#FF5C00");
         expect(arcColorOf(svg)).toBe(
-          { LOW: "#10B981", ELEVATED: "#F59E0B", HIGH: "#F97316" }[band],
+          { LOW: "#22C55E", ELEVATED: "#F59E0B", HIGH: "#FF5C00" }[band],
         );
       }
     });
@@ -137,26 +142,48 @@ describe("alertCardSvg", () => {
       // The one exception, and it only ever runs toward MORE severe: muting a
       // critical band to the high orange is the same mistake inverted.
       const svg = alertCardSvg(card({ status: "outside", score: 80, band: "CRITICAL" }));
-      expect(headlineColorOf(svg)).toBe("#F87171");
-      expect(arcColorOf(svg)).toBe("#F87171");
+      expect(headlineColorOf(svg)).toBe("#EF4444");
+      expect(arcColorOf(svg)).toBe("#EF4444");
     });
 
     it("sounds the all-clear in green even when the band is still elevated", () => {
       // Back under YOUR limit is good news; the absolute band may be anything.
       const svg = alertCardSvg(card({ status: "within", score: 44, band: "ELEVATED" }));
-      expect(headlineColorOf(svg)).toBe("#10B981");
+      expect(headlineColorOf(svg)).toBe("#22C55E");
       expect(arcColorOf(svg)).toBe("#F59E0B");
     });
   });
 
-  it("draws the arc as score/100, clamped", () => {
-    // 2 * pi * 86 = 540.35. A zero score leaves the whole circumference as the
-    // dash offset; a full score leaves none.
-    expect(alertCardSvg(card({ score: 0 }))).toContain('stroke-dashoffset="540.35"');
-    expect(alertCardSvg(card({ score: 100 }))).toContain('stroke-dashoffset="0.00"');
-    // Out of range cannot draw more than a circle.
-    expect(alertCardSvg(card({ score: 480 }))).toContain('stroke-dashoffset="0.00"');
-    expect(alertCardSvg(card({ score: -20 }))).toContain('stroke-dashoffset="540.35"');
+  /**
+   * The wedge sweep is `score/100`, clamped, the same as it was when it was a
+   * ring's `stroke-dashoffset`. The geometry changed with the dial's shape -
+   * see `dialWedgePath` in `alertCard.ts` - so this reads the wedge's own
+   * path and the needle's own endpoint back off the SVG rather than a hexagon
+   * of trig it would have to duplicate to check.
+   */
+  it("draws the wedge and needle at score/100, clamped", () => {
+    const wedgeD = (svg: string) => svg.match(/id="alert-card-wedge" d="([^"]+)"/)![1];
+    const needleEnd = (svg: string) => svg.match(/<line[^>]*x2="([^"]+)" y2="([^"]+)"/)!.slice(1);
+    const at = (score: number) => alertCardSvg(card({ score }));
+    const [s0, s50, s100, s480, sNeg20] = [0, 50, 100, 480, -20].map(at);
+
+    // Out of range cannot sweep past a full turn: 480 draws exactly what 100
+    // draws, and -20 draws exactly what 0 draws.
+    expect(wedgeD(s480)).toBe(wedgeD(s100));
+    expect(wedgeD(sNeg20)).toBe(wedgeD(s0));
+    expect(needleEnd(s480)).toEqual(needleEnd(s100));
+    expect(needleEnd(sNeg20)).toEqual(needleEnd(s0));
+
+    // A zero score and a full score are not the same reading, and neither is
+    // some score in between the same as either end.
+    expect(wedgeD(s0)).not.toBe(wedgeD(s50));
+    expect(wedgeD(s50)).not.toBe(wedgeD(s100));
+    expect(wedgeD(s0)).not.toBe(wedgeD(s100));
+
+    // At zero the needle points straight up from the dial's centre.
+    const [x0, y0] = needleEnd(s0);
+    expect(Number(x0)).toBeCloseTo(168, 0);
+    expect(Number(y0)).toBeLessThan(180);
   });
 
   it("marks a drill on the card itself, not only in the body", () => {
@@ -244,13 +271,13 @@ describe("the wallet label has no title billing", () => {
     expect(lines[0]!.content).toBe('"Simulation target"');
   });
 
-  it("is bright but not big: primary ink, medium weight, the address's size", () => {
+  it("is primary ink but not big: black, medium weight, the address's size", () => {
     const runs = textRuns(alertCardSvg(card({ label: "Simulation target" })));
     const name = runs.find((r) => r.content.includes("Simulation target"))!;
     const headline = runs.find((r) => r.content === "Nearing your risk limit")!;
     const address = runs.find((r) => r.content.includes("0x12a5"))!;
 
-    expect(name.fill).toBe("#F8FAFC");
+    expect(name.fill).toBe("#000000");
     // 500 is a face that is actually loaded (PlusJakartaSans-Medium), so the
     // markup is not claiming a weight the image does not have.
     expect(name.weight).toBe(500);
@@ -260,8 +287,9 @@ describe("the wallet label has no title billing", () => {
     expect(name.size).toBe(address.size);
     expect(headline.size).toBe(34);
     expect(name.size).toBeLessThan(headline.size);
-    // ...and the address stays the quieter of the two.
-    expect(address.fill).toBe("#94A3B8");
+    // ...and the address stays the quieter of the two: text-secondary against
+    // the name's text-primary.
+    expect(address.fill).toBe("#4A4A4A");
   });
 
   it("leaves exactly two large elements: the score and the event", () => {
@@ -354,7 +382,7 @@ describe("the wallet label has no title billing", () => {
     const addressAt = svg.indexOf("0x12a5...2305");
     expect(identityAt).toBeGreaterThan(-1);
     expect(addressAt).toBeGreaterThan(identityAt);
-    expect(svg).toMatch(/font-family="JetBrains Mono" font-size="22">0x12a5\.\.\.2305/);
+    expect(svg).toMatch(/font-family="JetBrains Mono" font-weight="400" font-size="22">0x12a5\.\.\.2305/);
   });
 
   /**
