@@ -164,6 +164,22 @@
   --text-2xl--line-height: 34px;
   --text-4xl: 40px;
   --text-4xl--line-height: 44px;
+
+  /**
+   * The stat row's figure, and the ONE step added to this scale since it was
+   * written. It is here rather than as a `text-[32px]` at four call sites
+   * because index.css is the only place a value may be defined, and a number
+   * typed into a class string is a number nobody voted for.
+   *
+   * The scale's own note argues 28 over 32 and that argument still holds for a
+   * stat inside a card. What changed is the Portfolio board: the dashboard's
+   * four figures are the largest thing on the tab by design, read across a
+   * 1440px row from a metre away, and at 28 they measured the same as the
+   * section headings beside them. `--text-2xl` stays the default; `Stat
+   * size="lg"` is the opt-in, and it has exactly one caller.
+   */
+  --text-stat: 32px;
+  --text-stat--line-height: 36px;
   /* Marketing hero only. The product UI tops out at --text-4xl. */
   --text-display: 64px;
   --text-display--line-height: 64px;

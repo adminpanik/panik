@@ -36,7 +36,7 @@ import {
 } from "../lib/exit";
 import {
   CHAIN_MODE_LABEL,
-  exitAvailabilityLine,
+  exitUnavailableLine,
   exitsExecutableOn,
   useChainMode,
 } from "../lib/chainMode";
@@ -195,7 +195,30 @@ interface LoadedPosition {
   usdcDecimals: number;
 }
 
-export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: () => void }) {
+export function ExitFlow({
+  prefill,
+  onClose,
+  gasGwei,
+}: {
+  prefill: ExitPrefill;
+  onClose: () => void;
+  /**
+   * The network gas reading, or null when the telemetry poll has not answered.
+   *
+   * PASSED IN rather than read here, because the poll already runs once in the
+   * shell and a second subscription would be a second reading of one market
+   * fact. It arrives at THIS component because this is the only surface in the
+   * product where a gas price changes a decision: the review step is the last
+   * screen before a signature, and what it costs to sign is part of what is
+   * being decided. It used to sit in the app header, on every tab, beside a
+   * wallet chip and an account menu, where it was a number nobody was deciding
+   * anything with.
+   *
+   * Null renders no line at all. A gas figure the code does not have is not a
+   * zero and not a placeholder.
+   */
+  gasGwei?: number | null;
+}) {
   const { address, isConnected, chainId } = useAccount();
   const { connect } = useConnect();
   const { switchChainAsync } = useSwitchChain();
@@ -662,7 +685,7 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
           <div className="space-y-4">
             <p className="text-sm text-text-secondary font-sans leading-relaxed">
               {!chainExecutable
-                ? exitAvailabilityLine(chainMode)
+                ? exitUnavailableLine(chainMode)
                 : `${prefill.protocol.replace("_", " ")} exits are proven against Base mainnet in the
               executor's fork suite, but this protocol has no Base Sepolia demo deployment - it
               unlocks with the mainnet release. The Aave V3 demo exit is available today.`}
@@ -807,7 +830,16 @@ export function ExitFlow({ prefill, onClose }: { prefill: ExitPrefill; onClose: 
               </button>
             ) : null}
 
+            {/* The last line before a signature, and every clause in it is a
+                fact about the transaction being signed. The gas reading is the
+                one that moved here: it was in the app header on every tab,
+                where nothing was being decided with it, and this is the screen
+                where what it costs to sign is part of the decision. It appears
+                only once the telemetry poll has answered. */}
             <p className="text-2xs font-sans text-text-muted text-center">
+              {gasGwei !== null && gasGwei !== undefined
+                ? `Network gas ${gasGwei.toFixed(2)} gwei. `
+                : ""}
               Approvals are exact-amount (+2% accrual buffer). Every transaction is simulated
               before you sign it.
             </p>

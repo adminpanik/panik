@@ -315,6 +315,39 @@ function applyMockOps(owner: string, ops: WatchOp[]): { watching: WatchSubscript
  */
 const watchlistDown = () => process.env.PANIK_MOCK_WATCHLIST_DOWN === "1";
 
+/**
+ * PANIK_MOCK_FEED=down|stale reproduces the two ways `/api/positions` can
+ * fail, so the Portfolio's unknown-vs-stale split (AppDemo.tsx,
+ * LivePositions.tsx) can be seen without unplugging anything:
+ *
+ *   down    every request fails, from the first: this wallet has never been
+ *           successfully read (the "unknown" branch - stat cards say "Not
+ *           measured", the table shows its hatched EmptyState).
+ *   stale   every request in the first 30s succeeds, then every one after
+ *           fails: a previous read stands and only the refresh is down (the
+ *           "stale" branch - stat cards keep their numbers with a "checked
+ *           ... ago" line, the table keeps its rows with a banner). This is
+ *           the branch the reported inconsistency bug was in.
+ *
+ * WALL-CLOCK, not a request count: `useWalletPositions` can fire more than
+ * one immediate request while the wallet/profile/chain it depends on settle
+ * at mount, and a "fail from the Nth request" rule could spend its one
+ * allowed success on a request the UI never rendered from. 30s comfortably
+ * covers mount plus however long it takes a dev to open the tab, and still
+ * leaves the 60s poll interval as the one that goes down.
+ *
+ * Same idiom as PANIK_MOCK_WATCHLIST_DOWN: the degraded path is the one a UI
+ * is least likely to get right, and here it is the one two surfaces most
+ * likely disagree about.
+ */
+const mockServerStartedAt = Date.now();
+function positionsFeedDown(): boolean {
+  const mode = process.env.PANIK_MOCK_FEED?.trim().toLowerCase();
+  if (mode === "down") return true;
+  if (mode === "stale") return Date.now() - mockServerStartedAt > 30_000;
+  return false;
+}
+
 // ── /api/session ─────────────────────────────────────────────────────────────
 //
 // The four identity routes, in memory. Same shapes and same statuses as
@@ -330,9 +363,26 @@ const watchlistDown = () => process.env.PANIK_MOCK_WATCHLIST_DOWN === "1";
 /**
  * PANIK_MOCK_SESSION=full|readonly|none seeds the session this dev server
  * starts with, so the three boot paths (restore, read-only view, first run) can
- * each be opened and measured without a Supabase row or a wallet. Unset means
- * `none`, which is the previous behaviour exactly: every load is a signed-out
- * one.
+ * each be opened and measured without a Supabase row or a wallet.
+ *
+ * UNSET NOW MEANS `full`, and that is a deliberate change. It used to mean
+ * `none`, which made `npm run dev:mock` open on the first-run invitation with
+ * no wallet bound - so the dashboard the fixtures exist to populate was three
+ * clicks and a pasted address away, and anyone who did not paste the exact
+ * fixture wallet got "No positions yet" from a mock that was answering
+ * correctly for a wallet it holds nothing for. Every screenshot, measurement
+ * and design review of this app starts by wanting the populated dashboard, so
+ * that is what the default has to produce.
+ *
+ * It does NOT weaken the rule the wallet binding exists for. The rule is that a
+ * bare string in localStorage is never restored as identity; this is a SESSION,
+ * minted by the server and handed over as an HttpOnly cookie on the document
+ * request, which is exactly the mechanism production uses. The mock is telling
+ * the browser who it is, which is the one thing that is allowed to.
+ *
+ * `PANIK_MOCK_SESSION=none` still gets the signed-out boot, so the first-run
+ * path is one environment variable away rather than the thing everybody has to
+ * click past.
  */
 interface MockSession {
   token: string;
@@ -391,7 +441,10 @@ function mintMockSession(
 
 /** The session this dev server starts with, or null for a signed-out boot. */
 function seedSession(): SessionScope | null {
-  const scope = process.env.PANIK_MOCK_SESSION?.trim().toLowerCase();
+  const raw = process.env.PANIK_MOCK_SESSION?.trim().toLowerCase();
+  // Unset is `full`; only an explicit `none` (or any other unrecognised value)
+  // opts out. See the note on the interface above for why the default flipped.
+  const scope = raw === undefined || raw === "" ? "full" : raw;
   if (scope !== "full" && scope !== "readonly") return null;
   mintMockSession(MOCK_WALLET, scope, MOCK_SESSION_TOKEN);
   return scope;
@@ -664,18 +717,27 @@ export function mockApi(mode: string): Plugin[] {
             `\n     ${MOCK_WALLET}\n`,
         );
         const seededScope = seedSession();
-        if (seededScope) {
-          server.config.logger.info(
-            `  \x1b[33m➜\x1b[0m  MOCK SESSION: this browser boots with a ${seededScope} session` +
-              `\n     Alert-link token for ?sid= (single use): ${MOCK_SID}\n`,
-          );
-        }
+        server.config.logger.info(
+          seededScope
+            ? `  \x1b[33m➜\x1b[0m  MOCK SESSION: this browser boots with a ${seededScope} session` +
+                ` for ${MOCK_WALLET}` +
+                ` (PANIK_MOCK_SESSION=full|readonly|none)` +
+                `\n     Alert-link token for ?sid= (single use): ${MOCK_SID}\n`
+            : `  \x1b[33m➜\x1b[0m  MOCK SESSION: none, so /app opens on the first-run invitation` +
+                ` (PANIK_MOCK_SESSION=full|readonly|none)\n`,
+        );
         const seededAccount = seedAccount();
         server.config.logger.info(
           `  \x1b[33m➜\x1b[0m  MOCK ACCOUNT: ${seededAccount}` +
             ` (PANIK_MOCK_ACCOUNT=none|new|member)` +
             `\n     Invite code the voucher screen accepts: ${MOCK_VOUCHER_CODE}\n`,
         );
+        if (process.env.PANIK_MOCK_FEED) {
+          server.config.logger.info(
+            `  \x1b[33m➜\x1b[0m  MOCK FEED: /api/positions set to "${process.env.PANIK_MOCK_FEED}"` +
+              ` (PANIK_MOCK_FEED=down|stale)\n`,
+          );
+        }
 
         server.middlewares.use((req, res, next) => {
           /* Hand the seeded session to the browser on the APP DOCUMENT request,
@@ -684,14 +746,23 @@ export function mockApi(mode: string): Plugin[] {
              design, and a mock that made it readable would be exercising a
              different mechanism than the one that ships.
 
-             Scoped to /app.html for the same reason the html transform below
+             Scoped to /app for the same reason the html transform below
              is: the landing, try and admin entries have no dashboard
              to unlock. Only while the row is still there, so a sign-out is not
-             undone by the next reload. */
+             undone by the next reload.
+
+             Matched against the URL BEFORE vite.config.ts's html-rewrite
+             middleware runs: this plugin's configureServer hook is registered
+             ahead of that one (see the ORDERING note at the top of this file),
+             so the browser's actual request of /app or /app/ reaches here
+             first and has not yet been rewritten to /app.html. Strip the query
+             string and accept all three forms so the cookie lands regardless
+             of which one the request arrives as. */
           const seeded = sessions.get(MOCK_SESSION_TOKEN);
+          const documentPath = req.url?.split("?")[0];
           if (
             seeded &&
-            req.url?.startsWith("/app.html") &&
+            (documentPath === "/app" || documentPath === "/app/" || documentPath === "/app.html") &&
             !presentedSession(req.headers.cookie)
           ) {
             res.setHeader("Set-Cookie", mockSessionCookie(seeded));
@@ -920,6 +991,10 @@ export function mockApi(mode: string): Plugin[] {
               });
             }
             return send(405, { error: "method not allowed" });
+          }
+
+          if (url.pathname === "/api/positions" && req.method === "GET" && positionsFeedDown()) {
+            return send(502, { error: "mock positions feed is switched off" });
           }
 
           if (req.method !== "GET") return next();

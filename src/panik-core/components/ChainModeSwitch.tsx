@@ -29,33 +29,17 @@ import {
 
 const ORDER: ChainMode[] = ["mainnet", "testnet"];
 
-/** What the mode changes about the reading. */
-const MODE_BODY: Record<ChainMode, string> = {
-  mainnet: "Positions and scores are read from Base, the chain your money is on.",
-  testnet:
-    "Positions and scores are read from Base Sepolia. Nothing you hold on Base is read or touched.",
-};
-
-/** The neutral header marker. Present only while the non-default chain is selected. */
-export function ChainModeBadge({ onOpenSettings }: { onOpenSettings?: () => void }) {
-  const mode = useChainMode();
-  if (mode === "mainnet") return null;
-  const label = `${CHAIN_MODE_LABEL.testnet} mode. Positions come from the test network. Change it in Settings.`;
-  return (
-    <button
-      type="button"
-      onClick={onOpenSettings}
-      title={label}
-      aria-label={label}
-      className="shrink-0 rounded-sm border border-border-strong px-2 py-1 text-2xs font-sans font-bold text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-    >
-      TESTNET
-    </button>
-  );
-}
+/**
+ * `ChainModeBadge` used to live here: a "TESTNET" chip in the app header that
+ * navigated to this card. It is gone with the header strip. Which chain is
+ * selected is the SELECTED STATE of the control below, which is the honest
+ * place for it, and a marker whose whole job was to point at a setting is a
+ * marker the setting can carry itself.
+ */
 
 export function ChainModeSwitch() {
   const mode = useChainMode();
+  const unavailable = exitAvailabilityLine(mode);
   return (
     <Card tone="raised" className="space-y-3">
       <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
@@ -68,7 +52,12 @@ export function ChainModeSwitch() {
           chains, and a slider would leave the reader to work out which end is
           which. `aria-pressed` carries the state to a screen reader, and the
           selected one is a filled plate rather than a tinted one so no hue is
-          spent on it. */}
+          spent on it.
+
+          NO PARAGRAPH UNDER IT any more. "Positions and scores are read from
+          Base, the chain your money is on" is the selected button's own label
+          in a sentence, which is the copy rule's delete case: a label, a
+          control, and a line only where the control is ambiguous. */}
       <div className="flex gap-2" role="group" aria-labelledby="chain-mode-heading">
         {ORDER.map((option) => {
           const selected = option === mode;
@@ -90,9 +79,12 @@ export function ChainModeSwitch() {
         })}
       </div>
 
-      <p className="text-xs text-text-secondary leading-relaxed font-sans">
-        {MODE_BODY[mode]} {exitAvailabilityLine(mode)}
-      </p>
+      {/* The one line that survives, and only on the mode where it says
+          something: that an exit cannot be signed here. It changes what the
+          reader does next, which is the whole test. */}
+      {unavailable && (
+        <p className="font-sans text-xs leading-relaxed text-text-secondary">{unavailable}</p>
+      )}
     </Card>
   );
 }

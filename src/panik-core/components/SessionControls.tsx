@@ -162,18 +162,33 @@ export interface SessionCardProps {
 export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: SessionCardProps) {
   const state: SessionState = session?.scope ?? "none";
 
+  /**
+   * One STATE LINE per branch, and nothing else.
+   *
+   * Every branch used to open with two or three sentences explaining what a
+   * session is, what signing out does elsewhere, and what an alert link proved.
+   * On a settings screen that is a paragraph between the reader and the control
+   * they came for. What survives is the fact each branch actually carries: the
+   * address, the expiry the server returned, and whether this view can change
+   * anything. The one line under the card explains what is being signed, which
+   * is the single genuinely ambiguous thing here.
+   */
   let body: React.ReactNode;
   if (session && state === "full") {
     const until = expiryDate(session.expiresAt);
     body = (
       <>
         <p className={PROSE}>
-          This browser is signed in as {truncateAddress(session.wallet)}.
-          {until ? ` PANIK will recognise it until ${until}.` : ""} Signing out revokes that here
-          and everywhere the same session was open.
+          {truncateAddress(session.wallet)}
+          {until ? `, until ${until}` : ""}
         </p>
+        {/* "Forget this browser", not "Sign out": the account card above this
+            one on the Settings tab has a Sign out of its own, and it ends a
+            different thing. Two identical labels on one screen ending two
+            different sessions is the worst kind of ambiguity a settings page
+            can have. */}
         <Button variant="secondary" onClick={onSignOut} disabled={busy}>
-          {busy ? "Signing out..." : "Sign out"}
+          {busy ? "Forgetting..." : "Forget this browser"}
         </Button>
       </>
     );
@@ -184,33 +199,20 @@ export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: Sess
             reader can see the chat those alerts go to. That is a real claim
             and a weaker one than holding the key, which is exactly why the
             writes are still withheld. */}
-        <p className={PROSE}>
-          You opened PANIK from an alert link. That shows PANIK which wallet the alert was about,
-          not that you hold it, so this view can read and not change. Sign in with that wallet to
-          make changes.
-        </p>
+        <p className={PROSE}>Opened from an alert link, so this view can read and not change.</p>
         <div className="flex flex-wrap items-center gap-2">
           {wallet && <SignInButton scope="readonly" busy={busy} onClick={onSignIn} variant="primary" />}
           <Button variant="secondary" onClick={onSignOut} disabled={busy}>
-            Sign out
+            Forget this browser
           </Button>
         </div>
       </>
     );
   } else {
-    body = (
-      <>
-        <p className={PROSE}>
-          This browser is not signed in, so PANIK asks for your wallet again on every visit.
-        </p>
-        {wallet ? (
-          <SignInButton scope="none" busy={busy} onClick={onSignIn} variant="primary" />
-        ) : (
-          <p className={PROSE}>
-            Add the wallet PANIK should watch first, then this browser can remember it.
-          </p>
-        )}
-      </>
+    body = wallet ? (
+      <SignInButton scope="none" busy={busy} onClick={onSignIn} variant="primary" />
+    ) : (
+      <p className={PROSE}>Add a wallet first, then this browser can remember it.</p>
     );
   }
 
@@ -227,12 +229,11 @@ export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: Sess
       {body}
 
       {state !== "full" && (
-        /* Keep-inline by the three-way test: it is the only place the reader
-           can learn what they are being asked to sign, and the limit on it is
-           the reason signing is a reasonable thing to agree to. */
+        /* Keep-inline by the three-way test, and cut to the three facts: it is
+           the only place the reader can learn what they are being asked to
+           sign, and what it does not buy is the reason agreeing is reasonable. */
         <p className={PROSE}>
-          One signature, free, no transaction, no gas. It lets PANIK recognise this browser for 30
-          days. It does not authorize anything: every change still asks for its own signature.
+          One signature, no gas, 30 days. It authorizes nothing on its own.
         </p>
       )}
     </Card>

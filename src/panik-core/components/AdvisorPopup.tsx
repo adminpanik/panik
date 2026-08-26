@@ -1,5 +1,13 @@
 /**
- * AdvisorPopup - floating advisor notification (Phase 2).
+ * The Portfolio's advisor callout: what the Advisor would tell this reader
+ * about the wallet they are looking at, on the tab that lists it.
+ *
+ * NOT A POPUP any more, and not a shell-level band either. It is an ordinary
+ * card the Portfolio places under its page header and over its stat row, so it
+ * pushes the dashboard down rather than covering anything, appears only where
+ * it is about something, and takes the same treatment as the Advisor tab's own
+ * verdict card. The name is kept because the SELECTION logic below - what fires,
+ * when, and how often - is the thing this file owns and none of it changed.
  *
  * Client-side change detection over the 60s /api/advisor poll - no push
  * infra. Fires when (a) a leg's recommended ACTION changes (HOLD -> REDUCE,
@@ -11,16 +19,15 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, ArrowRight, Sparkles, X } from "lucide-react";
+import { ArrowRight, Sparkles, X } from "lucide-react";
 import type {
   AdvisorOpenPlan,
   AdvisorRecommendation,
   AdvisorReport,
   AdvisorUrgency,
 } from "../lib/live";
-import { formatUsd, PROTOCOL_LABEL } from "../lib/utils";
-import { Button } from "../ui";
+import { formatUsd, PROTOCOL_LABEL, URGENCY_VERDICT } from "../lib/utils";
+import { Button, Card, RiskChip } from "../ui";
 import { exitControlState, useChainMode, type ControlState } from "../lib/chainMode";
 import { openControlState } from "../lib/openProtocols";
 
@@ -55,23 +62,50 @@ function saveStore(store: PopupStore): void {
 interface Notification {
   key: string;
   urgency: AdvisorUrgency;
-  headline: string;
+  /** The verdict, as a headline. See `legLines`. */
+  title: string;
+  /** One line under it, or none. */
+  detail: string | null;
   actionLabel: string | null;
   rec: AdvisorRecommendation;
   kind: "exit" | "reduce" | "open" | "info";
 }
 
-function legHeadline(rec: AdvisorRecommendation): string {
+/**
+ * A leg's verdict as a HEADLINE and one detail line, in the Advisor panel's
+ * vocabulary.
+ *
+ * What this replaces was a single sentence in the ENGINE'S enum: "Aave V3
+ * position moved to EXIT - full atomic exit recommended." Three things were
+ * wrong with it and each is a house rule. It printed `EXIT` and `REDUCE`, which
+ * are engine tokens the UI is never allowed to render. It used a hyphen as a
+ * dash. And it described a STATE CHANGE ("moved to") rather than what to do,
+ * on the one surface that exists to say what to do.
+ *
+ * The wording is the Advisor panel's own verdict card, deliberately: the same
+ * wallet, the same recommendation and the same action must not read as two
+ * different findings depending on which screen the reader is standing on.
+ */
+function legLines(rec: AdvisorRecommendation): { title: string; detail: string | null } {
   const label = PROTOCOL_LABEL[rec.protocol] ?? rec.protocol;
   switch (rec.action) {
     case "EXIT":
-      return `${label} position moved to EXIT - full atomic exit recommended.`;
+      return { title: `Exit recommended on ${label}`, detail: null };
     case "REDUCE":
-      return `${label} moved to REDUCE${rec.repayPlan ? ` - repay ~${formatUsd(rec.repayPlan.repayUsd)}` : ""}.`;
+      return {
+        title: `Reduce your ${label} exposure`,
+        detail: rec.repayPlan
+          ? `Repay ~${formatUsd(rec.repayPlan.repayUsd)} to bring it back in range.`
+          : null,
+      };
     case "REBALANCE":
-      return `${label}: consider rebalancing to a safer protocol.`;
+      return { title: "Rebalance to a safer protocol", detail: `This is your ${label} position.` };
     default:
-      return `${label} recommendation changed to ${rec.action}.`;
+      // Every other action reaches here only through the `notable` filter in
+      // `selectNotification`, which admits three. A default that printed
+      // `rec.action` would put an engine enum on screen the moment a fourth
+      // arrives, so it names the position and leaves the verdict to the panel.
+      return { title: `Your ${label} position has changed`, detail: null };
   }
 }
 
@@ -92,7 +126,7 @@ function selectNotification(report: AdvisorReport, store: PopupStore, now: numbe
     candidates.push({
       key,
       urgency: rec.urgency,
-      headline: legHeadline(rec),
+      ...legLines(rec),
       actionLabel: rec.action === "EXIT" ? "Execute exit" : rec.action === "REDUCE" ? "Reduce" : null,
       rec,
       kind: rec.action === "EXIT" ? "exit" : rec.action === "REDUCE" ? "reduce" : "info",
@@ -109,9 +143,11 @@ function selectNotification(report: AdvisorReport, store: PopupStore, now: numbe
     candidates.push({
       key,
       urgency: "info",
-      headline: `New opportunity: ${plan.collateralSymbol} on ${PROTOCOL_LABEL[rec.protocol] ?? rec.protocol}${
-        plan.apy !== null ? `, ~${(plan.apy * 100).toFixed(1)}% APY` : ""
-      } - fits your profile.`,
+      title: `New ${plan.collateralSymbol} position available on ${PROTOCOL_LABEL[rec.protocol] ?? rec.protocol}`,
+      detail:
+        plan.apy !== null
+          ? `About ${(plan.apy * 100).toFixed(1)}% APY, and it scores within your profile.`
+          : "It scores within your profile.",
       actionLabel: "Open position",
       rec,
       kind: "open",
@@ -209,85 +245,82 @@ export function AdvisorPopup({
         ? exitControlState(onExit, chainMode)
         : { enabled: true, hint: undefined };
 
+  if (!notification) return null;
+
+  /** The band this urgency wears, or null on an `info` reading. */
+  const verdict = URGENCY_VERDICT[notification.urgency];
+
   return (
-    <AnimatePresence>
-      {notification ? (
-        <motion.div
-          role="status"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          /* IN THE FLOW, in the band this shell already reserves for
-             session-level notices (SimulationBanner, ReadOnlyBanner,
-             SessionNote), between the header and the scroller.
+    /* THE ADVISOR PANEL'S VERDICT CARD, on the Portfolio.
+     *
+     * It used to be a strip in the shell's notice band: an eyebrow reading "AI
+     * Advisor", one sentence in the engine's own enum, and a primary that
+     * rendered DISABLED whenever the exit could not be signed on the selected
+     * chain. The disabled control was the loudest thing in the band and the one
+     * thing on it that could not be pressed, which is the failure the position
+     * rows already fixed by withholding an action they cannot perform.
+     *
+     * The shape is the Advisor tab's own verdict card now: a white plate, the
+     * band as ONE `RiskChip`, the headline in the panel's wording and one
+     * detail line under it. Deliberate rather than incidental - the same
+     * wallet, the same recommendation and the same action must not read as two
+     * different findings depending on which tab the reader is standing on.
+     *
+     * The CALLER places it, inside the Portfolio's own column, under the page
+     * header and over the stat row. A recommendation is about this wallet's
+     * positions, and the tab listing those positions is where it belongs; the
+     * shell band it used to sit in put it over Compass and Settings too, which
+     * is a message about positions on screens that are not about them.
+     *
+     * `role="status"` stays: it can appear without the reader doing anything,
+     * so it is worth announcing and not worth interrupting. */
+    <Card tone="raised" role="status" className="flex items-start gap-3">
+      {verdict ? (
+        <RiskChip band={verdict.band}>{verdict.word}</RiskChip>
+      ) : (
+        /* No band on an `info` reading, because there is none: an opportunity
+           is not a severity, and painting it LOW green would be the ramp making
+           a safety claim from the absence of a finding. */
+        <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
+      )}
 
-             It used to be `fixed bottom-6 right-6`, which put a 384x141 panel
-             over the bottom-right of whatever tab was open: measured on the
-             Portfolio tab at 1440, it covered "See all 12 alerts" and the last
-             Alert history row by 86% each, on load, with no interaction. A
-             floating panel cannot be positioned out of that on a page taller
-             than the viewport - anywhere it sits, it sits on content - so it
-             stops floating. Here it pushes the page down instead of covering
-             it, and being outside the scroller it is still in frame at every
-             scroll position, which the toast was only ever approximating.
-
-             No hue, on any branch. The severity is the sentence, and this
-             surface can appear over ANY tab: a critical border, a critical
-             glyph and a critical button added three risk-hued elements to
-             whatever screen was underneath, which is how the Portfolio tab
-             measured eleven against a documented budget of five. */
-          className="flex shrink-0 items-start gap-3 border-b border-border-subtle bg-surface-raised/60 px-4 py-3 md:px-8"
-        >
-          {notification.urgency === "info" ? (
-            <Sparkles className="w-4 h-4 mt-0.5 text-text-primary shrink-0" aria-hidden="true" />
-          ) : (
-            <AlertTriangle
-              className="w-4 h-4 mt-0.5 shrink-0 text-text-secondary"
-              aria-hidden="true"
-            />
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="font-sans text-base font-bold text-text-primary">{notification.title}</p>
+        {notification.detail && (
+          <p className="font-sans text-sm leading-relaxed text-text-secondary">
+            {notification.detail}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          {/* WITHHELD, not disabled. `actionState` is false when the selected
+              chain cannot settle this action, and a greyed primary is the
+              largest element on the card asserting something the product cannot
+              do, with its reason on a hover neither a phone nor a keyboard
+              reaches. The secondary below is always live, so the card never
+              ends with nothing to press. */}
+          {notification.actionLabel && actionState.enabled && (
+            <Button onClick={act}>
+              {notification.actionLabel} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
           )}
-          <div className="flex-1 min-w-0">
-            <p className="text-2xs font-sans text-text-muted mb-1">
-              AI Advisor
-            </p>
-            <p className="text-sm text-text-primary font-sans leading-relaxed">{notification.headline}</p>
-            <div className="flex flex-wrap items-center gap-2 mt-3">
-              {notification.actionLabel ? (
-                /* The `Button` primitive, whose `primary` is a neutral
-                   high-contrast fill and which accepts no risk band by design.
-                   This was a hand-rolled control painted
-                   `bg-risk-critical/15 text-risk-critical`, which is the ramp
-                   colouring a VERB: "Execute exit" in critical red is the
-                   colour system making a claim about an action, the exact
-                   thing DESIGN_SYSTEM.md names when it says not to. */
-                <Button
-                  onClick={actionState.enabled ? act : undefined}
-                  disabled={!actionState.enabled}
-                  title={actionState.enabled ? undefined : actionState.hint}
-                >
-                  {notification.actionLabel} <ArrowRight className="w-3 h-3" aria-hidden="true" />
-                </Button>
-              ) : null}
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  onView();
-                  setNotification(null);
-                }}
-              >
-                View in Advisor
-              </Button>
-            </div>
-          </div>
-          {/* A real accessible name, because the glyph is the whole label: this
-              announced as "button" and nothing else. `Button` also gives it a
-              44x32 hit area, over the 24px floor SC 2.5.8 sets and well over
-              the 16x16 the bare `<X>` measured. */}
-          <Button variant="ghost" onClick={dismiss} aria-label="Dismiss this advisor notice">
-            <X className="w-3.5 h-3.5" aria-hidden="true" />
+          <Button
+            variant="secondary"
+            onClick={() => {
+              onView();
+              setNotification(null);
+            }}
+          >
+            View in Advisor
           </Button>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
+        </div>
+      </div>
+
+      {/* A real accessible name, because the glyph is the whole label: this
+          announced as "button" and nothing else. `Button` also gives it a hit
+          area over the 24px floor SC 2.5.8 sets. */}
+      <Button variant="ghost" onClick={dismiss} aria-label="Dismiss this advisor notice">
+        <X className="h-4 w-4" aria-hidden="true" />
+      </Button>
+    </Card>
   );
 }

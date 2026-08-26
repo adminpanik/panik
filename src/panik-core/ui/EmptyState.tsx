@@ -62,8 +62,16 @@ export function EmptyState({ tone, title, hint, action }: EmptyStateProps) {
     <div
       className={`flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between ${box}`}
     >
-      <div className="flex items-start gap-3">
-        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-text-primary" />
+      {/* ALIGNMENT FOLLOWS THE CONTENT, and it has to: with a hint the block is
+          two or three lines and the glyph belongs beside the FIRST of them, so
+          it starts at the top, nudged half a step down to sit on the title's
+          cap height. With no hint the block is one 28px line, and a 16px glyph
+          pinned to its top with 2px more on it reads as 8px too high next to a
+          20px word - which is what "the icon isn't even centered vertically" on
+          the Compass limit card was. Centring it is only correct in that case,
+          which is why this is a branch rather than a fix in one direction. */}
+      <div className={`flex gap-3 ${hint ? "items-start" : "items-center"}`}>
+        <Icon className={`h-4 w-4 shrink-0 text-text-primary ${hint ? "mt-0.5" : ""}`} />
         <div>
           <span className="block font-sans text-lg font-black uppercase tracking-tight text-text-primary">
             {title}

@@ -2,38 +2,42 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Which watched wallet the Portfolio is about.
+ * Which wallet PANIK is watching, and the control that changes it.
  *
- * A listbox rather than a `<select>`, which is what this was. A native select
- * paints its own popup from the OS: system chrome, a system blue highlight, and
- * no way to put a label, a hex address and a marker on one row without
- * flattening them into a single string with separators in it. The flattened
- * string was the actual cost — "Cold storage · 0x9b1f…a5c7 · your wallet" is
- * three facts a reader has to parse out of one line, and the marker that says
- * whose money this is sat at the end of it.
+ * IT IS A BLOCK NOW, NOT A DROPDOWN, and that is the whole change. It used to
+ * be a `Listbox` beside the Portfolio heading, one of three floating panels the
+ * shell could open over itself: a wallet menu in the header, an account menu
+ * beside it and this. Every one of them was a shadowed layer that appeared
+ * somewhere the pointer was not, over content the reader was mid-way through.
+ * The sidebar has a permanent 208px of room at the bottom and nothing in it,
+ * which is where a fact that is true on every screen belongs.
  *
- * The MECHANISM (roving `aria-activedescendant`, arrows with scroll pinning,
- * Enter to commit, Escape / Tab / outside-click to dismiss, the panel's edge
- * measured on open) now lives in `ui/Listbox`, which the Watch market picker
- * also uses. This file is what a wallet row looks like and nothing else.
+ * So the block STATES the answer - the name, the address and when it was last
+ * read - and the list only appears when there is a choice to make, inline,
+ * pushing the block up rather than covering anything. No shadow on it, because
+ * it is not floating over anything to cast one.
  *
- * WHAT THE ROWS CARRY, and why each is not colour. The selected row is marked
- * with a check (SC 1.4.1: never state anything by hue alone, and the tinted
- * background here is the second signal, not the first). The owner's row wears
- * `Chip`, literally the marker WalletsPanel gives it, so one wallet does not
- * have two names for the same fact across two surfaces. Every other row is
- * watch-only by construction and wears the eye.
+ * A PLAIN LIST OF BUTTONS, not the `Listbox` primitive. That one is a combobox:
+ * a collapsed trigger reporting a value, with `aria-activedescendant` and a
+ * roving cursor, and every part of that contract exists because the options are
+ * NOT in the page. These are: they are five buttons in the sidebar's own flow,
+ * each reachable with Tab and pressable with Enter or Space for free, and
+ * dressing them as a combobox would add a keyboard model a reader has to learn
+ * in order to use something they can already see.
  *
- * NO RISK HUE ANYWHERE. Which wallet you are looking at is not a risk band, and
- * the eye is an informational glyph: `text-muted`, like every other one.
+ * WHAT THE ROWS CARRY, and why none of it is colour. The current wallet is
+ * marked with a check (SC 1.4.1: never state anything by hue alone, and the
+ * lavender behind it is the second signal, not the first). A watch-only row
+ * wears the eye and the owner's wears nothing, which is the same distinction
+ * WalletsPanel draws with a `Chip` and is all a 208px rail has room for. No
+ * risk hue anywhere: which wallet you are looking at is not a risk band.
  */
 
-import React from "react";
+import React, { useId, useState } from "react";
 import { Check, Eye } from "lucide-react";
 import { truncateAddress } from "../lib/utils";
 import type { WalletChoice } from "../lib/watchlist";
-import { Chip, Listbox } from "../ui";
-import { InfoTip } from "./InfoTip";
+import { Button } from "../ui";
 
 export interface WalletSelectorProps {
   /** Built by `viewableWallets`, which is the authority on what may be shown. */
@@ -41,9 +45,15 @@ export interface WalletSelectorProps {
   /** The wallet currently shown, already validated against `options`. */
   value: string;
   onChange: (wallet: string) => void;
+  /**
+   * When the figures for this wallet were last read, already worded, or null
+   * when the feed has not answered. Null renders no line rather than an epoch
+   * date: see `checkedAgo` in lib/utils.
+   */
+  checkedAt: string | null;
 }
 
-export function WalletSelector({ options, value, onChange }: WalletSelectorProps) {
+export function WalletSelector({ options, value, onChange, checkedAt }: WalletSelectorProps) {
   const target = value.toLowerCase();
   // The one guard, and it is here rather than at every read of `selected`:
   // `value` arrives pre-validated against `options` (AppDemo falls back to the
@@ -53,9 +63,9 @@ export function WalletSelector({ options, value, onChange }: WalletSelectorProps
     0,
     options.findIndex((o) => o.wallet === target),
   );
-
   const selected = options[selectedIndex];
-  const viewingWatchOnly = !selected.own;
+  const [open, setOpen] = useState(false);
+  const listId = useId();
 
   // The address once, not twice: an unnamed wallet IS its address, and
   // "0x9b1f…a5c7, 0x9b1f…a5c7" is a row read out stuttering.
@@ -65,89 +75,119 @@ export function WalletSelector({ options, value, onChange }: WalletSelectorProps
   };
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <Listbox
-        className="min-w-0"
-        /* The control's NAME, hidden because the page heading beside it names
-           the page rather than this. */
-        label="Which watched wallet to show"
-        count={options.length}
-        selectedIndex={selectedIndex}
-        onCommit={(i) => onChange(options[i].wallet)}
-        /* `border-strong`, not `subtle`. This is a control edge, and WCAG 1.4.11
-           asks 3:1 of one: `surface-raised` on `surface-base` is a 1.2:1 step, so
-           the border is the only thing making the hit area findable. The floating
-           panel is a container rather than a control and takes the decorative
-           edge. */
-        triggerClassName="flex h-9 max-w-full cursor-pointer items-center gap-2 rounded-md border border-border-strong bg-surface-raised px-3 font-sans text-xs transition-colors hover:bg-surface-overlay"
-        trigger={<WalletName wallet={selected.wallet} label={selected.label} />}
-        /* The row's three facts as one string, because a screen reader gets the
-           chip and the eye as nothing otherwise: the chip is decoration to it
-           and the glyph is `aria-hidden`. */
-        optionLabel={(i) =>
-          `${spokenName(options[i])}, ${options[i].own ? "your wallet" : "watch only"}`
-        }
-        optionClassName={() => "flex cursor-pointer items-center gap-2 px-3 py-2.5"}
-        renderOption={(i, { selected: isSelected }) => {
-          const o = options[i];
-          return (
-            <>
-              <WalletName wallet={o.wallet} label={o.label} />
-              {o.own ? (
-                <Chip>Your wallet</Chip>
-              ) : (
-                /* No `title`: the glyph is decoration for a fact the row's own
-                   `aria-label` already states, and a second hover wording is a
-                   second thing to keep true. */
-                <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-              )}
-              {/* Reserved either way, so committing a different row does not
-                  reflow the list under the pointer. */}
-              <span className="ml-auto flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                {isSelected && <Check aria-hidden="true" className="h-3.5 w-3.5 text-text-primary" />}
-              </span>
-            </>
-          );
-        }}
-      />
+    <div className="hard-edge bg-surface-raised">
+      <div className="space-y-1.5 p-3">
+        <span className="block label-type text-xs text-text-secondary">Watching wallet</span>
 
-      {/* The marker, not an essay: the full watch-only explanation lives in the
-          Wallets panel and on the alerts themselves. `InfoTip` keeps it
-          focusable, so the fact is not hover-only. */}
-      {viewingWatchOnly && (
-        <InfoTip text="Watch-only">
-          <Eye className="h-4 w-4 shrink-0 cursor-help text-text-muted transition-colors hover:text-text-primary" />
-        </InfoTip>
+        {selected.label?.trim() && (
+          <span className="block truncate font-sans text-sm font-bold text-text-primary">
+            {selected.label.trim()}
+          </span>
+        )}
+        {/* Mono is reserved for hexadecimal, and this is the only hexadecimal
+            in the block. The whole address on hover, as the Wallets panel does
+            it: 42 characters is not something a reader checks by reading, it is
+            something they check by comparing the ends. */}
+        <span
+          title={selected.wallet}
+          className="block truncate font-mono text-base font-bold text-text-primary"
+        >
+          {truncateAddress(selected.wallet)}
+        </span>
+
+        {/* The marker, not an essay: the full watch-only explanation lives in
+            the Wallets panel and on the alerts themselves. */}
+        {!selected.own && (
+          <span className="flex items-center gap-1.5 font-sans text-sm text-text-secondary">
+            <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            Watch only
+          </span>
+        )}
+
+        {/* A fact the code knows, so it stays: how old the reading on screen is
+            is the one thing a reader cannot work out by looking at it. */}
+        {checkedAt && (
+          <span className="block font-sans text-sm text-text-secondary">{checkedAt}</span>
+        )}
+
+        {/* Only when there is a choice to make. With one wallet on the list the
+            control has exactly one option, which is a picker that cannot pick,
+            and it would sit in the sidebar on every screen implying the app
+            could be showing something else. */}
+        {options.length > 1 && (
+          <Button
+            variant="ghost"
+            aria-expanded={open}
+            aria-controls={listId}
+            onClick={() => setOpen((v) => !v)}
+            className="h-8 px-0"
+          >
+            {open ? "Close" : "Switch"}
+          </Button>
+        )}
+      </div>
+
+      {open && options.length > 1 && (
+        <ul id={listId} className="border-t-[3px] border-solid border-border-strong">
+          {options.map((o, i) => {
+            const current = i === selectedIndex;
+            return (
+              <li
+                key={o.wallet}
+                className={i > 0 ? "border-t border-border-subtle" : ""}
+              >
+                <button
+                  type="button"
+                  /* `aria-current` rather than `aria-selected`: this is a set of
+                     links to one of several views, not a set of options inside
+                     a widget that reports a value. */
+                  aria-current={current ? "true" : undefined}
+                  aria-label={`${spokenName(o)}, ${o.own ? "your wallet" : "watch only"}`}
+                  onClick={() => {
+                    onChange(o.wallet);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2.5 text-left hover:bg-highlight ${
+                    current ? "bg-highlight" : ""
+                  }`}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    {o.label?.trim() && (
+                      <span className="truncate font-sans text-xs font-bold text-text-primary">
+                        {o.label.trim()}
+                      </span>
+                    )}
+                    <span className="truncate font-mono text-xs text-text-primary">
+                      {truncateAddress(o.wallet)}
+                    </span>
+                  </span>
+                  {/* The eye marks a watch-only row, and its ABSENCE marks the
+                      owner's. The owner's row used to wear the `Chip`
+                      WalletsPanel gives it, which is the right marker on a
+                      panel and the wrong one in a 208px rail: measured, "Your
+                      wallet" at 90px left the name and the address 60px between
+                      them and both ellipsised to "Moc…" and "0x4c…". The fact
+                      is not lost, it is in the row's `aria-label`, and losing
+                      the address is losing the only thing that identifies the
+                      wallet.
+
+                      No `title` on the glyph: it is decoration for a fact the
+                      row's own accessible name already states, and a second
+                      hover wording is a second thing to keep true. */}
+                  {!o.own && (
+                    <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                  )}
+                  {/* Reserved either way, so committing a different row does not
+                      reflow the list under the pointer. */}
+                  <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                    {current && <Check aria-hidden="true" className="h-3.5 w-3.5 text-text-primary" />}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
-  );
-}
-
-/**
- * A wallet as the reader knows it: what they called it, and the address that
- * proves which one it is. Both, because a name alone cannot be checked against
- * a wallet and an address alone is not what anyone called it.
- *
- * Unnamed wallets render the address once, in the primary ink. The alternative
- * was the address twice, or a placeholder name the user never chose.
- */
-function WalletName({ wallet, label }: { wallet: string; label: string | null }) {
-  const name = label?.trim();
-  return (
-    <span className="flex min-w-0 items-center gap-2">
-      {name && (
-        <span className="truncate font-sans text-xs font-bold text-text-primary">{name}</span>
-      )}
-      {/* Mono is reserved for hexadecimal, and this is the only hexadecimal in
-          the control. The whole address on hover, as the Wallets panel does
-          it: 42 characters is not something a reader checks by reading, it is
-          something they check by comparing the ends. */}
-      <span
-        title={wallet}
-        className={`shrink-0 font-mono text-xs ${name ? "text-text-muted" : "text-text-primary"}`}
-      >
-        {truncateAddress(wallet)}
-      </span>
-    </span>
   );
 }

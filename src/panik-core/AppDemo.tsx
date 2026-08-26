@@ -27,12 +27,12 @@ import {
   FileText,
   X,
   Plus,
-  WalletCards,
+  UserRound,
 } from "lucide-react";
 import {
   assetLoanToValue,
-  bandOfScore,
   calculateDynamicPosition,
+  checkedAgo,
   depegAwareOutlook,
   formatCompactUsd,
   formatCurrency,
@@ -42,13 +42,13 @@ import {
   type LiquidationOutlook,
   listedLiquidationThreshold,
   loanToValuePct,
+  plural,
   LOAN_TO_VALUE_HINT,
   LOAN_TO_VALUE_UNAVAILABLE_HINT,
   PROTOCOL_LABEL,
   RISK_CHIP,
   RISK_PROFILES,
   RISK_SCORE_NAME,
-  RISK_TEXT,
   sameAssetDepegNote,
   simulatedHealthFactor,
   truncateAddress,
@@ -111,6 +111,7 @@ import { Sparkline, SparklinePlaceholder } from "./components/Sparkline";
 import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
 import { CardTitle } from "./components/CardTitle";
+import { PageHeader } from "./components/PageHeader";
 import {
   Button,
   Card,
@@ -140,13 +141,14 @@ import {
   useWalletPositions,
   type Band,
   type LiveProtocol,
+  type LiveWalletPosition,
   type PoolYield,
 } from "./lib/live";
 import { AdvisorPanel } from "./components/AdvisorPanel";
 import { ExitFlow, type ExitPrefill } from "./components/ExitFlow";
 import { DelegationManager } from "./components/DelegationManager";
 import { ExitApprovals } from "./components/ExitApprovals";
-import { ChainModeBadge, ChainModeSwitch } from "./components/ChainModeSwitch";
+import { ChainModeSwitch } from "./components/ChainModeSwitch";
 import { CHAIN_MODE_LABEL, useChainMode } from "./lib/chainMode";
 import { canOpenInApp } from "./lib/openProtocols";
 import { OpenFlow } from "./components/OpenFlow";
@@ -181,8 +183,7 @@ import {
   viewParamWallet,
 } from "./lib/watchlist";
 import type { SessionState } from "./lib/session";
-import type { AccountState } from "./lib/account";
-import { AccountMenu } from "./components/AccountMenu";
+import { describeMembership, type AccountState } from "./lib/account";
 import { WalletsPanel } from "./components/WalletsPanel";
 import { WalletSelector } from "./components/WalletSelector";
 import { ReadOnlyBanner, SessionCard, SessionNote } from "./components/SessionControls";
@@ -1822,13 +1823,6 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
     [onboardedWallet, onboardingIntent],
   );
 
-  // Live gas price for the header strip. This is the ONLY piece of chain
-  // telemetry this component still keeps: the block number, the rolling event
-  // log and a one-second refresh countdown were all held in state that nothing
-  // rendered. The countdown in particular re-rendered this entire component
-  // once a second, forever, to update a number with no reader.
-  const [gasPrice, setGasPrice] = useState<number>(2.8);
-
   // Settings tab preferences (auto-repayment trigger).
   const [automaticRepayTarget, setAutomaticRepayTarget] = useState<number>(30);
   const [isRepayActive, setIsRepayActive] = useState<boolean>(true);
@@ -2283,9 +2277,35 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
    * timestamp.
    */
   const lastScoredAt = ownLive.updatedAt > 0 ? SCORED_AT_FORMAT.format(ownLive.updatedAt) : null;
+  /**
+   * The same reading as an ELAPSED time, for the sidebar's watching block.
+   *
+   * Two wordings of one timestamp, and they are not interchangeable. The stale
+   * notice above says WHEN the last successful read was ("from 07:41"), because
+   * a reader deciding whether to trust a frozen figure wants the wall clock.
+   * The sidebar says HOW LONG AGO, because it is a background fact glanced at
+   * rather than read, and "2 minutes ago" answers "is this current" without any
+   * arithmetic. Both come from `ownLive.updatedAt`, so they cannot disagree.
+   */
+  const walletCheckedAt = checkedAgo(ownLive.updatedAt);
   const portfolioLoading = portfolioPositions === null && !portfolioFeedDown;
   const portfolioEmpty = portfolioPositions !== null && portfolioPositions.length === 0;
   const hasPositions = portfolioPositions !== null && portfolioPositions.length > 0;
+  /**
+   * Feed-down splits into two honest branches, not one.
+   *
+   * `positions` null with the feed down means this wallet was NEVER
+   * successfully read: its exposure is UNKNOWN and every figure below has to
+   * say so, never a number. `positions` an array (even an empty one) with the
+   * feed down means a PREVIOUS read succeeded and only the refresh failed:
+   * `useWalletPositions` keeps that array standing rather than clearing it, so
+   * the figures are STALE, not unknown, and get to keep showing what they last
+   * measured plus how long ago that was. The Positions table and the Advisor
+   * callout below key off the same two flags, so the whole tab tells one
+   * story instead of the table alone flipping to "unknown" while everything
+   * around it kept stating a stale number as current.
+   */
+  const positionsUnknown = portfolioFeedDown && portfolioPositions === null;
 
   // Presets with LIVE engine scores overlaid (fallback: static baseRisk).
   // Defined before activePreset so Compass, Portfolio and Watch all read
@@ -2574,6 +2594,53 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
       ).length,
     };
   }, [portfolioPositions]);
+
+  /**
+   * The position closest to being liquidated, or null when nothing is borrowed
+   * against this wallet.
+   *
+   * The HEALTH FACTOR is the ordering key, not a drawdown computed here: the
+   * engine's `1 - 1/HF` is monotonic in it, so the smallest health factor is
+   * the smallest buffer by construction and the UI does not acquire a second
+   * copy of that formula to disagree about. A null health factor is a leg with
+   * no debt, which has no distance to liquidation at all rather than an
+   * infinite one, so it is skipped instead of sorting last.
+   *
+   * The stat card renders the WORDS through `liquidationOutlook`, which is the
+   * same helper the table rows and the Watch tiles read, so "4.8%",
+   * "Liquidatable now" and "None" mean the same three things everywhere.
+   */
+  const closestToLiquidation = useMemo(() => {
+    let closest: LiveWalletPosition | null = null;
+    let thinnest = Infinity;
+    for (const p of portfolioPositions ?? []) {
+      if (p.healthFactor === null || p.healthFactor >= thinnest) continue;
+      closest = p;
+      thinnest = p.healthFactor;
+    }
+    return closest;
+  }, [portfolioPositions]);
+
+  /**
+   * The collateral assets whose price feed the engine could not read, for the
+   * one card that names them.
+   *
+   * The COUNT of degraded legs is `liveMacro.unpricedLegs` and stays there; a
+   * name is a different fact, and it is the one the reader needs to decide
+   * whether the missing figure matters to them. Deduplicated, because two legs
+   * of the same asset are one stale feed and "The wstETH, wstETH price feeds
+   * are stale" describes an outage that is not happening.
+   */
+  const stalePriceAssets = useMemo(
+    () => [
+      ...new Set(
+        (portfolioPositions ?? [])
+          .filter((p) => p.usdValuesUnavailable === true || p.collateralValueUsd === null)
+          .map((p) => p.scoredCollateralSymbol),
+      ),
+    ],
+    [portfolioPositions],
+  );
 
   /**
    * Collateral allocation for the SELECTED wallet.
@@ -2928,14 +2995,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           .filter(Boolean)
           .join(" · ");
 
-  // LIVE chain telemetry: real Base gas price via the API (the previous
-  // random-walk simulation is gone). The block number arrives on the same poll
-  // and is deliberately not stored: nothing renders it.
-  useEffect(() => {
-    if (chainTel.gasGwei !== null) {
-      setGasPrice(+chainTel.gasGwei.toFixed(4));
-    }
-  }, [chainTel.gasGwei]);
+  // The gas reading used to be mirrored into local state, seeded with a
+  // literal 2.8 that was on screen until the first poll landed - a fabricated
+  // market figure in a product whose whole rule is not to state facts it does
+  // not have. The hook's own value is passed straight to the one surface that
+  // reads it now (the exit flow's review step), and null there renders no line.
 
   // Custom simulation handlers for Watch Cockpit
   const handleSimulateCollateralInflow = () => {
@@ -3071,13 +3135,31 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           />
         </div>
 
-        {/* Sidebar Footer Bottom exit button */}
+        {/* The bottom of the rail: which wallet everything above is about, and
+            the way out.
+
+            The wallet lives HERE now rather than in the header, and this is the
+            fix for three separate complaints at once. The header carried a
+            wallet chip that opened onboarding, a "Wallets 2" button that opened
+            a sheet, and an account menu, and two of the three were shadowed
+            panels that appeared over whatever the reader was looking at. Whose
+            money is on screen is true on every tab, so it belongs on the one
+            surface that is also on every tab; and the sidebar had 208px of
+            permanent empty space under the nav to put it in. */}
         <div className="space-y-4">
+          {viewedWallet && portfolioWalletOptions.length > 0 && (
+            <WalletSelector
+              options={portfolioWalletOptions}
+              value={viewedWallet}
+              onChange={setViewedWalletChoice}
+              checkedAt={walletCheckedAt}
+            />
+          )}
           <a
             href="/"
-            className="flex items-center gap-2 text-xs font-sans text-text-secondary hover:text-text-primary transition-colors cursor-pointer pt-2 group"
+            className="group flex cursor-pointer items-center gap-2 font-sans text-xs text-text-secondary no-underline hover:text-text-primary"
           >
-            <ArrowLeft className="w-3.5 h-3.5 text-text-muted group-hover:-translate-x-0.5 transition-transform" />
+            <ArrowLeft className="h-3.5 w-3.5 text-text-muted" />
             <span>Back to landing</span>
           </a>
         </div>
@@ -3094,171 +3176,59 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             different poll than the numbers below it (lib/live.ts). */}
         {activeSimulation && <SimulationBanner simulation={activeSimulation} now={simulationNow} />}
 
-        {/* TOP STATUS BAR (Gas feeds, Block Number precisely simulating real active smart contracts) */}
-        <header className="h-16 shrink-0 border-b border-border-subtle px-4 md:px-8 flex items-center justify-between gap-3 bg-surface-raised/40 backdrop-blur-md">
-          <div className="flex items-center gap-2.5 min-w-0">
-            {/* Brand, phone only. The sidebar carries it on desktop, and with
-                the sidebar gone the app had neither a mark nor any way back to
-                the landing page. One element does both jobs. */}
+        {/* THE HEADER STRIP IS GONE, and what it held is now wherever the
+            reader would go looking for it.
+
+            It was a 64px band carrying, left to right: a risk-profile chip that
+            reopened the onboarding quiz, a TESTNET marker that opened Settings,
+            a gas reading, a wallet chip that reopened onboarding, a "Wallets 2"
+            button that opened a sheet, and an account menu. Six controls, four
+            of them navigation to somewhere else, three of them opening a
+            floating panel over whatever was being read, and none of them a
+            property of the page you were standing on. It is where every
+            identifier in the product had accumulated because there was room.
+
+            Where each went, and why there rather than here:
+              risk profile   Settings. It is a setting.
+              TESTNET        Settings, next to the switch that sets it.
+              gas            The exit flow's review step, which is the one place
+                             in the product a gas figure changes a decision.
+              wallet         The sidebar's watching block, beside the control
+                             that switches it.
+              Wallets        The Portfolio's own "Add wallet" action.
+              account        Settings' account card, with sign out.
+
+            Each tab draws its own `PageHeader` now: the page's name and its one
+            action, at 72px, which is the header height this system sets.
+
+            A phone keeps ONE strip, below, and it carries the two things the
+            desktop sidebar carries that a bottom tab bar cannot: the mark, and
+            the way back to the landing page. */}
+        {!isDesktop && (
+          <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b-[3px] border-solid border-border-strong bg-surface-raised px-4">
             <a
               href="/"
               title="Back to landing"
-              className="md:hidden flex items-center gap-2 shrink-0"
+              className="flex shrink-0 items-center gap-2 no-underline"
             >
               <img src="/panik-mark.svg" alt="" width={24} height={24} style={{ objectFit: "contain" }} />
-              <span className="font-sans font-extrabold text-sm text-text-primary leading-none">PANIK</span>
+              <span className="font-sans text-sm font-extrabold leading-none text-text-primary">
+                PANIK
+              </span>
             </a>
-
-            {/* The user-segment badge ("Risk Optimizer", "Yield Seeker", …)
-                used to sit here. It is gone.
-
-                It was the onboarding quiz's segment output, and it drove
-                nothing: no threshold, no recommendation, no filter, no copy.
-                Grepping it finds a localStorage write, a backfill into the
-                per-wallet profile store, and this badge — and a chip whose only
-                job is to be looked at is a chip that answers "what is this
-                supposed to be?" with "nothing you can act on". The value is
-                still computed and still persisted, so the day something
-                actually consumes a segment it is there; it just no longer
-                occupies the top-left of every screen claiming to matter.
-
-                The RISK TIER stays, because it does drive things — it is what
-                the alert thresholds and every position's `profileStatus` are
-                measured against. But it has to say so. A bare word in a box is
-                exactly as unexplained as the one above it was, so it now
-                carries an InfoTip naming what it changes, and it is a BUTTON:
-                the profile is set by the onboarding quiz, so the chip that
-                names it is the control that reopens it. */}
-            {riskTier && (
-              /* The vertical padding is on the BUTTON, not on this wrapper.
-                 With `py-1` here the chip measured 92x26 while the only thing
-                 anyone can press inside it measured 53x16, which is under the
-                 24px floor SC 2.5.8 sets. Moving the same padding one level in
-                 gives the control a 24px hit area and leaves the chip the
-                 height it already was, so nothing about how quiet it looks
-                 changes. */
-              <span className={`flex shrink-0 items-center gap-1.5 pl-2.5 pr-2 rounded-md border text-2xs font-sans font-bold ${TIER_BADGE}`}>
-                <button
-                  type="button"
-                  onClick={() => setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")}
-                  title="Change your risk profile"
-                  className="inline-flex min-h-6 cursor-pointer items-center pr-0.5 hover:text-text-primary transition-colors"
-                >
-                  {RISK_TIER_LABELS[riskTier]}
-                </button>
-                <InfoTip
-                  text={`Your risk profile, from the onboarding questions. It sets the limit each position is measured against, so it decides which positions read as "over your risk limit" and when PANIK alerts you. Click it to retake the questions.`}
-                />
-              </span>
-            )}
-
-            {/* The network marker, present only while the test network is
-                selected. It sits in the shell rather than on a tab because the
-                mode changes what EVERY figure in the app refers to, and it is
-                the control that took you there: pressing it opens Settings,
-                where the switch is. */}
-            <ChainModeBadge onOpenSettings={() => setActiveTab("settings")} />
-          </div>
-
-          <div className="flex items-center gap-3 md:gap-6 min-w-0 text-2xs font-sans text-text-muted">
-            <div className="hidden md:flex items-center gap-1.5">
-              <span>Est. gas</span>
-              {/* Gas is a market reading, not a verdict on this wallet. It was
-                  painted with the safe-risk green, which put a risk colour on a
-                  number that carries no risk statement at all. */}
-              <strong className="text-text-secondary bg-white/[0.03] px-2 py-0.5 rounded-sm border border-border-subtle tabular-nums">{gasPrice} GWEI</strong>
-            </div>
-            <div className="h-4 w-px bg-white/10 hidden md:block"></div>
-            <button
-              type="button"
-              onClick={() => setOnboardingIntent("switch-wallet")}
-              title={
-                onboardedWallet
-                  ? "Change wallet - an address with a saved profile skips the questions"
-                  : "Add the wallet PANIK should watch"
-              }
-              className="flex min-w-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer group"
-            >
-              {/* Identifier, not an action and not a status: the whole chip
-                  stays neutral so the eye skips it on the way to the data. */}
-              <Wallet className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-              {/* The label is the only elastic thing in the header, so it is
-                  the only thing allowed to give: it must not be able to push
-                  the refresh glyph off a 390px screen. */}
-              <span className="truncate">
-                {onboardedWallet ? truncateAddress(onboardedWallet) : "Add your wallet"}
-              </span>
-              <RefreshCw className="w-3 h-3 shrink-0 text-text-muted group-hover:text-text-primary transition-colors" />
-            </button>
-
-            {/* The list of wallets PANIK watches, beside the chip naming the
-                one it is bound to: the reader is already thinking about which
-                wallet here, and the two facts ("this is you" / "these are the
-                ones being watched") belong next to each other.
-
-                Not a sixth tab. The nav holds five flat destinations and one of
-                them is already called Watch; this is a panel over the content,
-                the same shape as the risk breakdown.
-
-                The count is stated only once the list has been read. A "0"
-                standing in for "we have not asked yet" is the same unknown
-                rendered as a zero the dashboard cards are careful not to
-                print, and here it would read as "PANIK is watching nothing". */}
-            {boundMode && (
-              <button
-                type="button"
-                onClick={() => setWalletsPanelOpen(true)}
-                title="Wallets PANIK watches for you"
-                aria-label={
-                  watchlist.subscriptions
-                    ? `Wallets, ${watchlist.subscriptions.length} watched`
-                    : "Wallets"
-                }
-                className="flex shrink-0 items-center gap-2 px-3 py-2 md:py-1.5 rounded-md bg-white/[0.02] hover:bg-white/[0.06] border border-border-subtle text-2xs font-semibold text-text-secondary transition-colors cursor-pointer"
+            {/* The wallet as an identifier and nothing else: the control that
+                changes it is in the Portfolio, which is where a phone reader
+                chooses what they are looking at. */}
+            {viewedWallet && (
+              <span
+                title={viewedWallet}
+                className="truncate font-mono text-xs font-bold text-text-primary"
               >
-                <WalletCards className="w-3.5 h-3.5 shrink-0 text-text-muted" aria-hidden="true" />
-                {/* The word goes at `sm`, not the control: at 390 the header
-                    already carries a tier chip, the wallet chip and this, and
-                    the glyph plus its accessible name is the honest way to give
-                    up width without giving up the destination. */}
-                <span className="hidden sm:inline">Wallets</span>
-                {watchlist.subscriptions && (
-                  <span className="rounded-full bg-white/10 px-1.5 tabular-nums">
-                    {watchlist.subscriptions.length}
-                  </span>
-                )}
-              </button>
+                {truncateAddress(viewedWallet)}
+              </span>
             )}
-
-            {/* WHO IS SIGNED IN, which is now an account rather than a browser.
-                It replaces the "Stay signed in" chip that used to sit here.
-
-                That chip offered the SIWE `session-start` signature, and the
-                offer has not gone anywhere: it is on the read-only banner under
-                this header and in Settings' account card, which is where a
-                deliberate, rare action belongs. What it stopped being is the
-                first identity in the header, because past the gate there is
-                normally an account and the wallet session is a detail of how
-                one wallet is read.
-
-                SHOWN WHENEVER AN ACCOUNT SESSION EXISTS, read-only or not. A
-                member who taps their own alert link arrives with a `?sid=`
-                wallet session AND the account they signed in with, and hiding
-                their own address and sign-out control because of how they got
-                here would be the header lying about who this browser is. The
-                bypass in AppShell decides what they may SEE; what they may DO
-                is `readOnlySession` below, and the two are separate on
-                purpose. A reader who genuinely has no account renders nothing
-                here, because `account` is null. */}
-            {accountState.account && (
-              <AccountMenu
-                account={accountState.account}
-                busy={accountState.busy}
-                onSignOut={() => void accountState.signOut()}
-              />
-            )}
-          </div>
-        </header>
+          </header>
+        )}
 
         {/* Session-level truths, between the header and the content they
             qualify: a read-only view has to be visible from every tab, and a
@@ -3268,25 +3238,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
         {readOnlySession && <ReadOnlyBanner onSignIn={signInThisBrowser} busy={session.busy} />}
         {session.note && <SessionNote text={session.note} onDismiss={session.dismissNote} />}
 
-        {/* Advisor notice (Phase 2) - fires on action changes / market shifts.
-
-            In this band, with the other session-level notices, rather than
-            floating over the bottom-right corner: measured at 1440 the floating
-            panel covered two Alert history rows and "See all 12 alerts" on load,
-            and there is no corner of a scrolling page a fixed panel does not sit
-            on top of something in.
-
-            Silent while a watched wallet is on screen. Its whole shape is an
-            interruption offering an action, and the action here would be exiting
-            a position the reader does not hold: the panel can afford to state
-            that and withhold the button, a notice that arrives uninvited
-            cannot. */}
-        <AdvisorPopup
-          report={viewingWatchOnly ? null : advisorLive.report}
-          onExit={(prefill) => setExitPrefill(prefill)}
-          onOpen={(plan) => setOpenFlowPlan(plan)}
-          onView={() => setActiveTab("advisor")}
-        />
+        {/* The advisor notice used to sit HERE, in this band, so it appeared
+            over whichever tab happened to be open. It is on the Portfolio now,
+            under that tab's own header: a recommendation is about this wallet's
+            positions, and a message about positions on Compass or on Settings
+            is a message on a screen that is not about them. */}
 
         {/* PAGE VIEWS SWITCH */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
@@ -3295,33 +3251,41 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             {/* VIEW A: COMPASS TAB (Fully interactive and identical to the requested design layout!) */}
             {activeTab === "compass" && (
               <TabPanel key="compass" tab="compass" gap="space-y-8">
-                {/* No subtitle. "Find and open positions matched to your risk
-                    profile" restated the tab you are standing in, the heading
-                    above it and the section heading below it, which already
-                    names the profile by name. Portfolio's header is an h1 and a
-                    button; this one is an h1 and the control that changes what
-                    the page shows. */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border-subtle pb-5">
-                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Compass</h1>
+                {/* No action in the header, and no subtitle. The profile
+                    toggle used to sit in the action slot, which is where every
+                    other tab puts its one verb: a three-way chooser there made
+                    the same slot mean "do this" on one tab and "change what
+                    this shows" on another. It is a control over the sections
+                    below, so it sits with them. */}
+                <PageHeader title="Compass" />
 
-                  {/* Three copies of one button became a map over the three
-                      profiles, so the selected/unselected treatment cannot
-                      drift between them. */}
-                  <div className="bg-white/[0.02] border border-border-subtle p-1 rounded-md flex items-center max-w-sm">
-                    {RISK_PROFILES.map((profile) => (
+                {/* Which profile the two sections below are partitioned on.
+                    Three copies of one button became a map over the three
+                    profiles, so the selected and unselected treatments cannot
+                    drift between them. Lavender for the selected plate, not
+                    cobalt: cobalt is the nav's block and means "the section you
+                    are in". */}
+                <div
+                  role="group"
+                  aria-label="Which risk profile to browse against"
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  {RISK_PROFILES.map((profile) => {
+                    const active = selectedRiskProfile === profile;
+                    return (
                       <button
                         key={profile}
+                        type="button"
+                        aria-pressed={active}
                         onClick={() => setSelectedRiskProfile(profile)}
-                        className={`px-3 py-1.5 text-2xs font-sans rounded-md capitalize transition-all cursor-pointer ${
-                          selectedRiskProfile === profile
-                            ? "bg-white/10 text-text-primary font-bold border border-border-subtle"
-                            : "text-text-secondary hover:text-text-primary"
+                        className={`flex h-12 cursor-pointer items-center hard-edge px-4 label-type text-xs text-text-primary shadow-hard-sm hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none ${
+                          active ? "bg-highlight" : "bg-surface-raised"
                         }`}
                       >
                         {profile}
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
 
                 {/* What this toggle does NOT do, said only when it matters.
@@ -3445,6 +3409,13 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             {/* VIEW B: WATCH TAB (The high-fidelity mathematical simulator control cockpit!) */}
             {activeTab === "watch" && (
               <TabPanel key="watch" tab="watch">
+                {/* Watch had no page heading at all, which is why the shared
+                    header exists: four tabs each drew their own and the fifth
+                    forgot. No action, because the tab's one control is the
+                    source toggle under it and that changes what the page shows
+                    rather than doing anything. */}
+                <PageHeader title="Watch" />
+
                 {/* Source toggle. Business requirement: Watch mirrors the
                     positions this wallet actually holds on-chain (Current
                     Positions). Recommendations keeps the Compass-derived
@@ -4234,9 +4205,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     their positions. The one line of AI provenance that is
                     genuinely owed is `AI_PROSE_NOTE`, at the foot of the panel
                     below, where it states the fact and stops. */}
-                <div className="border-b border-border-subtle pb-5">
-                  <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Advisor</h1>
-                </div>
+                <PageHeader title="Advisor" />
 
                 {advisorLive.report ? (
                   <AdvisorPanel
@@ -4358,7 +4327,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
             {activeTab === "portfolio" && !alertHistoryOpen && (
               <TabPanel key="portfolio" tab="portfolio">
-                {/* STATE 1 of 4 — no wallet. The whole surface is the
+                {/* STATE 1 of 4 - no wallet. The whole surface is the
                     invitation: no header, no stat row, no cards. Nothing below
                     knows anything yet, and a dashboard of empty containers is
                     not a smaller version of the dashboard, it is a different
@@ -4371,84 +4340,92 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   />
                 ) : (
                 <>
-                <div className="border-b border-border-subtle pb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                  <div className="flex min-w-0 flex-wrap items-center gap-3">
-                    <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">DeFi Portfolio</h1>
-                    {/* Which watched wallet this page is about.
+                {/* The shared header, on all five tabs. Which wallet this page
+                    is about is NOT here any more: it is the sidebar's watching
+                    block, beside the switch that changes it, because "whose
+                    money is this" is a property of the whole session rather
+                    than of this one tab.
 
-                        Only when there is a choice to make. With one wallet on
-                        the list the control has exactly one option, which is a
-                        picker that cannot pick — and it would sit beside the
-                        heading on every dashboard implying the page could be
-                        showing something else.
+                    One action, and it is the one this page cannot do without: a
+                    dashboard about watched wallets has to be able to add one.
+                    Withheld while a watched wallet is on screen, because the
+                    list it edits belongs to the reader and this page is
+                    describing somebody else's money. */}
+                <PageHeader
+                  title="Portfolio"
+                  action={
+                    viewingWatchOnly ? undefined : (
+                      <Button onClick={() => setWalletsPanelOpen(true)}>
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                        Add wallet
+                      </Button>
+                    )
+                  }
+                />
 
-                        A listbox, not a tab strip: the list runs to ten and this
-                        is a chooser, not a set of destinations. It carries its
-                        own label because the heading beside it names the page,
-                        not the control. */}
-                    {portfolioWalletOptions.length > 1 && viewedWallet && (
-                      <WalletSelector
-                        options={portfolioWalletOptions}
-                        value={viewedWallet}
-                        onChange={setViewedWalletChoice}
-                      />
-                    )}
-                  </div>
-                  {/* Primary action: opening positions lives in Compass; this is
-                      the pointer Portfolio was missing (UX journey fix).
+                {/* The watching block, on a phone, where there is no sidebar to
+                    put it in. Here rather than in the phone's top strip because
+                    it is three lines and a control, and because the Portfolio
+                    is the tab a reader chooses a wallet on: the strip carries
+                    the address as an identifier and this carries the switch. */}
+                {!isDesktop && viewedWallet && portfolioWalletOptions.length > 0 && (
+                  <WalletSelector
+                    options={portfolioWalletOptions}
+                    value={viewedWallet}
+                    onChange={setViewedWalletChoice}
+                    checkedAt={walletCheckedAt}
+                  />
+                )}
 
-                      `Plus`, from Lucide, verbatim. Every destination in the
-                      sidebar pairs a glyph with its label, so the one control
-                      on the page that is not a destination was also the only
-                      bare word — it read as a heading rather than a button.
-                      Plus is the honest glyph here because the outcome really
-                      is "a position that did not exist now does"; an arrow
-                      would have promised navigation and a sparkle would have
-                      promised nothing at all.
+                {/* What the Advisor would say about this wallet, under the
+                    header and over the figures it is about. It renders nothing
+                    unless there is a recommendation to make, and nothing at all
+                    on a watched wallet: its whole shape is an offer to act, and
+                    the action here would be exiting a position the reader does
+                    not hold.
 
-                      Withheld while a watched wallet is on screen. The open it
-                      leads to would be YOURS, on a page describing somebody
-                      else's money, and a page that offers to add a position to
-                      the list it is showing is making a promise about that
-                      list. */}
-                  {!viewingWatchOnly && (
-                    <Button onClick={() => setActiveTab("compass")} className="shrink-0">
-                      <Plus className="h-3.5 w-3.5" />
-                      Open position
-                    </Button>
-                  )}
-                </div>
+                    Also nothing while this wallet's positions are UNKNOWN.
+                    `advisorLive` is its own poll (`/api/advisor`), independent
+                    of the positions feed, so it can still hold a recommendation
+                    from its own last success while `/api/positions` has never
+                    answered at all - and an "Exit" button about a position this
+                    screen cannot currently confirm is still open is not advice,
+                    it is a guess wearing the Advisor's shape. A merely stale
+                    read is a different case: the position data itself stands,
+                    so the popup is left alone. */}
+                {!viewingWatchOnly && !positionsUnknown && (
+                  <AdvisorPopup
+                    report={advisorLive.report}
+                    onExit={(prefill) => setExitPrefill(prefill)}
+                    onOpen={(plan) => setOpenFlowPlan(plan)}
+                    onView={() => setActiveTab("advisor")}
+                  />
+                )}
 
-                {/* STATE 3 of 4 — we reached the feed and this wallet holds
+                {/* STATE 3 of 4 - we reached the feed and this wallet holds
                     nothing. "clear", not "problem": that is good news and it is
-                    safe to say so. It is also the ONLY thing this state renders
-                    now. The position card underneath used to print its own "No
-                    open positions" empty state directly below this one, so the
-                    same fact arrived twice in two different wordings. */}
+                    safe to say so. ONE sentence and one affordance, per the
+                    primitive's contract. The invitation it used to carry
+                    ("browse risk-scored opportunities matched to your moderate
+                    profile") named the reader's profile at them, described a
+                    ranking Compass does not perform, and was an instruction a
+                    watch-only reader could not follow. */}
                 {portfolioEmpty && (
-                  /* Two readings of one fact, because the invitation only
-                     applies to one of them: "open your first one" on a wallet
-                     the reader does not control is an instruction they cannot
-                     follow, aimed at money that is not theirs. */
                   <EmptyState
                     tone="clear"
                     title="No positions yet"
-                    hint={
-                      viewingWatchOnly
-                        ? "We read this wallet and found no open lending positions. PANIK keeps watching it and raises an alert if one appears and drifts toward liquidation."
-                        : `We read this wallet and found no open lending positions. Browse risk-scored opportunities matched to your ${selectedRiskProfile} profile to open your first one.`
-                    }
+                    hint="We read this wallet and found no open lending positions."
                     action={
                       viewingWatchOnly ? undefined : (
-                        <Button variant="ghost" onClick={() => setActiveTab("compass")}>
-                          Explore Compass →
+                        <Button variant="secondary" onClick={() => setActiveTab("compass")}>
+                          Open Compass
                         </Button>
                       )
                     }
                   />
                 )}
 
-                {/* STATE 2 of 4 — a fetch is genuinely in flight. A reserved
+                {/* STATE 2 of 4 - a fetch is genuinely in flight. A reserved
                     block, not a figure: the four cards used to print $18,450 /
                     $9,310 / 50% / 22 from string literals whenever `liveMacro`
                     was null, which is exactly the window in which the code
@@ -4456,23 +4433,20 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
                     `portfolioLoading`, not `positions === null`. Null also
                     covers a feed we could not reach, and a skeleton renders
-                    that as "any second now" for as long as the API is down —
+                    that as "any second now" for as long as the API is down -
                     which is how a permanently unreachable endpoint came to look
                     like a slow one. State 4 is the position card's `problem`
                     panel instead, and it says so in words. */}
                 {portfolioLoading && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-                    {["capital", "liabilities", "protocols", "aggregate"].map((slot) => (
+                  <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+                    {["collateral", "debt", "positions", "buffer"].map((slot) => (
                       <Card key={slot} tone="raised">
                         <Skeleton className="h-4 w-28" />
-                        <Skeleton className="mt-2 h-8 w-32" />
-                        {/* Liabilities and the aggregate always land with a
-                            subline under the figure, and capital gains one when
-                            a leg could not be priced. Reserving two lines for a
-                            row that arrives three lines tall is a 98px card
-                            becoming a 124px one under the reader; with the third
-                            line held open it measures 122, which is the jump
-                            this skeleton exists to prevent. */}
+                        <Skeleton className="mt-2 h-9 w-32" />
+                        {/* Every one of the four lands with a subline, so all
+                            three lines are held open: a 98px card becoming a
+                            124px one under the reader is the jump this exists
+                            to prevent. */}
                         <Skeleton className="mt-2 h-4 w-24" />
                       </Card>
                     ))}
@@ -4483,12 +4457,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
                     A poll that fails after one has succeeded raises `offline`
                     and KEEPS the positions it last read, so `liveMacro` keeps
-                    summing them and the four cards below carried on stating a
-                    monitored total and an aggregate risk score as current while
-                    the position list under them said the feed was unreachable.
-                    One screen, two contradictory claims about one wallet, and
-                    the one making the safety claim was the one that looked
-                    fine.
+                    summing them and the cards below carried on stating a
+                    monitored total as current while the position list under them
+                    said the feed was unreachable. One screen, two contradictory
+                    claims about one wallet, and the one making the safety claim
+                    was the one that looked fine.
 
                     The figures stay, because a reader whose feed just went down
                     still wants their last-known numbers. What changes is that
@@ -4498,240 +4471,191 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   <EmptyState
                     tone="problem"
                     title="These figures are not being updated"
-                    hint={`We could not reach the scoring feed, so everything below is the last successful read${lastScoredAt ? `, from ${lastScoredAt}` : ""}. Your positions may have moved since. Nothing here has been rescored.`}
+                    hint={`${walletCheckedAt ?? "Checked previously"}, feed unavailable since${lastScoredAt ? ` ${lastScoredAt}` : ""}. Nothing here has been rescored.`}
                   />
                 )}
 
-                {/* Nothing on this wallet could be priced. Stated once, loudly,
-                    above the cards: the aggregate card is the one making a
-                    safety claim and it previously carried no caveat whatsoever,
-                    so the caveat that mattered most was the one the screen did
-                    not have. `problem`, not `clear` — this is "we could not
-                    look", which is never good news.
+                {/* The OTHER feed-down branch: this wallet has never answered
+                    at all, so there is no last successful read to fall back
+                    on. Separate from the notice above rather than one
+                    condition with two hints, because a reader must not be
+                    told "everything below is the last successful read" when
+                    there has never been one. */}
+                {positionsUnknown && (
+                  <EmptyState
+                    tone="problem"
+                    title="These figures could not be read"
+                    hint="We could not reach the scoring feed for this wallet, so nothing below has been measured yet."
+                  />
+                )}
+
+                {/* Nothing on this wallet could be priced. Stated once, above
+                    the figures, because every dollar total below is then a
+                    blank rather than a number. `problem`, not `clear` - this is
+                    "we could not look", which is never good news.
 
                     Suppressed while the feed is down: the notice above already
-                    says these numbers are not current, and two dashed grey
-                    panels stacked make the reader work out which one is the
-                    real problem. */}
+                    says these numbers are not current, and two hatched panels
+                    stacked make the reader work out which one is the real
+                    problem. */}
                 {!portfolioFeedDown && liveMacro && liveMacro.capital === null && (
                   <EmptyState
                     tone="problem"
                     title="Dollar amounts are unavailable for this wallet"
-                    hint="A price feed PANIK converts these positions with is missing or stale, so there is no portfolio total and no combined score to show. Each position's own score and health factor below are unaffected, because they are ratios."
+                    hint="A price feed PANIK converts these positions with is missing or stale, so there is no portfolio total to show. Each position's own score and outlook below are unaffected, because they are ratios."
                   />
                 )}
 
-                {/* Macro metrics columns. Rendered only when there are real
-                    positions to summarise, so every figure below comes from
-                    `liveMacro` and there is no literal for it to fall back to.
-                    An empty wallet gets the EmptyState above and no cards at
-                    all, because "No positions yet" directly above a dashboard
+                {/* The stat row. Rendered whenever there is either something to
+                    summarise (`liveMacro`) or a reason every card should say
+                    "unknown" together (`positionsUnknown`) - an empty wallet
+                    with neither gets the EmptyState above and no cards at all,
+                    because "No positions yet" directly over a dashboard
                     stating a monitored total is the screen contradicting
-                    itself. */}
-                {liveMacro && (() => {
-                  const aggregate = liveMacro.aggregate;
-                  // Legs the engine could not price contribute nothing to the
-                  // three dollar-weighted figures here, so each one is a FLOOR
-                  // and not the wallet. A numeral that quietly drops a position
-                  // is the failure this screen is least able to survive, so the
-                  // shortfall is stated rather than left to the reader.
-                  //
-                  // The visible marker is one sub-line, on the capital card,
-                  // and it is deliberately short: `Stat` truncates its sub to a
-                  // single line, so a caveat long enough to be cut is a caveat
-                  // that disappears exactly when the card gets narrow. The
-                  // sentence explaining it lives in the tips, which wrap.
-                  const unpriced = liveMacro.unpricedLegs;
-                  const nothingPriced = liveMacro.capital === null;
-                  const unpricedNote =
-                    unpriced > 0 ? `${unpriced} position${unpriced === 1 ? "" : "s"} not priced` : null;
-                  const unpricedHint = nothingPriced
-                    ? " No position on this wallet could be priced, so there is no dollar figure to give. The scores and health factors are still exact."
-                    : unpriced > 0
-                      ? ` A price feed was missing for ${unpriced === 1 ? "one position" : `${unpriced} positions`}, so ${unpriced === 1 ? "it is" : "they are"} left out of this figure. The scores and health factors are still exact.`
-                      : "";
-                  // One rendering for "we could not measure this", in the value
-                  // slot where a number would otherwise go. The treatment is
-                  // `RISK_CHIP.UNKNOWN`, the same dashed unfilled grey a
+                    itself.
+
+                    1 -> 2 -> 4. The old jump straight from 1 to 4 at `sm` gave
+                    each card ~150px at 640px wide, which is narrower than the
+                    figure inside it, so every card in the row ellipsised at
+                    once. Four across is only earned at `xl`. */}
+                {(liveMacro || positionsUnknown) && (() => {
+                  // One rendering for "we could not measure this", in the
+                  // value slot where a number would otherwise go. The
+                  // treatment is `RISK_CHIP.UNKNOWN`, the same hatch a
                   // degraded position row uses, so the marker means the same
                   // thing everywhere: shape, icon and words, no hue, and no
-                  // number standing in for a blank. Its explanation rides in
-                  // the InfoTip the label already carries rather than buying a
-                  // second hover on the same card.
+                  // number standing in for a blank. Defined before the branch
+                  // split because both use it: a wallet that never answered
+                  // and a wallet with one unpriced leg are both "we do not
+                  // have this number", just at different scopes.
                   const notMeasured = (
                     <span
-                      className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-sm font-sans font-semibold ${RISK_CHIP.UNKNOWN}`}
+                      className={`inline-flex items-center gap-1.5 hard-edge px-2 py-0.5 font-sans text-base font-semibold ${RISK_CHIP.UNKNOWN}`}
                     >
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
                       Not measured
                     </span>
                   );
-                  // The verdict is carried by the WORD, not by a hue. A 28px
-                  // numeral repainted red is the single loudest thing a
-                  // dashboard can emit, and it was firing on a summary figure
-                  // while the four per-position bands — the numbers a user can
-                  // actually act on — sat in 11px chips beside it.
+
+                  if (!liveMacro) {
+                    // The feed has never answered for this wallet, so there is
+                    // no stale figure to fall back to either: all four cards
+                    // say so uniformly rather than each guessing at a number
+                    // they do not have. Coverage keeps its own literal
+                    // sub-line ("Not measured") rather than "Live feed
+                    // unavailable", because its usual sub-line names counts
+                    // this branch does not have either - "0 positions across 0
+                    // protocols" is exactly the zero-standing-in-for-unknown
+                    // this product bans.
+                    // Every card carries the same value and near-identical
+                    // sub; only Coverage's differs (see the comment above), so
+                    // the four are a map over their two varying fields rather
+                    // than four copies of one JSX shape.
+                    const unknownCards: { label: string; sub: string }[] = [
+                      { label: "Total collateral", sub: "Live feed unavailable" },
+                      { label: "Total debt", sub: "Live feed unavailable" },
+                      { label: "Coverage", sub: "Not measured" },
+                      { label: "Liquidation buffer", sub: "Live feed unavailable" },
+                    ];
+                    return (
+                      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+                        {unknownCards.map(({ label, sub }) => (
+                          <Card tone="raised" key={label}>
+                            <Stat size="lg" label={label} value={notMeasured} sub={sub} />
+                          </Card>
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  // Legs the engine could not price contribute nothing to the
+                  // dollar-weighted figures here, so each one is a FLOOR and
+                  // not the wallet. A numeral that quietly drops a position is
+                  // the failure this screen is least able to survive, so the
+                  // shortfall is stated rather than left to the reader.
                   //
-                  // There is no verdict for an unweighable wallet, and this is
-                  // the whole point of the change: the old chain took `?? 22`
-                  // and then `0` from an all-degraded wallet and read it as
-                  // "Secure health status", asserting safety at the moment the
-                  // data was least trustworthy.
-                  const aggregateVerdict =
-                    aggregate === null
-                      ? "No priced positions to weigh"
-                      : aggregate >= 50
-                        ? "Elevated portfolio risk"
-                        : aggregate >= 25
-                          ? "Watch status"
-                          : "Secure health status";
-                  // The verdict is still carried by the WORD — the sentence
-                  // stays secondary grey, and the 28px figure above it stays
-                  // neutral. What the word could not do on its own is be
-                  // findable: a user scanning four cards reads four grey
-                  // sublines and has to parse each to learn which one is the
-                  // warning. The glyph is that findability, and it is the only
-                  // thing here that takes the band's hue.
-                  //
-                  // Absent below 25. "No icon" is the honest rendering of "no
-                  // warning" — an icon that is always present and merely
-                  // changes colour trains people to stop looking at it, and it
-                  // would also spend a fifth risk-hued element on a page whose
-                  // whole colour budget is the four position chips.
-                  //
-                  // Absent for an unscorable wallet too, but for the opposite
-                  // reason: a band is a severity, and "we could not measure
-                  // this" is not one. The `Not measured` marker in the value
-                  // slot carries that state, in grey, on four non-colour axes.
-                  const aggregateBand = aggregate === null ? null : bandOfScore(aggregate);
-                  const aggregateAlarming = aggregateBand !== null && aggregateBand !== "LOW";
-                  // 1 -> 2 -> 4. The old jump straight from 1 to 4 at `sm` gave
-                  // each card ~150px at 640px wide, which is narrower than
-                  // "Monitored liabilities" and narrower than the figure under
-                  // it, so every card in the row ellipsised at once. Four
-                  // across is only earned at `xl`.
+                  // The visible marker is one sub-line, on the collateral card,
+                  // and it is deliberately short: `Stat` truncates its sub to a
+                  // single line, so a caveat long enough to be cut is a caveat
+                  // that disappears exactly when the card gets narrow. The
+                  // sentence explaining it is the right rail's feed card.
+                  const unpriced = liveMacro.unpricedLegs;
+                  const unpricedNote =
+                    unpriced === 0
+                      ? null
+                      : unpriced === 1
+                        ? "One position not priced"
+                        : `${plural(unpriced, "position")} not priced`;
+                  // The buffer's own wording comes from the engine's outlook
+                  // helper, so "4.8%", "Liquidatable now" and "None" are the
+                  // same three answers this figure gives on every other screen.
+                  const bufferOutlook = liquidationOutlook(
+                    closestToLiquidation?.healthFactor ?? null,
+                    closestToLiquidation?.scoredCollateralSymbol ?? "",
+                  );
                   return (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
                       <Card tone="raised">
                         <Stat
-                          label={
-                            <>
-                              Monitored capital
-                              <InfoTip
-                                text={
-                                  "Total collateral value PANIK is watching for this wallet across all protocols." +
-                                  unpricedHint
-                                }
-                              />
-                            </>
-                          }
+                          size="lg"
+                          label="Total collateral"
                           /* No subline when every leg is priced: the figure and
                              the label already say everything this card knows.
                              When one is not, the sub-line is the only thing
                              standing between this figure and a lie. */
                           sub={unpricedNote}
-                          value={liveMacro.capital === null ? notMeasured : formatUsd(liveMacro.capital)}
+                          value={
+                            liveMacro.capital === null ? notMeasured : formatUsd(liveMacro.capital)
+                          }
                         />
                       </Card>
 
                       <Card tone="raised">
                         <Stat
-                          label={
-                            <>
-                              Monitored liabilities
-                              <InfoTip
-                                text={
-                                  "Total borrowed across your positions. Net LTV is liabilities divided by capital - lower means safer." +
-                                  unpricedHint
-                                }
-                              />
-                            </>
-                          }
+                          size="lg"
+                          label="Total debt"
                           value={liveMacro.debt === null ? notMeasured : formatUsd(liveMacro.debt)}
                           /* No ratio when either side of it is unknown. "Net
-                             LTV ratio: 0%" was the reassuring end of the same
-                             bug the aggregate card had: a wallet with no
-                             readable prices reads as a wallet with no debt. */
+                             loan to value 0%" was the reassuring end of the
+                             same bug: a wallet with no readable prices reads as
+                             a wallet with no debt. */
                           sub={
                             liveMacro.ltv === null
-                              ? "Net LTV ratio not measured"
-                              : `Net LTV ratio: ${Math.round(liveMacro.ltv * 100)}%`
+                              ? "Net loan to value not measured"
+                              : `Net loan to value ${Math.round(liveMacro.ltv * 100)}%`
                           }
                         />
                       </Card>
 
                       <Card tone="raised">
+                        {/* Coverage folds in what used to be the right rail's
+                            own card: the same marks, same size and spacing,
+                            same bordered plates, so the fact ("N positions
+                            across N protocols") appears once instead of as a
+                            count here and a row of icons three columns over
+                            that a reader had to reconcile by hand. */}
                         <Stat
-                          label={
-                            <>
-                              Protocols watched
-                              <InfoTip
-                                text={`PANIK covers ${coveredProtocolSentence} on ${coveredChainLabel}. This wallet holds a position on ${liveMacro.protocolNames.join(", ")}; the dimmed marks are covered but empty.`}
-                              />
-                            </>
-                          }
-                          /* The card used to contradict its own label: it was
-                             titled "Protocols watched", showed a POSITION
-                             count, and then put the protocol count in the grey
-                             subline underneath. The marks are the value now, so
-                             the label matches what the figure shows - and the
-                             icons name WHICH protocols, which no arrangement of
-                             that sentence ever did.
-
-                             36px, not 24px. These marks ARE this card's value,
-                             and at 24px they read as decoration sitting beside
-                             three siblings whose values are a 28px numeral —
-                             the smallest thing in the row was the only thing in
-                             the row carrying the answer. The row box grows with
-                             them so all four cards still share one baseline.
-
-                             No subline. The position count moved onto the
-                             Positions card's own header, where the list that
-                             the number describes actually is; stating it here
-                             meant two cards counting the same array through
-                             different props, which is a disagreement waiting
-                             to happen. */
-                          value={
-                            <span className="flex h-11 items-center">
-                              <ProtocolMarks
-                                protocols={liveMacro.protocolNames}
-                                covered={coveredProtocols}
-                              />
-                            </span>
-                          }
+                          size="lg"
+                          label="Coverage"
+                          value={<ProtocolMarks protocols={liveMacro.protocolNames} covered={coveredProtocols} />}
+                          sub={`${plural(liveMacro.positions, "position")} across ${plural(liveMacro.protocols, "protocol")}`}
                         />
                       </Card>
 
                       <Card tone="raised">
                         <Stat
-                          label={
-                            <>
-                              Aggregate {RISK_SCORE_NAME}
-                              {/* The weighting is by collateral value, so a leg
-                                  we could not price carries no weight and drops
-                                  out of this average entirely. Its sub-line is
-                                  spoken for by the verdict, so the caveat rides
-                                  in the tip the label already carries rather
-                                  than buying a second line. */}
-                              <InfoTip
-                                text={
-                                  `Collateral-weighted average ${RISK_SCORE_NAME} across this wallet's positions. Bigger positions move it more.` +
-                                  unpricedHint
-                                }
-                              />
-                            </>
-                          }
-                          value={aggregate === null ? notMeasured : `${aggregate} / 100`}
+                          size="lg"
+                          label="Liquidation buffer"
+                          value={bufferOutlook.statValue}
+                          /* Which position the figure is about, because a
+                             wallet-level buffer that does not name its leg is a
+                             number nobody can act on. "No debt on this wallet"
+                             is the honest reading of the other branch: nothing
+                             is borrowed, so there is nothing to liquidate. */
                           sub={
-                            <span className="flex items-center gap-1.5">
-                              {aggregateAlarming && aggregateBand !== null && (
-                                <AlertTriangle
-                                  className={`h-3.5 w-3.5 shrink-0 ${RISK_TEXT[aggregateBand]}`}
-                                  aria-hidden="true"
-                                />
-                              )}
-                              <span className="truncate">{aggregateVerdict}</span>
-                            </span>
+                            closestToLiquidation
+                              ? `Closest position, ${LIVE_PROTOCOL_LABEL[closestToLiquidation.protocol]}`
+                              : "No debt on this wallet"
                           }
                         />
                       </Card>
@@ -4739,45 +4663,31 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   );
                 })()}
 
-                {/* ONE grid, two rows. Row 1 is Positions (7) beside the stacked
-                    Asset allocation + Alert history (5); row 2 is the score
-                    history across all 12. Both row-1 items are grid items in the
-                    same row, so they end on the same line by definition, and the
-                    chart is not paying for that alignment with half the width it
-                    could have. The previous arrangement put the chart under
-                    Positions, which made the right column's job "be as tall as
-                    two cards": at a 1440 window the Alert history ran 339px past
-                    the bottom of the list it sits beside, measured.
+                {/* ONE grid, three rows. Row 1 is the positions table beside
+                    the rail that qualifies it; row 2 splits the allocation and
+                    the alert log; row 3 is the score history across all twelve.
+                    Grid items in one row end on the same line by definition, so
+                    nothing here is a column padded to match its neighbour.
 
-                    `lg` is the breakpoint, and it is measured on the WINDOW while
-                    the split happens in the CONTENT column: at a 1024px window
-                    the sidebar and padding leave 698px of content, so the 7 and 5
-                    tracks measure 397px and 277px at the moment they first
-                    appear. That is wide enough for a position row's three lines
-                    and for a legend row's symbol-and-amount pair; `md` would have
-                    split at ~442px of content and crushed both. Below `lg` the
-                    three cards stack full width in DOM order.
-
-                    The Positions wrapper is `grid` rather than `flex flex-col`
-                    for one reason: a single grid child stretches to the row
-                    height, so when the right column is the taller of the two the
-                    Positions card grows to meet it instead of ending short with
-                    its wrapper stretched around empty space.
+                    `lg` is the breakpoint, and it is measured on the WINDOW
+                    while the split happens in the CONTENT column: at a 1024px
+                    window the sidebar and padding leave 698px of content, so
+                    the 8 and 4 tracks measure 454px and 220px at the moment
+                    they first appear. Below `lg` everything stacks full width
+                    in DOM order.
 
                     The whole grid is gated on there being something to put in
                     it. An empty wallet used to get this row anyway: a card
                     repeating "no open positions" under the empty state that had
                     just said it, an alert feed saying "no alerts yet", and a
-                    chart saying history would build. Three containers whose
-                    entire content is the sentence "there is nothing here" is
-                    the chrome graveyard, not a dashboard. */}
+                    chart saying history would build. */}
                 {(showPositionsCard || showAlertHistory || showRiskHistory) && (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-4">
-                  {/* Row 1, left: the position list — loading, unreachable, or
+                <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-12">
+                  {/* Row 1, left: the position table - loading, unreachable, or
                       holding rows. The zero-position case is the page-level
                       empty state above and never reaches here. */}
                   {showPositionsCard && (
-                  <div className="lg:col-span-7 grid">
+                  <div className="grid min-w-0 lg:col-span-9">
                     <LivePositions
                       positions={portfolioPositions}
                       highlightKey={highlightedPositionKey}
@@ -4802,180 +4712,206 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   </div>
                   )}
 
-                  {/* Row 1, right: the narrow pair. Alert history takes
-                      `lg:flex-1` and absorbs whatever slack the position list
-                      leaves — grid items already stretch to the tallest item in
-                      the row, so the two columns end level at any position count,
-                      with no magic number to go stale. Below `lg` the cards size
-                      to their content as normal.
-
-                      The column itself only exists when one of its two cards
-                      does; an empty grid track would still take its 5 of 12 and
-                      leave the position list marooned at 7. */}
-                  {(allocation.length > 0 || showAlertHistory) && (
-                  <div className="lg:col-span-5 flex flex-col gap-6">
-                    {/* Asset allocation: the visual collateral breakdown.
-                        Only when there is collateral to break down. A card that
-                        renders a bar, four dots, four symbols and four dollar
-                        amounts has to be describing something, and when this had
-                        no positions to describe it described a wstETH/USDC/ETH/
-                        USDT portfolio nobody held. The empty and loading paths
-                        are covered by the states above and by the position list
-                        beside it, so the honest thing here is to render nothing
-                        rather than a heading over four blank rows. */}
-                    {allocation.length > 0 && (
-                    <Card className="space-y-6">
-                      <h3 className="text-sm font-sans font-semibold text-text-primary">
-                        Asset allocation
-                      </h3>
-
-                      {/* Segmented bar; the swatch on each row below is its legend,
-                          which is why those dots stay while decorative ones went. */}
-                      <div className="h-4 w-full bg-white/[0.03] rounded-full overflow-hidden flex border border-border-subtle">
-                        {allocation.map((a) => (
-                          <div
-                            key={a.symbol}
-                            className={`h-full ${a.color}`}
-                            style={{ width: `${a.pct.toFixed(1)}%` }}
-                            title={`${a.symbol}: ${a.pct.toFixed(1)}%`}
-                          ></div>
-                        ))}
-                      </div>
-
-                      {/* Asset distribution, from this wallet's live positions. */}
-                      <div className="space-y-3">
-                        {allocation.map((a) => (
-                          <div key={a.symbol} className="flex justify-between items-center gap-3">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${a.color}`}></span>
-                              {/* Row content, so 14px. An allocation legend where
-                                  the symbol and the dollar amount are both 12px
-                                  is a table nobody reads across. */}
-                              <span className="font-sans text-sm font-medium text-text-primary truncate">
-                                {a.symbol}
-                              </span>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <span className="font-sans text-sm font-bold text-text-primary tabular-nums">{formatUsd(a.usd)}</span>
-                              <span className="block text-xs font-sans text-text-secondary tabular-nums">{a.pct.toFixed(1)}%</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* A leg with no price is not in this split. Said here
-                          rather than left to arithmetic, because percentages
-                          that sum to 100 over a subset look exactly like
-                          percentages that sum to 100 over the whole wallet. */}
-                      {liveMacro && liveMacro.unpricedLegs > 0 && (
-                        <p className="text-xs font-sans leading-relaxed text-text-secondary">
-                          {liveMacro.unpricedLegs === 1
-                            ? "One position could not be priced and is not in this split."
-                            : `${liveMacro.unpricedLegs} positions could not be priced and are not in this split.`}
+                  {/* Row 1, right: the three things that qualify the table
+                      beside it - where alerts go, which feed is missing, and
+                      what was scanned. None of them is a position, which is why
+                      none of them is in the table. */}
+                  {showPositionsCard && (
+                  <div className="flex flex-col gap-6 lg:col-span-3">
+                    {/* The screen's ONE `lead` card, and it is spent here on
+                        purpose: whether an alert can reach this reader away
+                        from this page is the single thing on the tab they
+                        cannot work out by looking at the numbers. Lavender is
+                        nowhere on the risk ramp, so the loudest box on the page
+                        makes no claim about any position in it. */}
+                    <Card tone="lead" className="space-y-3">
+                      <span className="flex items-center gap-2 label-type text-xs text-text-primary">
+                        <Bell className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        Alerts
+                      </span>
+                      <CardTitle as="h3" size="lg">
+                        {alertsDeliverable ? "Telegram connected" : "Telegram not connected"}
+                      </CardTitle>
+                      {/* One line, and only on the branch where there is
+                          something to do about it. "PANIK messages you when a
+                          position crosses your limit" under "Telegram
+                          connected" is the heading restated, which is the copy
+                          rule's delete case. */}
+                      {!alertsDeliverable && (
+                        <p className="font-sans text-sm leading-relaxed text-text-primary">
+                          No alerts are being sent for this wallet.
                         </p>
                       )}
+                      <Button
+                        variant="secondary"
+                        className="w-full justify-center"
+                        onClick={() => setActiveTab("settings")}
+                      >
+                        Alert rules
+                      </Button>
                     </Card>
-                    )}
 
-                    {/* Alert history (watch_transitions IS the alert log).
+                    {/* Only when a feed is genuinely stale, and only when it is
+                        SOME of them: with nothing priced at all the page-level
+                        notice above already says so, and two panels about one
+                        outage is the reader working out which is the real one.
+                        It names the asset, which is the one thing the stat
+                        card's truncated sub-line cannot. */}
+                    {liveMacro !== null && liveMacro.capital !== null && stalePriceAssets.length > 0 && (() => {
+                      // One test, four readings of it. Spelled out at each of
+                      // the four and they can disagree, which in English means
+                      // "The cbBTC price feeds are stale, so that position is".
+                      const one = stalePriceAssets.length === 1;
+                      return (
+                        <Card tone="raised" className="space-y-2">
+                          <span className="flex items-center gap-2 label-type text-xs text-text-muted">
+                            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            {one ? "One feed missing" : plural(stalePriceAssets.length, "feed") + " missing"}
+                          </span>
+                          <p className="font-sans text-sm leading-relaxed text-text-secondary">
+                            {`The ${stalePriceAssets.join(", ")} price ${one ? "feed is" : "feeds are"} stale, so ${one ? "that position is" : "those positions are"} left blank rather than counted as zero.`}
+                          </p>
+                        </Card>
+                      );
+                    })()}
 
-                        `lg:flex-1` when there are rows to hold, and only then.
-                        The card is the stretchy child of the right-hand column,
-                        so the position list beside it sets the height and the
-                        two columns end level by construction, at any position
-                        count and with no magic number to go stale. No `min-h-0`
-                        and no scroller: a flex child allowed to shrink below its
-                        content is a card that clips it, and the preview is a
-                        fixed four rows precisely so it never has to. Everything
-                        older lives on the history page, which is a page rather
-                        than a 194px window into one.
-
-                        Stretching is for a LIST. Absorbing the column's slack
-                        around a single notice is what put one sentence adrift in
-                        the middle of a 349px card holding 123px of content
-                        (measured at 1440 beside four positions), so the states
-                        that hold a notice take their own height and let the
-                        slack fall outside the card, where empty space is just
-                        empty space.
-
-                        Rendered when there are alerts, or when there are
-                        positions for a future alert to be about. "No alerts yet"
-                        is reassurance beside a wallet PANIK is watching; beside
-                        a wallet it could not read, it is a fourth empty box
-                        agreeing that the screen knows nothing. */}
-                    {showAlertHistory && (
-                    <Card
-                      className={
-                        alertsNewestFirst.length || historyLoading ? "lg:flex-1 lg:flex lg:flex-col" : ""
-                      }
-                    >
-                      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary mb-4 shrink-0">
-                        Alert history
-                        <InfoTip text="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet." />
-                      </h3>
-                      {alertsNewestFirst.length ? (
-                        <>
-                          {/* Rules, not boxes. Bordered, tinted rows inside a Card
-                              that is already bordered and tinted is chrome
-                              wrapping chrome; a hairline separates rows for free.
-                              `AlertFeed` owns the row, and the history page draws
-                              it from the same component, so the preview and the
-                              full log cannot drift into two treatments. */}
-                          <AlertFeed
-                            alerts={alertsNewestFirst.slice(0, ALERT_PREVIEW_COUNT)}
-                            protocolLabel={LIVE_PROTOCOL_LABEL}
-                            targets={alertTargets}
-                            onSelectTarget={setHighlightedPositionKey}
-                          />
-                          {/* Only when the preview falls short of the log. Below
-                              that the card IS the whole history, and a control
-                              that opens a page showing what you are already
-                              looking at is a control that does nothing.
-
-                              It names the length, because how far the history runs
-                              is the one thing a four-row preview cannot say.
-                              `lg:mt-auto` sends whatever slack the column hands
-                              the card to the space above the button, so a short
-                              log leaves a margin at the bottom of a card rather
-                              than a hole in the middle of one. */}
-                          {alertsNewestFirst.length > ALERT_PREVIEW_COUNT && (
-                            <Button
-                              ref={alertHistoryTrigger}
-                              variant="secondary"
-                              className="mt-3 lg:mt-auto w-full shrink-0 justify-center"
-                              onClick={() => setAlertHistoryOpen(true)}
-                            >
-                              See all {alertsNewestFirst.length} alerts
-                            </Button>
-                          )}
-                        </>
-                      ) : historyLoading ? (
-                        /* Before the log has been read, the card cannot say
-                           whether it is empty. The rows it is about to have,
-                           held open at the height they will be. */
-                        <AlertFeedSkeleton />
-                      ) : historyFeedDown ? (
-                        /* `problem`, and it must not resemble the state above
-                           it: an unreachable log rendering as "no alerts yet"
-                           is this product promising it is watching at the one
-                           moment it cannot see. */
-                        <EmptyState
-                          tone="problem"
-                          title="Alert history unavailable"
-                          hint="We could not reach the alert log, so whether this wallet has raised any alert is unknown right now. That is not the same as having raised none."
-                        />
-                      ) : (
-                        <AlertLogEmptyState
-                          deliveryConnected={alertsDeliverable}
-                          onConnectAlerts={() => setActiveTab("settings")}
-                        />
-                      )}
-                    </Card>
-                    )}
+                    {/* Coverage itself (the marks, the count, the "on Base"
+                        label) moved into the stat row above as the third
+                        card, so the fact appears once instead of twice: this
+                        rail used to redraw the same marks a stat card three
+                        columns over already named in its sub-line. */}
                   </div>
                   )}
 
-                  {/* Row 2: the aggregate score over time (score_snapshots via
+                  {/* Row 2, left: the visual collateral breakdown. Only when
+                      there is collateral to break down. A card that renders a
+                      bar, four dots, four symbols and four dollar amounts has
+                      to be describing something, and when this had no positions
+                      to describe it described a wstETH/USDC/ETH/USDT portfolio
+                      nobody held. */}
+                  {allocation.length > 0 && (
+                  <Card className="space-y-6 lg:col-span-6">
+                    <CardTitle as="h3" size="sm">
+                      Asset allocation
+                    </CardTitle>
+
+                    {/* Segmented bar; the swatch on each row below is its legend,
+                        which is why those dots stay while decorative ones went. */}
+                    <div className="flex h-4 w-full overflow-hidden hard-edge">
+                      {allocation.map((a) => (
+                        <div
+                          key={a.symbol}
+                          className={`h-full ${a.color}`}
+                          style={{ width: `${a.pct.toFixed(1)}%` }}
+                          title={`${a.symbol}: ${a.pct.toFixed(1)}%`}
+                        ></div>
+                      ))}
+                    </div>
+
+                    {/* Asset distribution, from this wallet's live positions. */}
+                    <div className="space-y-3">
+                      {allocation.map((a) => (
+                        <div key={a.symbol} className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <span className={`h-2.5 w-2.5 shrink-0 ${a.color}`}></span>
+                            {/* Row content, so 14px. An allocation legend where
+                                the symbol and the dollar amount are both 12px
+                                is a table nobody reads across. */}
+                            <span className="truncate font-sans text-sm font-medium text-text-primary">
+                              {a.symbol}
+                            </span>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <span className="font-mono text-sm font-bold tabular-nums text-text-primary">{formatUsd(a.usd)}</span>
+                            <span className="block font-mono text-xs tabular-nums text-text-secondary">{a.pct.toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                  )}
+
+                  {/* Row 2, right: the alert log (watch_transitions IS the
+                      alert log).
+
+                      Rendered when there are alerts, or when there are
+                      positions for a future alert to be about. "No alerts yet"
+                      is reassurance beside a wallet PANIK is watching; beside a
+                      wallet it could not read, it is one more empty box
+                      agreeing that the screen knows nothing. */}
+                  {showAlertHistory && (
+                  <Card
+                    /* One class, chosen here rather than two appended and left
+                       to Tailwind's emit order to break the tie: with the
+                       allocation card absent this takes the whole row instead
+                       of leaving half of it empty. */
+                    className={`flex flex-col ${allocation.length > 0 ? "lg:col-span-6" : "lg:col-span-12"}`}
+                  >
+                    <CardTitle
+                      as="h3"
+                      size="sm"
+                      className="mb-4 shrink-0"
+                      hint="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet."
+                    >
+                      Alert history
+                    </CardTitle>
+                    {alertsNewestFirst.length ? (
+                      <>
+                        {/* Rules, not boxes. Bordered, tinted rows inside a Card
+                            that is already bordered is chrome wrapping chrome; a
+                            hairline separates rows for free. `AlertFeed` owns the
+                            row, and the history page draws it from the same
+                            component, so the preview and the full log cannot
+                            drift into two treatments. */}
+                        <AlertFeed
+                          alerts={alertsNewestFirst.slice(0, ALERT_PREVIEW_COUNT)}
+                          protocolLabel={LIVE_PROTOCOL_LABEL}
+                          targets={alertTargets}
+                          onSelectTarget={setHighlightedPositionKey}
+                        />
+                        {/* Only when the preview falls short of the log. Below
+                            that the card IS the whole history, and a control
+                            that opens a page showing what you are already
+                            looking at is a control that does nothing.
+
+                            It names the length, because how far the history runs
+                            is the one thing a four-row preview cannot say. */}
+                        {alertsNewestFirst.length > ALERT_PREVIEW_COUNT && (
+                          <Button
+                            ref={alertHistoryTrigger}
+                            variant="secondary"
+                            className="mt-3 w-full shrink-0 justify-center lg:mt-auto"
+                            onClick={() => setAlertHistoryOpen(true)}
+                          >
+                            See all {alertsNewestFirst.length} alerts
+                          </Button>
+                        )}
+                      </>
+                    ) : historyLoading ? (
+                      /* Before the log has been read, the card cannot say
+                         whether it is empty. The rows it is about to have,
+                         held open at the height they will be. */
+                      <AlertFeedSkeleton />
+                    ) : historyFeedDown ? (
+                      /* `problem`, and it must not resemble the state above
+                         it: an unreachable log rendering as "no alerts yet"
+                         is this product promising it is watching at the one
+                         moment it cannot see. */
+                      <EmptyState
+                        tone="problem"
+                        title="Alert history unavailable"
+                        hint="We could not reach the alert log, so whether this wallet has raised any alert is unknown right now. That is not the same as having raised none."
+                      />
+                    ) : (
+                      <AlertLogEmptyState
+                        deliveryConnected={alertsDeliverable}
+                        onConnectAlerts={() => setActiveTab("settings")}
+                      />
+                    )}
+                  </Card>
+                  )}
+
+                  {/* Row 3: the aggregate score over time (score_snapshots via
                       /api/history), across all twelve columns.
 
                       Full width because this is the one card on the tab whose
@@ -4992,45 +4928,55 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       whose history is genuinely still filling in. */}
                   {showRiskHistory && (
                   <Card className="lg:col-span-12">
-                    <div className="flex items-baseline justify-between mb-4">
-                      <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
-                        Aggregate {RISK_SCORE_NAME} history
-                        <InfoTip text={`Aggregate ${RISK_SCORE_NAME} of this wallet over time, protocols weighted by collateral.`} />
-                      </h3>
-                      {/* The delta, not the score. "57 / 100" is already the
-                          Aggregate score card two rows up, and the same
-                          figure printed twice reads as two metrics that happen
-                          to agree. Direction over the window is the one fact
-                          this card knows that the stat card cannot. */}
-                      {riskHistory && riskHistory.series.length > 1 && (() => {
-                        const s = riskHistory.series;
-                        const delta = Math.round(s[s.length - 1] - s[0]);
-                        // The WINDOW, not the interval count. 30 daily points
-                        // span 29 intervals, and this header used to say "29d"
-                        // beside an x-axis reading "30d ago" — two defensible
-                        // numbers describing one chart, which reads as a bug.
-                        // `riskHistory.xStart` counts days the same way.
-                        const days = s.length;
-                        return (
-                          <span className="text-xs font-sans tabular-nums text-text-secondary">
-                            {delta === 0
-                              ? `flat over ${days}d`
-                              : `${delta > 0 ? "up" : "down"} ${Math.abs(delta)} over ${days}d`}
-                          </span>
-                        );
-                      })()}
+                    <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                      <CardTitle
+                        as="h3"
+                        size="sm"
+                        hint={`Aggregate ${RISK_SCORE_NAME} of this wallet over time, protocols weighted by collateral. Bigger positions move it more, and a leg we could not price carries no weight.`}
+                      >
+                        Aggregate {RISK_SCORE_NAME}
+                      </CardTitle>
+                      {/* The current reading and the direction it moved, which
+                          are the two facts this card knows. The score used to
+                          be a fifth stat card up in the row; it is here now,
+                          over the series it is the last point of, so the figure
+                          and its history are one thing rather than two cards
+                          counting the same array. */}
+                      <span className="flex items-baseline gap-3">
+                        <span className="font-mono text-lg font-bold tabular-nums text-text-primary">
+                          {liveMacro && liveMacro.aggregate !== null
+                            ? `${liveMacro.aggregate} / 100`
+                            : "Not measured"}
+                        </span>
+                        {riskHistory && riskHistory.series.length > 1 && (() => {
+                          const s = riskHistory.series;
+                          const delta = Math.round(s[s.length - 1] - s[0]);
+                          // The WINDOW, not the interval count. 30 daily points
+                          // span 29 intervals, and this header used to say "29d"
+                          // beside an x-axis reading "30d ago" - two defensible
+                          // numbers describing one chart, which reads as a bug.
+                          // `riskHistory.xStart` counts days the same way.
+                          const days = s.length;
+                          return (
+                            <span className="font-sans text-xs tabular-nums text-text-secondary">
+                              {delta === 0
+                                ? `flat over ${days}d`
+                                : `${delta > 0 ? "up" : "down"} ${Math.abs(delta)} over ${days}d`}
+                            </span>
+                          );
+                        })()}
+                      </span>
                     </div>
                     {riskHistory ? (
                       // Series colour is cool and fixed: repainting 30 days of history in
-                      // today's band colour claims the whole series was that band. The
-                      // current band is already stated in the chip above.
+                      // today's band colour claims the whole series was that band.
                       // The axis is 0-100 because the SCORE is 0-100. Scaled to
                       // its own min/max the line filled the card whatever it
                       // did, and cropped out the two facts worth having: the
                       // band boundaries, and the level at which PANIK starts
                       // alerting this user. The threshold is the user's own,
                       // read from their profile, and drawn as a neutral
-                      // annotation — not a fifth band colour.
+                      // annotation - not a fifth band colour.
                       <Sparkline
                         data={riskHistory.series}
                         height={riskChartHeight}
@@ -5060,18 +5006,9 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                          points, which is not an error and not an empty result.
 
                          The frame is reserved rather than filled with prose, so
-                         the first series to land does not shove the page.
-                         "watch worker" was an internal service name on a user's
-                         dashboard; the cadence is the same fact in words someone
-                         has a reason to know, and it is only stated once the
-                         history has actually been read.
-
-                         The two states differ in what fills the frame, never in
-                         its size. A read that has not returned is seconds long
-                         and gets a plain reserved block; a wallet PANIK has
-                         scored once holds this frame for minutes and across
-                         reloads, so there the sentence sits INSIDE it. Below the
-                         frame it read as a caption to a chart that had failed. */
+                         the first series to land does not shove the page. The
+                         cadence is only stated once the history has actually
+                         been read. */
                       <SparklinePlaceholder
                         height={riskChartHeight}
                         note={
@@ -5121,13 +5058,79 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         `tracking-wide`, `pb-3`), so moving between tabs restated
                         the heading at two sizes with no rule saying which was
                         which. */}
-                    <div className="border-b border-border-subtle pb-5">
-                      <h1 className="text-2xl font-sans font-extrabold tracking-tight text-text-primary">Settings</h1>
-                    </div>
+                    <PageHeader title="Settings" />
 
-                    {/* First, because it decides what the cards under it are
-                        even about: which chain the positions, scores and exits
-                        on every other tab belong to. */}
+                    {/* WHO THIS BROWSER IS, first, because everything under it
+                        is scoped to that.
+
+                        It used to be a menu button in the app header: an
+                        address, a membership line and a sign-out, in a portalled
+                        panel that opened over whatever was being read, on every
+                        tab. None of those three is a thing anyone does twice a
+                        session, and sign-out in particular is a deliberate, rare
+                        action a user goes LOOKING for. */}
+                    {accountState.account && (
+                      <Card tone="raised" className="space-y-3">
+                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
+                          <UserRound className="h-4 w-4 text-text-primary" />
+                          <h3 className="text-sm font-sans font-semibold text-text-primary">Account</h3>
+                        </div>
+                        <p className="font-sans text-sm font-bold text-text-primary">
+                          {accountState.account.email}
+                        </p>
+                        {/* Stated from the grant the server returned, never
+                            assumed: a membership with no expiry gets no date
+                            rather than an invented one. */}
+                        <p className="font-sans text-xs text-text-secondary">
+                          {describeMembership(accountState.account)}
+                        </p>
+                        <Button
+                          variant="secondary"
+                          disabled={accountState.busy}
+                          onClick={() => void accountState.signOut()}
+                        >
+                          {accountState.busy ? "Signing out..." : "Sign out"}
+                        </Button>
+                      </Card>
+                    )}
+
+                    {/* The risk profile, which was a chip in the header wearing
+                        a tooltip that explained what it changed.
+
+                        It is a SETTING: it decides the limit every position on
+                        every tab is measured against, and where alerts fire.
+                        The line under it is the threshold itself, from the
+                        engine, which is the one thing the tier's name cannot
+                        say. */}
+                    {riskTier && (
+                      <Card tone="raised" className="space-y-3">
+                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
+                          <Sliders className="h-4 w-4 text-text-primary" />
+                          <h3 className="text-sm font-sans font-semibold text-text-primary">
+                            Risk profile
+                          </h3>
+                        </div>
+                        <p className="font-sans text-sm font-bold text-text-primary">
+                          {RISK_TIER_LABELS[riskTier]}
+                        </p>
+                        <p className="font-sans text-xs text-text-secondary">
+                          Alerts fire at {ALERT_THRESHOLD[selectedRiskProfile]} on the 0 to 100
+                          score.
+                        </p>
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")
+                          }
+                        >
+                          Retake the questions
+                        </Button>
+                      </Card>
+                    )}
+
+                    {/* Which chain the positions, scores and exits on every
+                        other tab belong to. The TESTNET marker that used to ride
+                        in the header is the selected state of this control. */}
                     <ChainModeSwitch />
 
                     {/* Identity, above the two cards that depend on it: where
@@ -5165,9 +5168,12 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                             <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
                           </h3>
                         </div>
-                        <p className="text-xs text-text-secondary leading-relaxed font-sans">
-                          Get a Telegram message when this wallet nears your {selectedRiskProfile} risk limit.
-                        </p>
+                        {/* "Get a Telegram message when this wallet nears your
+                            moderate risk limit" used to stand here. It restates
+                            the card's own heading and the profile card above it,
+                            and the threshold it alludes to is stated exactly
+                            there. The status line below is the fact this card
+                            carries. */}
                         <div className="flex flex-col sm:flex-row gap-3 pt-1">
                           <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-xs truncate">
                             {telegramLink.status === "connected" ? (
@@ -5202,28 +5208,29 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                              telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
                           </button>
                         </div>
-                        {telegramEligible && telegramLink.status !== "connected" && (
-                          <p className="text-xs font-sans text-text-secondary">
-                            Sign to prove wallet ownership - free, no transaction, no gas.
-                          </p>
-                        )}
+                        {/* "Sign to prove wallet ownership, free, no
+                            transaction, no gas" is gone: the account card above
+                            already says what a PANIK signature costs, and it
+                            said the same thing twice on one screen.
+
+                            The one line that survives on this branch is the one
+                            that says what to DO, because a control the reader
+                            cannot use has to say why. */}
                         {!telegramEligible && (
-                          <p className="text-xs font-sans text-text-secondary">Onboard with an EVM wallet (0x...) to enable alerts.</p>
-                        )}
-                        {telegramLink.status === "connected" && (
-                          <p className="text-xs font-sans text-risk-low">
-                            Alerts are on. Send /stop in the bot anytime to pause them.
+                          <p className="text-xs font-sans text-text-secondary">
+                            Add a wallet starting 0x to enable alerts.
                           </p>
                         )}
+                        {/* The instructions, and only while a link is open: a
+                            reader whose browser did not follow it has no other
+                            way to finish. Not decoration, not an explanation of
+                            the feature. */}
                         {telegramLink.status === "opened" && (
-                          <div className="space-y-1.5 pt-1.5 border-t border-border-subtle">
-                            <p className="text-xs font-sans text-risk-low flex items-center">
-                              Waiting for you to press Start in @{telegramBotUsername} - this confirms automatically.
-                            </p>
+                          <div className="space-y-1.5 border-t border-border-subtle pt-1.5">
                             <p className="text-xs font-sans text-text-secondary leading-relaxed">
-                              If the link didn't open automatically, copy this command, open <strong className="text-text-primary">@{telegramBotUsername}</strong> in Telegram, and send it:
+                              Send this to <strong className="text-text-primary">@{telegramBotUsername}</strong> if the link did not open:
                             </p>
-                            <div className="flex items-center bg-surface-base/80 border border-border-subtle rounded-sm px-2.5 py-1.5 font-sans text-xs text-risk-low select-all break-all">
+                            <div className="flex items-center break-all hard-edge bg-surface-sunken px-2.5 py-1.5 font-mono text-xs select-all">
                               /start {telegramLink.code}
                             </div>
                           </div>
@@ -5234,22 +5241,22 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       </Card>
                     )}
 
-                    {/* Travels with the card it belongs to, and now sits under
-                        it rather than in a sidebar track beside it. It is a
-                        data-handling commitment about the Telegram link and the
-                        only place /stop is documented, so it is never deleted -
-                        but with that card withheld under a read-only session it
-                        would be a promise about a feature this screen is not
-                        offering, floating on its own.
+                    {/* A data-handling commitment and the only place /stop is
+                        documented, so it is never deleted - but it is now the
+                        two facts rather than the paragraph around them.
+                        Withheld with the card it belongs to, because a promise
+                        about a feature this screen is not offering has nothing
+                        to attach itself to.
 
                         Deliberately NOT the `Card` primitive the cards above it
                         are. It is a footnote to the card it follows, and giving
-                        it the same plate and the same padding would make it read
-                        as a fifth setting. */}
+                        it the same plate would make it read as a fifth
+                        setting. */}
                     {!readOnlySession && (
-                      <div className="p-3 bg-white/[0.02] border border-border-subtle rounded-lg font-sans text-xs text-text-secondary leading-relaxed">
-                        We store only your Telegram chat id and wallet. No private keys, ever. Send /stop to disable instantly.
-                      </div>
+                      <p className="font-sans text-xs leading-relaxed text-text-secondary">
+                        Stored: your Telegram chat id and wallet address. Send /stop in the bot to
+                        disable.
+                      </p>
                     )}
 
                     {/* Two cards, two different things being granted, and they
@@ -5480,7 +5487,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
       {/* Atomic Exit / Reduce flow (Phase 2) - real transactions, user-signed */}
       {exitPrefill && (
-        <ExitFlow prefill={exitPrefill} onClose={() => setExitPrefill(null)} />
+        <ExitFlow
+          prefill={exitPrefill}
+          onClose={() => setExitPrefill(null)}
+          gasGwei={chainTel.gasGwei}
+        />
       )}
 
       {/* In-app open flow (Phase 2) - the selected chain, user-signed */}

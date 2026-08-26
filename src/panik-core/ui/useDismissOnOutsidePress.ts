@@ -4,7 +4,7 @@ import { useEffect, useRef, type RefObject } from "react";
  * Dismiss a floating thing when the press lands outside it.
  *
  * ONE LISTENER CONTRACT FOR EVERY OVERLAY, because the two that had their own
- * had chosen differently: `ui/Listbox` used `mousedown`, `AccountMenu` used a
+ * had chosen differently: `ui/Listbox` used `mousedown`, the account menu used a
  * capturing `pointerdown`. `mousedown` wins, and the reason is Listbox's:
  *
  *   - Not `click`: a press that starts outside and ends inside (a drag across

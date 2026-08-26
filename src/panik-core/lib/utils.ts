@@ -4,7 +4,7 @@
  */
 
 import { PositionState } from "./types";
-import type { AdvisorAction, Band, LiveProtocol, ProfileStatus } from "./live";
+import type { AdvisorAction, AdvisorUrgency, Band, LiveProtocol, ProfileStatus } from "./live";
 /**
  * A VALUE import from the engine, which every other import in panik-core is
  * careful not to be, and the exception is deliberate: `prospective.ts` has no
@@ -478,13 +478,61 @@ export const ADVISOR_ACTION: Record<AdvisorAction, string> = {
  * which is false.
  */
 export const AI_PROSE_NOTE =
-  "Summaries are worded by AI. Every number and recommendation is decided by the risk engine.";
+  "Summaries may be worded by AI. Every number and recommendation is decided by the risk engine.";
 
 export const RISK_TEXT: Record<Band, string> = {
   LOW: "text-risk-low",
   ELEVATED: "text-risk-elevated",
   HIGH: "text-risk-high",
   CRITICAL: "text-risk-critical",
+};
+
+/**
+ * A band, as the word a `RiskChip` wears.
+ *
+ * Here rather than in one surface's file, because three now render a band as a
+ * chip: the Watch simulator's verdict, the Portfolio positions table and the
+ * Advisor's own callout. The version this replaces lived in `AppDemo` and had
+ * already grown its own vocabulary once, where CRITICAL came out "CRITICAL
+ * THREAT" and ELEVATED came out bare, so the loudest band read as a different
+ * KIND of statement rather than one more step on the same scale.
+ *
+ * `Record<Band, string>`, so a band added to the engine fails the build here
+ * instead of falling through to the raw token. `RiskChip` uppercases these
+ * itself, so they are written as words.
+ */
+export const BAND_WORD: Record<Band, string> = {
+  LOW: "Low risk",
+  ELEVATED: "Elevated risk",
+  HIGH: "High risk",
+  CRITICAL: "Critical risk",
+};
+
+/**
+ * The WALLET's urgency, as a band and the word that names it.
+ *
+ * `AdvisorUrgency` is the engine's own union and it is not a risk band: it is a
+ * property of the wallet, decided by its worst leg, where a band is a property
+ * of one position. The two ride the same ramp on purpose, because a reader who
+ * has learned that red means "deal with this" on a position row must not have
+ * to learn a second scale for the sentence above them.
+ *
+ * `info` maps to nothing at all. There is no band meaning "we looked and there
+ * is nothing to do", and painting that state LOW green would be the ramp making
+ * a safety claim about a whole wallet from the absence of a finding.
+ *
+ * The word names the SEVERITY, never a verb: a chip may state a fact the ramp
+ * already colours, and may not colour an instruction. What to do lives in the
+ * headline beside it. Shared between the Advisor panel's verdict card and the
+ * Portfolio's advisor callout, which is the same statement on two screens.
+ */
+export const URGENCY_VERDICT: Record<
+  AdvisorUrgency,
+  { band: Band; word: string } | null
+> = {
+  info: null,
+  warning: { band: "ELEVATED", word: BAND_WORD.ELEVATED },
+  critical: { band: "CRITICAL", word: BAND_WORD.CRITICAL },
 };
 
 /**
@@ -883,6 +931,71 @@ export function formatUsd(value: number | null): string {
  */
 export function truncateAddress(address: string): string {
   return address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
+}
+
+/**
+ * When these figures were last actually read, as an elapsed time.
+ *
+ * NULL WHEN THE FEED NEVER ANSWERED, which is the whole reason this returns a
+ * nullable rather than a string: `updatedAt` is 0 before the first successful
+ * poll, and "Checked 20,845 days ago" is what an epoch timestamp renders as. A
+ * surface with no reading to describe says nothing.
+ *
+ * Minute granularity and no seconds, because the product bans live tickers: the
+ * reader is deciding whether to trust what is on their screen right now, and
+ * "Checked 2 minutes ago" answers that. Past an hour it steps up to hours
+ * rather than printing three digits of minutes, which is a number nobody
+ * converts in their head.
+ *
+ * A clock skewed ahead of the server also returns null. A negative elapsed time
+ * is not a reading, and "in 3 minutes" under a wallet's positions is worse than
+ * no line at all.
+ */
+export function checkedAgo(updatedAt: number, now: number = Date.now()): string | null {
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0) return null;
+  const minutes = Math.floor((now - updatedAt) / 60_000);
+  if (minutes < 0) return null;
+  if (minutes < 1) return "Checked just now";
+  if (minutes < 60) return `Checked ${plural(minutes, "minute")} ago`;
+  return `Checked ${plural(Math.floor(minutes / 60), "hour")} ago`;
+}
+
+/**
+ * `1 protocol`, `4 protocols`. The regular-plural case, once.
+ *
+ * Seven call sites in this file's consumers spell out `n === 1 ? "x" : "xs"`
+ * inline, and the failure mode is not that one of them gets the grammar wrong
+ * but that one of them forgets: "Across 1 protocols" is the kind of thing that
+ * survives a review because nobody is reading for it.
+ *
+ * REGULAR NOUNS ONLY, and deliberately not a general pluralizer. Every noun
+ * this product counts (position, protocol, feed, minute, hour, alert) takes a
+ * bare `s`, and a helper that tried to handle the irregular cases would be a
+ * dictionary nothing here needs. A noun that does not take a bare `s` must not
+ * be passed to this; it should be written out at its call site.
+ */
+export function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/**
+ * Worst first, over a composite score.
+ *
+ * A leg the engine could NOT score sorts first, not last: an unmeasured risk is
+ * not a low one, and a missing score read as 0 would file it under every
+ * healthy position. Equal scores keep the caller's own order (`sort` is stable
+ * per spec).
+ *
+ * Here rather than in one surface's file, because two lists now order
+ * themselves by this rule and they must not disagree about where an unscorable
+ * position goes: the Advisor's leg cards and the Portfolio's positions table.
+ * The Portfolio's copy was a plain `b.total - a.total`, which leaves a NaN
+ * score in an undefined position rather than at the top.
+ */
+export function worseScoreFirst(a: number, b: number): number {
+  const scored = (n: number) => (Number.isFinite(n) ? 1 : 0);
+  if (scored(a) !== scored(b)) return scored(a) - scored(b);
+  return scored(a) === 0 ? 0 : b - a;
 }
 
 /**
