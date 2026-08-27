@@ -24,7 +24,7 @@ import { formatTokenAmount } from "../lib/exitLegs";
 import type { AdvisorOpenPlan } from "../lib/live";
 import { useProspective } from "../lib/live";
 import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
-import { Button, Card, Field, LAYER, Notice, SCRIM, Stat } from "../ui";
+import { Button, Card, Chip, Field, LAYER, Notice, SCRIM, Stat } from "../ui";
 import {
   borrowAsset,
   buildOpenSteps,
@@ -57,9 +57,9 @@ import { liquidationOutlook, PROTOCOL_LABEL } from "../lib/utils";
  */
 function LedgerRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="min-w-0 font-sans text-sm text-text-secondary">{label}</span>
-      <span className="shrink-0 font-mono text-sm font-bold tabular-nums text-text-primary">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+      <span className="font-sans text-sm text-text-secondary">{label}</span>
+      <span className="ml-auto font-mono text-sm font-bold tabular-nums text-text-primary">
         {value}
       </span>
     </div>
@@ -159,7 +159,6 @@ export function OpenFlow({
   const [chainMode] = useState(getChainMode);
   const config = useMemo(() => openChainConfig(chainMode), [chainMode]);
   const openChainId = config.chainId;
-  const isTestnet = chainMode === "testnet";
 
   const publicClient = usePublicClient({ chainId: openChainId });
 
@@ -491,33 +490,35 @@ export function OpenFlow({
       <div className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto hard-edge shadow-hard bg-surface-raised">
         <div className="space-y-5 p-6">
           <div className="flex items-start justify-between gap-3 border-b-[3px] border-solid border-border-strong pb-4">
-            <div className="min-w-0 space-y-1">
-              <h2 className="font-sans text-lg font-black uppercase tracking-tight text-text-primary">
-                Open position
-              </h2>
-              <p className="font-sans text-xs leading-relaxed text-text-secondary">{summary}</p>
-              {/* The two facts a reader acts on, out of the four-clause
-                  paragraph that stood here: which chain the money moves on, and
-                  whose key signs it. "Non-custodial: PANIK never holds your
-                  assets" said the second one a second time. */}
+            <h2 className="min-w-0 font-sans text-lg font-black uppercase tracking-tight text-text-primary">
+              Open position
+            </h2>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* What kind of money this moves, in two words, from the same
+                  faucet flag the deleted paragraph branched on. The paragraph
+                  said it in twenty-eight ("Executes on Base Sepolia with test
+                  assets that have no value. Non-custodial: every step is a
+                  standard protocol transaction signed by your own wallet, PANIK
+                  never holds your assets") and named the chain a second time,
+                  which the Market row below already carries.
+
+                  It is not withheld on mainnet: "Real funds" is the half of
+                  this a reader most needs, and dropping the chip there would
+                  leave the louder path silent. */}
               {step !== "unsupported" ? (
-                <p className="font-sans text-xs leading-relaxed text-text-secondary">
-                  Executes on {isTestnet ? CHAIN_MODE_LABEL.testnet : CHAIN_MODE_LABEL.mainnet} with{" "}
-                  {config.faucet ? "test assets that have no value" : "real funds"}. Every step is
-                  signed by your own wallet.
-                </p>
+                <Chip>{config.faucet ? "Test assets" : "Real funds"}</Chip>
               ) : null}
+              <button
+                type="button"
+                onClick={requestClose}
+                disabled={executing}
+                aria-label="Close"
+                title={executing ? "Finish or cancel the pending transaction first" : "Close"}
+                className="shrink-0 cursor-pointer text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={requestClose}
-              disabled={executing}
-              aria-label="Close"
-              title={executing ? "Finish or cancel the pending transaction first" : "Close"}
-              className="shrink-0 cursor-pointer text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <X className="h-5 w-5" aria-hidden="true" />
-            </button>
           </div>
 
           {step === "unsupported" ? (
@@ -548,19 +549,6 @@ export function OpenFlow({
 
           {step === "review" || step === "executing" ? (
             <div className="space-y-4">
-              {/* A resumed open, stated as a fact about the chain rather than
-                  as a warning: nothing failed, some of it already landed. The
-                  amber box it replaces spent a risk hue on that. */}
-              {completedSteps > 0 ? (
-                <Card tone="set-back" className="space-y-2">
-                  <LedgerRow label="Steps already on-chain" value={String(completedSteps)} />
-                  <p className="font-sans text-xs leading-relaxed text-text-secondary">
-                    Your collateral is supplied and locked at its original size. Adjust the borrow
-                    and retry.
-                  </p>
-                </Card>
-              ) : null}
-
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field
                   mono
@@ -590,11 +578,14 @@ export function OpenFlow({
                 />
               </div>
 
-              {/* What this sizing produces, as figures rather than as a
-                  sentence. The health factor goes through `liquidationOutlook`,
-                  which leads with the price drop it means and keeps the ratio
-                  in the hover; "HF 1.75" appended to the score was the engine's
-                  own shorthand on a screen nobody reads it on. */}
+              {/* What this sizing produces, as figures. The health factor
+                  goes through `liquidationOutlook`, which leads with the price
+                  drop it means and keeps the ratio in the hover; "HF 1.75"
+                  appended to the score was the engine's own shorthand.
+
+                  The "Borrow limit, moderate profile" row is gone: it is the
+                  Borrow field's own `max`, and a cap printed beside the input it
+                  already constrains is the input stated twice. */}
               <Card tone="set-back" className="space-y-4">
                 {/* One column at 390: `Stat` truncates its label, and
                     "Projected risk score" lost its last word in a half-width
@@ -606,10 +597,13 @@ export function OpenFlow({
                     value={<span title={projectedOutlook.hover}>{projectedOutlook.statValue}</span>}
                   />
                 </div>
-                <LedgerRow
-                  label={`Borrow limit, ${riskProfile} profile`}
-                  value={String(borrowCap)}
-                />
+                {/* `summary` is the plan's own line, built by the memo above
+                    and rendered verbatim: the market and its APY, which used to
+                    be a subtitle under the heading. */}
+                <LedgerRow label="Market" value={summary} />
+                {completedSteps > 0 ? (
+                  <LedgerRow label="Steps already on-chain" value={String(completedSteps)} />
+                ) : null}
                 {txHashes.length > 0 && !doneHash ? (
                   <LedgerRow label="Transactions confirmed" value={String(txHashes.length)} />
                 ) : null}
@@ -632,10 +626,6 @@ export function OpenFlow({
                   </>
                 )}
               </Button>
-
-              <p className="font-sans text-xs leading-relaxed text-text-muted">
-                Review every wallet prompt before signing.
-              </p>
             </div>
           ) : null}
 
@@ -649,14 +639,17 @@ export function OpenFlow({
                   Position opened
                 </h3>
               </div>
+              {/* The one sentence left in either modal, and it is left
+                  deliberately: `doneSummary` is composed inside `execute()` out
+                  of the RECORDED amounts (`formatTokenAmount` over the landed
+                  legs), which is frozen money-path code this pass may not
+                  rewrite into rows. "Your wallet is watched, scoring picks the
+                  position up within a minute" went with the rest. */}
               {doneSummary ? (
                 <p className="font-sans text-sm leading-relaxed text-text-secondary">
                   {doneSummary}
                 </p>
               ) : null}
-              <p className="font-sans text-sm leading-relaxed text-text-secondary">
-                Your wallet is watched. Scoring picks the position up within a minute.
-              </p>
               <a
                 href={explorerTxUrl(config.chainId, doneHash)}
                 target="_blank"
