@@ -27,11 +27,17 @@
  * owns that flow and duplicating it would give this product two places a person
  * can be on a list, which is one more than anybody can keep in step. The
  * secondary path is a link.
+ *
+ * ONE HEADING, ONE INPUT, ONE BUTTON, the same treatment `Settings` gets. Each
+ * screen used to carry a sentence restating what its own heading and control
+ * already said ("PANIK is in closed beta. Sign in first, then enter your
+ * invite code.", "Your code was accepted."); none of it changed what a reader
+ * did next, so it is gone by the three-way test in `docs/DESIGN_SYSTEM.md`.
  */
 
 import React, { useCallback, useEffect, useState } from "react";
 import { ArrowRight, Check, LogIn, Mail, Ticket, type LucideIcon } from "lucide-react";
-import { BootSkeleton, Button, Card, EmptyState, Notice, TextField } from "../ui";
+import { BootSkeleton, Button, Card, EmptyState, Field, Notice } from "../ui";
 import {
   RESEND_COOLDOWN_MS,
   WAITLIST_URL,
@@ -44,16 +50,20 @@ const PROSE = "text-xs font-sans leading-relaxed text-text-secondary";
 
 /**
  * The Google mark, from Simple Icons (CC0), path data copied verbatim on a
- * 24x24 canvas. Never hand-drawn: an improvised G beside a real product is the
- * exact failure the icon rule in docs/DESIGN_SYSTEM.md exists to stop.
+ * 24x24 canvas (https://raw.githubusercontent.com/simple-icons/simple-icons/
+ * develop/icons/google.svg). Never hand-drawn: an improvised G beside a real
+ * product is the exact failure the icon rule in docs/DESIGN_SYSTEM.md exists
+ * to stop.
  *
- * Drawn in `currentColor` rather than in Google's four brand colours, because
- * this is a neutral outline control on a dark surface and a four-colour mark on
- * it would be the loudest saturated thing on a screen whose job is to be calm.
+ * Drawn in `currentColor` rather than in Google's four brand colours: this
+ * look has one brand accent (cobalt) and a four-colour mark on a neutral
+ * secondary button would be the loudest saturated thing on a screen whose job
+ * is to be calm. Sized to the button label's cap height (20px), matching every
+ * other icon that sits beside text at this weight.
  */
 function GoogleMark() {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="currentColor" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" fill="currentColor" aria-hidden="true">
       <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" />
     </svg>
   );
@@ -195,10 +205,9 @@ function SignInScreen({
       <Card tone="raised" className="space-y-3">
         <GateHeading icon={Mail} title="Check your email" />
         <p className={PROSE}>
-          We sent a sign-in link to <span className="text-text-primary">{sent.to}</span>. Open it
-          in this browser to finish signing in.
+          We sent a one-time link to <span className="text-text-primary">{sent.to}</span>. Open it
+          in this browser.
         </p>
-        <p className={PROSE}>The link can be used once.</p>
         {message && <Notice text={message} />}
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" onClick={send} disabled={account.busy || cooldown > 0}>
@@ -221,13 +230,6 @@ function SignInScreen({
   return (
     <Card tone="raised" className="space-y-4">
       <GateHeading icon={LogIn} title="Sign in to PANIK" />
-      {/* Keep-inline by the three-way test: it is the only place a first-time
-          visitor learns that an account alone is not enough, and knowing it
-          before signing in is what stops the next screen reading as a
-          rejection. */}
-      <p className={PROSE}>
-        PANIK is in closed beta. Sign in first, then enter your invite code.
-      </p>
 
       {message && <Notice text={message} />}
 
@@ -250,7 +252,7 @@ function SignInScreen({
       </div>
 
       <div className="space-y-2">
-        <TextField
+        <Field
           id="account-email"
           label="Email"
           type="email"
@@ -266,7 +268,6 @@ function SignInScreen({
           onKeyDown={(e) => {
             if (e.key === "Enter") void send();
           }}
-          placeholder="you@email.com"
         />
         {/* "Sign in", not "Send sign-in link". What pressing this does is
             explained by the screen it produces, which names the address the
@@ -323,8 +324,7 @@ function VoucherScreen({ account }: { account: AccountState }) {
       <Card tone="raised" className="space-y-3">
         <GateHeading icon={Check} title="You're in" />
         <p className={PROSE}>
-          Your code was accepted. PANIK is open for{" "}
-          <span className="text-text-primary">{email}</span>.
+          PANIK is open for <span className="text-text-primary">{email}</span>.
         </p>
         <Button onClick={() => void account.reload()} disabled={account.busy} className="w-full justify-center">
           {account.busy ? "Opening..." : "Open PANIK"}
@@ -337,16 +337,13 @@ function VoucherScreen({ account }: { account: AccountState }) {
   return (
     <Card tone="raised" className="space-y-4">
       <GateHeading icon={Ticket} title="Enter your invite code" />
-      <p className={PROSE}>
-        PANIK is in closed beta. Your code opens it for this account.
-      </p>
 
       <div className="space-y-2">
         {/* Mono, because it is a printed string a reader is copying character
             by character off a card: the face that makes 0/O and 1/l tell
             themselves apart is the one every address and hash in this product
             already uses. */}
-        <TextField
+        <Field
           id="account-voucher"
           label="Invite code"
           mono
@@ -363,7 +360,6 @@ function VoucherScreen({ account }: { account: AccountState }) {
           onKeyDown={(e) => {
             if (e.key === "Enter") void submit();
           }}
-          placeholder="PANIK-TRY-XXXXXXXX"
         />
         {message && <Notice text={message} />}
         <Button onClick={submit} disabled={!canSubmit} className="w-full justify-center">
@@ -373,7 +369,7 @@ function VoucherScreen({ account }: { account: AccountState }) {
 
       <a
         href={WAITLIST_URL}
-        className="inline-flex min-h-6 items-center gap-1.5 text-xs font-sans font-bold text-text-secondary transition-colors hover:text-text-primary"
+        className="inline-flex min-h-6 items-center gap-1.5 text-xs font-sans font-bold text-text-secondary hover:text-text-primary"
       >
         No code? Join the waitlist
         <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
