@@ -16,16 +16,15 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "motion/react";
-import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, ExternalLink, X } from "lucide-react";
 import { useAccount, useConnect, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { asContractClient, bufferedGas, explorerTxUrl } from "../lib/exit";
 import { formatTokenAmount } from "../lib/exitLegs";
-import type { AdvisorOpenPlan } from "../lib/live";
+import type { AdvisorOpenPlan, Band } from "../lib/live";
 import { useProspective } from "../lib/live";
 import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
-import { LAYER, SCRIM } from "../ui";
+import { Button, Chip, Field, LAYER, Notice, SCRIM } from "../ui";
 import {
   borrowAsset,
   buildOpenSteps,
@@ -48,7 +47,38 @@ import {
   type RegisterResult,
   type RiskProfile as WatchRiskProfile,
 } from "../lib/telegram";
-import { PROTOCOL_LABEL } from "../lib/utils";
+import {
+  BAND_WORD,
+  bandOfScore,
+  liquidationOutlook,
+  PROTOCOL_LABEL,
+  RISK_CHIP,
+} from "../lib/utils";
+
+/**
+ * The "liquidates if" cell's answer, built entirely from `liquidationOutlook`'s
+ * own fields rather than re-parsed out of its prose: `strip` is the exact,
+ * already-rounded percentage the engine computed, so the one span this
+ * component sets in mono is a verbatim copy, never a second computation of
+ * `1 - 1/HF`. The no-debt and liquidatable-now cases have no percentage to
+ * highlight, so they render the engine's own sentence whole.
+ */
+function LiquidatesIfValue({
+  outlook,
+  symbol,
+}: {
+  outlook: ReturnType<typeof liquidationOutlook>;
+  symbol: string;
+}) {
+  if (outlook.stripNote === "no debt" || outlook.stripNote === "liquidatable now") {
+    return <span className="font-sans text-lg leading-snug text-text-primary">{outlook.sentence}</span>;
+  }
+  return (
+    <span className="font-sans text-lg leading-snug text-text-primary">
+      {symbol} falls <span className="font-mono font-bold">{outlook.strip}</span>
+    </span>
+  );
+}
 
 type Step = "connect" | "chain" | "review" | "executing" | "done" | "unsupported";
 
@@ -143,7 +173,6 @@ export function OpenFlow({
   const [chainMode] = useState(getChainMode);
   const config = useMemo(() => openChainConfig(chainMode), [chainMode]);
   const openChainId = config.chainId;
-  const isTestnet = chainMode === "testnet";
 
   const publicClient = usePublicClient({ chainId: openChainId });
 
@@ -185,7 +214,7 @@ export function OpenFlow({
     [address, plan.protocol, plan.collateralSymbol, openChainId],
   );
   const [progress, setProgress] = useState<OpenProgress>(EMPTY_PROGRESS);
-  const { completedSteps, txHashes } = progress;
+  const { completedSteps } = progress;
 
   // Rehydrate whenever the identity changes (mount, reconnect, plan switch).
   // A brand-new identity hydrates to EMPTY_PROGRESS, which is the only reset
@@ -241,6 +270,33 @@ export function OpenFlow({
 
   const projectedScore = projected?.total ?? plan.projectedScore;
   const projectedHf = projected?.healthFactor ?? plan.projectedHf;
+  /**
+   * The projected health factor as the reader meets it: the price drop that
+   * would liquidate this position, with the exact ratio kept in the hover. The
+   * review step used to append "· HF 1.75" to the score, which is the engine's
+   * own shorthand on the last screen before a signature. Derived rather than
+   * memoised - it is one lookup over two numbers already in hand.
+   */
+  const projectedOutlook = liquidationOutlook(projectedHf, plan.collateralSymbol);
+  // `projectedHf` is typed `number | null` end to end (no debt is null, never
+  // NaN), so this is belt-and-suspenders rather than a reachable branch: a
+  // corrupted figure renders nothing in the "liquidates if" cell rather than
+  // a stale sentence built from it.
+  const hfUnknown = projectedHf !== null && !Number.isFinite(projectedHf);
+
+  // The engine's own band for the live-scored figure; `bandOfScore` is the
+  // same fallback path Compass and the Portfolio table use while the debounced
+  // `/api/prospective` call has not landed yet. UNKNOWN only if the score
+  // itself is somehow not a finite number, which the plan's own type does not
+  // allow - defensive for the same reason as `hfUnknown` above.
+  const projectedBand: Band | "UNKNOWN" =
+    projected?.band ?? (Number.isFinite(projectedScore) ? bandOfScore(projectedScore) : "UNKNOWN");
+  const projectedBandWord = projectedBand === "UNKNOWN" ? null : BAND_WORD[projectedBand];
+
+  // "OPEN <asset> ON <protocol>", built from the plan the modal already
+  // carries - never a second name for a protocol `PROTOCOL_LABEL` already
+  // states.
+  const heading = `Open ${plan.collateralSymbol} on ${PROTOCOL_LABEL[plan.protocol] ?? plan.protocol}`;
 
   const execute = useCallback(async () => {
     if (!publicClient || !address || !progressKey) return;
@@ -446,16 +502,6 @@ export function OpenFlow({
     onMonitoring,
   ]);
 
-  const inputCls =
-    "w-full bg-surface-raised border border-border-strong rounded-md px-3 py-2 text-sm font-sans tabular-nums text-text-primary focus:border-border-strong";
-
-  const summary = useMemo(
-    () =>
-      `${plan.collateralSymbol} on ${PROTOCOL_LABEL[plan.protocol] ?? plan.protocol}` +
-      (plan.apy !== null ? ` · ~${(plan.apy * 100).toFixed(1)}% APY` : ""),
-    [plan],
-  );
-
   // Dismissing mid-sequence would strand a wallet prompt and (before the
   // persisted cursor existed) lose the resume point entirely. Block it.
   const requestClose = useCallback(() => {
@@ -467,195 +513,186 @@ export function OpenFlow({
     <div className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4`}>
       {/* The app's one scrim, from `ui/overlay`. */}
       <div className={`absolute inset-0 ${SCRIM}`} onClick={requestClose} />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative w-full max-w-lg bg-surface-sunken border border-border-subtle rounded-lg p-6 space-y-5 max-h-[85vh] overflow-y-auto"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-sans font-bold text-text-primary">Open position</h2>
-            <p className="text-2xs font-sans text-text-muted mt-0.5">{summary}</p>
+      <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-y-auto hard-edge shadow-hard bg-surface-raised">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b-[3px] border-solid border-border-strong px-6 py-5">
+          <h2 className="min-w-0 truncate font-sans text-lg font-black uppercase tracking-[0.02em] text-text-primary">
+            {heading}
+          </h2>
+          <div className="flex shrink-0 items-center gap-3.5">
+            {/* What kind of money this moves, in two words, from the same
+                faucet flag the deleted paragraph branched on. It is not
+                withheld on mainnet: "Real funds" is the half of this a reader
+                most needs. */}
+            {step !== "unsupported" ? (
+              <Chip>{config.faucet ? "Test assets" : "Real funds"}</Chip>
+            ) : null}
+            <button
+              type="button"
+              onClick={requestClose}
+              disabled={executing}
+              aria-label="Close"
+              title={executing ? "Finish or cancel the pending transaction first" : "Close"}
+              className="shrink-0 cursor-pointer text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
           </div>
-          <button
-            onClick={requestClose}
-            disabled={executing}
-            title={executing ? "Finish or cancel the pending transaction first" : "Close"}
-            className="text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-muted"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="rounded-md border border-border-subtle bg-white/[0.02] p-3 text-xs text-text-secondary font-sans leading-relaxed">
-          Executes on{" "}
-          <b className="text-text-primary">{isTestnet ? CHAIN_MODE_LABEL.testnet : "Base mainnet"}</b>{" "}
-          with {config.faucet ? "test assets that have no value" : "real funds"}. Non-custodial:
-          every step is a standard protocol transaction signed by your own wallet - PANIK never
-          holds your assets.
         </div>
 
         {step === "unsupported" ? (
-          <div className="space-y-4">
-            <p className="text-sm text-text-secondary font-sans">{unsupportedLine}</p>
-            <button
-              onClick={onClose}
-              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
-            >
+          <div className="space-y-4 p-6">
+            <p className="font-sans text-sm leading-relaxed text-text-secondary">
+              {unsupportedLine}
+            </p>
+            <Button variant="secondary" className="w-full" onClick={onClose}>
               Close
-            </button>
+            </Button>
           </div>
         ) : null}
 
         {step === "connect" ? (
-          <button
-            onClick={() => connect({ connector: injected() })}
-            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-sans font-bold text-sm hover:bg-white/15 transition-colors"
-          >
-            Connect wallet
-          </button>
-        ) : null}
-
-        {step === "chain" ? (
-          <button
-            onClick={() => void switchChainAsync({ chainId: openChainId })}
-            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-sans font-bold text-sm hover:bg-white/15 transition-colors"
-          >
-            Switch to {CHAIN_MODE_LABEL[chainMode]}
-          </button>
-        ) : null}
-
-        {step === "review" || step === "executing" ? (
-          <div className="space-y-4">
-            {completedSteps > 0 ? (
-              <div className="rounded-md border border-risk-elevated/30 bg-risk-elevated/[0.06] p-3 text-xs text-risk-elevated/90 font-sans leading-relaxed">
-                <b className="text-risk-elevated">
-                  {completedSteps} step{completedSteps > 1 ? "s" : ""} already landed on-chain.
-                </b>{" "}
-                This open resumes from the next step - your collateral is already supplied and is
-                locked at its original size, so it can never be supplied twice. Adjust the borrow
-                and retry.
-              </div>
-            ) : null}
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1">
-                <span className="text-2xs font-sans text-text-muted">
-                  Collateral (USD)
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  value={collateralUsd}
-                  onChange={(e) => setCollateralUsd(Math.max(0, Number(e.target.value)))}
-                  className={`${inputCls} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  disabled={executing || completedSteps > 0}
-                  title={
-                    completedSteps > 0
-                      ? "Collateral is already supplied on-chain and cannot be resized here"
-                      : undefined
-                  }
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-2xs font-sans text-text-muted">
-                  Borrow {config.borrowSymbol} (max {borrowCap})
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  max={borrowCap}
-                  value={borrowUsd}
-                  onChange={(e) =>
-                    setBorrowUsd(Math.min(borrowCap, Math.max(0, Number(e.target.value))))
-                  }
-                  className={inputCls}
-                  disabled={executing}
-                />
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between rounded-md border border-border-subtle bg-white/[0.02] p-3">
-              <span className="text-2xs font-sans text-text-muted">
-                Projected PANIK score
-              </span>
-              <span className="text-sm font-sans tabular-nums text-text-primary">
-                {projectedScore}
-                {projectedHf !== null ? ` · HF ${projectedHf?.toFixed(2)}` : ""}
-              </span>
-            </div>
-            <p className="text-2xs font-sans text-text-muted">
-              Borrow is capped at your {riskProfile} profile's target health factor.
-            </p>
-
-            {error ? (
-              <div className="rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-sans break-words">
-                {error}
-              </div>
-            ) : null}
-
-            <button
-              onClick={() => void execute()}
-              disabled={executing || collateralUsd <= 0}
-              className="w-full py-3 rounded-md bg-text-primary text-surface-base font-sans font-bold text-sm hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {executing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> {status}
-                </>
-              ) : (
-                <>
-                  {completedSteps > 0 ? "Resume open" : "Open position"}{" "}
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-            {txHashes.length > 0 && !doneHash ? (
-              <p className="text-2xs font-sans text-text-muted text-center">
-                {txHashes.length} transaction{txHashes.length > 1 ? "s" : ""} confirmed
-                {executing ? "..." : " - retrying continues from the next step"}
-              </p>
-            ) : null}
+          <div className="p-6">
+            <Button className="w-full" onClick={() => connect({ connector: injected() })}>
+              Connect wallet
+            </Button>
           </div>
         ) : null}
 
-        {step === "done" && doneHash ? (
-          <div className="space-y-4 text-center py-4">
-            <CheckCircle2 className="w-10 h-10 text-risk-low mx-auto" />
-            <div>
-              <p className="text-text-primary font-sans font-bold">Position opened</p>
-              {doneSummary ? (
-                <p className="text-sm text-text-secondary font-sans mt-1 tabular-nums">
-                  {doneSummary}
-                </p>
-              ) : null}
-              <p className="text-sm text-text-secondary font-sans mt-1">
-                Your wallet is now watched - scoring picks the position up within a minute.
-              </p>
+        {step === "chain" ? (
+          <div className="p-6">
+            <Button
+              className="w-full"
+              onClick={() => void switchChainAsync({ chainId: openChainId })}
+            >
+              Switch to {CHAIN_MODE_LABEL[chainMode]}
+            </Button>
+          </div>
+        ) : null}
+
+        {step === "review" || step === "executing" ? (
+          <>
+            <div className="flex flex-col gap-4 p-6">
+              <Field
+                size="lg"
+                mono
+                label="Collateral, USD"
+                type="number"
+                min={1}
+                value={collateralUsd}
+                onChange={(e) => setCollateralUsd(Math.max(0, Number(e.target.value)))}
+                disabled={executing || completedSteps > 0}
+                title={
+                  completedSteps > 0
+                    ? "Collateral is already supplied on-chain and cannot be resized here"
+                    : undefined
+                }
+              />
+              <Field
+                size="lg"
+                mono
+                label={`Borrow, ${config.borrowSymbol}`}
+                type="number"
+                min={0}
+                max={borrowCap}
+                value={borrowUsd}
+                onChange={(e) =>
+                  setBorrowUsd(Math.min(borrowCap, Math.max(0, Number(e.target.value))))
+                }
+                disabled={executing}
+              />
             </div>
+
+            {/* What this sizing produces: the projected band, as the one
+                coloured block this modal spends, and the price drop that band
+                means, straight out of `liquidationOutlook` - never a second
+                copy of the health-factor math. "HF 1.75" appended to the score
+                was the engine's own shorthand and is gone with the rest of the
+                prose; the exact ratio still opens in the hover. */}
+            <div className="grid grid-cols-[200px_minmax(0,1fr)] border-y-[3px] border-solid border-border-strong">
+              <div
+                className={`flex flex-col justify-center gap-1 border-r-[3px] border-solid border-border-strong px-6 py-4 ${RISK_CHIP[projectedBand]}`}
+              >
+                <span className="label-type text-xs">Projected score</span>
+                <div className="flex items-baseline gap-2.5">
+                  <span className="font-mono text-score font-bold">{projectedScore}</span>
+                  {projectedBandWord ? (
+                    <span className="label-type text-xs">{projectedBandWord}</span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex flex-col justify-center gap-1 px-6 py-4">
+                <span className="label-type text-xs text-text-muted">Liquidates if</span>
+                {hfUnknown ? null : (
+                  <LiquidatesIfValue outlook={projectedOutlook} symbol={plan.collateralSymbol} />
+                )}
+              </div>
+            </div>
+
+            {/* Not in the mockup: a failed transaction on a real-money flow
+                has to say so, and a stalled resume needs the same. Both are
+                exceptional states the steady-state layout above does not
+                carry text for. */}
+            {error ? (
+              <div className="px-6 pt-4">
+                <Notice text={error} />
+              </div>
+            ) : null}
+
+            <div className="p-6">
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={() => void execute()}
+                disabled={executing || collateralUsd <= 0}
+              >
+                {executing ? (
+                  status
+                ) : (
+                  <>
+                    {completedSteps > 0 ? "Resume open" : "Open position"}
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </>
+                )}
+              </Button>
+            </div>
+          </>
+        ) : null}
+
+        {step === "done" && doneHash ? (
+          <div className="space-y-4 p-6">
+            <div className="flex items-center gap-3">
+              {/* Black, not the LOW band: an open that landed is news about a
+                  transaction, and the risk ramp is what a position is in. */}
+              <CheckCircle2 className="h-6 w-6 shrink-0 text-text-primary" aria-hidden="true" />
+              <h3 className="font-sans text-lg font-black uppercase tracking-tight text-text-primary">
+                Position opened
+              </h3>
+            </div>
+            {/* The one sentence left in either modal, and it is left
+                deliberately: `doneSummary` is composed inside `execute()` out
+                of the RECORDED amounts (`formatTokenAmount` over the landed
+                legs), which is frozen money-path code this pass may not
+                rewrite into rows. "Your wallet is watched, scoring picks the
+                position up within a minute" went with the rest. */}
+            {doneSummary ? (
+              <p className="font-sans text-sm leading-relaxed text-text-secondary">
+                {doneSummary}
+              </p>
+            ) : null}
             <a
               href={explorerTxUrl(config.chainId, doneHash)}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-sans text-text-primary hover:underline"
+              className="inline-flex items-center gap-1.5 font-sans text-xs text-text-primary"
             >
-              View on Basescan <ExternalLink className="w-3 h-3" />
+              View on Basescan <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </a>
-            <button
-              onClick={onClose}
-              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
-            >
+            <Button variant="secondary" className="w-full" onClick={onClose}>
               Done
-            </button>
+            </Button>
           </div>
         ) : null}
-
-        {step !== "unsupported" && step !== "done" && !executing && error === null ? (
-          <p className="text-2xs font-sans text-text-muted text-center flex items-center justify-center gap-1">
-            <AlertTriangle className="w-3 h-3" /> {config.faucet ? "Test assets." : "Real funds."}{" "}
-            Review every wallet prompt before signing.
-          </p>
-        ) : null}
-      </motion.div>
+      </div>
     </div>
   );
 }
