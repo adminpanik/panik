@@ -180,6 +180,17 @@
    */
   --text-stat: 32px;
   --text-stat--line-height: 36px;
+
+  /**
+   * The open modal's projected-score cell, and its only caller. A stat card
+   * carries a label and a sub beside its figure, so 32px reads clearly as the
+   * headline of a small box; this figure sits alone in a coloured band with
+   * nothing beside it but a three-word band name, so it earns a step the
+   * stat scale does not have rather than stretching `--text-stat` past what
+   * it was measured for.
+   */
+  --text-score: 44px;
+  --text-score--line-height: 44px;
   /* Marketing hero only. The product UI tops out at --text-4xl. */
   --text-display: 64px;
   --text-display--line-height: 64px;

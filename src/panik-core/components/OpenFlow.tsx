@@ -21,10 +21,10 @@ import { useAccount, useConnect, usePublicClient, useSwitchChain, useWriteContra
 import { injected } from "wagmi/connectors";
 import { asContractClient, bufferedGas, explorerTxUrl } from "../lib/exit";
 import { formatTokenAmount } from "../lib/exitLegs";
-import type { AdvisorOpenPlan } from "../lib/live";
+import type { AdvisorOpenPlan, Band } from "../lib/live";
 import { useProspective } from "../lib/live";
 import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
-import { Button, Card, Chip, Field, LAYER, Notice, SCRIM, Stat } from "../ui";
+import { Button, Chip, Field, LAYER, Notice, SCRIM } from "../ui";
 import {
   borrowAsset,
   buildOpenSteps,
@@ -47,22 +47,36 @@ import {
   type RegisterResult,
   type RiskProfile as WatchRiskProfile,
 } from "../lib/telegram";
-import { liquidationOutlook, PROTOCOL_LABEL } from "../lib/utils";
+import {
+  BAND_WORD,
+  bandOfScore,
+  liquidationOutlook,
+  PROTOCOL_LABEL,
+  RISK_CHIP,
+} from "../lib/utils";
 
 /**
- * One fact of the open, in a ledger line: what it is on the left, the figure on
- * the right in mono. Same shape as the exit modal's, and a deliberate copy
- * rather than a shared export - it is four lines of layout with no logic, and
- * `ui/` is for primitives the whole product reaches for, not for two callers.
+ * The "liquidates if" cell's answer, built entirely from `liquidationOutlook`'s
+ * own fields rather than re-parsed out of its prose: `strip` is the exact,
+ * already-rounded percentage the engine computed, so the one span this
+ * component sets in mono is a verbatim copy, never a second computation of
+ * `1 - 1/HF`. The no-debt and liquidatable-now cases have no percentage to
+ * highlight, so they render the engine's own sentence whole.
  */
-function LedgerRow({ label, value }: { label: string; value: string }) {
+function LiquidatesIfValue({
+  outlook,
+  symbol,
+}: {
+  outlook: ReturnType<typeof liquidationOutlook>;
+  symbol: string;
+}) {
+  if (outlook.stripNote === "no debt" || outlook.stripNote === "liquidatable now") {
+    return <span className="font-sans text-lg leading-snug text-text-primary">{outlook.sentence}</span>;
+  }
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-      <span className="font-sans text-sm text-text-secondary">{label}</span>
-      <span className="ml-auto font-mono text-sm font-bold tabular-nums text-text-primary">
-        {value}
-      </span>
-    </div>
+    <span className="font-sans text-lg leading-snug text-text-primary">
+      {symbol} falls <span className="font-mono font-bold">{outlook.strip}</span>
+    </span>
   );
 }
 
@@ -200,7 +214,7 @@ export function OpenFlow({
     [address, plan.protocol, plan.collateralSymbol, openChainId],
   );
   const [progress, setProgress] = useState<OpenProgress>(EMPTY_PROGRESS);
-  const { completedSteps, txHashes } = progress;
+  const { completedSteps } = progress;
 
   // Rehydrate whenever the identity changes (mount, reconnect, plan switch).
   // A brand-new identity hydrates to EMPTY_PROGRESS, which is the only reset
@@ -264,6 +278,25 @@ export function OpenFlow({
    * memoised - it is one lookup over two numbers already in hand.
    */
   const projectedOutlook = liquidationOutlook(projectedHf, plan.collateralSymbol);
+  // `projectedHf` is typed `number | null` end to end (no debt is null, never
+  // NaN), so this is belt-and-suspenders rather than a reachable branch: a
+  // corrupted figure renders nothing in the "liquidates if" cell rather than
+  // a stale sentence built from it.
+  const hfUnknown = projectedHf !== null && !Number.isFinite(projectedHf);
+
+  // The engine's own band for the live-scored figure; `bandOfScore` is the
+  // same fallback path Compass and the Portfolio table use while the debounced
+  // `/api/prospective` call has not landed yet. UNKNOWN only if the score
+  // itself is somehow not a finite number, which the plan's own type does not
+  // allow - defensive for the same reason as `hfUnknown` above.
+  const projectedBand: Band | "UNKNOWN" =
+    projected?.band ?? (Number.isFinite(projectedScore) ? bandOfScore(projectedScore) : "UNKNOWN");
+  const projectedBandWord = projectedBand === "UNKNOWN" ? null : BAND_WORD[projectedBand];
+
+  // "OPEN <asset> ON <protocol>", built from the plan the modal already
+  // carries - never a second name for a protocol `PROTOCOL_LABEL` already
+  // states.
+  const heading = `Open ${plan.collateralSymbol} on ${PROTOCOL_LABEL[plan.protocol] ?? plan.protocol}`;
 
   const execute = useCallback(async () => {
     if (!publicClient || !address || !progressKey) return;
@@ -469,13 +502,6 @@ export function OpenFlow({
     onMonitoring,
   ]);
 
-  const summary = useMemo(
-    () =>
-      `${plan.collateralSymbol} on ${PROTOCOL_LABEL[plan.protocol] ?? plan.protocol}` +
-      (plan.apy !== null ? ` · ~${(plan.apy * 100).toFixed(1)}% APY` : ""),
-    [plan],
-  );
-
   // Dismissing mid-sequence would strand a wallet prompt and (before the
   // persisted cursor existed) lose the resume point entirely. Block it.
   const requestClose = useCallback(() => {
@@ -487,130 +513,132 @@ export function OpenFlow({
     <div className={`fixed inset-0 ${LAYER.modal} flex items-center justify-center p-4`}>
       {/* The app's one scrim, from `ui/overlay`. */}
       <div className={`absolute inset-0 ${SCRIM}`} onClick={requestClose} />
-      <div className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto hard-edge shadow-hard bg-surface-raised">
-        <div className="space-y-5 p-6">
-          <div className="flex items-start justify-between gap-3 border-b-[3px] border-solid border-border-strong pb-4">
-            <h2 className="min-w-0 font-sans text-lg font-black uppercase tracking-tight text-text-primary">
-              Open position
-            </h2>
-            <div className="flex shrink-0 items-center gap-2">
-              {/* What kind of money this moves, in two words, from the same
-                  faucet flag the deleted paragraph branched on. The paragraph
-                  said it in twenty-eight ("Executes on Base Sepolia with test
-                  assets that have no value. Non-custodial: every step is a
-                  standard protocol transaction signed by your own wallet, PANIK
-                  never holds your assets") and named the chain a second time,
-                  which the Market row below already carries.
-
-                  It is not withheld on mainnet: "Real funds" is the half of
-                  this a reader most needs, and dropping the chip there would
-                  leave the louder path silent. */}
-              {step !== "unsupported" ? (
-                <Chip>{config.faucet ? "Test assets" : "Real funds"}</Chip>
-              ) : null}
-              <button
-                type="button"
-                onClick={requestClose}
-                disabled={executing}
-                aria-label="Close"
-                title={executing ? "Finish or cancel the pending transaction first" : "Close"}
-                className="shrink-0 cursor-pointer text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <X className="h-5 w-5" aria-hidden="true" />
-              </button>
-            </div>
+      <div className="relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-y-auto hard-edge shadow-hard bg-surface-raised">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b-[3px] border-solid border-border-strong px-6 py-5">
+          <h2 className="min-w-0 truncate font-sans text-lg font-black uppercase tracking-[0.02em] text-text-primary">
+            {heading}
+          </h2>
+          <div className="flex shrink-0 items-center gap-3.5">
+            {/* What kind of money this moves, in two words, from the same
+                faucet flag the deleted paragraph branched on. It is not
+                withheld on mainnet: "Real funds" is the half of this a reader
+                most needs. */}
+            {step !== "unsupported" ? (
+              <Chip>{config.faucet ? "Test assets" : "Real funds"}</Chip>
+            ) : null}
+            <button
+              type="button"
+              onClick={requestClose}
+              disabled={executing}
+              aria-label="Close"
+              title={executing ? "Finish or cancel the pending transaction first" : "Close"}
+              className="shrink-0 cursor-pointer text-text-secondary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
           </div>
+        </div>
 
-          {step === "unsupported" ? (
-            <div className="space-y-4">
-              <p className="font-sans text-sm leading-relaxed text-text-secondary">
-                {unsupportedLine}
-              </p>
-              <Button variant="secondary" className="w-full" onClick={onClose}>
-                Close
-              </Button>
-            </div>
-          ) : null}
+        {step === "unsupported" ? (
+          <div className="space-y-4 p-6">
+            <p className="font-sans text-sm leading-relaxed text-text-secondary">
+              {unsupportedLine}
+            </p>
+            <Button variant="secondary" className="w-full" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+        ) : null}
 
-          {step === "connect" ? (
+        {step === "connect" ? (
+          <div className="p-6">
             <Button className="w-full" onClick={() => connect({ connector: injected() })}>
               Connect wallet
             </Button>
-          ) : null}
+          </div>
+        ) : null}
 
-          {step === "chain" ? (
+        {step === "chain" ? (
+          <div className="p-6">
             <Button
               className="w-full"
               onClick={() => void switchChainAsync({ chainId: openChainId })}
             >
               Switch to {CHAIN_MODE_LABEL[chainMode]}
             </Button>
-          ) : null}
+          </div>
+        ) : null}
 
-          {step === "review" || step === "executing" ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field
-                  mono
-                  label="Collateral (USD)"
-                  type="number"
-                  min={1}
-                  value={collateralUsd}
-                  onChange={(e) => setCollateralUsd(Math.max(0, Number(e.target.value)))}
-                  disabled={executing || completedSteps > 0}
-                  title={
-                    completedSteps > 0
-                      ? "Collateral is already supplied on-chain and cannot be resized here"
-                      : undefined
-                  }
-                />
-                <Field
-                  mono
-                  label={`Borrow ${config.borrowSymbol}`}
-                  type="number"
-                  min={0}
-                  max={borrowCap}
-                  value={borrowUsd}
-                  onChange={(e) =>
-                    setBorrowUsd(Math.min(borrowCap, Math.max(0, Number(e.target.value))))
-                  }
-                  disabled={executing}
-                />
-              </div>
+        {step === "review" || step === "executing" ? (
+          <>
+            <div className="flex flex-col gap-4 p-6">
+              <Field
+                size="lg"
+                mono
+                label="Collateral, USD"
+                type="number"
+                min={1}
+                value={collateralUsd}
+                onChange={(e) => setCollateralUsd(Math.max(0, Number(e.target.value)))}
+                disabled={executing || completedSteps > 0}
+                title={
+                  completedSteps > 0
+                    ? "Collateral is already supplied on-chain and cannot be resized here"
+                    : undefined
+                }
+              />
+              <Field
+                size="lg"
+                mono
+                label={`Borrow, ${config.borrowSymbol}`}
+                type="number"
+                min={0}
+                max={borrowCap}
+                value={borrowUsd}
+                onChange={(e) =>
+                  setBorrowUsd(Math.min(borrowCap, Math.max(0, Number(e.target.value))))
+                }
+                disabled={executing}
+              />
+            </div>
 
-              {/* What this sizing produces, as figures. The health factor
-                  goes through `liquidationOutlook`, which leads with the price
-                  drop it means and keeps the ratio in the hover; "HF 1.75"
-                  appended to the score was the engine's own shorthand.
-
-                  The "Borrow limit, moderate profile" row is gone: it is the
-                  Borrow field's own `max`, and a cap printed beside the input it
-                  already constrains is the input stated twice. */}
-              <Card tone="set-back" className="space-y-4">
-                {/* One column at 390: `Stat` truncates its label, and
-                    "Projected risk score" lost its last word in a half-width
-                    cell on the narrowest viewport this product supports. */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Stat label="Projected risk score" value={projectedScore} />
-                  <Stat
-                    label={projectedOutlook.statLabel}
-                    value={<span title={projectedOutlook.hover}>{projectedOutlook.statValue}</span>}
-                  />
+            {/* What this sizing produces: the projected band, as the one
+                coloured block this modal spends, and the price drop that band
+                means, straight out of `liquidationOutlook` - never a second
+                copy of the health-factor math. "HF 1.75" appended to the score
+                was the engine's own shorthand and is gone with the rest of the
+                prose; the exact ratio still opens in the hover. */}
+            <div className="grid grid-cols-[200px_minmax(0,1fr)] border-y-[3px] border-solid border-border-strong">
+              <div
+                className={`flex flex-col justify-center gap-1 border-r-[3px] border-solid border-border-strong px-6 py-4 ${RISK_CHIP[projectedBand]}`}
+              >
+                <span className="label-type text-xs">Projected score</span>
+                <div className="flex items-baseline gap-2.5">
+                  <span className="font-mono text-score font-bold">{projectedScore}</span>
+                  {projectedBandWord ? (
+                    <span className="label-type text-xs">{projectedBandWord}</span>
+                  ) : null}
                 </div>
-                {/* `summary` is the plan's own line, built by the memo above
-                    and rendered verbatim: the market and its APY, which used to
-                    be a subtitle under the heading. */}
-                <LedgerRow label="Market" value={summary} />
-                {completedSteps > 0 ? (
-                  <LedgerRow label="Steps already on-chain" value={String(completedSteps)} />
-                ) : null}
-                {txHashes.length > 0 && !doneHash ? (
-                  <LedgerRow label="Transactions confirmed" value={String(txHashes.length)} />
-                ) : null}
-              </Card>
+              </div>
+              <div className="flex flex-col justify-center gap-1 px-6 py-4">
+                <span className="label-type text-xs text-text-muted">Liquidates if</span>
+                {hfUnknown ? null : (
+                  <LiquidatesIfValue outlook={projectedOutlook} symbol={plan.collateralSymbol} />
+                )}
+              </div>
+            </div>
 
-              {error ? <Notice text={error} /> : null}
+            {/* Not in the mockup: a failed transaction on a real-money flow
+                has to say so, and a stalled resume needs the same. Both are
+                exceptional states the steady-state layout above does not
+                carry text for. */}
+            {error ? (
+              <div className="px-6 pt-4">
+                <Notice text={error} />
+              </div>
+            ) : null}
 
+            <div className="p-6">
               <Button
                 size="lg"
                 className="w-full"
@@ -627,43 +655,43 @@ export function OpenFlow({
                 )}
               </Button>
             </div>
-          ) : null}
+          </>
+        ) : null}
 
-          {step === "done" && doneHash ? (
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                {/* Black, not the LOW band: an open that landed is news about a
-                    transaction, and the risk ramp is what a position is in. */}
-                <CheckCircle2 className="h-6 w-6 shrink-0 text-text-primary" aria-hidden="true" />
-                <h3 className="font-sans text-lg font-black uppercase tracking-tight text-text-primary">
-                  Position opened
-                </h3>
-              </div>
-              {/* The one sentence left in either modal, and it is left
-                  deliberately: `doneSummary` is composed inside `execute()` out
-                  of the RECORDED amounts (`formatTokenAmount` over the landed
-                  legs), which is frozen money-path code this pass may not
-                  rewrite into rows. "Your wallet is watched, scoring picks the
-                  position up within a minute" went with the rest. */}
-              {doneSummary ? (
-                <p className="font-sans text-sm leading-relaxed text-text-secondary">
-                  {doneSummary}
-                </p>
-              ) : null}
-              <a
-                href={explorerTxUrl(config.chainId, doneHash)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 font-sans text-xs text-text-primary"
-              >
-                View on Basescan <ExternalLink className="h-3 w-3" aria-hidden="true" />
-              </a>
-              <Button variant="secondary" className="w-full" onClick={onClose}>
-                Done
-              </Button>
+        {step === "done" && doneHash ? (
+          <div className="space-y-4 p-6">
+            <div className="flex items-center gap-3">
+              {/* Black, not the LOW band: an open that landed is news about a
+                  transaction, and the risk ramp is what a position is in. */}
+              <CheckCircle2 className="h-6 w-6 shrink-0 text-text-primary" aria-hidden="true" />
+              <h3 className="font-sans text-lg font-black uppercase tracking-tight text-text-primary">
+                Position opened
+              </h3>
             </div>
-          ) : null}
-        </div>
+            {/* The one sentence left in either modal, and it is left
+                deliberately: `doneSummary` is composed inside `execute()` out
+                of the RECORDED amounts (`formatTokenAmount` over the landed
+                legs), which is frozen money-path code this pass may not
+                rewrite into rows. "Your wallet is watched, scoring picks the
+                position up within a minute" went with the rest. */}
+            {doneSummary ? (
+              <p className="font-sans text-sm leading-relaxed text-text-secondary">
+                {doneSummary}
+              </p>
+            ) : null}
+            <a
+              href={explorerTxUrl(config.chainId, doneHash)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 font-sans text-xs text-text-primary"
+            >
+              View on Basescan <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </a>
+            <Button variant="secondary" className="w-full" onClick={onClose}>
+              Done
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
