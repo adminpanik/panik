@@ -14,8 +14,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
-import { motion } from "motion/react";
-import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Loader2, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, ExternalLink, X } from "lucide-react";
 import { parseEventLogs } from "viem";
 import {
   useAccount,
@@ -41,7 +40,10 @@ import {
   useChainMode,
 } from "../lib/chainMode";
 import { classifyExitError } from "../lib/exitRpc";
-import { LAYER, SCRIM } from "../ui";
+// `Notice` is aliased because this file already names a local shape `Notice`
+// (the tone + message the flow raises); the primitive is the box that renders
+// the `problem` half of it.
+import { Button, Card, Chip, LAYER, Notice as ProblemNotice, SCRIM, Skeleton, Stat } from "../ui";
 // `exitReserves` is shared with the relayer (server/relayerChain.ts) and the
 // coverage sweep (server/coverageChain.ts); `exitPosition` is shared with the
 // Settings pre-authorization card, which sizes its approvals from the same
@@ -60,7 +62,7 @@ import {
   type SwapConfigRead,
   type WalletRepayCap,
 } from "../lib/exitLegs";
-import { liquidationOutlook } from "../lib/utils";
+import { liquidationOutlook, PROTOCOL_LABEL } from "../lib/utils";
 import { fmtUsd } from "../../../packages/scoring/src/advisor/fallback";
 import {
   EXECUTOR_ABI,
@@ -119,27 +121,46 @@ const FLOW_COPY: Record<
   { title: string; cta: string; done: string; outcome: string }
 > = {
   full: {
-    title: "Atomic Exit",
+    // "Atomic" was the contract's word, not the reader's. What the heading has
+    // to separate is this outcome from the two below it, which the verb does.
+    title: "Exit position",
     cta: "Approve & exit",
     done: "Position exited",
-    outcome:
-      "Your debt is repaid, your collateral is withdrawn and converted to USDC, and the position is closed.",
+    outcome: "Debt repaid, collateral sold for USDC, position closed.",
   },
   full_repay: {
-    title: "Clear Your Debt",
+    title: "Clear your debt",
     cta: "Approve & repay",
     done: "Debt cleared",
-    outcome:
-      "Your debt is cleared, your collateral stays deposited, and the position stays open with nothing left to liquidate.",
+    outcome: "Debt cleared, collateral stays deposited, nothing left to liquidate.",
   },
   partial: {
-    title: "Reduce Position",
+    title: "Reduce position",
     cta: "Approve & reduce",
     done: "Position reduced",
-    outcome:
-      "Part of your debt is repaid, your collateral stays deposited, and the position stays open.",
+    outcome: "Part of the debt repaid, collateral stays deposited, position stays open.",
   },
 };
+
+/**
+ * One fact of the transaction: what it is on the left, the figure on the right.
+ *
+ * Composed here rather than taken from `ui/`, because `Stat` is a label above a
+ * large figure and this is a ledger line - eight of them stacked as Stats would
+ * be eight 28px numerals on the screen before a signature. The label stays in
+ * Archivo rather than `label-type`: it carries a ticker (`cbBTC`), and
+ * `label-type` uppercases.
+ */
+function LedgerRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="min-w-0 font-sans text-sm text-text-secondary">{label}</span>
+      <span className="shrink-0 font-mono text-sm font-bold tabular-nums text-text-primary">
+        {value}
+      </span>
+    </div>
+  );
+}
 
 type Step =
   | "connect"
@@ -262,7 +283,7 @@ export function ExitFlow({
    * Set the first time a full exit reverts, and never cleared.
    *
    * It is what keeps the `Repay the debt instead` button on screen after the
-   * notice it came with has been replaced — press the primary again, get a
+   * notice it came with has been replaced: press the primary again, get a
    * second revert, and the smaller plan is still there to take. What it does
    * NOT do is stop the offer reappearing after narrowing: `kind` becomes
    * `full_repay` and never goes back, so the `kind === "full"` guard below
@@ -626,18 +647,22 @@ export function ExitFlow({
           outcome: `${liquidationOutlook(cap.appliedHf, prefill.collateralSymbol).sentence} after it, instead of ${liquidationOutlook(cap.requestedHf, prefill.collateralSymbol).strip}.`,
         };
 
-  // One box, both places it is shown, so the review step and the terminal error
-  // step cannot drift into styling the same sentence two different ways.
+  /**
+   * One box, both places it is shown, so the review step and the terminal error
+   * step cannot drift into styling the same sentence two different ways.
+   *
+   * The `problem` half used to be a red tint. It is the hatched `ui/Notice` now:
+   * a transport failure or a revert is a thing that did not work, which is what
+   * that primitive states everywhere else in the product, and painting it from
+   * the risk ramp spent one of this screen's two risk-hued elements on a
+   * sentence about the network rather than on the position.
+   */
   const noticeBox = notice ? (
-    <div
-      className={
-        notice.tone === "problem"
-          ? "rounded-md border border-risk-critical/30 bg-risk-critical/[0.06] p-3 text-xs text-risk-critical font-sans leading-relaxed"
-          : "rounded-md border border-border-subtle bg-white/[0.02] p-3 text-xs text-text-secondary font-sans leading-relaxed"
-      }
-    >
-      {notice.message}
-    </div>
+    notice.tone === "problem" ? (
+      <ProblemNotice text={notice.message} />
+    ) : (
+      <p className="font-sans text-sm leading-relaxed text-text-secondary">{notice.message}</p>
+    )
   ) : null;
 
   return (
@@ -646,254 +671,242 @@ export function ExitFlow({
           four hand-typed dims that between them used two blacks and three
           blurs, so which one you got depended on which button you pressed. */}
       <div className={`absolute inset-0 ${SCRIM}`} onClick={onClose} />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="relative w-full max-w-lg bg-surface-sunken border border-border-subtle rounded-lg p-6 space-y-5 max-h-[85vh] overflow-y-auto"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-sans font-bold text-text-primary">{copy.title}</h2>
-            {/* Follows the SWITCH, not the build: what the badge asserts is
-                that the chain you are looking at is a test network, and that is
-                now the user's choice rather than a property of the bundle. */}
-            {chainMode === "testnet" ? (
-              <span className="px-2 py-0.5 rounded-sm border border-risk-elevated/40 bg-risk-elevated/10 text-risk-elevated text-2xs font-sans font-bold">
-                TESTNET
-              </span>
-            ) : null}
-          </div>
-          <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {chainMode === "testnet" && step !== "unavailable" ? (
-          <div className="rounded-md border border-risk-elevated/25 bg-risk-elevated/[0.06] p-3 text-xs text-risk-elevated/90 font-sans leading-relaxed">
-            {/* "against a demo position" used to stand here, which told every
-                reader that a position had been prepared for them. Nothing in
-                this app creates one, and the founder's fresh wallet held
-                nothing. What is true is the chain the transaction lands on and
-                the position it cannot touch. */}
-            Execution runs on <b>{CHAIN_MODE_LABEL.testnet}</b>, against whatever this wallet holds
-            there. Your {CHAIN_MODE_LABEL.mainnet} position is not touched.{" "}
-            {CHAIN_MODE_LABEL.mainnet} execution ships after the audit.
-          </div>
-        ) : null}
-
-        {step === "unavailable" ? (
-          <div className="space-y-4">
-            <p className="text-sm text-text-secondary font-sans leading-relaxed">
-              {!chainExecutable
-                ? exitUnavailableLine(chainMode)
-                : `${prefill.protocol.replace("_", " ")} exits are proven against Base mainnet in the
-              executor's fork suite, but this protocol has no Base Sepolia demo deployment - it
-              unlocks with the mainnet release. The Aave V3 demo exit is available today.`}
-            </p>
-            <button
-              onClick={onClose}
-              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        ) : null}
-
-        {step === "connect" ? (
-          <button
-            onClick={() => connect({ connector: injected() })}
-            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-sans font-bold text-sm hover:bg-white/15 transition-colors"
-          >
-            Connect wallet
-          </button>
-        ) : null}
-
-        {step === "chain" ? (
-          <button
-            onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })}
-            className="w-full py-3 rounded-md bg-white/10 border border-border-subtle text-text-primary font-sans font-bold text-sm hover:bg-white/15 transition-colors"
-          >
-            Switch to {getExitChain().name}
-          </button>
-        ) : null}
-
-        {step === "loading" ? (
-          <div className="flex items-center gap-3 text-sm text-text-secondary font-sans py-6 justify-center">
-            <Loader2 className="w-4 h-4 animate-spin" /> Reading position + running pre-flight...
-          </div>
-        ) : null}
-
-        {(step === "review" || step === "executing") && position ? (
-          <div className="space-y-4">
-            {/* The outcome, before the amounts: what you still own after this
-                transaction is the thing the amounts do not tell you. */}
-            <p className="text-sm font-sans leading-relaxed text-text-secondary">{copy.outcome}</p>
-
-            {/* The cap, above the amounts it explains. Neutral ink and a plain
-                inset: a repay that had to be trimmed is a fact about the
-                wallet, not a risk band, and painting it would spend a hue the
-                Advisor card that sent the user here already spends on the
-                dial. */}
-            {capNotice ? (
-              <div className="rounded-md border border-border-subtle bg-white/[0.02] p-3 space-y-1">
-                <p className="text-sm font-sans leading-relaxed text-text-primary">
-                  {capNotice.amounts}
-                </p>
-                <p className="text-xs font-sans leading-relaxed text-text-secondary">
-                  {capNotice.outcome}
-                </p>
-              </div>
-            ) : null}
-
-            <div className="space-y-2">
-              {position.views.map((v) => (
-                <div
-                  key={v.reserve}
-                  className="rounded-md border border-border-subtle bg-white/[0.02] p-3 flex items-center justify-between text-sm"
-                >
-                  <span className="font-sans text-text-primary">{v.symbol}</span>
-                  <span className="font-sans text-xs tabular-nums text-text-secondary text-right">
-                    {v.repay > 0n
-                      ? `repay ${formatTokenAmount(v.repayFunding, v.decimals)} ${v.symbol}`
-                      : ""}
-                    {v.repay > 0n && v.withdraw > 0n ? " · " : ""}
-                    {v.withdraw > 0n
-                      ? `withdraw ${formatTokenAmount(v.withdraw === AMOUNT_FULL ? v.aBalance : v.withdraw, v.decimals)} ${v.symbol}`
-                      : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {position.funding.length > 0 ? (
-              // ONE risk-hued element, whatever the debt asset count: the tint
-              // lives on this wrapper and the individual shortfalls are marked
-              // by an icon and words, never by colour alone (SC 1.4.1).
-              <div
-                className={`text-xs font-sans space-y-1.5 ${
-                  underfunded ? "text-risk-critical" : "text-text-muted"
-                }`}
-              >
-                {position.funding.map((f) => (
-                  <div key={f.token} className="flex items-start gap-2">
-                    {f.balance < f.required ? (
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-                    ) : null}
-                    <span className="tabular-nums">
-                      Wallet-funded repay: needs ~{formatTokenAmount(f.required, f.decimals)}{" "}
-                      {f.symbol} (you have {formatTokenAmount(f.balance, f.decimals)})
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {shortfallNotes.length > 0 ? (
-              <div className="text-2xs font-sans text-text-muted leading-relaxed space-y-1">
-                {shortfallNotes.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </div>
-            ) : null}
-
-            {noticeBox}
-
-            <button
-              onClick={() => void execute()}
-              disabled={step === "executing" || underfunded}
-              className="w-full py-3 rounded-md bg-text-primary text-surface-base font-sans font-bold text-sm hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {step === "executing" ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> {status}
-                </>
-              ) : (
-                <>
-                  {copy.cta}
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-            {/* The smaller plan, offered only after the larger one has actually
-                failed. It sits BELOW the primary and stays `quiet`: the user
-                came here to close the position, and this is the consolation, not
-                a second equal answer. It disappears once taken, because `kind`
-                is then already `full_repay`. */}
-            {fallbackOffered && kind === "full" ? (
-              <button
-                onClick={narrowToRepay}
-                disabled={step === "executing"}
-                className="w-full py-2.5 rounded-md border border-border-subtle bg-transparent text-text-secondary font-sans font-bold text-xs hover:text-text-primary hover:bg-white/[0.04] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                Repay the debt instead
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            ) : null}
-
-            {/* The last line before a signature, and every clause in it is a
-                fact about the transaction being signed. The gas reading is the
-                one that moved here: it was in the app header on every tab,
-                where nothing was being decided with it, and this is the screen
-                where what it costs to sign is part of the decision. It appears
-                only once the telemetry poll has answered. */}
-            <p className="text-2xs font-sans text-text-muted text-center">
-              {gasGwei !== null && gasGwei !== undefined
-                ? `Network gas ${gasGwei.toFixed(2)} gwei. `
-                : ""}
-              Approvals are exact-amount (+2% accrual buffer). Every transaction is simulated
-              before you sign it.
-            </p>
-          </div>
-        ) : null}
-
-        {step === "done" && receipt ? (
-          <div className="space-y-4 text-center py-4">
-            <CheckCircle2 className="w-10 h-10 text-risk-low mx-auto" />
-            <div>
-              <p className="text-text-primary font-sans font-bold">{copy.done}</p>
-              {receipt.usdcReceived > 0n && position ? (
-                <p className="text-sm text-text-secondary font-sans tabular-nums mt-1">
-                  {formatTokenAmount(receipt.usdcReceived, position.usdcDecimals)} USDC swept to
-                  your wallet
+      <div className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto hard-edge shadow-hard bg-surface-raised">
+        <div className="space-y-5 p-6">
+          <div className="flex items-start justify-between gap-3 border-b-[3px] border-solid border-border-strong pb-4">
+            <div className="min-w-0 space-y-1">
+              <h2 className="font-sans text-lg font-black uppercase tracking-tight text-text-primary">
+                {copy.title}
+              </h2>
+              {/* The one clause of the old testnet banner a reader acts on: the
+                  chain this lands on, and the position it cannot touch. The
+                  banner around it was five lines of amber tint carrying a
+                  roadmap note ("mainnet execution ships after the audit"),
+                  which decides nothing on a screen whose next control is a
+                  signature. It is also neutral ink now: the environment is not
+                  a risk band, and the chip beside the heading already names it. */}
+              {chainMode === "testnet" && step !== "unavailable" ? (
+                <p className="font-sans text-xs leading-relaxed text-text-secondary">
+                  Runs on {CHAIN_MODE_LABEL.testnet}, against what this wallet holds there. Your{" "}
+                  {CHAIN_MODE_LABEL.mainnet} position is not touched.
                 </p>
               ) : null}
             </div>
-            <a
-              href={exitExplorerTxUrl(receipt.hash)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-sans text-text-primary hover:underline"
-            >
-              View on Basescan <ExternalLink className="w-3 h-3" />
-            </a>
-            {/* The way back out, offered where the user actually is.
-                An exit leaves live token approvals behind it, and Settings is
-                two clicks and a tab away from a modal somebody is about to
-                close. It revokes THESE approvals (the ones this exit ran with)
-                and reads its own allowances first, so it renders nothing when
-                there is nothing left standing. */}
-            {position ? <RevokeExitApprovals approvals={position.approvals} /> : null}
-            <button
-              onClick={onClose}
-              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
-            >
-              Done
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Follows the SWITCH, not the build: what the chip asserts is
+                  that the chain you are looking at is a test network, and that
+                  is the user's choice rather than a property of the bundle. */}
+              {chainMode === "testnet" ? <Chip>Testnet</Chip> : null}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                className="cursor-pointer text-text-secondary hover:text-text-primary"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
           </div>
-        ) : null}
 
-        {step === "error" ? (
-          <div className="space-y-4">
-            {noticeBox}
-            <button
-              onClick={() => setStep("loading")}
-              className="w-full py-2.5 rounded-md bg-white/[0.06] border border-border-subtle text-sm font-sans text-text-primary hover:bg-white/[0.1] transition-colors"
+          {step === "unavailable" ? (
+            <div className="space-y-4">
+              <p className="font-sans text-sm leading-relaxed text-text-secondary">
+                {!chainExecutable
+                  ? exitUnavailableLine(chainMode)
+                  : `${PROTOCOL_LABEL[prefill.protocol]} exits ship with the mainnet release. The Aave V3 exit works today.`}
+              </p>
+              <Button variant="secondary" className="w-full" onClick={onClose}>
+                Close
+              </Button>
+            </div>
+          ) : null}
+
+          {step === "connect" ? (
+            <Button className="w-full" onClick={() => connect({ connector: injected() })}>
+              Connect wallet
+            </Button>
+          ) : null}
+
+          {step === "chain" ? (
+            <Button
+              className="w-full"
+              onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })}
             >
-              {notice?.tone === "info" ? "Check again" : "Retry"}
-            </button>
-          </div>
-        ) : null}
-      </motion.div>
+              Switch to {getExitChain().name}
+            </Button>
+          ) : null}
+
+          {/* Hatched blocks in the shape of what is arriving, not a spinner:
+              this look has no motion, and a reserved layout is what stops the
+              modal jumping when the reads land. */}
+          {step === "loading" ? (
+            <div aria-busy="true" className="space-y-2">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : null}
+
+          {(step === "review" || step === "executing") && position ? (
+            <div className="space-y-4">
+              {/* The outcome, before the amounts: what you still own after this
+                  transaction is the thing the amounts do not tell you. */}
+              <p className="font-sans text-sm leading-relaxed text-text-primary">{copy.outcome}</p>
+
+              {/* The cap, above the amounts it explains. Neutral plate: a repay
+                  that had to be trimmed is a fact about the wallet, not a risk
+                  band. */}
+              {capNotice ? (
+                <Card tone="set-back" className="space-y-1">
+                  <p className="font-sans text-sm leading-relaxed text-text-primary">
+                    {capNotice.amounts}
+                  </p>
+                  <p className="font-sans text-xs leading-relaxed text-text-secondary">
+                    {capNotice.outcome}
+                  </p>
+                </Card>
+              ) : null}
+
+              {/* Every figure this transaction carries, in one ledger and in
+                  mono: the legs, what the wallet has to fund them with, and
+                  what signing costs. Three differently formatted blocks before,
+                  with the gas reading in a footnote. */}
+              <Card tone="set-back" className="space-y-2">
+                {position.views.map((v) => (
+                  <React.Fragment key={v.reserve}>
+                    {v.repay > 0n ? (
+                      <LedgerRow
+                        label={`Repay ${v.symbol}`}
+                        value={formatTokenAmount(v.repayFunding, v.decimals)}
+                      />
+                    ) : null}
+                    {v.withdraw > 0n ? (
+                      <LedgerRow
+                        label={`Withdraw ${v.symbol}`}
+                        value={formatTokenAmount(
+                          v.withdraw === AMOUNT_FULL ? v.aBalance : v.withdraw,
+                          v.decimals,
+                        )}
+                      />
+                    ) : null}
+                  </React.Fragment>
+                ))}
+                {position.funding.map((f) => (
+                  <LedgerRow
+                    key={f.token}
+                    label={`${f.symbol} in your wallet`}
+                    value={formatTokenAmount(f.balance, f.decimals)}
+                  />
+                ))}
+                {/* The gas reading, on the one screen where what it costs to
+                    sign is part of the decision. Absent until the telemetry
+                    poll answers: a gas figure the code does not have is not a
+                    zero and not a placeholder. */}
+                {gasGwei !== null && gasGwei !== undefined ? (
+                  <LedgerRow label="Network gas" value={`${gasGwei.toFixed(2)} gwei`} />
+                ) : null}
+              </Card>
+
+              {/* The shortfall, in the words the user can act on. One box per
+                  short asset, hatched rather than red: not holding enough of a
+                  token is a blocked action, not a liquidation. The bare
+                  "needs ~X (you have Y)" line it replaces stated the balance a
+                  second time, one row under the ledger that already carries it. */}
+              {shortfallNotes.map((note) => (
+                <ProblemNotice key={note} text={note} />
+              ))}
+
+              {noticeBox}
+
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={() => void execute()}
+                disabled={step === "executing" || underfunded}
+              >
+                {step === "executing" ? (
+                  status
+                ) : (
+                  <>
+                    {copy.cta}
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </>
+                )}
+              </Button>
+
+              {/* The smaller plan, offered only after the larger one has
+                  actually failed. It sits BELOW the primary and stays
+                  secondary: the user came here to close the position, and this
+                  is the consolation, not a second equal answer. It disappears
+                  once taken, because `kind` is then already `full_repay`. */}
+              {fallbackOffered && kind === "full" ? (
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={narrowToRepay}
+                  disabled={step === "executing"}
+                >
+                  Repay the debt instead
+                </Button>
+              ) : null}
+
+              <p className="font-sans text-xs leading-relaxed text-text-muted">
+                Approvals are for the exact amount, never unlimited. Every transaction is simulated
+                before you sign it.
+              </p>
+            </div>
+          ) : null}
+
+          {step === "done" && receipt ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                {/* Black, not the LOW band. A transaction that landed is good
+                    news about a transaction; the risk ramp is what a POSITION
+                    is in, and spending green here makes a claim about the
+                    wallet that this modal has not measured. */}
+                <CheckCircle2 className="h-6 w-6 shrink-0 text-text-primary" aria-hidden="true" />
+                <h3 className="font-sans text-lg font-black uppercase tracking-tight text-text-primary">
+                  {copy.done}
+                </h3>
+              </div>
+              {receipt.usdcReceived > 0n && position ? (
+                <Card tone="set-back">
+                  <Stat
+                    label="USDC swept to your wallet"
+                    value={formatTokenAmount(receipt.usdcReceived, position.usdcDecimals)}
+                  />
+                </Card>
+              ) : null}
+              <a
+                href={exitExplorerTxUrl(receipt.hash)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 font-sans text-xs text-text-primary"
+              >
+                View on Basescan <ExternalLink className="h-3 w-3" aria-hidden="true" />
+              </a>
+              {/* The way back out, offered where the user actually is. An exit
+                  leaves live token approvals behind it, and Settings is two
+                  clicks and a tab away from a modal somebody is about to close.
+                  It reads its own allowances first, so it renders nothing when
+                  there is nothing left standing. */}
+              {position ? <RevokeExitApprovals approvals={position.approvals} /> : null}
+              <Button variant="secondary" className="w-full" onClick={onClose}>
+                Done
+              </Button>
+            </div>
+          ) : null}
+
+          {step === "error" ? (
+            <div className="space-y-4">
+              {noticeBox}
+              <Button variant="secondary" className="w-full" onClick={() => setStep("loading")}>
+                {notice?.tone === "info" ? "Check again" : "Retry"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
