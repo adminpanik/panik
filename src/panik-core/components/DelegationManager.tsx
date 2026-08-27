@@ -21,7 +21,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, RefreshCw, ShieldCheck, Wallet } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Wallet } from "lucide-react";
 import {
   useAccount,
   useConnect,
@@ -47,7 +47,6 @@ import {
   composeExitPermit,
   defaultProtocolsMask,
   defaultTriggerHf,
-  grantActionMeta,
   GRANT_ACTIONS,
   nonceFromBytes,
   nonceInvalidation,
@@ -57,7 +56,7 @@ import {
   type GrantAction,
 } from "../lib/exitPermitCompose";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
-import { Button, Card, Chip, EmptyState, Field, Notice, Skeleton } from "../ui";
+import { Button, Card, Chip, EmptyState, Field, Notice } from "../ui";
 
 /**
  * One term of a permission, in a ledger line: what it is on the left, the
@@ -70,9 +69,9 @@ import { Button, Card, Chip, EmptyState, Field, Notice, Skeleton } from "../ui";
  */
 function LedgerRow({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3" title={title}>
-      <span className="min-w-0 font-sans text-xs text-text-secondary">{label}</span>
-      <span className="shrink-0 font-mono text-xs font-bold tabular-nums text-text-primary">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3" title={title}>
+      <span className="font-sans text-xs text-text-secondary">{label}</span>
+      <span className="ml-auto font-mono text-xs font-bold tabular-nums text-text-primary">
         {value}
       </span>
     </div>
@@ -295,7 +294,6 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
     () => Math.floor(Date.now() / 1000) + expiryDays * DAY_SECONDS,
     [expiryDays],
   );
-  const actionMeta = grantActionMeta(action);
 
   const grant = useCallback(async () => {
     if (!address || !publicClient || slippageBps === null) return;
@@ -468,236 +466,168 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   }
 
   const slippageInvalid = ceilingBps === null || slippageBps === null;
-
   return (
     <Card tone="raised" className="space-y-5">
       {header}
 
-      {/* ── Active permissions ─────────────────────────────────────────── */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h4 className="text-xs font-sans font-bold text-text-primary">Active permissions</h4>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            disabled={loading}
-            aria-label="Refresh active permissions"
-            className="inline-flex items-center gap-1.5 label-type text-2xs text-text-secondary hover:text-text-primary disabled:opacity-40 cursor-pointer"
-          >
-            {/* No spin: this look has no motion, and the word carries the state. */}
-            <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
-            {loading ? "Reading" : "Refresh"}
-          </button>
+      {/* ── Active permissions ───────────────────────────────────────────
+          No section heading and no Refresh link. When this wallet has granted
+          nothing, this renders NOTHING at all and the grant form is the whole
+          card: an "Active permissions" heading over an empty-state panel saying
+          "no standing permission" was two elements to report an absence, on the
+          branch every reader arrives on. Grant and revoke both re-read the list
+          themselves, so there is nothing a Refresh control does that the two
+          buttons do not already do. */}
+      {loadError ? (
+        <EmptyState
+          tone="problem"
+          title="Could not load your permissions"
+          action={
+            <Button variant="secondary" onClick={() => void refresh()} disabled={loading}>
+              Retry
+            </Button>
+          }
+        />
+      ) : delegations !== null && delegations.length > 0 ? (
+        <div className="space-y-3">
+          {delegations.map((d) => {
+            const hf = wadToHf(BigInt(d.permit.triggerHealthFactorWad));
+            const meta = GRANT_ACTIONS.find((a) => a.kind === d.permit.kind);
+            const rowOutlook = liquidationOutlook(hf, symbol);
+            return (
+              <Card key={d.id} tone="set-back" className="space-y-3">
+                {/* The terms as rows. What went: "PANIK may repay all your
+                    debt, withdraw your collateral, and convert it to USDC" as a
+                    bold line (the action's own name is in the first row's
+                    label) and "Covers Aave V3. Pays only to your wallet." */}
+                <LedgerRow
+                  label={`${meta?.label ?? "Exit"} at health factor`}
+                  value={hf.toFixed(2)}
+                  title={rowOutlook.hover}
+                />
+                <LedgerRow
+                  label="Most slippage allowed"
+                  value={bpsToPct(d.permit.maxSlippageBps)}
+                />
+                <LedgerRow label="Expires" value={formatDeadline(Number(d.permit.deadline))} />
+                <LedgerRow
+                  label="Covers"
+                  value={maskToLabels(d.permit.protocolsMask).join(", ") || "No protocol"}
+                />
+                <Button
+                  variant="secondary"
+                  onClick={() => void revoke(d)}
+                  disabled={revokingId !== null}
+                >
+                  {revokingId === d.id ? "Revoking" : "Revoke"}
+                </Button>
+              </Card>
+            );
+          })}
+          {delegations.length > 1 ? (
+            <Button variant="ghost" onClick={() => void revoke("all")} disabled={revokingId !== null}>
+              {revokingId === "all" ? "Revoking all" : "Revoke all"}
+            </Button>
+          ) : null}
         </div>
+      ) : null}
 
-        {loadError ? (
-          // A failed load is NOT good news and must not read like "you're fine".
-          // `EmptyState tone="problem"` is that distinction as a primitive: the
-          // hatch, the glyph and the words, rather than a dashed edge this file
-          // drew for itself.
-          <EmptyState
-            tone="problem"
-            title="We could not load your permissions"
-            hint="Nothing on-chain has changed. Try Refresh."
-          />
-        ) : delegations === null ? (
-          <div aria-busy="true" className="space-y-2">
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-        ) : delegations.length === 0 ? (
-          <EmptyState
-            tone="clear"
-            title="No standing permission"
-            hint="PANIK can act for you only after you grant one below."
-          />
-        ) : (
-          <div className="space-y-3">
-            {delegations.map((d) => {
-              const hf = wadToHf(BigInt(d.permit.triggerHealthFactorWad));
-              const meta = GRANT_ACTIONS.find((a) => a.kind === d.permit.kind);
-              const rowOutlook = liquidationOutlook(hf, symbol);
-              return (
-                <Card key={d.id} tone="set-back" className="space-y-3">
-                  <p className="text-sm font-sans font-bold text-text-primary">
-                    PANIK may {meta?.allows ?? "act on this position"}
-                  </p>
-                  {/* The three terms as figures rather than as a dot-separated
-                      run of prose. They are the numbers a reader checks before
-                      deciding whether to keep the permission, and they were set
-                      in Archivo inside one 12px line. */}
-                  <div className="space-y-2">
-                    <LedgerRow
-                      label="Fires at health factor"
-                      value={hf.toFixed(2)}
-                      title={rowOutlook.hover}
-                    />
-                    <LedgerRow
-                      label="Most slippage allowed"
-                      value={bpsToPct(d.permit.maxSlippageBps)}
-                    />
-                    <LedgerRow label="Expires" value={formatDeadline(Number(d.permit.deadline))} />
-                  </div>
-                  <p className="text-xs font-sans leading-relaxed text-text-secondary">
-                    Covers {maskToLabels(d.permit.protocolsMask).join(", ") || "no protocol"}. Pays
-                    only to your wallet.
-                  </p>
-                  <Button
-                    variant="secondary"
-                    onClick={() => void revoke(d)}
-                    disabled={revokingId !== null}
-                  >
-                    {revokingId === d.id ? "Revoking" : "Revoke"}
-                  </Button>
-                </Card>
-              );
-            })}
-            {delegations.length > 1 ? (
-              <Button
-                variant="ghost"
-                onClick={() => void revoke("all")}
-                disabled={revokingId !== null}
-              >
-                {revokingId === "all" ? "Revoking all" : "Revoke all"}
-              </Button>
-            ) : null}
-          </div>
-        )}
+      {actionError ? <Notice text={`Revoke failed: ${actionError}`} /> : null}
 
-        {actionError ? (
-          <Notice text={`Revoke did not complete: ${actionError}. Nothing changed on-chain.`} />
-        ) : null}
+      {/* ── Grant ────────────────────────────────────────────────────────
+          "Grant a standing permission" as a heading over a form whose button
+          says "Grant standing permission" is the button read twice, inside a
+          card whose own heading is "Standing exit permission". The three
+          controls carry their own meaning; the two that do not are labelled by
+          `aria-label` rather than by a visible caption. */}
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="What PANIK may do">
+        {GRANT_ACTIONS.map((a) => (
+          <SegmentedOption
+            key={a.id}
+            label={a.label}
+            selected={a.id === action}
+            onSelect={() => setAction(a.id)}
+          />
+        ))}
       </div>
 
-      {/* ── Grant a new permission ─────────────────────────────────────── */}
-      <div className="space-y-4 border-t border-border-subtle pt-4">
-        <h4 className="text-xs font-sans font-bold text-text-primary">Grant a standing permission</h4>
-
-        {/* Action */}
-        <fieldset className="space-y-2">
-          <legend className="label-type text-2xs text-text-muted">What PANIK may do</legend>
-          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Exit action">
-            {GRANT_ACTIONS.map((a) => (
-              <SegmentedOption
-                key={a.id}
-                label={a.label}
-                selected={a.id === action}
-                onSelect={() => setAction(a.id)}
-              />
-            ))}
-          </div>
-        </fieldset>
-
-        {/* Trigger + slippage. Both are figures the user types, so both are
-            `Field` in mono: the label sits inside the box until there is a
-            value, and there is never a second placeholder string. */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field
-            mono
-            label="Act at health factor"
-            type="number"
-            inputMode="decimal"
-            step={0.05}
-            min={1.05}
-            value={triggerHf}
-            onChange={(e) => {
-              setTriggerTouched(true);
-              const v = Number(e.target.value);
-              if (Number.isFinite(v) && v > 0) setTriggerHf(v);
-            }}
-          />
-          <Field
-            mono
-            label={`Max slippage${ceilingBps !== null ? ` (limit ${bpsToPct(ceilingBps)})` : ""}`}
-            type="number"
-            inputMode="decimal"
-            step={0.05}
-            min={0}
-            max={ceilingBps !== null ? (ceilingBps / BPS) * 100 : undefined}
-            disabled={ceilingBps === null}
-            value={slippageBps !== null ? Number(((slippageBps / BPS) * 100).toFixed(2)) : ""}
-            onChange={(e) => {
-              if (ceilingBps === null) return;
-              const pct = Number(e.target.value);
-              if (!Number.isFinite(pct) || pct < 0) return;
-              setSlippageBps(clampSlippageBps(Math.round((pct / 100) * BPS), ceilingBps));
-            }}
-          />
-        </div>
-
-        {/* Three choices, so three blocks rather than a dropdown. The native
-            `<select>` this replaces was the only control in the card that did
-            not carry the product's hard edge, and `ui/Listbox` is built for a
-            long list behind a custom trigger, not for three words. */}
-        <fieldset className="space-y-2">
-          <legend className="label-type text-2xs text-text-muted">Expires in</legend>
-          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Expires in">
-            {EXPIRY_CHOICES.map((d) => (
-              <SegmentedOption
-                key={d}
-                label={`${d} days`}
-                mono
-                selected={d === expiryDays}
-                onSelect={() => setExpiryDays(d)}
-              />
-            ))}
-          </div>
-        </fieldset>
-
-        {/* ── Scope disclosure: the trust surface, consequence-led ─────────
-            Five paragraphs became the terms plus their figures. What went: the
-            second and third sentences of "where your money goes" (the contract
-            enforcing it was already the claim), and the block-time promise on
-            revoking ("takes effect in about 2 seconds"), which is a fact about
-            Base that this component does not measure. */}
-        <Card tone="set-back" className="space-y-3">
-          <p className="text-sm font-sans leading-relaxed text-text-primary">
-            PANIK may {actionMeta.allows}. You are left with {actionMeta.leaves}.
-          </p>
-          <div className="space-y-2">
-            <LedgerRow
-              label="Fires at health factor"
-              value={triggerHf.toFixed(2)}
-              title={outlook.hover}
-            />
-            <LedgerRow
-              label="Most slippage allowed"
-              value={slippageBps !== null ? bpsToPct(slippageBps) : "Not read"}
-            />
-            <LedgerRow label="Expires" value={formatDeadline(deadlineSec)} />
-          </div>
-          <p className="text-xs font-sans leading-relaxed text-text-secondary" title={outlook.hover}>
-            A further {outlook.strip} fall in {symbol} would put you at liquidation. Covers{" "}
-            {protocolLabels.join(", ") || "no protocol"}. Pays only ever back to your own wallet,
-            which the executor contract enforces on-chain. Revocable at any time, by your own
-            transaction.
-          </p>
-        </Card>
-
-        {grantError ? (
-          <Notice
-            text={`Could not grant the permission: ${grantError}. Nothing was stored or signed.`}
-          />
-        ) : null}
-
-        {grantOk ? (
-          <p className="flex items-center gap-2 text-xs font-sans text-text-secondary">
-            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-text-primary" aria-hidden="true" />
-            Standing permission granted. It is listed above and revocable any time.
-          </p>
-        ) : null}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => void grant()} disabled={granting || slippageInvalid}>
-            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-            {granting ? "Sign in wallet" : "Grant standing permission"}
-          </Button>
-          {/* Two facts, not four clauses: what it costs and what it does not
-              do. A signature is the one control on this screen where a reader
-              genuinely cannot tell either from the button. */}
-          <p className="text-2xs font-sans text-text-muted">No gas. Signing moves no funds.</p>
-        </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field
+          mono
+          label="Act at health factor"
+          type="number"
+          inputMode="decimal"
+          step={0.05}
+          min={1.05}
+          /* The exact ratio and the drop it means, on the control that sets
+             it. It was a sentence in the deleted disclosure card. */
+          title={outlook.hover}
+          value={triggerHf}
+          onChange={(e) => {
+            setTriggerTouched(true);
+            const v = Number(e.target.value);
+            if (Number.isFinite(v) && v > 0) setTriggerHf(v);
+          }}
+        />
+        <Field
+          mono
+          label={`Max slippage${ceilingBps !== null ? ` (limit ${bpsToPct(ceilingBps)})` : ""}`}
+          type="number"
+          inputMode="decimal"
+          step={0.05}
+          min={0}
+          max={ceilingBps !== null ? (ceilingBps / BPS) * 100 : undefined}
+          disabled={ceilingBps === null}
+          value={slippageBps !== null ? Number(((slippageBps / BPS) * 100).toFixed(2)) : ""}
+          onChange={(e) => {
+            if (ceilingBps === null) return;
+            const pct = Number(e.target.value);
+            if (!Number.isFinite(pct) || pct < 0) return;
+            setSlippageBps(clampSlippageBps(Math.round((pct / 100) * BPS), ceilingBps));
+          }}
+        />
       </div>
+
+      {/* The expiry, and the date it lands on beside the blocks that set it.
+          That date is the one fact here the reader cannot work out from the
+          control, so it is mono text next to the choice rather than a row in a
+          summary that repeated every other input back. */}
+      <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Expires in">
+        {EXPIRY_CHOICES.map((d) => (
+          <SegmentedOption
+            key={d}
+            label={`${d} days`}
+            mono
+            selected={d === expiryDays}
+            onSelect={() => setExpiryDays(d)}
+          />
+        ))}
+        <span className="font-mono text-xs font-bold tabular-nums text-text-primary">
+          {formatDeadline(deadlineSec)}
+        </span>
+      </div>
+
+      {/* The scope this permission spans, which is the one term of it the
+          three controls above do not set. Everything else the deleted
+          disclosure card carried was either an input restated or a promise:
+          "only ever back to your own wallet, which the executor contract
+          enforces on-chain" and "revocable at any time" describe a contract
+          the reader cannot verify from a paragraph anyway. */}
+      <LedgerRow label="Covers" value={protocolLabels.join(", ") || "No protocol"} />
+
+      {grantError ? <Notice text={`Could not grant: ${grantError}`} /> : null}
+
+      {grantOk ? (
+        <p className="flex items-center gap-2 text-xs font-sans text-text-secondary">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-text-primary" aria-hidden="true" />
+          Permission granted.
+        </p>
+      ) : null}
+
+      <Button onClick={() => void grant()} disabled={granting || slippageInvalid}>
+        <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+        {granting ? "Sign in wallet" : "Grant standing permission"}
+      </Button>
     </Card>
   );
 }
