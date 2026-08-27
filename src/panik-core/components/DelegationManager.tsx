@@ -21,15 +21,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Loader2,
-  RefreshCw,
-  ShieldCheck,
-  Wallet,
-} from "lucide-react";
+import { CheckCircle2, RefreshCw, ShieldCheck, Wallet } from "lucide-react";
 import {
   useAccount,
   useConnect,
@@ -65,7 +57,66 @@ import {
   type GrantAction,
 } from "../lib/exitPermitCompose";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
-import { Button, Card } from "../ui";
+import { Button, Card, Chip, EmptyState, Field, Notice, Skeleton } from "../ui";
+
+/**
+ * One term of a permission, in a ledger line: what it is on the left, the
+ * figure on the right in mono. The trigger, the slippage ceiling and the expiry
+ * used to run together in a single 12px dot-separated sentence set in Archivo,
+ * which is three readings a user checks before signing rendered as prose.
+ *
+ * `title` carries the hover the health-factor row needs (`liquidationOutlook`
+ * keeps the exact ratio there), and is absent everywhere else.
+ */
+function LedgerRow({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3" title={title}>
+      <span className="min-w-0 font-sans text-xs text-text-secondary">{label}</span>
+      <span className="shrink-0 font-mono text-xs font-bold tabular-nums text-text-primary">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * One block of a segmented choice. Cobalt when selected, which is the same job
+ * the accent does on the active tab: it is nowhere on the risk ramp, so the
+ * chosen option can be the loudest thing in its row without making a claim
+ * about the position.
+ *
+ * `mono` for a choice that is a figure ("30 days"), Archivo for one that is a
+ * name ("Full exit"), which is this system's one rule for a numeral.
+ */
+function SegmentedOption({
+  label,
+  selected,
+  onSelect,
+  mono = false,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+  mono?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={`h-12 cursor-pointer px-4 hard-edge text-sm font-bold uppercase tracking-[0.02em] ${
+        mono ? "font-mono" : "font-sans"
+      } ${
+        selected
+          ? "bg-brand text-white shadow-hard-sm"
+          : "bg-surface-raised text-text-primary hover:bg-highlight"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
 
 const BPS = 10_000;
 
@@ -134,11 +185,10 @@ function randomNonce(): bigint {
 function TestnetBadge() {
   const mode = useChainMode();
   if (mode !== "testnet") return null;
-  return (
-    <span className="rounded-sm border border-border-strong px-2 py-0.5 text-2xs font-sans font-bold text-text-secondary">
-      TESTNET
-    </span>
-  );
+  // `ui/Chip`, not a hand-typed rectangle: a neutral marker beside a heading is
+  // exactly what that primitive is, and this one had drifted to its own padding
+  // and its own weight.
+  return <Chip>Testnet</Chip>;
 }
 
 interface Props {
@@ -400,7 +450,7 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
       <Card tone="raised" className="space-y-3">
         {header}
         <Button onClick={() => connect({ connector: injected() })} className="mt-1">
-          <Wallet className="w-3.5 h-3.5" /> Connect wallet
+          <Wallet className="w-3.5 h-3.5" aria-hidden="true" /> Connect wallet
         </Button>
       </Card>
     );
@@ -432,80 +482,74 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
             onClick={() => void refresh()}
             disabled={loading}
             aria-label="Refresh active permissions"
-            className="inline-flex items-center gap-1.5 text-2xs font-sans text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 cursor-pointer"
+            className="inline-flex items-center gap-1.5 label-type text-2xs text-text-secondary hover:text-text-primary disabled:opacity-40 cursor-pointer"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            {/* No spin: this look has no motion, and the word carries the state. */}
+            <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+            {loading ? "Reading" : "Refresh"}
           </button>
         </div>
 
         {loadError ? (
           // A failed load is NOT good news and must not read like "you're fine".
-          // Told apart by icon + words + a dashed edge, not by a risk hue.
-          <div className="flex items-start gap-2.5 rounded-md border border-dashed border-border-strong p-3">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-text-secondary" />
-            <div>
-              <p className="text-sm font-sans font-bold text-text-primary">
-                We could not load your permissions
-              </p>
-              <p className="text-xs font-sans text-text-secondary mt-0.5">
-                This does not change anything on-chain. Try Refresh.
-              </p>
-            </div>
-          </div>
+          // `EmptyState tone="problem"` is that distinction as a primitive: the
+          // hatch, the glyph and the words, rather than a dashed edge this file
+          // drew for itself.
+          <EmptyState
+            tone="problem"
+            title="We could not load your permissions"
+            hint="Nothing on-chain has changed. Try Refresh."
+          />
         ) : delegations === null ? (
-          <div className="flex items-center gap-2 text-xs text-text-secondary font-sans py-3">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Reading your permissions...
+          <div aria-busy="true" className="space-y-2">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-16 w-full" />
           </div>
         ) : delegations.length === 0 ? (
-          <div className="flex items-start gap-2.5 rounded-md border border-border-subtle bg-white/[0.02] p-3">
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-text-secondary" />
-            <p className="text-sm font-sans text-text-secondary">
-              No standing permission is active. PANIK can act for you only after you grant one below.
-            </p>
-          </div>
+          <EmptyState
+            tone="clear"
+            title="No standing permission"
+            hint="PANIK can act for you only after you grant one below."
+          />
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {delegations.map((d) => {
               const hf = wadToHf(BigInt(d.permit.triggerHealthFactorWad));
               const meta = GRANT_ACTIONS.find((a) => a.kind === d.permit.kind);
               const rowOutlook = liquidationOutlook(hf, symbol);
               return (
-                <div
-                  key={d.id}
-                  className="rounded-md border border-border-subtle bg-white/[0.02] p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-sm font-sans font-bold text-text-primary">
-                      PANIK may {meta?.allows ?? "act on this position"}
-                    </p>
-                    <p
-                      className="text-xs font-sans text-text-secondary"
+                <Card key={d.id} tone="set-back" className="space-y-3">
+                  <p className="text-sm font-sans font-bold text-text-primary">
+                    PANIK may {meta?.allows ?? "act on this position"}
+                  </p>
+                  {/* The three terms as figures rather than as a dot-separated
+                      run of prose. They are the numbers a reader checks before
+                      deciding whether to keep the permission, and they were set
+                      in Archivo inside one 12px line. */}
+                  <div className="space-y-2">
+                    <LedgerRow
+                      label="Fires at health factor"
+                      value={hf.toFixed(2)}
                       title={rowOutlook.hover}
-                    >
-                      Fires at health factor {hf.toFixed(2)} · up to{" "}
-                      {bpsToPct(d.permit.maxSlippageBps)} slippage · expires{" "}
-                      {formatDeadline(Number(d.permit.deadline))}
-                    </p>
-                    <p className="text-2xs font-sans text-text-muted">
-                      Covers {maskToLabels(d.permit.protocolsMask).join(", ") || "no protocol"} ·
-                      pays only to your wallet
-                    </p>
+                    />
+                    <LedgerRow
+                      label="Most slippage allowed"
+                      value={bpsToPct(d.permit.maxSlippageBps)}
+                    />
+                    <LedgerRow label="Expires" value={formatDeadline(Number(d.permit.deadline))} />
                   </div>
+                  <p className="text-xs font-sans leading-relaxed text-text-secondary">
+                    Covers {maskToLabels(d.permit.protocolsMask).join(", ") || "no protocol"}. Pays
+                    only to your wallet.
+                  </p>
                   <Button
                     variant="secondary"
                     onClick={() => void revoke(d)}
                     disabled={revokingId !== null}
-                    className="shrink-0"
                   >
-                    {revokingId === d.id ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Revoking...
-                      </>
-                    ) : (
-                      "Revoke"
-                    )}
+                    {revokingId === d.id ? "Revoking" : "Revoke"}
                   </Button>
-                </div>
+                </Card>
               );
             })}
             {delegations.length > 1 ? (
@@ -514,23 +558,14 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
                 onClick={() => void revoke("all")}
                 disabled={revokingId !== null}
               >
-                {revokingId === "all" ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Revoking all...
-                  </>
-                ) : (
-                  "Revoke all"
-                )}
+                {revokingId === "all" ? "Revoking all" : "Revoke all"}
               </Button>
             ) : null}
           </div>
         )}
 
         {actionError ? (
-          <div className="flex items-start gap-2 text-xs font-sans text-text-primary">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-text-secondary" />
-            <span>Revoke did not complete: {actionError}. Nothing changed on-chain.</span>
-          </div>
+          <Notice text={`Revoke did not complete: ${actionError}. Nothing changed on-chain.`} />
         ) : null}
       </div>
 
@@ -539,173 +574,128 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
         <h4 className="text-xs font-sans font-bold text-text-primary">Grant a standing permission</h4>
 
         {/* Action */}
-        <fieldset className="space-y-1.5">
-          <legend className="text-2xs font-sans font-medium text-text-muted mb-1.5">
-            What PANIK may do
-          </legend>
+        <fieldset className="space-y-2">
+          <legend className="label-type text-2xs text-text-muted">What PANIK may do</legend>
           <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Exit action">
-            {GRANT_ACTIONS.map((a) => {
-              const selected = a.id === action;
-              return (
-                <button
-                  key={a.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setAction(a.id)}
-                  className={`rounded-md border px-3 py-2 text-xs font-sans font-bold transition-colors cursor-pointer ${
-                    selected
-                      ? "border-border-strong bg-white/10 text-text-primary"
-                      : "border-border-subtle text-text-secondary hover:text-text-primary hover:bg-white/[0.04]"
-                  }`}
-                >
-                  {a.label}
-                </button>
-              );
-            })}
+            {GRANT_ACTIONS.map((a) => (
+              <SegmentedOption
+                key={a.id}
+                label={a.label}
+                selected={a.id === action}
+                onSelect={() => setAction(a.id)}
+              />
+            ))}
           </div>
         </fieldset>
 
-        {/* Trigger + slippage + expiry */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <label className="space-y-1.5">
-            <span className="block text-2xs font-sans font-medium text-text-muted">
-              Act at health factor
-            </span>
-            <input
-              type="number"
-              inputMode="decimal"
-              step={0.05}
-              min={1.05}
-              value={triggerHf}
-              onChange={(e) => {
-                setTriggerTouched(true);
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v > 0) setTriggerHf(v);
-              }}
-              className="w-full h-10 px-3 bg-surface-base/80 border border-border-strong rounded-md font-sans text-sm text-text-primary tabular-nums"
-            />
-          </label>
-
-          <label className="space-y-1.5">
-            <span className="block text-2xs font-sans font-medium text-text-muted">
-              Max slippage
-              {ceilingBps !== null ? ` (limit ${bpsToPct(ceilingBps)})` : ""}
-            </span>
-            <input
-              type="number"
-              inputMode="decimal"
-              step={0.05}
-              min={0}
-              max={ceilingBps !== null ? (ceilingBps / BPS) * 100 : undefined}
-              disabled={ceilingBps === null}
-              value={slippageBps !== null ? Number(((slippageBps / BPS) * 100).toFixed(2)) : ""}
-              onChange={(e) => {
-                if (ceilingBps === null) return;
-                const pct = Number(e.target.value);
-                if (!Number.isFinite(pct) || pct < 0) return;
-                setSlippageBps(clampSlippageBps(Math.round((pct / 100) * BPS), ceilingBps));
-              }}
-              className="w-full h-10 px-3 bg-surface-base/80 border border-border-strong rounded-md font-sans text-sm text-text-primary tabular-nums disabled:opacity-50"
-            />
-          </label>
-
-          <label className="space-y-1.5">
-            <span className="block text-2xs font-sans font-medium text-text-muted">Expires in</span>
-            <select
-              value={expiryDays}
-              onChange={(e) => setExpiryDays(Number(e.target.value))}
-              className="w-full h-10 px-3 bg-surface-base/80 border border-border-strong rounded-md font-sans text-sm text-text-primary cursor-pointer"
-            >
-              {EXPIRY_CHOICES.map((d) => (
-                <option key={d} value={d}>
-                  {d} days
-                </option>
-              ))}
-            </select>
-          </label>
+        {/* Trigger + slippage. Both are figures the user types, so both are
+            `Field` in mono: the label sits inside the box until there is a
+            value, and there is never a second placeholder string. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field
+            mono
+            label="Act at health factor"
+            type="number"
+            inputMode="decimal"
+            step={0.05}
+            min={1.05}
+            value={triggerHf}
+            onChange={(e) => {
+              setTriggerTouched(true);
+              const v = Number(e.target.value);
+              if (Number.isFinite(v) && v > 0) setTriggerHf(v);
+            }}
+          />
+          <Field
+            mono
+            label={`Max slippage${ceilingBps !== null ? ` (limit ${bpsToPct(ceilingBps)})` : ""}`}
+            type="number"
+            inputMode="decimal"
+            step={0.05}
+            min={0}
+            max={ceilingBps !== null ? (ceilingBps / BPS) * 100 : undefined}
+            disabled={ceilingBps === null}
+            value={slippageBps !== null ? Number(((slippageBps / BPS) * 100).toFixed(2)) : ""}
+            onChange={(e) => {
+              if (ceilingBps === null) return;
+              const pct = Number(e.target.value);
+              if (!Number.isFinite(pct) || pct < 0) return;
+              setSlippageBps(clampSlippageBps(Math.round((pct / 100) * BPS), ceilingBps));
+            }}
+          />
         </div>
 
-        {/* ── Scope disclosure: the trust surface, consequence-led ───────── */}
-        <dl className="rounded-md border border-border-subtle bg-white/[0.02] p-4 space-y-2.5">
-          <div>
-            <dt className="text-2xs font-sans font-bold text-text-muted">What PANIK may do</dt>
-            <dd className="text-sm font-sans text-text-primary leading-relaxed">
-              PANIK may {actionMeta.allows}. You are left with {actionMeta.leaves}.
-            </dd>
+        {/* Three choices, so three blocks rather than a dropdown. The native
+            `<select>` this replaces was the only control in the card that did
+            not carry the product's hard edge, and `ui/Listbox` is built for a
+            long list behind a custom trigger, not for three words. */}
+        <fieldset className="space-y-2">
+          <legend className="label-type text-2xs text-text-muted">Expires in</legend>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Expires in">
+            {EXPIRY_CHOICES.map((d) => (
+              <SegmentedOption
+                key={d}
+                label={`${d} days`}
+                mono
+                selected={d === expiryDays}
+                onSelect={() => setExpiryDays(d)}
+              />
+            ))}
           </div>
-          <div>
-            <dt className="text-2xs font-sans font-bold text-text-muted">When</dt>
-            <dd className="text-sm font-sans text-text-secondary leading-relaxed" title={outlook.hover}>
-              Only once your health factor drops to {triggerHf.toFixed(2)}, the point where a further{" "}
-              {outlook.strip} fall in {symbol} would put you at liquidation.
-            </dd>
+        </fieldset>
+
+        {/* ── Scope disclosure: the trust surface, consequence-led ─────────
+            Five paragraphs became the terms plus their figures. What went: the
+            second and third sentences of "where your money goes" (the contract
+            enforcing it was already the claim), and the block-time promise on
+            revoking ("takes effect in about 2 seconds"), which is a fact about
+            Base that this component does not measure. */}
+        <Card tone="set-back" className="space-y-3">
+          <p className="text-sm font-sans leading-relaxed text-text-primary">
+            PANIK may {actionMeta.allows}. You are left with {actionMeta.leaves}.
+          </p>
+          <div className="space-y-2">
+            <LedgerRow
+              label="Fires at health factor"
+              value={triggerHf.toFixed(2)}
+              title={outlook.hover}
+            />
+            <LedgerRow
+              label="Most slippage allowed"
+              value={slippageBps !== null ? bpsToPct(slippageBps) : "Not read"}
+            />
+            <LedgerRow label="Expires" value={formatDeadline(deadlineSec)} />
           </div>
-          <div>
-            <dt className="text-2xs font-sans font-bold text-text-muted">Where your money goes</dt>
-            <dd className="text-sm font-sans text-text-primary leading-relaxed">
-              Only ever back to your own wallet. This permission names no other destination, and the
-              executor contract pays your address and no one else. That is enforced on-chain, not by
-              our word.
-            </dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-sans font-bold text-text-muted">Slippage and scope</dt>
-            <dd className="text-sm font-sans text-text-secondary leading-relaxed">
-              When converting assets it may accept up to{" "}
-              {slippageBps !== null ? bpsToPct(slippageBps) : "the executor limit"} of price
-              slippage. Covers {protocolLabels.join(", ") || "no protocol"}.
-            </dd>
-          </div>
-          <div>
-            <dt className="text-2xs font-sans font-bold text-text-muted">Expires and revoking</dt>
-            <dd className="text-sm font-sans text-text-secondary leading-relaxed">
-              <span className="inline-flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 shrink-0" /> Expires {formatDeadline(deadlineSec)}.
-              </span>{" "}
-              You can revoke it in one click at any time. Revoking is your own on-chain action and
-              takes effect in about 2 seconds, once the transaction confirms.
-            </dd>
-          </div>
-        </dl>
+          <p className="text-xs font-sans leading-relaxed text-text-secondary" title={outlook.hover}>
+            A further {outlook.strip} fall in {symbol} would put you at liquidation. Covers{" "}
+            {protocolLabels.join(", ") || "no protocol"}. Pays only ever back to your own wallet,
+            which the executor contract enforces on-chain. Revocable at any time, by your own
+            transaction.
+          </p>
+        </Card>
 
         {grantError ? (
-          <div className="flex items-start gap-2 text-xs font-sans text-text-primary">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-text-secondary" />
-            <span>Could not grant the permission: {grantError}. Nothing was stored or signed.</span>
-          </div>
+          <Notice
+            text={`Could not grant the permission: ${grantError}. Nothing was stored or signed.`}
+          />
         ) : null}
 
         {grantOk ? (
-          <div className="flex items-center gap-2 text-xs font-sans text-text-secondary">
-            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-text-secondary" /> Standing permission
-            granted. It is listed above and revocable any time.
-          </div>
+          <p className="flex items-center gap-2 text-xs font-sans text-text-secondary">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-text-primary" aria-hidden="true" />
+            Standing permission granted. It is listed above and revocable any time.
+          </p>
         ) : null}
 
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void grant()}
-            disabled={granting || slippageInvalid}
-            className="h-10 px-4 rounded-md text-2xs font-sans font-extrabold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-text-primary text-surface-base hover:opacity-90 cursor-pointer inline-flex items-center gap-2"
-          >
-            {granting ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Sign in wallet...
-              </>
-            ) : (
-              <>
-                <ShieldCheck className="w-3.5 h-3.5" /> Grant standing permission
-              </>
-            )}
-          </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={() => void grant()} disabled={granting || slippageInvalid}>
+            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+            {granting ? "Sign in wallet" : "Grant standing permission"}
+          </Button>
           {/* Two facts, not four clauses: what it costs and what it does not
               do. A signature is the one control on this screen where a reader
               genuinely cannot tell either from the button. */}
-          <p className="text-2xs font-sans text-text-muted">
-            No gas. Signing moves no funds.
-          </p>
+          <p className="text-2xs font-sans text-text-muted">No gas. Signing moves no funds.</p>
         </div>
       </div>
     </Card>

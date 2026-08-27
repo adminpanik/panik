@@ -37,15 +37,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  KeyRound,
-  Loader2,
-  RefreshCw,
-  ShieldOff,
-  Wallet,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, KeyRound, RefreshCw, ShieldOff, Wallet } from "lucide-react";
 import { useAccount, useConnect, usePublicClient, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../lib/exit.generated";
@@ -72,7 +64,25 @@ import {
 } from "../lib/preauth";
 import { useExitApprovals } from "../lib/useExitApprovals";
 import { PROTOCOL_LABEL } from "../lib/utils";
-import { Button, Card, EmptyState, Notice } from "../ui";
+import { Button, Card, EmptyState, Notice, Skeleton } from "../ui";
+
+/**
+ * One approval figure, in a ledger line. The four-branch sentence this replaces
+ * ("Approved for X, which covers the Y an exit would need") set its amounts in
+ * Archivo inside prose, which is the one thing this system's type rule forbids:
+ * a figure is a reading and reads in mono, and two amounts buried mid-sentence
+ * cannot be compared at a glance, which is the entire question the row answers.
+ */
+function LedgerRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="min-w-0 font-sans text-xs text-text-secondary">{label}</span>
+      <span className="shrink-0 font-mono text-xs font-bold tabular-nums text-text-primary">
+        {value}
+      </span>
+    </div>
+  );
+}
 
 /**
  * The only protocol an approval can be exercised on today.
@@ -213,25 +223,20 @@ export function RevokeExitApprovals({ approvals }: { approvals: readonly Approva
   if (rows === null || (live.length === 0 && result === null)) return null;
 
   return (
-    <div className="space-y-2 border-t border-border-subtle pt-4 text-left">
+    <div className="space-y-3 border-t border-border-subtle pt-4 text-left">
+      {/* Two clauses gone: "you can hand them back now, or leave them in place
+          so a future exit is one signature" described both branches of a button
+          the reader is looking at. The count is the fact; the control is the
+          offer. */}
       <p className="text-xs font-sans leading-relaxed text-text-secondary">
-        This exit still holds {live.length} token approval{live.length === 1 ? "" : "s"} on your
-        wallet. You can hand {live.length === 1 ? "it" : "them"} back now, or leave{" "}
-        {live.length === 1 ? "it" : "them"} in place so a future exit is one signature.
+        This exit left {live.length} token approval{live.length === 1 ? "" : "s"} on your wallet.
       </p>
       {result ? <p className="text-xs font-sans text-text-secondary">{result}</p> : null}
       {failure ? <Notice text={failure} /> : null}
       {live.length > 0 ? (
         <Button variant="secondary" onClick={() => void revoke()} disabled={busy !== null}>
-          {busy === "revoking" ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status || "Revoking..."}
-            </>
-          ) : (
-            <>
-              <ShieldOff className="h-3.5 w-3.5" /> Revoke these token approvals
-            </>
-          )}
+          <ShieldOff className="h-3.5 w-3.5" aria-hidden="true" />
+          {busy === "revoking" ? status || "Revoking" : "Revoke these approvals"}
         </Button>
       ) : null}
     </div>
@@ -439,9 +444,12 @@ export function ExitApprovals() {
           onClick={() => void refresh()}
           disabled={loading || busy !== null}
           aria-label="Refresh your approvals"
-          className="inline-flex cursor-pointer items-center gap-1.5 text-2xs font-sans text-text-secondary transition-colors hover:text-text-primary disabled:opacity-50"
+          className="inline-flex cursor-pointer items-center gap-1.5 label-type text-2xs text-text-secondary hover:text-text-primary disabled:opacity-40"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+          {/* No spin. This look has no motion, and the disabled state plus the
+              word below already say the read is in flight. */}
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+          {loading ? "Reading" : "Refresh"}
         </button>
       </div>
 
@@ -452,8 +460,9 @@ export function ExitApprovals() {
           hint={`${loadError} Nothing on-chain has changed. Try Refresh.`}
         />
       ) : loaded === null ? (
-        <div className="flex items-center gap-2 py-3 font-sans text-xs text-text-secondary">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading your approvals...
+        <div aria-busy="true" className="space-y-2">
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-16 w-full" />
         </div>
       ) : incomplete ? (
         <EmptyState
@@ -471,13 +480,22 @@ export function ExitApprovals() {
         <>
           {/* The claim, and it is a measurement rather than a promise: it moves
               the moment interest takes a debt past the buffer it was approved
-              with. Neutral ink throughout - a signature count is not a risk
-              band. */}
-          <p className="text-sm font-sans leading-relaxed text-text-primary">
-            {missingCount === 0
-              ? "Every approval a full exit needs is in place, so exiting from here is one signature."
-              : `A full exit from here would cost ${coverage.signaturesAtPanic} signatures right now: ${missingCount} approval${missingCount === 1 ? "" : "s"} and the exit itself.`}
-          </p>
+              with. Neutral throughout - a signature count is not a risk band -
+              and the count is a FIGURE now rather than a numeral inside a
+              sentence, because it is the one number this card exists to
+              report. */}
+          <Card tone="set-back" className="space-y-2">
+            <LedgerRow
+              label="Signatures a full exit costs right now"
+              value={String(coverage.signaturesAtPanic)}
+            />
+            {missingCount > 0 ? (
+              <p className="text-xs font-sans leading-relaxed text-text-secondary">
+                {missingCount} approval{missingCount === 1 ? "" : "s"} still owed, plus the exit
+                itself.
+              </p>
+            ) : null}
+          </Card>
 
           <ul className="divide-y divide-border-subtle">
             {rows.map((r) => {
@@ -499,24 +517,41 @@ export function ExitApprovals() {
                       aria-hidden="true"
                     />
                   )}
-                  <div className="min-w-0 flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-2">
                     <p className="text-sm font-sans font-bold text-text-primary">
                       {r.spec.subject}: {r.symbol}
                     </p>
                     <p className="text-xs font-sans leading-relaxed text-text-secondary">
                       {r.spec.permits}
                     </p>
-                    {/* Never a bare "0": the state is stated in words and the
-                        figure only appears when there is one to state. */}
-                    <p className="text-xs font-sans tabular-nums text-text-muted">
-                      {stale
-                        ? `Approved for ${formatTokenAmount(r.current, r.decimals)} ${r.symbol}. An exit does not need this one any more.`
-                        : covered
-                          ? `Approved for ${formatTokenAmount(r.current, r.decimals)} ${r.symbol}, which covers the ${formatTokenAmount(withAccrualBuffer(r.amount), r.decimals)} an exit would need.`
-                          : r.current === 0n
-                            ? `Not approved. An exit needs ${formatTokenAmount(withAccrualBuffer(r.amount), r.decimals)} ${r.symbol}.`
-                            : `Approved for ${formatTokenAmount(r.current, r.decimals)} ${r.symbol}, short of the ${formatTokenAmount(withAccrualBuffer(r.amount), r.decimals)} an exit would need.`}
-                    </p>
+                    {/* Never a bare "0": a row with no allowance says so in
+                        words, and the figure appears only when there is one to
+                        state. The two amounts sit one above the other so the
+                        comparison the reader is making is a vertical one. */}
+                    {r.current > 0n ? (
+                      <LedgerRow
+                        label={`Approved, ${r.symbol}`}
+                        value={formatTokenAmount(r.current, r.decimals)}
+                      />
+                    ) : (
+                      <p className="text-xs font-sans text-text-secondary">Not approved.</p>
+                    )}
+                    {r.amount > 0n ? (
+                      <LedgerRow
+                        label={`An exit needs, ${r.symbol}`}
+                        value={formatTokenAmount(withAccrualBuffer(r.amount), r.decimals)}
+                      />
+                    ) : null}
+                    {stale ? (
+                      <p className="text-xs font-sans text-text-secondary">
+                        An exit does not need this one any more.
+                      </p>
+                    ) : null}
+                    {!covered && r.current > 0n ? (
+                      <p className="text-xs font-sans text-text-secondary">
+                        Short of what an exit would need.
+                      </p>
+                    ) : null}
                   </div>
                 </li>
               );
@@ -532,43 +567,34 @@ export function ExitApprovals() {
               disabled={busy !== null || missingCount === 0}
               title={missingCount === 0 ? "Every approval an exit needs is already granted" : undefined}
             >
-              {busy === "granting" ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status || "Sign in wallet..."}
-                </>
-              ) : (
-                <>
-                  <KeyRound className="h-3.5 w-3.5" />
-                  {missingCount === 0
-                    ? "All approvals granted"
-                    : `Approve ${missingCount} token movement${missingCount === 1 ? "" : "s"}`}
-                </>
-              )}
+              <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+              {busy === "granting"
+                ? status || "Sign in wallet"
+                : missingCount === 0
+                  ? "All approvals granted"
+                  : `Approve ${missingCount} token movement${missingCount === 1 ? "" : "s"}`}
             </Button>
             {grantedCount > 0 ? (
               <Button variant="secondary" onClick={() => void revoke()} disabled={busy !== null}>
-                {busy === "revoking" ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status || "Revoking..."}
-                  </>
-                ) : (
-                  <>
-                    <ShieldOff className="h-3.5 w-3.5" /> Revoke all {grantedCount} token approval
-                    {grantedCount === 1 ? "" : "s"}
-                  </>
-                )}
+                <ShieldOff className="h-3.5 w-3.5" aria-hidden="true" />
+                {busy === "revoking"
+                  ? status || "Revoking"
+                  : `Revoke all ${grantedCount} token approval${grantedCount === 1 ? "" : "s"}`}
               </Button>
             ) : null}
           </div>
 
-          {/* Money-path facts, and DESIGN_SYSTEM's copy test keeps them: the
+          {/* The money-path facts, and DESIGN_SYSTEM's copy test keeps them: the
               buffer figure is the engine constant, not a literal, so it cannot
-              drift from the amount actually approved. */}
+              drift from the amount actually approved. The last sentence is gone
+              ("borrow more, or let interest run past that buffer, and the exit
+              will ask you to top the approval up") - it described what the exit
+              modal will do when it gets there, on a card whose rows already
+              show, per token, what is approved against what is needed. */}
           <p className="text-2xs font-sans leading-relaxed text-text-muted">
-            Each approval is for the exact amount an exit needs plus{" "}
-            {ACCRUAL_BUFFER_PCT.toString()}% for interest, never unlimited, and every transaction
-            is simulated before you sign it. Borrow more, or let interest run past that buffer, and
-            the exit will ask you to top the approval up.
+            Each approval covers the exact amount an exit needs plus{" "}
+            <span className="font-mono font-bold">{ACCRUAL_BUFFER_PCT.toString()}%</span> for
+            interest, never unlimited. Every transaction is simulated before you sign it.
           </p>
         </>
       )}
