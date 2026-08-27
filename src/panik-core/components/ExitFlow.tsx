@@ -139,6 +139,38 @@ const FLOW_COPY: Record<ExitPrefill["kind"], { title: string; cta: string; done:
 };
 
 /**
+ * The one sentence stating what the exit will do, shared by the connect step
+ * (which has nothing else explaining the button) and the top of the review
+ * step, so both read as the same modal.
+ *
+ * Built only from what the prefill already carries: the protocol and, when the
+ * recommendation supplied one, the collateral symbol. Never a fetch, never a
+ * figure - the ledger rows are what state the numbers.
+ *
+ * The `full` branch keeps the shape of the Advisor card's own line
+ * (`AdvisorPanel.tsx`, `routesFor`'s EXIT lead: "Repays your debt from your
+ * wallet, then sells your ${symbol} collateral for USDC.") rather than a
+ * second, different sentence for the same outcome. `full_repay` and `partial`
+ * both leave the collateral deposited, so they borrow "Your collateral stays
+ * deposited" from the same card's REDUCE protection line instead of inventing
+ * a third phrase for the same fact.
+ */
+function exitActionLine(
+  kind: ExitPrefill["kind"],
+  protocolLabel: string,
+  collateralSymbol: string | undefined,
+): string {
+  if (kind === "full") {
+    const collateral = collateralSymbol ? `${collateralSymbol} ` : "";
+    return `Repays your debt on ${protocolLabel} from your wallet, then sells your ${collateral}collateral for USDC.`;
+  }
+  if (kind === "full_repay") {
+    return `Repays your debt on ${protocolLabel} from your wallet. Your collateral stays deposited.`;
+  }
+  return `Repays part of your debt on ${protocolLabel} from your wallet. Your collateral stays deposited.`;
+}
+
+/**
  * One fact of the transaction: what it is on the left, the figure on the right.
  *
  * Composed here rather than taken from `ui/`, because `Stat` is a label above a
@@ -604,6 +636,23 @@ export function ExitFlow({
   // shortfall in ANY debt asset blocks the whole atomic transaction.
   const underfunded = (position?.funding ?? []).some((f) => f.balance < f.required);
 
+  // The connect step's one sentence, and the same one repeated at the top of
+  // the review step. `kind` (state), not `prefill.kind`, so a narrowed exit
+  // reads "clears the debt" once the fallback has been taken.
+  const actionLine = exitActionLine(kind, PROTOCOL_LABEL[prefill.protocol], prefill.collateralSymbol);
+
+  // What the connect step can say before the chain has been read at all: only
+  // the two facts the recommendation itself carried. Either can be absent (a
+  // full-band EXIT prefill is only ever `{ protocol, kind }`), and an absent
+  // one is a row that does not render, never a placeholder.
+  const connectLedgerRows: { label: string; value: string }[] = [];
+  if (prefill.borrowUsd !== undefined && prefill.borrowUsd !== null) {
+    connectLedgerRows.push({ label: "Debt", value: fmtUsd(prefill.borrowUsd) });
+  }
+  if (prefill.collateralSymbol) {
+    connectLedgerRows.push({ label: "Collateral", value: prefill.collateralSymbol });
+  }
+
   /**
    * What a capped repay actually buys, as rows rather than as two sentences.
    *
@@ -705,9 +754,19 @@ export function ExitFlow({
           ) : null}
 
           {step === "connect" ? (
-            <Button className="w-full" onClick={() => connect({ connector: injected() })}>
-              Connect wallet
-            </Button>
+            <div className="space-y-4">
+              <p className="font-sans text-sm leading-relaxed text-text-secondary">{actionLine}</p>
+              {connectLedgerRows.length > 0 ? (
+                <Card tone="set-back" className="space-y-2">
+                  {connectLedgerRows.map((row) => (
+                    <LedgerRow key={row.label} label={row.label} value={row.value} />
+                  ))}
+                </Card>
+              ) : null}
+              <Button className="w-full" onClick={() => connect({ connector: injected() })}>
+                Connect wallet
+              </Button>
+            </div>
           ) : null}
 
           {step === "chain" ? (
@@ -732,6 +791,9 @@ export function ExitFlow({
 
           {(step === "review" || step === "executing") && position ? (
             <div className="space-y-4">
+              {/* Same sentence as the connect step, so a reader who lands
+                  directly on review (wallet already connected) still gets it. */}
+              <p className="font-sans text-sm leading-relaxed text-text-secondary">{actionLine}</p>
               {/* ONE ledger, and it is the whole review step. Every figure this
                   transaction carries is a row in it: what a capped repay covers
                   against what was asked for, the legs, what the wallet must
