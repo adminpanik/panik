@@ -3079,7 +3079,6 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   <MarketTable
                     recommended={recommendedOrdered}
                     outside={outside}
-                    chainLabel={CHAIN_MODE_LABEL[chainMode]}
                     profile={selectedRiskProfile}
                     leadId={compassLead?.id}
                     /* The measurement, not a verdict: this app does not rank

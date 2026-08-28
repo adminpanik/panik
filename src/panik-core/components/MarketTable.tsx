@@ -168,8 +168,6 @@ interface MarketTableProps<T extends MarketRow> {
   recommended: T[];
   /** Out-of-profile markets, under their own separator. Sorted the same way. */
   outside: T[];
-  /** How many markets the two groups hold between them, and on which chain. */
-  chainLabel: string;
   /** The profile the partition was made against, for the separator's words. */
   profile: string;
   /** The one row the page leads with, if it has one. See `compassLead`. */
@@ -208,7 +206,6 @@ function byScoreAscending<T extends MarketRow>(rows: T[]): T[] {
 export function MarketTable<T extends MarketRow>({
   recommended,
   outside,
-  chainLabel,
   profile,
   leadId,
   leadNote,
@@ -226,7 +223,6 @@ export function MarketTable<T extends MarketRow>({
 }: MarketTableProps<T>) {
   const recommendedRows = byScoreAscending(recommended);
   const outsideRows = byScoreAscending(outside);
-  const total = recommendedRows.length + outsideRows.length;
 
   /**
    * One row, drawn identically wherever it sits. The section a market is in is
@@ -382,16 +378,12 @@ export function MarketTable<T extends MarketRow>({
 
   return (
     <Card tone="raised" padded={false} className="flex min-w-0 flex-col">
-      {/* The card's name and its count, on one 56px band over the black head.
-          The count lives HERE, on the list it describes, and it names the chain
-          it was read from: the same figure on a caption elsewhere is a second
-          copy free to disagree with this one. */}
-      <div className="flex h-14 shrink-0 items-center justify-between gap-4 border-b-[3px] border-solid border-border-strong px-4">
-        <h2 className="label-type text-xs text-text-primary">Markets</h2>
-        <span className="shrink-0 whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-secondary">
-          {total} on {chainLabel}
-        </span>
-      </div>
+      {/* The black column-header row is the top of the card now: no title band
+          above it. "Markets" named the card and the count restated a number the
+          page states elsewhere, and neither survives asking what a reader loses
+          without it. The card's own 3px top edge is what the header row now
+          meets, and `hard-edge` carries no radius, so the two lines meet flush
+          at every width. */}
 
       {/* The one horizontal scroller, and it is the honest answer for a table:
           seven columns of names and figures have a width below which they stop
