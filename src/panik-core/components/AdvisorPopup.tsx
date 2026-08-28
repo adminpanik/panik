@@ -274,14 +274,14 @@ export function AdvisorPopup({
      *
      * `role="status"` stays: it can appear without the reader doing anything,
      * so it is worth announcing and not worth interrupting. */
-    <Card tone="raised" role="status" className="flex items-start gap-3">
+    <Card tone="raised" role="status" className="flex flex-wrap items-center gap-3 md:flex-nowrap">
       {verdict ? (
         <RiskChip band={verdict.band}>{verdict.word}</RiskChip>
       ) : (
         /* No band on an `info` reading, because there is none: an opportunity
            is not a severity, and painting it LOW green would be the ramp making
            a safety claim from the absence of a finding. */
-        <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
+        <Sparkles className="h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
       )}
 
       <div className="min-w-0 flex-1 space-y-1">
@@ -291,34 +291,44 @@ export function AdvisorPopup({
             {notification.detail}
           </p>
         )}
-        <div className="flex flex-wrap items-center gap-2 pt-2">
-          {/* WITHHELD, not disabled. `actionState` is false when the selected
-              chain cannot settle this action, and a greyed primary is the
-              largest element on the card asserting something the product cannot
-              do, with its reason on a hover neither a phone nor a keyboard
-              reaches. The secondary below is always live, so the card never
-              ends with nothing to press. */}
-          {notification.actionLabel && actionState.enabled && (
-            <Button onClick={act}>
-              {notification.actionLabel} <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            onClick={() => {
-              onView();
-              setNotification(null);
-            }}
-          >
-            View in Advisor
+      </div>
+
+      {/* Buttons: below `md` this is its own full-width row under the chip
+          and sentence; at `md` and up it rejoins the single row between the
+          sentence and the dismiss control (`order` below). */}
+      <div className="order-4 flex w-full gap-2 md:order-3 md:w-auto">
+        {/* WITHHELD, not disabled. `actionState` is false when the selected
+            chain cannot settle this action, and a greyed primary is the
+            largest element on the card asserting something the product cannot
+            do, with its reason on a hover neither a phone nor a keyboard
+            reaches. The secondary below is always live, so the card never
+            ends with nothing to press. */}
+        {notification.actionLabel && actionState.enabled && (
+          <Button onClick={act} className="w-full md:w-auto">
+            {notification.actionLabel} <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
-        </div>
+        )}
+        <Button
+          variant="secondary"
+          onClick={() => {
+            onView();
+            setNotification(null);
+          }}
+          className="w-full md:w-auto"
+        >
+          View in Advisor
+        </Button>
       </div>
 
       {/* A real accessible name, because the glyph is the whole label: this
           announced as "button" and nothing else. `Button` also gives it a hit
           area over the 24px floor SC 2.5.8 sets. */}
-      <Button variant="ghost" onClick={dismiss} aria-label="Dismiss this advisor notice">
+      <Button
+        variant="ghost"
+        onClick={dismiss}
+        aria-label="Dismiss this advisor notice"
+        className="order-3 shrink-0 md:order-4"
+      >
         <X className="h-4 w-4" aria-hidden="true" />
       </Button>
     </Card>
