@@ -33,6 +33,7 @@ import { ArrowDownRight, ArrowUpRight, Eye, Minus } from "lucide-react";
 import type { Band, LiveProtocol, PoolYield } from "../lib/live";
 import { BAND_WORD, formatCompactUsd, PROTOCOL_LABEL } from "../lib/utils";
 import { Button, Card, DemoChip, EmptyState, RiskChip } from "../ui";
+import { ProtocolLogo } from "./ProtocolLogo";
 
 /**
  * The column head and the cell, written once each, and the same two strings
@@ -91,6 +92,12 @@ const COL = {
 
 /** Every figure in the table, in the one face this product sets numerals in. */
 const FIGURE = "whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary";
+
+/**
+ * The protocol mark's tile size. `w-7 h-7` (28px) is a real step on the
+ * spacing scale, standing in for the design's own arbitrary 30px.
+ */
+const PROTOCOL_MARK_SIZE = "w-7 h-7";
 
 /** Header, separator and footer all span the full row. One number, one place. */
 const COLUMN_COUNT = 7;
@@ -301,7 +308,13 @@ export function MarketTable<T extends MarketRow>({
           {lead && <span className="block font-sans text-sm text-text-muted">{leadNote}</span>}
         </td>
         <td className={`${TD} ${COL.protocol}`}>
-          <span className="whitespace-nowrap font-sans text-sm text-text-primary">{name}</span>
+          {/* The mark stands for the word: a reader who scans the same four
+              logos on Watch and Portfolio does not need the protocol's name
+              typeset a third time. `label` is what keeps it announced - the
+              tile is the only place this row says which protocol it is. */}
+          <div className="flex items-center justify-center">
+            <ProtocolLogo protocol={name} size={PROTOCOL_MARK_SIZE} label={name} />
+          </div>
         </td>
         <td className={`${TD} ${COL.tvl}`}>
           {/* Omitted, never a zero: a pool whose TVL we could not read is not a
