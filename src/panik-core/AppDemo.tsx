@@ -112,18 +112,16 @@ import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
 import { CardTitle } from "./components/CardTitle";
 import { PageHeader } from "./components/PageHeader";
+import { MarketTable } from "./components/MarketTable";
 import {
   Button,
   Card,
-  Chip,
   DemoChip,
   EmptyState,
   FIELD_BOX,
   LAYER,
   Listbox,
   RiskChip,
-  RiskDial,
-  riskScoreLabel,
   SCRIM,
   SimulationBanner,
   Skeleton,
@@ -767,330 +765,67 @@ const VAULT_PRESETS: VaultPreset[] = [
 ];
 
 /**
- * What the 30d APY sparkline was drawing, as one clause.
- *
- * The chart it replaces plotted a 0.2-point band across a full card width, with
- * a two-label y-axis, a two-label x-axis and a caption underneath: six elements
- * and 36px of height to say "this yield has not moved much". A line whose whole
- * range is smaller than the ink used to draw it is noise rendered as signal,
- * and the only fact a reader could actually take from it is direction — which
- * is a sentence.
- *
- * This is the same trade the Portfolio history card already makes: it dropped
- * the restated score and kept "up 3 over 30d". The shape is still there for
- * anyone who wants it, in the risk-breakdown panel behind the card.
- *
- * Measured against the APY the card is SHOWING, not against the end of the
- * series. The two are the same number in production but need not be — the
- * headline is a separate field on the API row — and a card reading "2.5% APY"
- * over "Up from 2.6%" is a card arguing with itself.
- *
- * 0.1 is the flat threshold, not zero: it is the smallest move that survives
- * one-decimal rounding, so "Up from 2.5%" can never sit under "2.5% APY".
- */
-function apyTrendCopy(apy: number, apySeries: number[]): string | null {
-  const first = apySeries[0];
-  if (first === undefined) return null;
-  const delta = apy - first;
-  if (Math.abs(delta) < 0.1) return "Flat over 30 days";
-  return `${delta > 0 ? "Up" : "Down"} from ${first.toFixed(1)}% 30 days ago`;
-}
-
-/**
  * Why a Compass score is wearing a Demo badge, said once for the two surfaces
- * that show the same score: the card, and the risk breakdown it opens.
+ * that show the same score: the market table's row, and the risk breakdown it
+ * opens.
  *
  * `VAULT_PRESETS` carries a listed `baseRisk`/`riskStatus` per market so the
- * grid has something to draw before /api/compass answers, and those constants
- * are what a card falls back to when it never does. They are a plausible
- * reading of a market rather than a measurement of one, and a dial drawn from
- * them is indistinguishable from a live engine read unless the card says so.
+ * table has something to draw before /api/compass answers, and those constants
+ * are what a row falls back to when it never does. They are a plausible
+ * reading of a market rather than a measurement of one, and a band chip drawn
+ * from them is indistinguishable from a live engine read unless the row says so.
  */
 const FALLBACK_SCORE_NOTE =
   "This market's score came from the offline fallback, not a live engine read.";
 
 /**
- * One Compass market.
+ * Which profile the Compass table is partitioned on.
  *
- * Deliberately shaped like a Portfolio position row, because it is the same
- * kind of object seen from the other side: identity on the left, the band on
- * the right, the money on one line, the verdict on the next, actions at the
- * foot. Nine stacked elements became five.
+ * A component rather than the loop it was, because the control now has two
+ * homes: the page header's action slot from `md` up, which is where the
+ * approved table design puts it, and directly under the header below that. At
+ * 390 the page's own name and three 48px plates come to 338px inside a 358px
+ * column, so a header carrying both would have to ellipsise one of them or grow
+ * past the 72px every other tab is drawn at.
  *
- * `muted` is the "outside your profile" rendering. It dims the SURFACE only.
- * The old version also dimmed the logo, the title and the risk dial, which put
- * a CRITICAL market's band at 60% opacity — the one card on the page most worth
- * reading clearly was the faintest. Which section it is in already says it is
- * out of profile; the dial's job is to say how far.
+ * Exactly ONE of the two mounts at a time, off `isDesktop`, never a second copy
+ * behind `hidden md:flex`: two `aria-pressed` groups with the same label are
+ * two answers to "which profile is selected" for anything reading the tree.
  *
- * `lead` is the opposite end of the same axis, and it is why the other cards
- * settled a step. Eight cards at one weight is a page with no answer on it: the
- * reader has to compare eight dials before the screen has told them anything.
- * The emphasis is the BORDER, a type step and a marker, never more hue - the
- * dial is still the only coloured thing on any of these cards, and the lead's
- * own claim is a neutral `Chip`.
+ * Three copies of one button became a map over the three profiles, so the
+ * selected and unselected treatments cannot drift between them. Lavender for
+ * the selected plate, not cobalt: cobalt is the nav's block and means "the
+ * section you are in".
  */
-function MarketCard({
-  preset,
-  poolYield,
-  muted = false,
-  lead = false,
-  leadNote,
-  opensDemo,
-  scoreFromFallback,
-  onBreakdown,
-  onSimulate,
-  onOpen,
+function RiskProfileToggle({
+  selected,
+  onSelect,
 }: {
-  preset: VaultPreset;
-  poolYield: PoolYield | null;
-  muted?: boolean;
-  /** The section's one emphasised card. See the docblock, and `compassLead`. */
-  lead?: boolean;
-  /** What the lead card CLAIMS, in the words of the thing that measured it. */
-  leadNote?: string;
-  /**
-   * This card's open would land in the DEMO simulator rather than a real
-   * transaction. Comes from the same predicate the click routes on, so the
-   * label on the card and the screen the click reaches cannot disagree.
-   */
-  opensDemo: boolean;
-  /**
-   * The dial on this card is drawn from the LISTED score, because the engine
-   * feed is down and there was nothing to overlay. A separate claim from
-   * `opensDemo`, about the number rather than the button, which is why the two
-   * chips share a word and carry different hovers. The risk breakdown behind
-   * this card makes the same claim from the same condition.
-   */
-  scoreFromFallback: boolean;
-  onBreakdown: () => void;
-  onSimulate: () => void;
-  onOpen: () => void;
+  selected: RiskProfile;
+  onSelect: (profile: RiskProfile) => void;
 }) {
-  const apy = poolYield?.apy ?? preset.apy;
-  const trend = poolYield ? apyTrendCopy(apy, poolYield.apySeries) : null;
   return (
-    <Card
-      /* Three depths, in the order the reader should meet them: the lead, the
-         rest of its section, and the section that is out of profile. `strong` on
-         the lead's edge is the only functional border on the grid, and it is the
-         one card whose edge is doing a job.
-
-         The primitive owns all three, so this grid's lead is pixel-for-pixel the
-         Advisor's: the two were hand-typed apart at `surface-raised/80` and /50,
-         which is one screen's "the thing to read here" being a different object
-         from another's. Only the hover is left here, because it is a step up
-         from whichever base the tone set. */
-      tone={lead ? "lead" : muted ? "set-back" : "raised"}
-      onClick={onBreakdown}
-      className={`flex cursor-pointer flex-col gap-3 transition-colors hover:border-border-strong ${
-        muted ? "hover:bg-surface-raised/45" : "hover:bg-surface-overlay/60"
-      }`}
+    <div
+      role="group"
+      aria-label="Which risk profile to browse against"
+      className="flex flex-wrap items-center gap-2"
     >
-      {/* The claim, in a neutral marker, above the identity it is about. It is
-          the one sentence this grid was missing: eight scored markets and
-          nothing saying which one the profile actually points at. */}
-      {lead && leadNote && <Chip className="self-start">{leadNote}</Chip>}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <ProtocolLogo protocol={preset.protocol} size="w-8 h-8" />
-          <div className="min-w-0">
-            {/* One type step on the lead, which is the emphasis a card can
-                carry without spending hue or breaking the grid's rhythm. */}
-            <h3
-              className={`truncate font-sans font-bold text-text-primary ${
-                lead ? "text-base" : "text-sm"
-              }`}
-            >
-              {preset.protocol}
-            </h3>
-            <span className="block truncate text-xs font-sans text-text-secondary">
-              {preset.assetPair}
-            </span>
-          </div>
-        </div>
-        {/* The dial is the keyboard route into the breakdown; the card body is
-            the mouse route. It no longer opens the panel on MOUSEENTER — a
-            500px slide-out with a full-page backdrop was firing on an
-            accidental pass of the cursor, so the page moved out from under
-            anyone scanning the grid.
-
-            The same dial the Portfolio rows carry, for the same reason: the
-            score is a proportion of a fixed range and the arc is that
-            denominator drawn. `plain` because this button owns the name (see
-            the prop's docblock). */}
-        <div className="flex shrink-0 items-center gap-2">
-          {/* Beside the figure it is about, for the same reason the simulation
-              marker travels with the payload it describes: a provenance mark
-              reachable only by opening the panel behind this card leaves every
-              glance at the grid reading a constant as a measurement. Live is
-              the default and wears nothing. */}
-          {scoreFromFallback && <DemoChip title={FALLBACK_SCORE_NOTE} />}
+      {RISK_PROFILES.map((profile) => {
+        const active = selected === profile;
+        return (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onBreakdown();
-            }}
-            aria-label={
-              `${riskScoreLabel(preset.baseRisk, preset.riskStatus)} ` +
-              (scoreFromFallback ? `${FALLBACK_SCORE_NOTE} ` : "") +
-              `Open the ${preset.protocol} risk breakdown.`
-            }
-            title={`Open the ${preset.protocol} risk breakdown`}
-            className="cursor-pointer rounded-full"
+            key={profile}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onSelect(profile)}
+            className={`flex h-12 cursor-pointer items-center hard-edge px-4 label-type text-xs text-text-primary shadow-hard-sm hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none ${
+              active ? "bg-highlight" : "bg-surface-raised"
+            }`}
           >
-            <RiskDial score={preset.baseRisk} band={preset.riskStatus} plain />
+            {profile}
           </button>
-        </div>
-      </div>
-
-      {/* The money line, in the Portfolio position row's exact shape: figure in
-          primary ink, unit in secondary, each pair unbreakable. */}
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm font-sans tabular-nums text-text-secondary">
-        <span className="whitespace-nowrap">
-          <span className="font-semibold text-text-primary">{apy.toFixed(1)}%</span> APY
-        </span>
-        {poolYield && (
-          <span className="whitespace-nowrap">
-            <span className="font-semibold text-text-primary">
-              {formatCompactUsd(poolYield.tvlUsd)}
-            </span>{" "}
-            TVL
-          </span>
-        )}
-      </div>
-
-      <p className="text-sm font-sans tabular-nums text-text-secondary">
-        {trend ?? "30-day yield history unavailable"}
-      </p>
-
-      {/* `mt-auto`, so every card in a row puts its actions on the same line
-          whatever is above them. Grid items already stretch to the tallest card,
-          and the lead is now taller than the rest by a marker; without this the
-          three buttons in a row sit at three different heights. */}
-      <div
-        className="mt-auto flex items-center justify-between gap-3 border-t border-border-subtle pt-3"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2">
-          <Button onClick={onOpen}>
-            <Plus className="h-3.5 w-3.5" />
-            Open position
-          </Button>
-          {opensDemo && <DemoChip />}
-        </div>
-        {/* Icon-only, so the primary action is the only labelled button on the
-            card. The name lives in `aria-label` and `title` rather than beside
-            the glyph; the quiet variant's own padding takes the target to
-            44x32, clear of the 24px floor. */}
-        <Button
-          variant="ghost"
-          onClick={onSimulate}
-          aria-label="Stress-test this market in the simulator"
-          title="Stress-test this market in the simulator"
-        >
-          <Eye className="h-4 w-4" />
-        </Button>
-      </div>
-    </Card>
-  );
-}
-
-/**
- * One Compass section: its heading, and under it either its cards or the
- * statement that it has none.
- *
- * Recommended and Outside were 36-line near-copies, each carrying its own copy
- * of the eight-prop `MarketCard` call and each testing its own emptiness twice
- * (once to decide whether the section exists, again to decide what goes in it).
- * The two tests are one decision and they live here now: cards if there are
- * cards, otherwise the empty statement if this tab is stating empties, and
- * otherwise nothing at all.
- *
- * `muted` is the out-of-profile section, and it dims the heading and the cards
- * together: the heading IS the "not recommended", so a full-strength heading
- * over dimmed cards would put the emphasis on the warning rather than the
- * markets the profile actually points at.
- */
-function MarketSection({
-  heading,
-  presets,
-  statesEmpty,
-  emptyTitle,
-  emptyHint,
-  muted = false,
-  leadId,
-  leadNote,
-  poolYields,
-  opensReal,
-  scoreFromFallback,
-  onBreakdown,
-  onSimulate,
-  onOpen,
-}: {
-  heading: string;
-  presets: VaultPreset[];
-  /** The one card this section emphasises, if it has one. See `compassLead`. */
-  leadId?: string;
-  /** What that card claims. Travels with the id so neither can appear alone. */
-  leadNote?: string;
-  /** Whether an empty section is STATED rather than dropped. See its caller. */
-  statesEmpty: boolean;
-  emptyTitle: string;
-  emptyHint?: string;
-  muted?: boolean;
-  poolYields: Record<string, PoolYield> | null;
-  /** The predicate the open click routes on, so card and click agree. */
-  opensReal: (preset: VaultPreset) => boolean;
-  /** Whether this market's dial is the listed constant. See `MarketCard`. */
-  scoreFromFallback: (preset: VaultPreset) => boolean;
-  onBreakdown: (preset: VaultPreset) => void;
-  onSimulate: (preset: VaultPreset) => void;
-  onOpen: (preset: VaultPreset) => void;
-}) {
-  if (presets.length === 0 && !statesEmpty) return null;
-  return (
-    <div className={muted ? "space-y-4 pt-4" : "space-y-4"}>
-      <h2
-        className={`text-base font-sans font-bold tracking-wide ${
-          muted ? "text-text-secondary" : "text-text-primary"
-        }`}
-      >
-        {heading}
-      </h2>
-      {presets.length === 0 ? (
-        /* `clear`, not `problem`: nothing failed here, this is the coverage the
-           chain and the profile between them produce. */
-        <EmptyState tone="clear" title={emptyTitle} hint={emptyHint} />
-      ) : (
-        /* Three across at `xl`. Two columns left a permanent orphan: an odd
-           count is the normal case here (three recommended and five outside at
-           the moderate profile), and at two wide the stray card sat alone
-           beside half a row of void. The cards are five elements tall now
-           rather than nine, so three fit the 1120px content column without
-           crushing anything.
-
-           `lg`, not `md`: at a 768px window the sidebar has already taken
-           256px, so two columns there were 208px each, which is narrower than
-           "Compound V3" plus its risk chip. */
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-          {presets.map((preset) => (
-            <MarketCard
-              key={preset.id}
-              preset={preset}
-              poolYield={poolYields?.[preset.id] ?? null}
-              muted={muted}
-              lead={preset.id === leadId}
-              leadNote={leadNote}
-              opensDemo={!opensReal(preset)}
-              scoreFromFallback={scoreFromFallback(preset)}
-              onBreakdown={() => onBreakdown(preset)}
-              onOpen={() => onOpen(preset)}
-              onSimulate={() => onSimulate(preset)}
-            />
-          ))}
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -3239,45 +2974,31 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <AnimatePresence mode="wait">
             
-            {/* VIEW A: COMPASS TAB (Fully interactive and identical to the requested design layout!) */}
+            {/* VIEW A: COMPASS TAB - the scored catalog as one table, and the
+                two sentences that qualify what is in it. */}
             {activeTab === "compass" && (
-              <TabPanel key="compass" tab="compass" gap="space-y-8">
-                {/* No action in the header, and no subtitle. The profile
-                    toggle used to sit in the action slot, which is where every
-                    other tab puts its one verb: a three-way chooser there made
-                    the same slot mean "do this" on one tab and "change what
-                    this shows" on another. It is a control over the sections
-                    below, so it sits with them. */}
-                <PageHeader title="Compass" />
-
-                {/* Which profile the two sections below are partitioned on.
-                    Three copies of one button became a map over the three
-                    profiles, so the selected and unselected treatments cannot
-                    drift between them. Lavender for the selected plate, not
-                    cobalt: cobalt is the nav's block and means "the section you
-                    are in". */}
-                <div
-                  role="group"
-                  aria-label="Which risk profile to browse against"
-                  className="flex flex-wrap items-center gap-2"
-                >
-                  {RISK_PROFILES.map((profile) => {
-                    const active = selectedRiskProfile === profile;
-                    return (
-                      <button
-                        key={profile}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => setSelectedRiskProfile(profile)}
-                        className={`flex h-12 cursor-pointer items-center hard-edge px-4 label-type text-xs text-text-primary shadow-hard-sm hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none ${
-                          active ? "bg-highlight" : "bg-surface-raised"
-                        }`}
-                      >
-                        {profile}
-                      </button>
-                    );
-                  })}
-                </div>
+              <TabPanel key="compass" tab="compass" gap="space-y-6">
+                {/* The profile chooser is the page's one control, so it sits in
+                    the header's action slot where the approved design puts it.
+                    `RiskProfileToggle` owns which of its two homes it takes at
+                    this width, and only one of them mounts. */}
+                <PageHeader
+                  title="Compass"
+                  action={
+                    isDesktop ? (
+                      <RiskProfileToggle
+                        selected={selectedRiskProfile}
+                        onSelect={setSelectedRiskProfile}
+                      />
+                    ) : undefined
+                  }
+                />
+                {!isDesktop && (
+                  <RiskProfileToggle
+                    selected={selectedRiskProfile}
+                    onSelect={setSelectedRiskProfile}
+                  />
+                )}
 
                 {/* What this toggle does NOT do, said only when it matters.
 
@@ -3312,7 +3033,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                 )}
 
                 {/* Why the testnet catalog is short. Without this line, one
-                    card standing where eight were reads as a loading failure
+                    row standing where eight were reads as a loading failure
                     rather than a choice; and the sentence changes what the
                     user does next (switch chains), so it stays inline. */}
                 {chainMode === "testnet" && (
@@ -3325,7 +3046,9 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                 {/* Nothing openable at all. One statement, and no hint: the
                     line above already says where the full catalog is and how to
                     get to it. `clear` rather than `problem`, because nothing
-                    failed here; this is the coverage the chain has. */}
+                    failed here; this is the coverage the chain has. The table
+                    itself is withheld in this case rather than drawn as a head
+                    over two empty groups stating the same absence twice. */}
                 {chainMode === "testnet" && compassCatalog.length === 0 && (
                   <EmptyState
                     tone="clear"
@@ -3333,66 +3056,55 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   />
                 )}
 
-                {/* The empty-section copy is chain-neutral, because the reason
-                    a section empties is not: on testnet the catalog is already
-                    cut to what can be opened there, on mainnet it is the whole
+                {/* One table for the whole catalog, in two groups under one
+                    head: the recommended markets, then a full-width separator
+                    naming the limit, then the ones outside it.
+
+                    The rows outside the limit carry the same Open control as
+                    the ones inside. Withholding it did not stop the open, it
+                    only made the user leave for the protocol's own app, where
+                    nothing sizes the borrow; `requestOpenPosition` sizes every
+                    open to the profile's target health factor whichever group
+                    it was pressed in, so the position that comes out of an
+                    out-of-profile row is still within target. The separator is
+                    what says "not recommended".
+
+                    The empty-group copy is chain-neutral, because the reason a
+                    group empties is not: on testnet the catalog is already cut
+                    to what can be opened there, on mainnet it is the whole
                     catalog partitioned on live scores, and either can leave a
                     profile with nothing on one side. Naming the chain is
                     enough; "can be opened there" would be false on mainnet. */}
-                <MarketSection
-                  heading={`Recommended for your ${selectedRiskProfile} profile`}
-                  presets={recommendedOrdered}
-                  leadId={compassLead?.id}
-                  /* The measurement, not a verdict: this app does not rank
-                     markets for a person, and saying it did would be the
-                     invented fact the data-honesty rule is about. "Within your
-                     limit" is what the predicate now computes - membership is
-                     one boundary, the profile's alert threshold, so "in this
-                     profile" would name a window that no longer exists. */
-                  leadNote="Lowest risk within your limit"
-                  statesEmpty={statesEmptySections}
-                  emptyTitle={`No ${CHAIN_MODE_LABEL[chainMode]} market scores under your risk limit`}
-                  /* A measured fact rather than a guess: an empty section is
-                     only stated with a non-empty catalog, so an empty
-                     `recommended` puts every market in `outside`. */
-                  emptyHint="Everything in this catalog is in the section below, outside it."
-                  poolYields={poolYields}
-                  opensReal={opensReal}
-                  scoreFromFallback={scoreFromFallback}
-                  onBreakdown={setSelectedRiskBreakdownPreset}
-                  onOpen={requestOpenPosition}
-                  onSimulate={simulateFromCompass}
-                />
-
-                {/* Outside the profile's limits. The per-card "Outside safety
-                    triggers" caption is gone: it restated this heading eight
-                    words later, once per card, and no card without it is any
-                    less clearly filed under it.
-
-                    These cards carry the same "Open position" as the
-                    recommended ones. Withholding it did not stop the open, it
-                    only made the user leave for the protocol's own app, where
-                    nothing sizes the borrow; `requestOpenPosition` sizes every
-                    open to the profile's target health factor whichever
-                    section it was pressed in, so the position that comes out
-                    of an out-of-profile card is still within target. This
-                    heading is what says "not recommended".
-
-                    Good news when it is empty, and worth the one line. No hint,
-                    because there is nothing further a reader would act on. */}
-                <MarketSection
-                  heading="Outside your profile"
-                  muted
-                  presets={outside}
-                  statesEmpty={statesEmptySections}
-                  emptyTitle={`Every ${CHAIN_MODE_LABEL[chainMode]} market scores under your risk limit`}
-                  poolYields={poolYields}
-                  opensReal={opensReal}
-                  scoreFromFallback={scoreFromFallback}
-                  onBreakdown={setSelectedRiskBreakdownPreset}
-                  onOpen={requestOpenPosition}
-                  onSimulate={simulateFromCompass}
-                />
+                {compassCatalog.length > 0 && (
+                  <MarketTable
+                    recommended={recommendedOrdered}
+                    outside={outside}
+                    chainLabel={CHAIN_MODE_LABEL[chainMode]}
+                    profile={selectedRiskProfile}
+                    leadId={compassLead?.id}
+                    /* The measurement, not a verdict: this app does not rank
+                       markets for a person, and saying it did would be the
+                       invented fact the data-honesty rule is about. "Within your
+                       limit" is what the predicate now computes - membership is
+                       one boundary, the profile's alert threshold, so "in this
+                       profile" would name a window that no longer exists. */
+                    leadNote="Lowest risk within your limit"
+                    statesEmpty={statesEmptySections}
+                    recommendedEmptyTitle={`No ${CHAIN_MODE_LABEL[chainMode]} market scores under your risk limit`}
+                    /* A measured fact rather than a guess: an empty group is
+                       only stated with a non-empty catalog, so an empty
+                       `recommended` puts every market below the separator. */
+                    recommendedEmptyHint="Everything in this catalog is below the separator, outside it."
+                    outsideEmptyTitle={`Every ${CHAIN_MODE_LABEL[chainMode]} market scores under your risk limit`}
+                    poolYields={poolYields}
+                    opensReal={opensReal}
+                    scoreFromFallback={scoreFromFallback}
+                    fallbackScoreNote={FALLBACK_SCORE_NOTE}
+                    onBreakdown={setSelectedRiskBreakdownPreset}
+                    onOpen={requestOpenPosition}
+                    onSimulate={simulateFromCompass}
+                  />
+                )}
 
               </TabPanel>
             )}
