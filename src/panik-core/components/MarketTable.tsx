@@ -271,22 +271,31 @@ export function MarketTable<T extends MarketRow>({
           <span className={FIGURE}>{apy.toFixed(1)}%</span>
         </td>
         <td className={`${TD} w-full`}>
-          {/* The market's NAME is the control that opens its risk breakdown, so
-              the row itself is not clickable: a `tr` with an onClick has no
-              role, no focus and no keyboard, and it would swallow presses meant
-              for the two buttons at the end of the row. */}
-          <button
-            type="button"
-            onClick={() => onBreakdown(market)}
-            aria-label={
-              `Open the ${name} ${market.assetPair} risk breakdown.` +
-              (fallback ? ` ${fallbackScoreNote}` : "")
-            }
-            title={`Open the ${name} risk breakdown`}
-            className="block min-h-8 w-full cursor-pointer text-left font-sans text-sm font-bold text-text-primary"
-          >
-            {market.assetPair}
-          </button>
+          {/* The name and, where this row opens the demo simulator rather than
+              a real position, the marker for that: beside the name rather than
+              beside the Open button, so the Actions cell is the same eye-button-
+              then-Open-button shape on every row and the column stops ragging.
+              `flex-wrap` is what sends the chip under the name at 390 instead of
+              off the edge of the card. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* The market's NAME is the control that opens its risk breakdown,
+                so the row itself is not clickable: a `tr` with an onClick has no
+                role, no focus and no keyboard, and it would swallow presses
+                meant for the two buttons at the end of the row. */}
+            <button
+              type="button"
+              onClick={() => onBreakdown(market)}
+              aria-label={
+                `Open the ${name} ${market.assetPair} risk breakdown.` +
+                (fallback ? ` ${fallbackScoreNote}` : "")
+              }
+              title={`Open the ${name} risk breakdown`}
+              className="min-h-8 cursor-pointer text-left font-sans text-sm font-bold text-text-primary"
+            >
+              {market.assetPair}
+            </button>
+            {opensDemo && <DemoChip />}
+          </div>
           {/* The yield, where its own column is not up. Read from the SAME
               `apy` the column reads one cell over, so the two can never state
               different numbers, and only one of them is ever on screen. */}
@@ -322,10 +331,10 @@ export function MarketTable<T extends MarketRow>({
           )}
         </td>
         <td className={TD}>
-          {/* The controls stack until `lg` and sit on one line above it. The
-              demo marker beside a 48px button is 62px of column that a 442px
-              content width does not have, and a marker UNDER the control it
-              qualifies still reads as being about that control. */}
+          {/* The eye button and Open, and nothing else: the demo marker now
+              sits beside the market's name in its own cell, so this cell is the
+              same two controls on every row instead of ragging left on the rows
+              that open the simulator. */}
           <div className="flex flex-col items-end justify-end gap-2 lg:flex-row lg:items-center">
             {/* Icon-only, so the row's primary action is the only labelled
                 button on it. The name lives in `aria-label` and `title`; the
@@ -356,7 +365,6 @@ export function MarketTable<T extends MarketRow>({
             <Button variant={lead ? "primary" : "secondary"} onClick={() => onOpen(market)}>
               Open
             </Button>
-            {opensDemo && <DemoChip />}
           </div>
         </td>
       </tr>
