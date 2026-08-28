@@ -46,10 +46,11 @@ import { ProtocolLogo } from "./ProtocolLogo";
  * Three padding steps rather than one, and they are measured rather than
  * chosen: the widest thing on a row is a band chip carrying a two-digit score
  * and the words "ELEVATED RISK", which is 157px that cannot be made narrower
- * without dropping either the figure or the word. At 390 the card has 352px,
- * and 12px of cell padding is what puts the three surviving columns at exactly
- * 352 instead of 359. The full 24px is back from `xl`, which is the first width
- * with room for all seven.
+ * without dropping either the figure or the word. `md` (768px) is now the
+ * narrowest width this table itself ever renders at - everything below it is
+ * the stacked block layout further down - and 12px of cell padding is what
+ * keeps the surviving columns inside the card there. The full 24px is back
+ * from `xl`, which is the first width with room for all seven.
  */
 const TH = "h-14 whitespace-nowrap px-1 sm:px-2 xl:px-3 label-type text-xs text-white";
 const TD = "px-1 sm:px-2 xl:px-3 py-3 align-middle";
@@ -59,29 +60,30 @@ const TD = "px-1 sm:px-2 xl:px-3 py-3 align-middle";
  * together, so an edit cannot move a heading to a breakpoint its figures do not
  * share.
  *
- * Risk, Market and the actions are never hidden: the band, which market it is
- * and the way in are the three facts a 390px phone still has to carry, and
- * together they already fill it exactly.
+ * This table mounts at `md` (768px) and up ONLY. Below that, the stacked
+ * block layout further down (`blockRow`) draws the same rows as cards - the shape a market's six
+ * facts take on a 390px phone is a card with three lines, not a table missing
+ * four of its seven columns. So `sm` (640px), inside `COL.apy` below, is
+ * always satisfied once the table itself is even mounted: it is left in
+ * rather than simplified away, because the map still names the column's OWN
+ * threshold, and a table someone widens the sidebar past `md` for should not
+ * have to be re-derived from this file's other half to find out APY is always
+ * up in it.
  *
+ * Risk, APY, Market and the actions are up from `md`, the table's own base.
  * The rest come up in the order a reader would ask for them, at MEASURED
  * widths rather than at whichever breakpoint reads tidiest in source. The
  * numbers are the table's own `scrollWidth` against its card's `clientWidth` at
  * that viewport, and they are equal at every one of them, so this table never
  * travels sideways:
  *
- *   base 390px   Risk, Market, Open.       352 in 352
- *   sm   640px   APY.                      442 in 442
- *   lg   1024px  Protocol, and the         698 in 698
- *                stress-test control.
- *   xl   1280px  TVL and the 30-day move.  954 in 954
+ *   md   768px    Risk, APY, Market, Open.       434 in 434
+ *   lg   1024px   + Protocol, and the             690 in 690
+ *                 stress-test control.
+ *   xl   1280px   + TVL and the 30-day move.      955 in 955
  *
- * The yield is not lost below `sm`: the market's own cell carries it as a
- * sub-line there, off the same figure the column reads.
- *
- * `md` is deliberately unused. It is 768px, which is also where the 256px
- * sidebar mounts, so the content column there is 442px rather than 736: all
- * seven columns at `md` needed 862px and put five of them behind a sideways
- * scroll.
+ * See `blockRow` below for the base-to-`md` shape: one card per market,
+ * three lines, no TVL.
  */
 const COL = {
   apy: "hidden sm:table-cell",
@@ -94,8 +96,10 @@ const COL = {
 const FIGURE = "whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary";
 
 /**
- * The protocol mark's tile size. `w-7 h-7` (28px) is a real step on the
- * spacing scale, standing in for the design's own arbitrary 30px.
+ * The protocol mark's tile size, one place, for both surfaces that draw a row:
+ * the table's own Protocol column and the stacked block below `md`. `w-7 h-7`
+ * (28px) is a real step on the spacing scale rather than the design's own
+ * arbitrary 30px, and it is the exact size the mobile block already asks for.
  */
 const PROTOCOL_MARK_SIZE = "w-7 h-7";
 
@@ -241,12 +245,13 @@ export function MarketTable<T extends MarketRow>({
     (recommendedRows.some((m) => m.id === leadId) || outsideRows.some((m) => m.id === leadId));
 
   /**
-   * One row, drawn identically wherever it sits. The section a market is in is
-   * said by the separator above it and by nothing on the row itself: the old
-   * grid dimmed the out-of-profile cards, which put a CRITICAL market's band at
-   * 60% opacity, so the one market most worth reading clearly was the faintest.
+   * The seven facts a market's row states, derived once and read by both
+   * shapes it is drawn in: the table's `<tr>` from `md` up, and the stacked
+   * block below it. Two callers deriving `pool` / `trend` / `fallback`
+   * separately is how one of them ends up reading a different pool record for
+   * the same market id; this is the one place either can drift from.
    */
-  const row = (market: T, first: boolean) => {
+  const deriveRow = (market: T) => {
     const lead = market.id === leadId;
     const pool = poolYields?.[market.id] ?? null;
     const apy = pool?.apy ?? market.apy;
@@ -254,6 +259,17 @@ export function MarketTable<T extends MarketRow>({
     const fallback = scoreFromFallback(market);
     const opensDemo = !opensReal(market);
     const name = PROTOCOL_LABEL[market.engineProtocol];
+    return { lead, pool, apy, trend, fallback, opensDemo, name };
+  };
+
+  /**
+   * One row, drawn identically wherever it sits. The section a market is in is
+   * said by the separator above it and by nothing on the row itself: the old
+   * grid dimmed the out-of-profile cards, which put a CRITICAL market's band at
+   * 60% opacity, so the one market most worth reading clearly was the faintest.
+   */
+  const row = (market: T, first: boolean) => {
+    const { lead, pool, apy, trend, fallback, opensDemo, name } = deriveRow(market);
     return (
       <tr
         key={market.id}
@@ -397,6 +413,101 @@ export function MarketTable<T extends MarketRow>({
     </tr>
   );
 
+  /**
+   * One market, as a CARD, below `md`. Same seven facts as `row`, off the
+   * same `deriveRow`, in three lines instead of seven columns: a 390px phone
+   * does not have a column's width to spend on a heading, so the facts a
+   * reader would scan top-to-bottom are stacked instead of tabulated. TVL is
+   * the one figure dropped rather than reflowed - a market's size is the fact
+   * this width has the least room to spare for, and it is still one tap away
+   * behind the name.
+   */
+  const blockRow = (market: T, first: boolean) => {
+    const { lead, apy, trend, fallback, opensDemo, name } = deriveRow(market);
+    return (
+      <div
+        key={market.id}
+        className={`flex flex-col gap-3 px-4 py-4 ${
+          first ? "" : "border-t-[3px] border-solid border-border-strong"
+        } ${lead ? "bg-highlight" : ""}`}
+      >
+        {/* Line 1: the band, and what it pays. `flex-wrap` is the same
+            overflow guard the desktop Market cell uses - a CRITICAL chip
+            carrying a fallback marker beside an APY figure is the one
+            combination wide enough to ask for it. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="flex flex-wrap items-center gap-2">
+            <RiskChip band={market.riskStatus} score={market.baseRisk}>
+              {BAND_WORD[market.riskStatus]}
+            </RiskChip>
+            {fallback && <DemoChip title={fallbackScoreNote} />}
+          </span>
+          <span className="flex shrink-0 items-baseline whitespace-nowrap">
+            <span className="font-mono text-lg font-bold tabular-nums text-text-primary">
+              {apy.toFixed(1)}%
+            </span>
+            <span className="ml-1 label-type text-2xs text-text-muted">APY</span>
+          </span>
+        </div>
+        {/* Line 2: which protocol, which market, the name's own click target. */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <ProtocolLogo protocol={name} size={PROTOCOL_MARK_SIZE} />
+          <button
+            type="button"
+            onClick={() => onBreakdown(market)}
+            aria-label={
+              `Open the ${name} ${market.assetPair} risk breakdown.` +
+              (fallback ? ` ${fallbackScoreNote}` : "")
+            }
+            title={`Open the ${name} risk breakdown`}
+            className="min-h-8 cursor-pointer text-left font-sans text-base font-bold text-text-primary"
+          >
+            {market.assetPair}
+          </button>
+          {opensDemo && <DemoChip />}
+        </div>
+        {/* Line 3: the move, and the way in. No `lg:hidden` on the eye button
+            here - the table withholds it below `lg` because a 442px column
+            has nowhere to put a third control, and a card has the width for
+            both from the base. */}
+        <div className="flex items-center justify-between gap-2">
+          <span>
+            {trend && (
+              <span className="inline-flex items-center gap-1.5">
+                <trend.Icon className={`h-4 w-4 shrink-0 ${trend.tone}`} aria-hidden="true" />
+                <span
+                  className={`whitespace-nowrap font-mono text-sm font-bold tabular-nums ${trend.figure}`}
+                >
+                  {trend.points}
+                </span>
+              </span>
+            )}
+          </span>
+          <span className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => onSimulate(market)}
+              aria-label="Stress-test this market in the simulator"
+              title="Stress-test this market in the simulator"
+            >
+              <Eye className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button variant={lead ? "primary" : "secondary"} onClick={() => onOpen(market)}>
+              Open
+            </Button>
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  /** An empty group, in the block layout's own shape rather than a `<tr>`. */
+  const blockEmpty = (title: string, hint: string | undefined, first: boolean) => (
+    <div className={`p-4 ${first ? "" : "border-t-[3px] border-solid border-border-strong"}`}>
+      <EmptyState tone="clear" title={title} hint={hint} />
+    </div>
+  );
+
   return (
     <Card tone="raised" padded={false} className="flex min-w-0 flex-col">
       {/* The black column-header row is the top of the card now: no title band
@@ -406,12 +517,14 @@ export function MarketTable<T extends MarketRow>({
           meets, and `hard-edge` carries no radius, so the two lines meet flush
           at every width. */}
 
-      {/* The one horizontal scroller, and it is the honest answer for a table:
-          seven columns of names and figures have a width below which they stop
-          being a table, and the PAGE must never be the thing that scrolls
-          sideways. Three columns drop below `md`, so this only engages in the
-          narrow band where all seven are up and the column is tight. */}
-      <div className="min-w-0 grow overflow-x-auto">
+      {/* The table, `md` and up. Seven columns of names and figures have a
+          width below which they stop being a table - a 358px column short two
+          controls' worth of Actions cell before a single other column even
+          opens - and the stacked block layout below is what that width draws instead.
+          `overflow-x-auto` is still the honest answer inside the range this
+          DOES mount at: three columns still drop between `md` and `xl`, and
+          the PAGE must never be the thing that scrolls sideways for them. */}
+      <div className="hidden min-w-0 grow overflow-x-auto md:block">
         <table className="w-full border-collapse text-left">
           <thead>
             <tr className="bg-text-primary">
@@ -465,6 +578,24 @@ export function MarketTable<T extends MarketRow>({
               : outsideRows.map((m) => row(m, false))}
           </tbody>
         </table>
+      </div>
+
+      {/* The stacked cards, below `md`. Same partition, same separator, same
+          footer as the table - only the row's own shape changes, in
+          `blockRow` above. */}
+      <div className="md:hidden">
+        {recommendedRows.length === 0
+          ? statesEmpty && blockEmpty(recommendedEmptyTitle, recommendedEmptyHint, true)
+          : recommendedRows.map((m, i) => blockRow(m, i === 0))}
+
+        {(outsideRows.length > 0 || statesEmpty) && (
+          <div className="border-t-[3px] border-solid border-border-strong bg-surface-sunken px-4 py-2 label-type text-xs text-text-primary">
+            Outside your {profile} limit
+          </div>
+        )}
+        {outsideRows.length === 0
+          ? statesEmpty && blockEmpty(outsideEmptyTitle, undefined, false)
+          : outsideRows.map((m) => blockRow(m, false))}
       </div>
 
       {/* The sort order is the one thing about this list a reader cannot see by

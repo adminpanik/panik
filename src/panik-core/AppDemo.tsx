@@ -796,14 +796,58 @@ const FALLBACK_SCORE_NOTE =
  * selected and unselected treatments cannot drift between them. Lavender for
  * the selected plate, not cobalt: cobalt is the nav's block and means "the
  * section you are in".
+ *
+ * Below `md` the mount also switches SHAPE, via `variant`: three independent
+ * shadow-cast plates that wrap onto a second line is what a 358px column below
+ * the header used to render, and a control that reflows its own layout reads
+ * as unstable in a way a page header's fixed-width action slot does not. The
+ * segmented strip is one hard-edged box the same width as the market table
+ * below it, split into three equal cells by 3px dividers, so it reads as one
+ * control with three positions rather than three controls in a row.
  */
 function RiskProfileToggle({
   selected,
   onSelect,
+  variant = "buttons",
 }: {
   selected: RiskProfile;
   onSelect: (profile: RiskProfile) => void;
+  /**
+   * `"buttons"` is the header's action-slot control: three independent
+   * plates, sized to their own label. `"segmented"` is the mount below `md`,
+   * where the header cannot carry a control this wide and the toggle instead
+   * becomes one full-width three-cell strip, replacing the row of buttons
+   * that used to wrap onto a second line at 390. Same selection, same
+   * handler; only the shape changes.
+   */
+  variant?: "buttons" | "segmented";
 }) {
+  if (variant === "segmented") {
+    return (
+      <div
+        role="group"
+        aria-label="Which risk profile to browse against"
+        className="grid grid-cols-3 hard-edge shadow-hard-sm bg-surface-raised"
+      >
+        {RISK_PROFILES.map((profile, i) => {
+          const active = selected === profile;
+          return (
+            <button
+              key={profile}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onSelect(profile)}
+              className={`h-12 min-w-0 cursor-pointer truncate px-1 label-type text-2xs text-text-primary ${
+                i > 0 ? "border-l-[3px] border-solid border-border-strong" : ""
+              } ${active ? "bg-highlight" : "bg-surface-raised"}`}
+            >
+              {profile}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
   return (
     <div
       role="group"
@@ -2997,6 +3041,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                   <RiskProfileToggle
                     selected={selectedRiskProfile}
                     onSelect={setSelectedRiskProfile}
+                    variant="segmented"
                   />
                 )}
 
