@@ -230,6 +230,15 @@ export function MarketTable<T extends MarketRow>({
 }: MarketTableProps<T>) {
   const recommendedRows = byScoreAscending(recommended);
   const outsideRows = byScoreAscending(outside);
+  /**
+   * Whether `leadId` actually names a row on screen, rather than an id the
+   * caller passed that this partition does not currently hold. The footer's
+   * legend explains a highlight that has to be findable, so it is only worth
+   * drawing when one row is actually wearing it.
+   */
+  const hasLead =
+    leadId !== undefined &&
+    (recommendedRows.some((m) => m.id === leadId) || outsideRows.some((m) => m.id === leadId));
 
   /**
    * One row, drawn identically wherever it sits. The section a market is in is
@@ -305,7 +314,6 @@ export function MarketTable<T extends MarketRow>({
           <span className="block font-sans text-sm text-text-secondary sm:hidden">
             <span className={FIGURE}>{apy.toFixed(1)}%</span> APY
           </span>
-          {lead && <span className="block font-sans text-sm text-text-muted">{leadNote}</span>}
         </td>
         <td className={`${TD} ${COL.protocol}`}>
           {/* The mark stands for the word: a reader who scans the same four
@@ -461,9 +469,30 @@ export function MarketTable<T extends MarketRow>({
 
       {/* The sort order is the one thing about this list a reader cannot see by
           looking at it. Nothing else goes on this line: a refresh interval the
-          code does not know would be a fact invented for a footer. */}
-      <div className="flex h-12 shrink-0 items-center border-t-[3px] border-solid border-border-strong px-4">
+          code does not know would be a fact invented for a footer.
+
+          The lead row's own claim used to repeat as a sub-line under its name;
+          it is explained HERE instead, once, as a legend for the highlight
+          every row shares the same swatch of - a sentence that sat on one row
+          read as being about that market specifically, when what it was
+          actually naming was the colour. Rendered only when a row is actually
+          wearing `bg-highlight` (`hasLead`), so the swatch never claims a
+          highlight this table did not draw.
+
+          Two lines below `sm`, one from it: the fixed 48px band that fit one
+          sentence does not fit two, and letting them wrap inside it silently
+          would crop the second line rather than grow the footer to hold it. */}
+      <div className="flex min-h-12 shrink-0 flex-col items-start justify-center gap-1 border-t-[3px] border-solid border-border-strong px-4 py-3 sm:h-12 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:py-0">
         <span className="label-type text-xs text-text-muted">Sorted by risk, lowest first</span>
+        {hasLead && (
+          <span className="flex shrink-0 items-center gap-2 label-type text-xs text-text-muted">
+            <span
+              className="h-3 w-3 shrink-0 border-2 border-solid border-border-strong bg-highlight"
+              aria-hidden="true"
+            />
+            {leadNote}
+          </span>
+        )}
       </div>
     </Card>
   );
