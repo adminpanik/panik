@@ -20,16 +20,9 @@
 
 import React, { useEffect, useState } from "react";
 import { ArrowRight, Sparkles, X } from "lucide-react";
-import type {
-  AdvisorOpenPlan,
-  AdvisorRecommendation,
-  AdvisorReport,
-  AdvisorUrgency,
-} from "../lib/live";
-import { formatUsd, PROTOCOL_LABEL, URGENCY_VERDICT } from "../lib/utils";
-import { Button, Card, RiskChip } from "../ui";
-import { exitControlState, useChainMode, type ControlState } from "../lib/chainMode";
-import { openControlState } from "../lib/openProtocols";
+import type { AdvisorRecommendation, AdvisorReport, AdvisorUrgency } from "../lib/live";
+import { formatUsd, PROTOCOL_LABEL, RISK_CHIP, URGENCY_VERDICT } from "../lib/utils";
+import { Button, Card } from "../ui";
 
 const STORE_KEY = "panik_advisor_popup_v1";
 const COOLDOWN_MS = 30 * 60 * 1000;
@@ -66,7 +59,6 @@ interface Notification {
   title: string;
   /** One line under it, or none. */
   detail: string | null;
-  actionLabel: string | null;
   rec: AdvisorRecommendation;
   kind: "exit" | "reduce" | "open" | "info";
 }
@@ -127,7 +119,6 @@ function selectNotification(report: AdvisorReport, store: PopupStore, now: numbe
       key,
       urgency: rec.urgency,
       ...legLines(rec),
-      actionLabel: rec.action === "EXIT" ? "Execute exit" : rec.action === "REDUCE" ? "Reduce" : null,
       rec,
       kind: rec.action === "EXIT" ? "exit" : rec.action === "REDUCE" ? "reduce" : "info",
     });
@@ -148,7 +139,6 @@ function selectNotification(report: AdvisorReport, store: PopupStore, now: numbe
         plan.apy !== null
           ? `About ${(plan.apy * 100).toFixed(1)}% APY, and it scores within your profile.`
           : "It scores within your profile.",
-      actionLabel: "Open position",
       rec,
       kind: "open",
     });
@@ -161,17 +151,26 @@ function selectNotification(report: AdvisorReport, store: PopupStore, now: numbe
 
 export function AdvisorPopup({
   report,
-  onExit,
-  onOpen,
   onView,
 }: {
   report: AdvisorReport | null;
-  onExit: (prefill: NonNullable<AdvisorRecommendation["exitPrefill"]>) => void;
-  onOpen: (plan: AdvisorOpenPlan) => void;
+  /**
+   * Open the Advisor tab. The card's ONE destination, and the only handler this
+   * component takes now.
+   *
+   * It used to take `onExit` and `onOpen` too, and offer the action itself: a
+   * primary button that closed a position or opened one, from a strip whose
+   * whole content was a band, a sentence and two controls. That button was
+   * withheld whenever the selected chain could not settle the action, so the
+   * card's shape depended on a fact that has nothing to do with the reading -
+   * and when it did appear, the reader was being asked to sign for a position
+   * with none of the numbers the Advisor puts around that decision. Both
+   * actions are still offered, on the tab this card is a door to, next to the
+   * repay sizing and the alternative the engine costed.
+   */
   onView: () => void;
 }) {
   const [notification, setNotification] = useState<Notification | null>(null);
-  const chainMode = useChainMode();
 
   useEffect(() => {
     if (!report) return;
@@ -212,122 +211,134 @@ export function AdvisorPopup({
     setNotification(null);
   };
 
-  const act = () => {
-    if (!notification) return;
-    const { rec, kind } = notification;
-    if (kind === "exit" || kind === "reduce") {
-      onExit(rec.exitPrefill ?? { protocol: rec.protocol, kind: "full" });
-    } else if (kind === "open" && rec.openPlan) {
-      onOpen(rec.openPlan);
-    } else {
-      onView();
-    }
+  /**
+   * The card's one destination. It is `onView` plus the dismissal the old
+   * "View in Advisor" button already did: leaving the callout up behind the tab
+   * it just opened is the same recommendation stated twice.
+   *
+   * `act` used to live here too, branching on `kind` to fire an exit, an open
+   * or a view, alongside an `actionState` that decided whether the chain could
+   * settle the first two. Both are gone with the button that read them - see
+   * `onView` in the props above.
+   */
+  const view = () => {
+    onView();
     setNotification(null);
   };
 
-  /**
-   * Whether the CTA may be pressed on the selected chain, by the same policy
-   * the Advisor cards and the Portfolio row apply to the same actions. The
-   * notification itself still shows either way - the reading is real
-   * information - but a button whose flow would dead-end renders disabled with
-   * the reason on hover, instead of this surface being the one place in the
-   * product where the same action answers differently.
-   */
-  const actionState: ControlState =
-    notification?.kind === "open" && notification.rec.openPlan
-      ? openControlState(
-          onOpen,
-          chainMode,
-          notification.rec.protocol,
-          notification.rec.openPlan.collateralSymbol,
-        )
-      : notification?.kind === "exit" || notification?.kind === "reduce"
-        ? exitControlState(onExit, chainMode)
-        : { enabled: true, hint: undefined };
-
   if (!notification) return null;
 
-  /** The band this urgency wears, or null on an `info` reading. */
+  /**
+   * The band this urgency wears, or null on an `info` reading.
+   *
+   * `URGENCY_VERDICT` rather than the leg's own `numbers.band`: the two ride
+   * the same ramp on purpose, but only this one has a branch for "we looked and
+   * there is nothing to act on", and painting an opportunity LOW green would be
+   * the ramp making a safety claim from the absence of a finding.
+   */
   const verdict = URGENCY_VERDICT[notification.urgency];
+  /**
+   * The leg's composite, beside the word that reads it. The same field the
+   * Advisor tab's own card for this leg prints, so the number the reader taps
+   * through to is the number they tapped.
+   */
+  const score = notification.rec.numbers.total;
 
   return (
-    /* THE ADVISOR PANEL'S VERDICT CARD, on the Portfolio.
+    /* THE ADVISOR'S VERDICT, AS ONE DOOR.
      *
-     * It used to be a strip in the shell's notice band: an eyebrow reading "AI
-     * Advisor", one sentence in the engine's own enum, and a primary that
-     * rendered DISABLED whenever the exit could not be signed on the selected
-     * chain. The disabled control was the loudest thing in the band and the one
-     * thing on it that could not be pressed, which is the failure the position
-     * rows already fixed by withholding an action they cannot perform.
+     * It used to be a card with two buttons on it: a primary that signed an
+     * exit, a secondary that opened the Advisor, a chip, and a dismissal. Four
+     * targets on a strip whose whole content is one sentence, and the largest
+     * of them was withheld or not depending on whether the selected chain could
+     * settle the action, so the card had two shapes for reasons that have
+     * nothing to do with the reading. The question a reader has at this point
+     * on the page is "how bad, and what now", and every answer to the second
+     * half is a tab away with the numbers around it: so the card states the
+     * first half and IS the way to the second. One press, anywhere on it.
      *
-     * The shape is the Advisor tab's own verdict card now: a white plate, the
-     * band as ONE `RiskChip`, the headline in the panel's wording and one
-     * detail line under it. Deliberate rather than incidental - the same
-     * wallet, the same recommendation and the same action must not read as two
-     * different findings depending on which tab the reader is standing on.
+     * A BUTTON, not a card with a click handler: a real control with a role, a
+     * focus ring, and Enter and Space for free. The dismissal is a SIBLING laid
+     * over the corner rather than a child, because a button inside a button is
+     * not something a browser will parse.
      *
-     * The CALLER places it, inside the Portfolio's own column, under the page
-     * header and over the stat row. A recommendation is about this wallet's
-     * positions, and the tab listing those positions is where it belongs; the
-     * shell band it used to sit in put it over Compass and Settings too, which
-     * is a message about positions on screens that are not about them.
+     * The band is a CELL rather than a chip. Same reading a chip gives - the
+     * score in the mono face, the band word under it, both on the band's own
+     * fill - at the size a headline can be read against, and it is still one
+     * risk-hued element, exactly as the chip it replaces was.
+     *
+     * ONE SHAPE AT EVERY WIDTH. The old card reflowed into three rows on a
+     * phone, so the same recommendation was a strip on a desktop and a stack on
+     * a phone; there is nothing here that has to wrap.
      *
      * `role="status"` stays: it can appear without the reader doing anything,
      * so it is worth announcing and not worth interrupting. */
-    <Card tone="raised" role="status" className="flex flex-wrap items-center gap-3 md:flex-nowrap">
-      {verdict ? (
-        <RiskChip band={verdict.band}>{verdict.word}</RiskChip>
-      ) : (
-        /* No band on an `info` reading, because there is none: an opportunity
-           is not a severity, and painting it LOW green would be the ramp making
-           a safety claim from the absence of a finding. */
-        <Sparkles className="h-5 w-5 shrink-0 text-text-primary" aria-hidden="true" />
-      )}
-
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="font-sans text-base font-bold text-text-primary">{notification.title}</p>
-        {notification.detail && (
-          <p className="font-sans text-sm leading-relaxed text-text-secondary">
-            {notification.detail}
-          </p>
+    <Card tone="raised" role="status" padded={false} className="relative">
+      <button
+        type="button"
+        onClick={view}
+        className="flex w-full cursor-pointer items-stretch text-left"
+      >
+        {verdict ? (
+          <span
+            className={`flex w-20 shrink-0 flex-col items-center justify-center gap-0.5 border-r-[3px] border-solid border-border-strong px-1.5 py-2.5 md:w-24 ${RISK_CHIP[verdict.band]}`}
+          >
+            {/* Only when it is a real number. A cell reading "NaN Critical"
+                would be this product stating a measurement it does not have,
+                and the word under it carries the state on its own (SC 1.4.1). */}
+            {Number.isFinite(score) && (
+              <span className="font-mono text-2xl font-bold leading-none tabular-nums">
+                {Math.round(score)}
+              </span>
+            )}
+            <span className="label-type text-2xs">{verdict.word}</span>
+          </span>
+        ) : (
+          /* No band on an `info` reading, because there is none, and no figure
+             either: an opportunity is not a severity. The cell keeps the card's
+             one shape without asserting a state the engine did not report. */
+          <span className="flex w-20 shrink-0 items-center justify-center border-r-[3px] border-solid border-border-strong bg-surface-sunken px-1.5 py-2.5 md:w-24">
+            <Sparkles className="h-6 w-6 text-text-primary" aria-hidden="true" />
+          </span>
         )}
-      </div>
 
-      {/* Buttons: below `md` this is its own full-width row under the chip
-          and sentence; at `md` and up it rejoins the single row between the
-          sentence and the dismiss control (`order` below). */}
-      <div className="order-4 flex w-full gap-2 md:order-3 md:w-auto">
-        {/* WITHHELD, not disabled. `actionState` is false when the selected
-            chain cannot settle this action, and a greyed primary is the
-            largest element on the card asserting something the product cannot
-            do, with its reason on a hover neither a phone nor a keyboard
-            reaches. The secondary below is always live, so the card never
-            ends with nothing to press. */}
-        {notification.actionLabel && actionState.enabled && (
-          <Button onClick={act} className="w-full md:w-auto">
-            {notification.actionLabel} <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        )}
-        <Button
-          variant="secondary"
-          onClick={() => {
-            onView();
-            setNotification(null);
-          }}
-          className="w-full md:w-auto"
-        >
-          View in Advisor
-        </Button>
-      </div>
+        <span className="flex min-w-0 grow flex-col justify-center gap-1 px-3.5 py-3">
+          <span className="font-sans text-base font-bold leading-snug text-text-primary">
+            {notification.title}
+          </span>
+          {notification.detail && (
+            <span className="font-sans text-sm leading-relaxed text-text-secondary">
+              {notification.detail}
+            </span>
+          )}
+          {/* Where the press goes, in words rather than left to the arrow. An
+              arrow states that something happens; it does not state what. */}
+          <span className="font-sans text-xs text-text-muted">Open in Advisor</span>
+        </span>
+
+        {/* Centred on the card's own height, and inset by the width of the
+            dismissal in the corner beside it (`pr-8`, 32px, against a 28px
+            square). Cleared SIDEWAYS rather than downwards because the card is
+            two lines tall at some widths and three at others: an arrow pushed
+            below the corner is centred at one of those heights and off at the
+            rest, while a lane the dismissal cannot reach is clear at all of
+            them. These are the card's only two targets and they must not share
+            a pixel. */}
+        <span className="flex shrink-0 items-center pr-8 pl-1">
+          <ArrowRight className="h-5 w-5 text-text-primary" aria-hidden="true" />
+        </span>
+      </button>
 
       {/* A real accessible name, because the glyph is the whole label: this
-          announced as "button" and nothing else. `Button` also gives it a hit
-          area over the 24px floor SC 2.5.8 sets. */}
+          announced as "button" and nothing else. Laid over the corner rather
+          than placed in the row, so the sentence keeps the full width of the
+          card and the two controls stay separate elements. */}
       <Button
         variant="ghost"
+        size="icon"
         onClick={dismiss}
         aria-label="Dismiss this advisor notice"
-        className="order-3 shrink-0 md:order-4"
+        className="absolute top-0 right-0"
       >
         <X className="h-4 w-4" aria-hidden="true" />
       </Button>

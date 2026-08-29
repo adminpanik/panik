@@ -4239,8 +4239,10 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                 {!viewingWatchOnly && !positionsUnknown && (
                   <AdvisorPopup
                     report={advisorLive.report}
-                    onExit={(prefill) => setExitPrefill(prefill)}
-                    onOpen={(plan) => setOpenFlowPlan(plan)}
+                    /* One handler now. The card used to take an exit and an
+                       open as well and offer them itself; both are on the tab
+                       this opens, beside the sizing that makes them decisions
+                       rather than buttons. */
                     onView={() => setActiveTab("advisor")}
                   />
                 )}
