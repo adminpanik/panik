@@ -66,6 +66,20 @@ export function Footer() {
         </div>
       </div>
 
+      {/*
+       * One sentence, plain, no jargon: what the product does, what it does
+       * not do, and that it can be wrong. There is no Terms or Privacy page
+       * yet (see the note on `LINK_COLUMNS` above), so this is the only place
+       * on the site that tells a reader the product can send a bad warning
+       * and never touches their funds without a signature they give it.
+       * Full-width rather than folded into the "Elsewhere" column: that
+       * column is a link list, and a sentence in it would read as a link.
+       */}
+      <p className="max-w-2xl text-xs text-text-secondary">
+        PANIK scores risk and sends warnings. It does not move funds without your signature, and it
+        can be wrong. Nothing here is financial advice.
+      </p>
+
       <p className="font-mono text-xs text-text-secondary">
         Copyright {new Date().getFullYear()} PANIK. Built on Base.
       </p>

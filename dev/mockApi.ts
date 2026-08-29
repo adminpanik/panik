@@ -475,16 +475,27 @@ function mockSessionCookie(session: MockSession): string {
 
 // ── the account (closed beta) ────────────────────────────────────────────────
 //
-// Two upstreams are faked here, because the sign-in experience spans both:
+// Three upstreams are faked here, because the sign-in and waitlist experiences
+// between them span all three:
 //
-//   /mock-supabase/auth/v1/*   Supabase Auth (GoTrue), which normally lives on
-//                              another origin entirely. `.env.mock` points
-//                              VITE_SUPABASE_URL at this relative prefix, so the
-//                              app's own lib/account.ts calls it unchanged and
-//                              the whole implicit-grant return leg (the
-//                              `#access_token=` fragment) is exercised for real
-//                              rather than stubbed at the component.
-//   /api/account*              PANIK's own account routes.
+//   /mock-supabase/auth/v1/*     Supabase Auth (GoTrue), which normally lives
+//                                on another origin entirely. `.env.mock`
+//                                points VITE_SUPABASE_URL at this relative
+//                                prefix, so the app's own lib/account.ts calls
+//                                it unchanged and the whole implicit-grant
+//                                return leg (the `#access_token=` fragment) is
+//                                exercised for real rather than stubbed at the
+//                                component.
+//   /mock-supabase/rest/v1/rpc/* PostgREST, for the landing page's waitlist
+//                                signup. `panik-landing-page/lib/waitlist.ts`
+//                                builds this same relative prefix and posts to
+//                                it directly (no /api hop), so before this
+//                                block existed the signup form's three RPCs
+//                                fell through every case below to `next()`
+//                                and hit the dead :8787 proxy: the landing
+//                                page's waitlist button did not work in mock
+//                                mode.
+//   /api/account*                PANIK's own account routes.
 //
 // WHAT IS FAKED, AND IT MATTERS: no token is signed and no signature is
 // checked. Mock mode has no Supabase project, and a headless browser has no
@@ -493,6 +504,40 @@ function mockSessionCookie(session: MockSession): string {
 
 /** Where `.env.mock` points VITE_SUPABASE_URL. Relative, so it is same-origin. */
 const MOCK_SUPABASE_PREFIX = "/mock-supabase";
+
+// ── /mock-supabase/rest/v1/rpc, the waitlist signup ────────────────────────
+//
+// The three RPCs `waitlist.ts` calls, answered from an in-memory table instead
+// of the real `public.waitlist_signups` (supabase/migrations/20260614000001_
+// waitlist.sql). Mirrors that migration's own rules, not a guess at them:
+//
+//   waitlist_signup        IDEMPOTENT on email: a second submit from the same
+//                           address returns its EXISTING position rather than
+//                           an error (see the migration's own comment on why:
+//                           the modal shows "you're on the list, #N" either
+//                           way). The 23505/http_409 duplicate branch in
+//                           WaitlistModal.tsx exists for the real function's
+//                           rare concurrent-insert race, which this single-
+//                           threaded mock cannot reproduce and does not need
+//                           to. A non-empty honeypot returns 0, unread, exactly
+//                           as the real function silently no-ops for a bot.
+//   waitlist_check_email   Same email normalisation, read-only.
+//   waitlist_count         The size of the mock table.
+const WAITLIST_RPC_PREFIX = `${MOCK_SUPABASE_PREFIX}/rest/v1/rpc/`;
+
+/** Same normalisation as `waitlist_signup`/`waitlist_check_email`'s SQL: lower
+ *  + trim, then collapse a `+tag` (and, on Gmail, `.`s) out of the local part
+ *  so two spellings of one inbox collide here exactly as they would in
+ *  Postgres. */
+function normalizeWaitlistEmail(raw: string): string {
+  const [local = "", domain = ""] = raw.trim().toLowerCase().split("@");
+  const tagged = local.split("+")[0];
+  const collapsed = domain === "gmail.com" || domain === "googlemail.com" ? tagged.replace(/\./g, "") : tagged;
+  return `${collapsed}@${domain}`;
+}
+
+/** email (normalised) -> its position. Insertion order is the waitlist order. */
+const waitlistPositions = new Map<string, number>();
 
 /**
  * PANIK_MOCK_ACCOUNT=none|new|member picks which of the three account states
@@ -833,6 +878,33 @@ export function mockApi(mode: string): Plugin[] {
             }
 
             return send(404, { msg: "not mocked" });
+          }
+
+          /* The waitlist RPCs. PostgREST convention: POST the named args as a
+             JSON body, get the function's return value back as the whole JSON
+             response body (a bare number or boolean here, never an object). */
+          if (url.pathname.startsWith(WAITLIST_RPC_PREFIX)) {
+            if (req.method !== "POST") return send(405, { error: "method not allowed" });
+            const fn = url.pathname.slice(WAITLIST_RPC_PREFIX.length);
+            return withJsonBody(req, send, (body) => {
+              const args = (body ?? {}) as Record<string, unknown>;
+              if (fn === "waitlist_signup") {
+                if (String(args.p_honeypot ?? "").trim() !== "") return send(200, 0);
+                const email = normalizeWaitlistEmail(String(args.p_email ?? ""));
+                const existing = waitlistPositions.get(email);
+                if (existing !== undefined) return send(200, existing);
+                const position = waitlistPositions.size + 1;
+                waitlistPositions.set(email, position);
+                return send(200, position);
+              }
+              if (fn === "waitlist_check_email") {
+                return send(200, waitlistPositions.has(normalizeWaitlistEmail(String(args.p_email ?? ""))));
+              }
+              if (fn === "waitlist_count") {
+                return send(200, waitlistPositions.size);
+              }
+              return send(404, { message: `mock has no rpc for ${fn}` });
+            });
           }
 
           /* PANIK's own account routes. Both demand the bearer and answer the
