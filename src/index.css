@@ -357,6 +357,43 @@
   );
 }
 
+/**
+ * The range thumb, as a block rather than as native chrome.
+ *
+ * `accent-color` gets a browser's own pill: a rounded, tinted, shadowed handle
+ * on a system whose radius is 0 everywhere and whose shadows do not blur. It
+ * was also 6px of it on a hairline track, which is a control a thumb cannot be
+ * found on.
+ *
+ * Here rather than as utilities at the call site because a pseudo-element
+ * cannot be reached by a class, and because 20px, cobalt and the 3px edge are
+ * VALUES: index.css is the only place a value may be defined, and the edge
+ * reads `--border-width-hard` so it moves with every other structural border in
+ * the product.
+ *
+ * WebKit and Gecko are listed separately on purpose. A selector list containing
+ * a pseudo-element one engine does not know is dropped WHOLE by that engine, so
+ * the two combined would leave one of them with the native pill back.
+ */
+@utility slider-hard {
+  &::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 0;
+    background-color: var(--color-brand);
+    border: var(--border-width-hard) solid var(--color-border-strong);
+  }
+
+  &::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 0;
+    background-color: var(--color-brand);
+    border: var(--border-width-hard) solid var(--color-border-strong);
+  }
+}
+
 @layer base {
   body {
     background-color: var(--color-surface-base);
