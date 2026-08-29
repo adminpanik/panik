@@ -354,14 +354,7 @@ export function LivePositions({
            narrow band where all six are up and the column is tight. */
         <div className="min-w-0 grow overflow-x-auto">
         <table className="w-full border-collapse text-left">
-          {/* Hidden below `md`: the row (chevron, mark, market name, chip) already
-              carries every word this plate would add, and a phone reading it
-              twice is the plate spending height a scanning list needs more. From
-              `md` the row loses its two elastic columns and the labels earn their
-              keep back. `table-header-group` rather than `block` - a `thead`
-              display of `none`-then-`table-header-group` keeps the column
-              alignment this element exists to declare. */}
-          <thead className="hidden md:table-header-group">
+          <thead>
             <tr className="bg-text-primary">
               {/* The protocol's column, and it carries no word: what is in it is
                   a brand MARK, which a header reading "Protocol" would be
@@ -396,13 +389,8 @@ export function LivePositions({
                   chip's own width and every pixel after it belongs to Market.
                   Never hidden - the band and the name are the two facts a 390px
                   phone still has to carry, and everything dropped below them is
-                  repeated in the row's disclosure.
-
-                  `text-right`, to match the chip below it: the column is exactly
-                  the chip's width, so this only matters for the word "Risk"
-                  itself, which would otherwise sit at the cell's left edge while
-                  the chip it labels sits at the card's right edge below it. */}
-              <th scope="col" className={`${TH} w-px text-right`}>
+                  repeated in the row's disclosure. */}
+              <th scope="col" className={`${TH} w-px`}>
                 Risk
               </th>
             </tr>
@@ -507,7 +495,7 @@ export function LivePositions({
                         {outlook.sentence}
                       </span>
                     </td>
-                    <td className={`${TD} w-px text-right`}>
+                    <td className={`${TD} w-px`}>
                       <RiskChip band={p.band}>{BAND_WORD[p.band]}</RiskChip>
                     </td>
                   </tr>
