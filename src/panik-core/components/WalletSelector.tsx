@@ -51,9 +51,30 @@ export interface WalletSelectorProps {
    * date: see `checkedAgo` in lib/utils.
    */
   checkedAt: string | null;
+  /**
+   * The one-line form, for the mount inside the Portfolio tab below `md`.
+   *
+   * A prop rather than responsive classes because the two mounts are already
+   * exclusive: the sidebar renders this only on a desktop and the Portfolio tab
+   * renders it only when `!isDesktop`. One of them is the phone, so the phone's
+   * shape is a fact about the call site, not about the width.
+   *
+   * What it drops is what the phone states elsewhere: the address is in the top
+   * strip on every screen, and how old the reading is has a whole feed card of
+   * its own on this tab. What it keeps is the name, the watch-only marker and
+   * the control, because those three are the wallet's identity and the only
+   * thing this block does.
+   */
+  compact?: boolean;
 }
 
-export function WalletSelector({ options, value, onChange, checkedAt }: WalletSelectorProps) {
+export function WalletSelector({
+  options,
+  value,
+  onChange,
+  checkedAt,
+  compact = false,
+}: WalletSelectorProps) {
   const target = value.toLowerCase();
   // The one guard, and it is here rather than at every read of `selected`:
   // `value` arrives pre-validated against `options` (AppDemo falls back to the
@@ -76,7 +97,14 @@ export function WalletSelector({ options, value, onChange, checkedAt }: WalletSe
 
   return (
     <div className="hard-edge bg-surface-raised">
-      <div className="space-y-1.5 p-3">
+      <div
+        className={
+          compact
+            ? "flex items-center justify-between gap-3 p-3"
+            : "space-y-1.5 p-3"
+        }
+      >
+        <div className={compact ? "min-w-0 space-y-0.5" : "space-y-1.5"}>
         <span className="block label-type text-xs text-text-secondary">Watching wallet</span>
 
         {selected.label?.trim() && (
@@ -88,12 +116,17 @@ export function WalletSelector({ options, value, onChange, checkedAt }: WalletSe
             in the block. The whole address on hover, as the Wallets panel does
             it: 42 characters is not something a reader checks by reading, it is
             something they check by comparing the ends. */}
-        <span
-          title={selected.wallet}
-          className="block truncate font-mono text-base font-bold text-text-primary"
-        >
-          {truncateAddress(selected.wallet)}
-        </span>
+        {/* The address is the NAME when there is no other one, so it is
+            dropped on the compact form only where a label already stands in
+            for it. Otherwise the block would state nothing at all. */}
+        {!(compact && selected.label?.trim()) && (
+          <span
+            title={selected.wallet}
+            className="block truncate font-mono text-base font-bold text-text-primary"
+          >
+            {truncateAddress(selected.wallet)}
+          </span>
+        )}
 
         {/* The marker, not an essay: the full watch-only explanation lives in
             the Wallets panel and on the alerts themselves. */}
@@ -106,9 +139,10 @@ export function WalletSelector({ options, value, onChange, checkedAt }: WalletSe
 
         {/* A fact the code knows, so it stays: how old the reading on screen is
             is the one thing a reader cannot work out by looking at it. */}
-        {checkedAt && (
+        {checkedAt && !compact && (
           <span className="block font-sans text-sm text-text-secondary">{checkedAt}</span>
         )}
+        </div>
 
         {/* Only when there is a choice to make. With one wallet on the list the
             control has exactly one option, which is a picker that cannot pick,
@@ -116,11 +150,11 @@ export function WalletSelector({ options, value, onChange, checkedAt }: WalletSe
             could be showing something else. */}
         {options.length > 1 && (
           <Button
-            variant="ghost"
+            variant={compact ? "secondary" : "ghost"}
             aria-expanded={open}
             aria-controls={listId}
             onClick={() => setOpen((v) => !v)}
-            className="h-8 px-0"
+            className={compact ? "h-11 shrink-0 px-4" : "h-8 px-0"}
           >
             {open ? "Close" : "Switch"}
           </Button>

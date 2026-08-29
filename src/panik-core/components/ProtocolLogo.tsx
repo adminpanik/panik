@@ -243,7 +243,11 @@ export function ProtocolMarks({
 }) {
   const held = new Set(protocols.map((p) => p.toLowerCase()));
   return (
-    <span className="flex items-center gap-1.5">
+    // `flex-wrap`, because this row is a Portfolio stat card's VALUE and that
+    // card is 171px wide two-up on a phone: four 44px marks and their gaps come
+    // to 194px, so a single line clipped the fourth protocol off a card whose
+    // whole job is saying which protocols were scanned.
+    <span className="flex flex-wrap items-center gap-1.5">
       {covered.map((p) => {
         const active = held.has(p.toLowerCase());
         return (
