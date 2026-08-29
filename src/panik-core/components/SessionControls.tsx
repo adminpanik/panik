@@ -22,7 +22,14 @@
 
 import React from "react";
 import { Eye, Info, KeyRound, X } from "lucide-react";
-import { Button, Card } from "../ui";
+import { Button } from "../ui";
+import {
+  SettingsCard,
+  SettingsCardBlock,
+  SettingsCardFooter,
+  SettingsCardTitle,
+  SettingsRow,
+} from "./SettingsCard";
 import { truncateAddress } from "../lib/utils";
 import type { Session, SessionScope } from "../lib/session";
 
@@ -34,9 +41,9 @@ const PROSE = "text-xs font-sans leading-relaxed text-text-secondary";
  * formatter is the expensive half of formatting a date, and this one renders on
  * every pass over the Settings tab.
  */
-const EXPIRY_FORMAT = new Intl.DateTimeFormat(undefined, {
+const EXPIRY_FORMAT = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
-  month: "long",
+  month: "short",
   year: "numeric",
 });
 
@@ -163,79 +170,80 @@ export function SessionCard({ session, wallet, busy, onSignIn, onSignOut }: Sess
   const state: SessionState = session?.scope ?? "none";
 
   /**
-   * One STATE LINE per branch, and nothing else.
+   * ONE LEDGER, and the rows are the facts each branch actually carries.
    *
    * Every branch used to open with two or three sentences explaining what a
    * session is, what signing out does elsewhere, and what an alert link proved.
    * On a settings screen that is a paragraph between the reader and the control
-   * they came for. What survives is the fact each branch actually carries: the
-   * address, the expiry the server returned, and whether this view can change
-   * anything. The one line under the card explains what is being signed, which
-   * is the single genuinely ambiguous thing here.
+   * they came for. The address, the expiry the server returned and whether this
+   * view can change anything are all readings, so they sit in the ledger's
+   * right column with every other reading on the tab. The one line that
+   * survives as prose says what is being signed, which is the single genuinely
+   * ambiguous thing here.
    */
-  let body: React.ReactNode;
+  let rows: React.ReactNode;
+  let action: React.ReactNode = null;
   if (session && state === "full") {
     const until = expiryDate(session.expiresAt);
-    body = (
+    rows = (
       <>
-        <p className={PROSE}>
-          {truncateAddress(session.wallet)}
-          {until ? `, until ${until}` : ""}
-        </p>
-        {/* "Forget this browser", not "Sign out": the account card above this
-            one on the Settings tab has a Sign out of its own, and it ends a
-            different thing. Two identical labels on one screen ending two
-            different sessions is the worst kind of ambiguity a settings page
-            can have. */}
-        <Button variant="secondary" onClick={onSignOut} disabled={busy}>
-          {busy ? "Forgetting..." : "Forget this browser"}
+        <SettingsRow label="Wallet" value={truncateAddress(session.wallet)} />
+        {/* No row at all when the server's value is not a date. A made-up
+            expiry is worse than a missing one, and "unknown" printed where a
+            date goes reads as a bug rather than as information. */}
+        {until ? <SettingsRow label="Until" value={until} /> : null}
+      </>
+    );
+    /* "Forget this browser", not "Sign out": the account card beside this one
+       on the Settings tab has a Sign out of its own, and it ends a different
+       thing. Two identical labels on one screen ending two different sessions
+       is the worst kind of ambiguity a settings page can have. */
+    action = (
+      <Button variant="secondary" className="w-full sm:w-auto" onClick={onSignOut} disabled={busy}>
+        {busy ? "Forgetting..." : "Forget this browser"}
+      </Button>
+    );
+  } else if (session && state === "readonly") {
+    rows = (
+      <>
+        <SettingsRow label="Wallet" value={truncateAddress(session.wallet)} />
+        {/* The honest description of what the alert link proved: that the
+            reader can see the chat those alerts go to. That is a real claim and
+            a weaker one than holding the key, which is exactly why every write
+            is still withheld. */}
+        <SettingsRow label="This view" value="Read only" />
+      </>
+    );
+    action = (
+      <>
+        {wallet && (
+          <SignInButton scope="readonly" busy={busy} onClick={onSignIn} variant="primary" />
+        )}
+        <Button variant="secondary" className="w-full sm:w-auto" onClick={onSignOut} disabled={busy}>
+          Forget this browser
         </Button>
       </>
     );
-  } else if (state === "readonly") {
-    body = (
-      <>
-        {/* The honest description of what the alert link proved: that the
-            reader can see the chat those alerts go to. That is a real claim
-            and a weaker one than holding the key, which is exactly why the
-            writes are still withheld. */}
-        <p className={PROSE}>Opened from an alert link, so this view can read and not change.</p>
-        <div className="flex flex-wrap items-center gap-2">
-          {wallet && <SignInButton scope="readonly" busy={busy} onClick={onSignIn} variant="primary" />}
-          <Button variant="secondary" onClick={onSignOut} disabled={busy}>
-            Forget this browser
-          </Button>
-        </div>
-      </>
-    );
   } else {
-    body = wallet ? (
+    rows = <SettingsRow label="This browser" value={wallet ? "Not signed in" : "No wallet added"} />;
+    action = wallet ? (
       <SignInButton scope="none" busy={busy} onClick={onSignIn} variant="primary" />
-    ) : (
-      <p className={PROSE}>Add a wallet first, then this browser can remember it.</p>
-    );
+    ) : null;
   }
 
   return (
-    <Card tone="raised" className="space-y-3">
-      <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-        <KeyRound className="w-4 h-4 text-text-primary" />
-        {/* The card-heading treatment the rest of the product uses. Settings
-            was running its own at `text-2xs`, one step under everything else's
-            row content. */}
-        <h3 className="text-sm font-sans font-semibold text-text-primary">Staying signed in</h3>
-      </div>
-
-      {body}
-
+    <SettingsCard>
+      <SettingsCardTitle icon={KeyRound} title="Staying signed in" />
+      {rows}
       {state !== "full" && (
         /* Keep-inline by the three-way test, and cut to the three facts: it is
            the only place the reader can learn what they are being asked to
            sign, and what it does not buy is the reason agreeing is reasonable. */
-        <p className={PROSE}>
-          One signature, no gas, 30 days. It authorizes nothing on its own.
-        </p>
+        <SettingsCardBlock>
+          <p className={PROSE}>One signature, no gas, 30 days. It authorizes nothing on its own.</p>
+        </SettingsCardBlock>
       )}
-    </Card>
+      {action ? <SettingsCardFooter>{action}</SettingsCardFooter> : null}
+    </SettingsCard>
   );
 }

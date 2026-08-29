@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   asAccount,
-  describeMembership,
+  membershipLedger,
   gateScreen,
   readAuthHash,
   type Account,
@@ -135,7 +135,7 @@ describe("asAccount", () => {
   });
 });
 
-describe("describeMembership", () => {
+describe("membershipLedger", () => {
   const base: Account = {
     userId: "u-1",
     email: "reader@example.com",
@@ -151,29 +151,31 @@ describe("describeMembership", () => {
     wallets: [],
   };
 
-  it("names the kind of grant and its end date", () => {
-    expect(describeMembership(base)).toMatch(/^Closed beta trial until /);
-    expect(describeMembership({ ...base, membership: { ...base.membership!, status: "active" } }))
-      .toMatch(/^Closed beta access until /);
+  it("names the kind of grant and puts its end date in the value", () => {
+    expect(membershipLedger(base)).toEqual({ label: "Beta trial ends", value: "Sep 1, 2026" });
+    expect(membershipLedger({ ...base, membership: { ...base.membership!, status: "active" } }))
+      .toEqual({ label: "Beta access ends", value: "Sep 1, 2026" });
   });
 
   it("states no date when the grant has no expiry", () => {
     const forever = { ...base, membership: { ...base.membership!, expiresAt: null } };
-    expect(describeMembership(forever)).toBe("Closed beta trial");
+    expect(membershipLedger(forever)).toEqual({ label: "Beta access", value: "Trial" });
   });
 
   it("states no date when the expiry cannot be read, rather than inventing one", () => {
     const broken = { ...base, membership: { ...base.membership!, expiresAt: "not-a-date" } };
-    expect(describeMembership(broken)).toBe("Closed beta trial");
+    expect(membershipLedger(broken)).toEqual({ label: "Beta access", value: "Trial" });
   });
 
   it("never describes access the server did not grant", () => {
-    expect(describeMembership({ ...base, member: false })).toBe(
-      "No closed beta access on this account",
-    );
-    expect(describeMembership({ ...base, membership: null })).toBe(
-      "No closed beta access on this account",
-    );
+    expect(membershipLedger({ ...base, member: false })).toEqual({
+      label: "Beta access",
+      value: "None",
+    });
+    expect(membershipLedger({ ...base, membership: null })).toEqual({
+      label: "Beta access",
+      value: "None",
+    });
   });
 });
 
