@@ -63,6 +63,12 @@ import {
 } from "../lib/preauth";
 import { useExitApprovals } from "../lib/useExitApprovals";
 import { Button, Card, EmptyState, Notice, Skeleton } from "../ui";
+import {
+  SettingsCard,
+  SettingsCardBlock,
+  SettingsCardTitle,
+  SettingsRow,
+} from "./SettingsCard";
 
 /**
  * One approval figure, in a ledger line. The four-branch sentence this replaces
@@ -358,12 +364,10 @@ export function ExitApprovals() {
     refresh,
   );
 
-  const header = (
-    <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-      <KeyRound className="h-4 w-4 text-text-primary" />
-      <h3 className="text-sm font-sans font-semibold text-text-primary">Exit approvals</h3>
-    </div>
-  );
+  // The Settings tab's shared title row, so this card's heading sits on the
+  // same 3px rule at the same size as the five beside it. Only the shape moved;
+  // what the card does below it is unchanged.
+  const header = <SettingsCardTitle icon={KeyRound} title="Exit approvals" />;
 
   /**
    * The 60-word introduction is gone.
@@ -378,35 +382,41 @@ export function ExitApprovals() {
    */
 
   if (!exitsExecutableOn(chainMode) || !isExitExecutable(PROTOCOL)) {
+    // Nothing can be approved on this chain, so nothing is: the ledger row
+    // states the count the reader came for, in the column every other value on
+    // the tab is read down. The sentence it replaces said the same thing in
+    // seven words and in a different place on the card from its neighbours.
     return (
-      <Card tone="raised" className="space-y-3">
+      <SettingsCard>
         {header}
-        <p className="text-xs font-sans leading-relaxed text-text-secondary">
-          There is nothing to pre-approve here yet.
-        </p>
-      </Card>
+        <SettingsRow label="Granted" value="None" />
+      </SettingsCard>
     );
   }
 
   if (!isConnected) {
     return (
-      <Card tone="raised" className="space-y-3">
+      <SettingsCard>
         {header}
-        <Button onClick={() => connect({ connector: injected() })} className="mt-1">
-          <Wallet className="h-3.5 w-3.5" /> Connect wallet
-        </Button>
-      </Card>
+        <SettingsCardBlock>
+          <Button onClick={() => connect({ connector: injected() })}>
+            <Wallet className="h-3.5 w-3.5" /> Connect wallet
+          </Button>
+        </SettingsCardBlock>
+      </SettingsCard>
     );
   }
 
   if (!onChain) {
     return (
-      <Card tone="raised" className="space-y-3">
+      <SettingsCard>
         {header}
-        <Button onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })} className="mt-1">
-          Switch to {getExitChain().name}
-        </Button>
-      </Card>
+        <SettingsCardBlock>
+          <Button onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })}>
+            Switch to {getExitChain().name}
+          </Button>
+        </SettingsCardBlock>
+      </SettingsCard>
     );
   }
 
@@ -429,8 +439,10 @@ export function ExitApprovals() {
   const incomplete = (loaded?.unreadable.length ?? 0) > 0;
 
   return (
-    <Card tone="raised" className="space-y-4">
+    <SettingsCard>
       {header}
+      <SettingsCardBlock>
+        <div className="space-y-4">
 
       {/* No "What you have approved on Aave V3" sub-heading and no Refresh
           link: the card's own heading names the subject, and both buttons
@@ -567,6 +579,8 @@ export function ExitApprovals() {
 
         </>
       )}
-    </Card>
+        </div>
+      </SettingsCardBlock>
+    </SettingsCard>
   );
 }

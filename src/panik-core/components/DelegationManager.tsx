@@ -57,6 +57,12 @@ import {
 } from "../lib/exitPermitCompose";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
 import { Button, Card, Chip, EmptyState, Field, Notice } from "../ui";
+import {
+  SettingsCard,
+  SettingsCardBlock,
+  SettingsCardTitle,
+  SettingsRow,
+} from "./SettingsCard";
 
 /**
  * One term of a permission, in a ledger line: what it is on the left, the
@@ -413,12 +419,11 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
 
   // ── Gated shells ─────────────────────────────────────────────────────────
 
+  // The Settings tab's shared title row, so this card's heading sits on the
+  // same 3px rule at the same size as the five beside it. The testnet marker
+  // keeps its place next to the name; only the shape around it moved.
   const header = (
-    <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-      <ShieldCheck className="w-4 h-4 text-text-primary" />
-      <h3 className="text-sm font-sans font-semibold text-text-primary">Standing exit permission</h3>
-      <TestnetBadge />
-    </div>
+    <SettingsCardTitle icon={ShieldCheck} title="Standing exit permission" extra={<TestnetBadge />} />
   );
 
   /**
@@ -433,42 +438,49 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   // walking a user through a signature whose only possible use is on the other
   // chain. It is the same honesty gate the exit modal applies, one step earlier.
   if (!exitsExecutableOn(chainMode)) {
+    // Nothing can be granted on this chain, so nothing is: the ledger row
+    // states the count in the column every other value on the tab is read
+    // down, in place of a sentence that sat where no neighbour's did.
     return (
-      <Card tone="raised" className="space-y-3">
+      <SettingsCard>
         {header}
-        <p className="text-xs text-text-secondary leading-relaxed font-sans">
-          There is nothing to grant here yet.
-        </p>
-      </Card>
+        <SettingsRow label="Granted" value="None" />
+      </SettingsCard>
     );
   }
 
   if (!isConnected) {
     return (
-      <Card tone="raised" className="space-y-3">
+      <SettingsCard>
         {header}
-        <Button onClick={() => connect({ connector: injected() })} className="mt-1">
-          <Wallet className="w-3.5 h-3.5" aria-hidden="true" /> Connect wallet
-        </Button>
-      </Card>
+        <SettingsCardBlock>
+          <Button onClick={() => connect({ connector: injected() })}>
+            <Wallet className="w-3.5 h-3.5" aria-hidden="true" /> Connect wallet
+          </Button>
+        </SettingsCardBlock>
+      </SettingsCard>
     );
   }
 
   if (!onChain) {
     return (
-      <Card tone="raised" className="space-y-3">
+      <SettingsCard>
         {header}
-        <Button onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })} className="mt-1">
-          Switch to {getExitChain().name}
-        </Button>
-      </Card>
+        <SettingsCardBlock>
+          <Button onClick={() => void switchChainAsync({ chainId: EXIT_CHAIN_ID })}>
+            Switch to {getExitChain().name}
+          </Button>
+        </SettingsCardBlock>
+      </SettingsCard>
     );
   }
 
   const slippageInvalid = ceilingBps === null || slippageBps === null;
   return (
-    <Card tone="raised" className="space-y-5">
+    <SettingsCard>
       {header}
+      <SettingsCardBlock>
+        <div className="space-y-5">
 
       {/* ── Active permissions ───────────────────────────────────────────
           No section heading and no Refresh link. When this wallet has granted
@@ -628,6 +640,8 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
         <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
         {granting ? "Sign in wallet" : "Grant standing permission"}
       </Button>
-    </Card>
+        </div>
+      </SettingsCardBlock>
+    </SettingsCard>
   );
 }
