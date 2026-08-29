@@ -5,23 +5,42 @@
 
 import React from "react";
 import { Card } from "../../panik-core/ui";
+/**
+ * `MARKETS` deep-imported straight from the engine, not the package barrel:
+ * `markets.ts` imports only `type Protocol`, so this is safe to reach a
+ * browser bundle (see the barrel warning on `packages/scoring/src/index.ts`
+ * and the same deep-import discipline `AppDemo.tsx` follows). Two REAL counts
+ * come off this one table instead of being retyped as constants that could
+ * drift from the engine that actually holds the list.
+ */
+import { MARKETS } from "../../../packages/scoring/src/markets";
+
+/** One row per lending protocol the engine has a market table for. */
+const PROTOCOLS_COVERED = Object.keys(MARKETS).length;
+/** Every distinct collateral symbol across every protocol's table, deduped. */
+const ASSETS_PRICED = new Set(Object.values(MARKETS).flatMap((market) => Object.keys(market))).size;
 
 /**
- * Three figures the product will be able to stand behind, and they are NOT
- * filled in yet.
+ * The holdout recall is NOT wired to a runtime export: it lives in
+ * `docs/technical-docs/BACKTEST_RESULTS.md` ("Re-measured 2026-08-25, with a
+ * calibration/holdout split"), a report, not a constant the engine returns.
+ * It is hardcoded here on the same terms `PROTOCOL_SAFETY` hardcodes its
+ * scores in `packages/scoring/src/subscores/protocolSafety.ts` — a real,
+ * cited number that has to be updated by hand when the report is.
  *
- * The bracketed placeholders are the point. The page this replaces printed
- * "94% recall" and a five-digit position count next to a chart, and nothing in
- * the codebase produced either number: they were typed into a component. A
- * bracket is a number that is visibly missing, which is a thing a reviewer can
- * catch; a plausible figure is not. They stay bracketed until the backtest
- * report is published and the count comes from the engine rather than from a
- * constant in this file.
+ * The pooled HOLDOUT row, not the pooled "all offline" or the superseded
+ * multi-event row: 1,494 liquidated + 491 surviving positions across the USDC
+ * depeg (Mar 2023) and the Aug-2024 Base unwind, both of which postdate every
+ * threshold `CRASH_REGIME` (packages/scoring/src/params.ts) was calibrated on.
+ * The report calls this row "the honest headline" for exactly that reason.
  */
+const BACKTEST_RECALL = "92%";
+const BACKTEST_FALSE_ALARM = "26% false-alarm rate, holdout split";
+
 const FIGURES = [
-  { label: "Lending markets covered on Base", value: "[PROTOCOLS]" },
-  { label: "Wallet positions run through the engine", value: "[POSITIONS SCORED]" },
-  { label: "Past liquidations flagged in testing", value: "[BACKTEST RECALL]" },
+  { label: "Lending markets covered on Base", value: String(PROTOCOLS_COVERED) },
+  { label: "Collateral assets priced by the engine", value: String(ASSETS_PRICED) },
+  { label: "Doomed positions flagged in backtesting", value: BACKTEST_RECALL, caption: BACKTEST_FALSE_ALARM },
 ];
 
 export function ProofStrip() {
@@ -34,12 +53,12 @@ export function ProofStrip() {
             <span className="font-mono text-2xl font-bold tracking-tight break-words text-text-primary">
               {figure.value}
             </span>
+            {figure.caption && (
+              <span className="font-mono text-xs text-text-secondary">{figure.caption}</span>
+            )}
           </Card>
         ))}
       </div>
-      <p className="font-mono text-xs text-text-secondary">
-        Numbers land with the backtest report.
-      </p>
     </section>
   );
 }
