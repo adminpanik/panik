@@ -37,7 +37,7 @@ import React, { useId, useState } from "react";
 import { Check, Eye } from "lucide-react";
 import { truncateAddress } from "../lib/utils";
 import type { WalletChoice } from "../lib/watchlist";
-import { Button } from "../ui";
+import { Button, Listbox } from "../ui";
 
 export interface WalletSelectorProps {
   /** Built by `viewableWallets`, which is the authority on what may be shown. */
@@ -52,20 +52,32 @@ export interface WalletSelectorProps {
    */
   checkedAt: string | null;
   /**
-   * The one-line form, for the mount inside the Portfolio tab below `md`.
+   * The TOP-STRIP form, for the phone, where there is no sidebar to put a block
+   * in.
    *
    * A prop rather than responsive classes because the two mounts are already
-   * exclusive: the sidebar renders this only on a desktop and the Portfolio tab
+   * exclusive: the sidebar renders this only on a desktop and the shell's strip
    * renders it only when `!isDesktop`. One of them is the phone, so the phone's
    * shape is a fact about the call site, not about the width.
    *
-   * What it drops is what the phone states elsewhere: the address is in the top
-   * strip on every screen, and how old the reading is has a whole feed card of
-   * its own on this tab. What it keeps is the name, the watch-only marker and
-   * the control, because those three are the wallet's identity and the only
-   * thing this block does.
+   * It replaces the compact block this tab used to carry. That block was three
+   * lines and a "Switch" button, sitting under the Portfolio's own heading and
+   * above the recommendation the reader opened the tab for - roughly 90px of
+   * the first screenful spent restating an address the strip above it was
+   * already showing. The strip's address is the control now, so the fact and
+   * the way to change it are one thing rather than two, and the Portfolio gets
+   * that space back for the positions.
+   *
+   * IT IS A `Listbox` HERE, unlike the sidebar block, and the difference is the
+   * one the primitive's own contract turns on: the sidebar's options are IN the
+   * page (five buttons in a rail with room under them), so a combobox model
+   * would add a keyboard contract for something already reachable with Tab.
+   * From a 56px strip they are not in the page and cannot be, so this is a
+   * collapsed trigger reporting a value with a panel behind it, which is
+   * exactly what that primitive is - including the outside-press dismissal and
+   * the arrow keys, neither of which the inline list needs or has.
    */
-  compact?: boolean;
+  bar?: boolean;
 }
 
 export function WalletSelector({
@@ -73,7 +85,7 @@ export function WalletSelector({
   value,
   onChange,
   checkedAt,
-  compact = false,
+  bar = false,
 }: WalletSelectorProps) {
   const target = value.toLowerCase();
   // The one guard, and it is here rather than at every read of `selected`:
@@ -94,17 +106,95 @@ export function WalletSelector({
     const named = o.label?.trim();
     return named ? `${named}, ${truncateAddress(o.wallet)}` : truncateAddress(o.wallet);
   };
+  /** A row's accessible name: its identity plus which KIND of wallet it is. */
+  const rowLabel = (o: WalletChoice) =>
+    `${spokenName(o)}, ${o.own ? "your wallet" : "watch only"}`;
+
+  /**
+   * What a row SHOWS, written once and rendered by both lists below. The two
+   * differ in the widget they sit in and in nothing a reader can see, so a
+   * second copy of this would be two wallet rows that drift apart.
+   */
+  const rowBody = (o: WalletChoice, current: boolean) => (
+    <>
+      <span className="flex min-w-0 flex-1 flex-col">
+        {o.label?.trim() && (
+          <span className="truncate font-sans text-xs font-bold text-text-primary">
+            {o.label.trim()}
+          </span>
+        )}
+        <span className="truncate font-mono text-xs text-text-primary">
+          {truncateAddress(o.wallet)}
+        </span>
+      </span>
+      {/* The eye marks a watch-only row, and its ABSENCE marks the owner's. The
+          owner's row used to wear the `Chip` WalletsPanel gives it, which is the
+          right marker on a panel and the wrong one in a 208px rail: measured,
+          "Your wallet" at 90px left the name and the address 60px between them
+          and both ellipsised to "Moc…" and "0x4c…". The fact is not lost, it is
+          in the row's accessible name, and losing the address is losing the only
+          thing that identifies the wallet.
+
+          No `title` on the glyph: it is decoration for a fact the row's own
+          accessible name already states, and a second hover wording is a second
+          thing to keep true. */}
+      {!o.own && <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-text-muted" />}
+      {/* Reserved either way, so committing a different row does not reflow the
+          list under the pointer. */}
+      <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+        {current && <Check aria-hidden="true" className="h-3.5 w-3.5 text-text-primary" />}
+      </span>
+    </>
+  );
+
+  if (bar) {
+    /* With one wallet there is nothing to switch TO, so the strip states the
+       address and offers no control: a trigger with one option is a picker that
+       cannot pick, and on a 56px strip it would be the only thing next to the
+       mark implying the app could be showing something else. Same test the
+       sidebar block applies to its own button. */
+    if (options.length < 2) {
+      return (
+        <span
+          title={selected.wallet}
+          className="truncate font-mono text-xs font-bold text-text-primary"
+        >
+          {truncateAddress(selected.wallet)}
+        </span>
+      );
+    }
+    return (
+      <Listbox
+        label="Which wallet to show"
+        count={options.length}
+        selectedIndex={selectedIndex}
+        onCommit={(i) => onChange(options[i].wallet)}
+        /* `h-8` rather than the 48px a `Button` is: the strip it sits in is
+           56px tall. Still over the 24px target floor (SC 2.5.8). */
+        triggerClassName="flex h-8 min-w-0 cursor-pointer items-center gap-1.5 hard-edge px-2"
+        trigger={
+          /* The address and nothing else, because that is what the strip said
+             before this became pressable: a label here would be a second name
+             for the wallet in the one place there is no room for one. */
+          <span className="truncate font-mono text-xs font-bold text-text-primary">
+            {truncateAddress(selected.wallet)}
+          </span>
+        }
+        optionLabel={(i) => rowLabel(options[i])}
+        optionClassName={({ selected: sel, active }) =>
+          `flex w-full items-center gap-2 px-3 py-2.5 text-left ${
+            active ? "bg-highlight" : sel ? "bg-highlight" : ""
+          }`
+        }
+        renderOption={(i, { selected: sel }) => rowBody(options[i], sel)}
+      />
+    );
+  }
 
   return (
     <div className="hard-edge bg-surface-raised">
-      <div
-        className={
-          compact
-            ? "flex items-center justify-between gap-3 p-3"
-            : "space-y-1.5 p-3"
-        }
-      >
-        <div className={compact ? "min-w-0 space-y-0.5" : "space-y-1.5"}>
+      <div className="space-y-1.5 p-3">
+        <div className="space-y-1.5">
         <span className="block label-type text-xs text-text-secondary">Watching wallet</span>
 
         {selected.label?.trim() && (
@@ -116,17 +206,12 @@ export function WalletSelector({
             in the block. The whole address on hover, as the Wallets panel does
             it: 42 characters is not something a reader checks by reading, it is
             something they check by comparing the ends. */}
-        {/* The address is the NAME when there is no other one, so it is
-            dropped on the compact form only where a label already stands in
-            for it. Otherwise the block would state nothing at all. */}
-        {!(compact && selected.label?.trim()) && (
-          <span
-            title={selected.wallet}
-            className="block truncate font-mono text-base font-bold text-text-primary"
-          >
-            {truncateAddress(selected.wallet)}
-          </span>
-        )}
+        <span
+          title={selected.wallet}
+          className="block truncate font-mono text-base font-bold text-text-primary"
+        >
+          {truncateAddress(selected.wallet)}
+        </span>
 
         {/* The marker, not an essay: the full watch-only explanation lives in
             the Wallets panel and on the alerts themselves. */}
@@ -139,7 +224,7 @@ export function WalletSelector({
 
         {/* A fact the code knows, so it stays: how old the reading on screen is
             is the one thing a reader cannot work out by looking at it. */}
-        {checkedAt && !compact && (
+        {checkedAt && (
           <span className="block font-sans text-sm text-text-secondary">{checkedAt}</span>
         )}
         </div>
@@ -150,11 +235,11 @@ export function WalletSelector({
             could be showing something else. */}
         {options.length > 1 && (
           <Button
-            variant={compact ? "secondary" : "ghost"}
+            variant="ghost"
             aria-expanded={open}
             aria-controls={listId}
             onClick={() => setOpen((v) => !v)}
-            className={compact ? "h-11 shrink-0 px-4" : "h-8 px-0"}
+            className="h-8 px-0"
           >
             {open ? "Close" : "Switch"}
           </Button>
@@ -176,7 +261,7 @@ export function WalletSelector({
                      links to one of several views, not a set of options inside
                      a widget that reports a value. */
                   aria-current={current ? "true" : undefined}
-                  aria-label={`${spokenName(o)}, ${o.own ? "your wallet" : "watch only"}`}
+                  aria-label={rowLabel(o)}
                   onClick={() => {
                     onChange(o.wallet);
                     setOpen(false);
@@ -185,37 +270,7 @@ export function WalletSelector({
                     current ? "bg-highlight" : ""
                   }`}
                 >
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    {o.label?.trim() && (
-                      <span className="truncate font-sans text-xs font-bold text-text-primary">
-                        {o.label.trim()}
-                      </span>
-                    )}
-                    <span className="truncate font-mono text-xs text-text-primary">
-                      {truncateAddress(o.wallet)}
-                    </span>
-                  </span>
-                  {/* The eye marks a watch-only row, and its ABSENCE marks the
-                      owner's. The owner's row used to wear the `Chip`
-                      WalletsPanel gives it, which is the right marker on a
-                      panel and the wrong one in a 208px rail: measured, "Your
-                      wallet" at 90px left the name and the address 60px between
-                      them and both ellipsised to "Moc…" and "0x4c…". The fact
-                      is not lost, it is in the row's `aria-label`, and losing
-                      the address is losing the only thing that identifies the
-                      wallet.
-
-                      No `title` on the glyph: it is decoration for a fact the
-                      row's own accessible name already states, and a second
-                      hover wording is a second thing to keep true. */}
-                  {!o.own && (
-                    <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                  )}
-                  {/* Reserved either way, so committing a different row does not
-                      reflow the list under the pointer. */}
-                  <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                    {current && <Check aria-hidden="true" className="h-3.5 w-3.5 text-text-primary" />}
-                  </span>
+                  {rowBody(o, current)}
                 </button>
               </li>
             );
