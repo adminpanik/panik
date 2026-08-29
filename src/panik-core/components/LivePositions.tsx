@@ -353,15 +353,9 @@ export function LivePositions({
            into the row's own disclosure instead, so this only engages in the
            narrow band where all six are up and the column is tight. */
         <div className="min-w-0 grow overflow-x-auto">
-        {/* `bg-text-primary` sits on the TABLE, not the header `tr`/`th`s: a
-            row or cell background is painted per-cell under `border-collapse`,
-            and fractional column widths left a 1px seam of the card's white
-            between cells at every column boundary. The table's own background
-            is one continuous rect behind the whole thing, so there is nothing
-            for a cell edge to leave a gap in. */}
-        <table className="w-full border-collapse bg-text-primary text-left">
+        <table className="w-full border-collapse text-left">
           <thead>
-            <tr>
+            <tr className="bg-text-primary">
               {/* The protocol's column, and it carries no word: what is in it is
                   a brand MARK, which a header reading "Protocol" would be
                   labelling for a reader who has already recognised it. 44px is
