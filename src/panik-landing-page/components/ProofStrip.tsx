@@ -25,7 +25,7 @@ const ASSETS_PRICED = new Set(Object.values(MARKETS).flatMap((market) => Object.
  * `docs/technical-docs/BACKTEST_RESULTS.md` ("Re-measured 2026-08-25, with a
  * calibration/holdout split"), a report, not a constant the engine returns.
  * It is hardcoded here on the same terms `PROTOCOL_SAFETY` hardcodes its
- * scores in `packages/scoring/src/subscores/protocolSafety.ts` — a real,
+ * scores in `packages/scoring/src/subscores/protocolSafety.ts`, a real,
  * cited number that has to be updated by hand when the report is.
  *
  * The pooled HOLDOUT row, not the pooled "all offline" or the superseded

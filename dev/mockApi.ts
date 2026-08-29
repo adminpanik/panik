@@ -492,7 +492,7 @@ function mockSessionCookie(session: MockSession): string {
 //                                it directly (no /api hop), so before this
 //                                block existed the signup form's three RPCs
 //                                fell through every case below to `next()`
-//                                and hit the dead :8787 proxy — the landing
+//                                and hit the dead :8787 proxy: the landing
 //                                page's waitlist button did not work in mock
 //                                mode.
 //   /api/account*                PANIK's own account routes.
@@ -505,13 +505,13 @@ function mockSessionCookie(session: MockSession): string {
 /** Where `.env.mock` points VITE_SUPABASE_URL. Relative, so it is same-origin. */
 const MOCK_SUPABASE_PREFIX = "/mock-supabase";
 
-// ── /mock-supabase/rest/v1/rpc — the waitlist signup ────────────────────────
+// ── /mock-supabase/rest/v1/rpc, the waitlist signup ────────────────────────
 //
 // The three RPCs `waitlist.ts` calls, answered from an in-memory table instead
 // of the real `public.waitlist_signups` (supabase/migrations/20260614000001_
 // waitlist.sql). Mirrors that migration's own rules, not a guess at them:
 //
-//   waitlist_signup        IDEMPOTENT on email — a second submit from the same
+//   waitlist_signup        IDEMPOTENT on email: a second submit from the same
 //                           address returns its EXISTING position rather than
 //                           an error (see the migration's own comment on why:
 //                           the modal shows "you're on the list, #N" either
