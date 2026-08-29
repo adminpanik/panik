@@ -13,8 +13,9 @@
  * still here; they are in the row's DISCLOSURE now instead of on its face. Six
  * facts per row across four rows is not a table anyone reads, and five of the
  * six are things a reader wants for one position at a time rather than for all
- * of them at once. The row's own button is the disclosure, so the position's
- * name is what opens it.
+ * of them at once. The row's own button is the disclosure, and it is the
+ * protocol's mark, so what opens a position is the thing that identifies where
+ * it is held.
  *
  * Data arrives via props from AppDemo's live hooks (shared with the Portfolio
  * stat row) - this component only renders.
@@ -24,6 +25,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, Eye } from "lucide-react";
 import type { LiveWalletPosition, ScoringChainInfo } from "../lib/live";
 import { CardTitle } from "./CardTitle";
+import { ProtocolLogo } from "./ProtocolLogo";
 import {
   BAND_WORD,
   formatUsd,
@@ -86,9 +88,9 @@ function chainProvenance(chain: ScoringChainInfo | null): { badge: string | null
  * here (a border, a shadow, a fill) is already spoken for by something that
  * does carry state.
  *
- * `whitespace-nowrap` on both, and the Outlook column is the only elastic one
- * (`w-full` below): a money column that wraps is a money column that stops
- * lining up, which is the entire reason these figures are in a table.
+ * `whitespace-nowrap` on both, and Outlook is the only elastic one (`w-full`
+ * below): a money column that wraps is a money column that stops lining up,
+ * which is the entire reason these figures are in a table.
  */
 const TH = "h-14 whitespace-nowrap px-2 label-type text-xs text-white sm:px-3";
 const TD = "px-2 py-3 align-middle sm:px-3";
@@ -102,16 +104,36 @@ const TD = "px-2 py-3 align-middle sm:px-3";
  * of figures under the wrong label, which is the one failure a table cannot
  * survive and the one a screenshot does not obviously show.
  *
- * Protocol and Risk are absent because they are never hidden: they are the two
- * facts a 390px phone still has to carry, and everything dropped below them is
- * repeated in the row's disclosure.
+ * Protocol, Market and Risk are absent because they are never hidden: the mark,
+ * the name and the band are what a 390px phone still has to carry, and
+ * everything dropped below them is repeated in the row's disclosure.
  */
 const COL = {
-  asset: "hidden sm:table-cell",
   collateral: "hidden xl:table-cell",
   debt: "hidden xl:table-cell",
   outlook: "hidden md:table-cell",
 } as const;
+
+/**
+ * The MARKET, as the position's name.
+ *
+ * A row led with the protocol and put the asset in a column of its own, so a
+ * phone read four rows of "Aave V3", "Moonwell", "Compound V3" - four venues,
+ * when what tells one leg from another is what is in it. The protocol is a
+ * BRAND MARK now, in the column before this one, which is how a reader
+ * recognises a venue anyway; the words go to the thing they cannot recognise
+ * from a glyph.
+ *
+ * ONE SYMBOL, not a pair, and that is the whole reason this is a function with
+ * a comment on it rather than a template string. A lending leg reads as
+ * "cbBTC / USDC" everywhere in DeFi, and `LiveWalletPosition` carries
+ * `scoredCollateralSymbol` and no debt symbol at all - so the second half of
+ * that pair would be invented here, and it would be invented on exactly the
+ * screen where a reader decides which position to close.
+ */
+function marketName(p: LiveWalletPosition): string {
+  return p.scoredCollateralSymbol;
+}
 /** Every figure in the table, in the one face this product sets numerals in. */
 const FIGURE = "whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary";
 /**
@@ -334,11 +356,24 @@ export function LivePositions({
         <table className="w-full border-collapse text-left">
           <thead>
             <tr className="bg-text-primary">
-              <th scope="col" className={TH}>
-                Protocol
+              {/* The protocol's column, and it carries no word: what is in it is
+                  a brand MARK, which a header reading "Protocol" would be
+                  labelling for a reader who has already recognised it. 44px is
+                  the chevron and the 28px tile beside it. */}
+              <th scope="col" className={`${TH} w-11`}>
+                <span className="sr-only">Protocol</span>
               </th>
-              <th scope="col" className={`${TH} ${COL.asset}`}>
-                Asset
+              {/* The row's NAME, and the widest text column at every width the
+                  money columns are down.
+
+                  Sized to its content rather than given the table's slack, and
+                  that is measured rather than preferred: a ticker's max-content
+                  is 60-110px, so `w-full` here hands Market 210px it cannot
+                  fill and leaves Outlook 90px it needs 200 for - "Liquidates if
+                  cbBTC falls 4.8%" over three lines, an 85px row, at 1024. The
+                  slack belongs to the only column holding a sentence. */}
+              <th scope="col" className={TH}>
+                Market
               </th>
               <th scope="col" className={`${TH} ${COL.collateral}`}>
                 Collateral
@@ -346,20 +381,15 @@ export function LivePositions({
               <th scope="col" className={`${TH} ${COL.debt}`}>
                 Debt
               </th>
-              {/* The one elastic column: everything else is a name or a figure
-                  of known width, and the slack belongs to the sentence. */}
               <th scope="col" className={`${TH} w-full ${COL.outlook}`}>
                 Outlook
               </th>
-              {/* `w-px` is the "size me to my content" trick, and it is the
-                  fix for the asset column at 390. With two columns up and both
-                  sized automatically, the browser splits the table
-                  proportionally to each one's MAX-content, so the band chip
-                  claimed 40% of a 352px card and the ticker beside the protocol
-                  was squeezed to "cb…". The chip is a fixed block that must
-                  never wrap or clip; every pixel after it belongs to the name
-                  and the asset. From `xl`, where the elastic Outlook column is
-                  up, this changes nothing: the slack was already going there. */}
+              {/* `w-px` is the "size me to my content" trick, and with the chip
+                  now a fixed 112px block it is exactly that: the column is the
+                  chip's own width and every pixel after it belongs to Market.
+                  Never hidden - the band and the name are the two facts a 390px
+                  phone still has to carry, and everything dropped below them is
+                  repeated in the row's disclosure. */}
               <th scope="col" className={`${TH} w-px`}>
                 Risk
               </th>
@@ -394,54 +424,42 @@ export function LivePositions({
                       highlighted ? "bg-highlight" : ""
                     }`}
                   >
-                    <td className={TD}>
-                      {/* The position's NAME is the disclosure control, so
-                          there is no second column of chevron buttons and no
-                          clickable row (a `div` with an onClick has no role, no
-                          focus and no keyboard). `aria-expanded` is what tells
-                          a screen reader this does something.
+                    <td className={`${TD} w-11`}>
+                      {/* The PROTOCOL is the disclosure control: its mark plus
+                          the chevron that says the row opens, and nothing else
+                          in the cell. A real button, so there is no clickable
+                          `div` (no role, no focus, no keyboard) and no second
+                          column of chevrons; `aria-expanded` is what tells a
+                          screen reader it does something, and the tile's own
+                          `label` is what names it, so the control still
+                          announces as the protocol it opens.
 
                           `min-h-11` is 44px, the touch target this row is on a
                           phone, and it steps back to 32px from `md` where the
                           pointer is a mouse and the row is 56px by design. */}
-                      <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          aria-controls={detailId}
-                          onClick={() => setOpenKey(open ? null : key)}
-                          /* `min-w-0` beside the `w-full` that makes the whole
-                             cell pressable: the two are flex items sharing one
-                             cell, and shrinkage is handed out in proportion to
-                             each one's base size, so a 100%-wide button took
-                             every pixel of the deficit off the 37px ticker
-                             beside it and left "cb…". The button's own content
-                             is 84px, so it has room to give. */
-                          className="flex min-h-11 w-full min-w-0 cursor-pointer items-center gap-1.5 whitespace-nowrap text-left font-sans text-sm font-bold text-text-primary sm:gap-2 md:min-h-8"
-                        >
-                          <Chevron className="h-4 w-4 shrink-0" aria-hidden="true" />
-                          {PROTOCOL_LABEL[p.protocol]}
-                        </button>
-                        {/* The asset, only where its own column is not up. The
-                            Asset column appears at `sm`; below that the ticker
-                            was reachable only by opening the row, so a phone
-                            read four protocol names with no way to tell which
-                            leg of a wallet each one was. Outside the button, so
-                            the disclosure's accessible name stays the protocol
-                            it opens. */}
-                        {/* 12px, not the strip's 14: this is the one width in
-                            the product where the ticker shares a row with a
-                            protocol name and a band chip, and at 14px
-                            "Compound V3 cbBTC" plus "Elevated risk" is 8px past
-                            the card. It is a marker beside a name here, not a
-                            figure in a column of figures. */}
-                        <span className={`${FIGURE} shrink-0 text-xs text-text-muted sm:hidden`}>
-                          {p.scoredCollateralSymbol}
-                        </span>
-                      </div>
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-controls={detailId}
+                        onClick={() => setOpenKey(open ? null : key)}
+                        className="flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 md:min-h-8"
+                      >
+                        <Chevron className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <ProtocolLogo
+                          protocol={p.protocol}
+                          size="w-7 h-7"
+                          label={PROTOCOL_LABEL[p.protocol]}
+                        />
+                      </button>
                     </td>
-                    <td className={`${TD} ${COL.asset}`}>
-                      <span className={FIGURE}>{p.scoredCollateralSymbol}</span>
+                    <td className={TD}>
+                      {/* The row's name, in the weight a name gets. Not the mono
+                          face: a ticker is what the position IS, not a quantity
+                          measured about it, and the money columns beside it are
+                          what mono is reserved for. */}
+                      <span className="block truncate font-sans text-sm font-bold text-text-primary">
+                        {marketName(p)}
+                      </span>
                     </td>
                     <td className={`${TD} ${COL.collateral}`}>
                       {moneyCell(p.collateralValueUsd, unpriced)}
@@ -454,6 +472,22 @@ export function LivePositions({
                           and rounded by the engine (`liquidationOutlook`),
                           never by this file. The exact ratio opens the hover,
                           which is where every other surface keeps it. */}
+                      {/* One line from `lg`, wrapping below it, and both halves
+                          are measured rather than preferred.
+
+                          Market takes the table's slack now (`w-full`), which
+                          leaves this column its min-content width, so at 1440
+                          "Liquidates if cbBTC falls 4.8%" came back as three
+                          lines and took a 56px row to 96px - the wrap undoes
+                          the scanning the table exists for at exactly the width
+                          where there was room to spare. Held to one line at
+                          every width instead, the column claims its max-content
+                          (~200px) and the 434px card at 768 needs 577, so the
+                          table starts scrolling sideways in the one band where
+                          the money columns are still down.
+
+                          `lg` is where the card is 500px and both are true at
+                          once. */}
                       <span
                         className="cursor-help font-sans text-sm text-text-secondary"
                         title={outlook.hover}
