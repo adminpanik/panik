@@ -457,30 +457,49 @@ export async function redeemVoucher(
  * Pinned at module scope rather than rebuilt per render: building a formatter
  * is the expensive half of formatting a date. Same reason as
  * components/SessionControls.tsx.
+ *
+ * `en-US` short, so the date reads "Sep 11, 2026" in the Settings ledger's
+ * right column, the same shape `components/DelegationManager.tsx` prints a
+ * permission deadline in. The two sit on one screen and a settings page that
+ * writes one date two ways is a settings page nobody can scan.
  */
-const GRANT_FORMAT = new Intl.DateTimeFormat(undefined, {
+const GRANT_FORMAT = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
-  month: "long",
+  month: "short",
   year: "numeric",
 });
 
+/** A settings ledger line: what the row is called, and what it currently says. */
+export interface MembershipLedger {
+  label: string;
+  value: string;
+}
+
 /**
- * One line naming what this account holds, for the header menu.
+ * What this account holds, split into the two halves a ledger row needs.
  *
- * Every branch states only what the row says. A grant with no `expires_at` gets
- * NO date rather than an invented one, an unparseable timestamp is treated as
- * no date at all, and `lapsed` is described as ended rather than as a kind of
- * access. The word "trial" is the row's own `status`, which is the same value
- * the server judged, so the line cannot claim a level of access the gate did
- * not grant.
+ * It used to be one sentence ("Closed beta trial until September 12, 2026")
+ * because it lived in a header menu. In a ledger the date is the VALUE and
+ * belongs in the mono column with every other reading on the screen, and the
+ * kind of grant is what names the row.
+ *
+ * Every branch still states only what the row says. A grant with no
+ * `expires_at` gets NO date rather than an invented one, an unparseable
+ * timestamp is treated as no date at all, and an account the gate did not admit
+ * is not described as holding anything. The word "trial" is the row's own
+ * `status`, the same value the server judged.
  */
-export function describeMembership(account: Account): string {
+export function membershipLedger(account: Account): MembershipLedger {
   const m = account.membership;
-  if (!m || !account.member) return "No closed beta access on this account";
-  const kind = m.status === "trial" ? "Closed beta trial" : "Closed beta access";
-  if (m.expiresAt === null) return kind;
-  const when = new Date(m.expiresAt);
-  return Number.isNaN(when.getTime()) ? kind : `${kind} until ${GRANT_FORMAT.format(when)}`;
+  if (!m || !account.member) return { label: "Beta access", value: "None" };
+  const kind = m.status === "trial" ? "Beta trial" : "Beta access";
+  if (m.expiresAt !== null) {
+    const when = new Date(m.expiresAt);
+    if (!Number.isNaN(when.getTime())) {
+      return { label: `${kind} ends`, value: GRANT_FORMAT.format(when) };
+    }
+  }
+  return { label: "Beta access", value: kind === "Beta trial" ? "Trial" : "Active" };
 }
 
 // ── the hook the shell uses ─────────────────────────────────────────────────
