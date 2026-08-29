@@ -91,8 +91,19 @@ function chainProvenance(chain: ScoringChainInfo | null): { badge: string | null
  * `whitespace-nowrap` on both, and Outlook is the only elastic one (`w-full`
  * below): a money column that wraps is a money column that stops lining up,
  * which is the entire reason these figures are in a table.
+ *
+ * `border-x border-text-primary` on the `th` covers a seam, not a border: the
+ * header's black comes from `bg-text-primary` on the `<tr>` (moving it to the
+ * `<table>` was tried and reverted, that painted every body row black too),
+ * and under `border-collapse` each cell still paints its own background
+ * rect. Fractional column widths round that rect to a whole pixel per cell,
+ * so adjacent header cells can leave a 1px sliver of the card's white
+ * showing at the boundary. A 1px black border on each side of every `th`
+ * sits exactly on that boundary and covers it, whichever cell's rect came
+ * up short.
  */
-const TH = "h-14 whitespace-nowrap px-2 label-type text-xs text-white sm:px-3";
+const TH =
+  "h-14 whitespace-nowrap border-x border-text-primary px-2 label-type text-xs text-white sm:px-3";
 const TD = "px-2 py-3 align-middle sm:px-3";
 
 /**
