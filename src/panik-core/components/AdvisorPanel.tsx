@@ -509,7 +509,7 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
           nothing and three words were squeezed into a 146px cell. */}
       {usdUnknown && (
         <span className="hidden md:contents">
-        <RiskChip band="UNKNOWN">
+        <RiskChip band="UNKNOWN" fluid>
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {USD_UNAVAILABLE_LABEL}
           <InfoTip text={USD_UNAVAILABLE_HINT} />
@@ -524,7 +524,7 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
           marker above it, for the same reasons. */}
       {marketContextMissing(n.subScores) && (
         <span className="hidden md:contents">
-        <RiskChip band="UNKNOWN">
+        <RiskChip band="UNKNOWN" fluid>
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {MARKET_CONTEXT_MISSING_LABEL}
           <InfoTip text={MARKET_CONTEXT_MISSING_HINT} />

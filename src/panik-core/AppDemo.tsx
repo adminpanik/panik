@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import {
   assetLoanToValue,
+  BAND_WORD,
   calculateDynamicPosition,
   checkedAgo,
   depegAwareOutlook,
@@ -446,29 +447,11 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
  */
 type WatchSource = "positions" | "recommendations";
 
-/**
- * A band, as the word the Watch chip wears.
- *
- * The chip used to read the band off a `?:` chain that had grown its own
- * vocabulary: CRITICAL came out "CRITICAL THREAT", HIGH "HIGH RISK", ELEVATED
- * bare, LOW "LOW RISK". Four bands, three different constructions, and "threat"
- * appearing on exactly one of them, which makes the loudest band read as a
- * different KIND of statement rather than as one more step on the same scale.
- *
- * `Record<Band, string>` rather than a chain, for the reason every other table
- * in this product is one: a band added to the engine fails the build here
- * instead of falling through to the raw token. The chain's final `else` was
- * that failure waiting to happen: it painted anything that was not one of the
- * first three as "LOW RISK".
- *
- * `RiskChip` uppercases these itself, so they are written as words.
- */
-const BAND_WORD: Record<Band, string> = {
-  LOW: "Low risk",
-  ELEVATED: "Elevated risk",
-  HIGH: "High risk",
-  CRITICAL: "Critical risk",
-};
+/* `BAND_WORD` used to be declared here as well as in lib/utils, with the same
+   four keys and the same four strings. Two tables holding one vocabulary is how
+   one of them ends up saying something the other does not - which is exactly
+   what the utils copy's own docstring records happening the last time this
+   lived in one surface's file. There is one now, and it is imported above. */
 
 /**
  * The Watch simulator's two control skins, written once.
