@@ -90,8 +90,8 @@ function chainProvenance(chain: ScoringChainInfo | null): { badge: string | null
  * (`w-full` below): a money column that wraps is a money column that stops
  * lining up, which is the entire reason these figures are in a table.
  */
-const TH = "h-14 whitespace-nowrap px-3 label-type text-xs text-white";
-const TD = "px-3 py-3 align-middle";
+const TH = "h-14 whitespace-nowrap px-2 label-type text-xs text-white sm:px-3";
+const TD = "px-2 py-3 align-middle sm:px-3";
 
 /**
  * WHEN each column is up, defined ONCE per column and read by both the header
@@ -351,7 +351,16 @@ export function LivePositions({
               <th scope="col" className={`${TH} w-full ${COL.outlook}`}>
                 Outlook
               </th>
-              <th scope="col" className={TH}>
+              {/* `w-px` is the "size me to my content" trick, and it is the
+                  fix for the asset column at 390. With two columns up and both
+                  sized automatically, the browser splits the table
+                  proportionally to each one's MAX-content, so the band chip
+                  claimed 40% of a 352px card and the ticker beside the protocol
+                  was squeezed to "cb…". The chip is a fixed block that must
+                  never wrap or clip; every pixel after it belongs to the name
+                  and the asset. From `xl`, where the elastic Outlook column is
+                  up, this changes nothing: the slack was already going there. */}
+              <th scope="col" className={`${TH} w-px`}>
                 Risk
               </th>
             </tr>
@@ -390,17 +399,46 @@ export function LivePositions({
                           there is no second column of chevron buttons and no
                           clickable row (a `div` with an onClick has no role, no
                           focus and no keyboard). `aria-expanded` is what tells
-                          a screen reader this does something. */}
-                      <button
-                        type="button"
-                        aria-expanded={open}
-                        aria-controls={detailId}
-                        onClick={() => setOpenKey(open ? null : key)}
-                        className="flex min-h-8 w-full cursor-pointer items-center gap-2 whitespace-nowrap text-left font-sans text-sm font-bold text-text-primary"
-                      >
-                        <Chevron className="h-4 w-4 shrink-0" aria-hidden="true" />
-                        {PROTOCOL_LABEL[p.protocol]}
-                      </button>
+                          a screen reader this does something.
+
+                          `min-h-11` is 44px, the touch target this row is on a
+                          phone, and it steps back to 32px from `md` where the
+                          pointer is a mouse and the row is 56px by design. */}
+                      <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+                        <button
+                          type="button"
+                          aria-expanded={open}
+                          aria-controls={detailId}
+                          onClick={() => setOpenKey(open ? null : key)}
+                          /* `min-w-0` beside the `w-full` that makes the whole
+                             cell pressable: the two are flex items sharing one
+                             cell, and shrinkage is handed out in proportion to
+                             each one's base size, so a 100%-wide button took
+                             every pixel of the deficit off the 37px ticker
+                             beside it and left "cb…". The button's own content
+                             is 84px, so it has room to give. */
+                          className="flex min-h-11 w-full min-w-0 cursor-pointer items-center gap-1.5 whitespace-nowrap text-left font-sans text-sm font-bold text-text-primary sm:gap-2 md:min-h-8"
+                        >
+                          <Chevron className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          {PROTOCOL_LABEL[p.protocol]}
+                        </button>
+                        {/* The asset, only where its own column is not up. The
+                            Asset column appears at `sm`; below that the ticker
+                            was reachable only by opening the row, so a phone
+                            read four protocol names with no way to tell which
+                            leg of a wallet each one was. Outside the button, so
+                            the disclosure's accessible name stays the protocol
+                            it opens. */}
+                        {/* 12px, not the strip's 14: this is the one width in
+                            the product where the ticker shares a row with a
+                            protocol name and a band chip, and at 14px
+                            "Compound V3 cbBTC" plus "Elevated risk" is 8px past
+                            the card. It is a marker beside a name here, not a
+                            figure in a column of figures. */}
+                        <span className={`${FIGURE} shrink-0 text-xs text-text-muted sm:hidden`}>
+                          {p.scoredCollateralSymbol}
+                        </span>
+                      </div>
                     </td>
                     <td className={`${TD} ${COL.asset}`}>
                       <span className={FIGURE}>{p.scoredCollateralSymbol}</span>
@@ -423,7 +461,7 @@ export function LivePositions({
                         {outlook.sentence}
                       </span>
                     </td>
-                    <td className={TD}>
+                    <td className={`${TD} w-px`}>
                       <RiskChip band={p.band}>{BAND_WORD[p.band]}</RiskChip>
                     </td>
                   </tr>

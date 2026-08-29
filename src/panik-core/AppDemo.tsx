@@ -511,11 +511,29 @@ const BAND_WORD: Record<Band, string> = {
  */
 const WATCH_NUMBER_FIELD = `w-24 shrink-0 text-right font-mono tabular-nums ${FIELD_BOX}`;
 
-const WATCH_SLIDER = "w-full h-1.5 cursor-pointer appearance-none bg-border-subtle accent-brand";
+/**
+ * The simulator's four sliders: an 8px track inside a 2px black frame, with the
+ * square cobalt thumb `slider-hard` draws in index.css.
+ *
+ * `accent-brand` is gone with the round thumb it painted. A pill on a system
+ * whose radius is 0 everywhere was the last piece of native chrome on this
+ * screen, and at 6px on a hairline track the thumb was also the only part of
+ * the control a reader could see.
+ */
+const WATCH_SLIDER =
+  "w-full h-2 cursor-pointer appearance-none border-2 border-solid border-border-strong bg-surface-raised slider-hard";
 
-/** A slider's two end labels: a figure each, so both are set in mono. */
+/**
+ * A slider's two end labels: a figure each, so both are set in mono.
+ *
+ * 11px below `md`. The right-hand end of the collateral slider reads
+ * "2.5x ($321,250)" and at 12px it is 118px against the 179px half of a 358px
+ * column it shares with the left end; the price slider's ends are wider still.
+ * 11px is the scale's floor and the one place on these three screens that sits
+ * on it.
+ */
 const WATCH_SLIDER_ENDS =
-  "flex justify-between font-mono text-xs tabular-nums text-text-muted";
+  "flex justify-between gap-2 font-mono text-2xs tabular-nums text-text-muted md:text-xs";
 
 /**
  * What the band MEANS for this position, in one clause.
@@ -1059,7 +1077,23 @@ function BreakdownSection({
  * scale as the composite, and printing it as a percentage invites "78% of
  * what". The bar carries the denominator.
  */
-function ScoreBreakdownSection({ valueOf }: { valueOf: (driver: RiskDriver) => number }) {
+function ScoreBreakdownSection({
+  valueOf,
+  framed = false,
+}: {
+  valueOf: (driver: RiskDriver) => number;
+  /**
+   * The Watch card's treatment: an 8px meter inside a 2px black frame instead
+   * of a 6px bar on a hairline track.
+   *
+   * A prop rather than a width query, because the two surfaces that draw these
+   * rows are not the same size at the same width: the Compass panel is a 420px
+   * sheet over the page and the Watch card is the column itself. Watch is the
+   * one where the four bars are the thing being dragged, and a framed meter is
+   * legible at arm's length in a way a hairline track is not.
+   */
+  framed?: boolean;
+}) {
   return (
     <BreakdownSection heading="Score breakdown">
       {RISK_DRIVERS.map((driver) => {
@@ -1078,7 +1112,13 @@ function ScoreBreakdownSection({ valueOf }: { valueOf: (driver: RiskDriver) => n
                 continuously, and a 300ms ease on a risk figure that is being
                 dragged is the bar reporting a value the position no longer
                 has. */}
-            <div className="h-1.5 w-full overflow-hidden bg-border-subtle">
+            <div
+              className={
+                framed
+                  ? "h-2 w-full overflow-hidden border-2 border-solid border-border-strong bg-surface-raised"
+                  : "h-1.5 w-full overflow-hidden bg-border-subtle"
+              }
+            >
               <div className="h-full bg-text-primary" style={{ width: `${value}%` }} />
             </div>
           </BreakdownRow>
@@ -3189,15 +3229,31 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     `tab-*` ids a second, nested copy would have to duplicate.
                     The one-off chip tray this replaces was a third pattern
                     with an 11px label and no state anywhere but the fill. */}
+                {/* Below `md` the two plates become ONE segmented strip, the
+                    shape `RiskProfileToggle variant="segmented"` takes at the
+                    same width and for the same reason: at 390 the two labels
+                    are 213px and 191px inside a 358px column, so they wrapped
+                    onto two lines and read as two independent controls with a
+                    gap between them rather than as one control with two
+                    positions.
+
+                    EXACTLY ONE group mounts, off `isDesktop`, never a second
+                    copy behind `hidden md:flex`: two `aria-pressed` groups
+                    carrying the same label are two answers to "which source is
+                    selected" for anything reading the tree. */}
                 <div
                   role="group"
                   aria-label="Which markets the simulator reads"
-                  className="flex flex-wrap items-center gap-2"
+                  className={
+                    isDesktop
+                      ? "flex flex-wrap items-center gap-2"
+                      : "grid grid-cols-2 hard-edge shadow-hard-sm bg-surface-raised"
+                  }
                 >
                   {([
                     { key: "positions", label: "Current positions", count: watchPositionMarkets.length as number | null },
                     { key: "recommendations", label: "Recommendations", count: null as number | null },
-                  ] as const).map((opt) => {
+                  ] as const).map((opt, i) => {
                     const active = watchSource === opt.key;
                     return (
                       <button
@@ -3234,16 +3290,28 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                            pressable blocks that answer a press differently.
                            The constant is not exported yet, so this is a copy
                            with a note on it rather than an import. */
-                        className={`flex h-12 cursor-pointer items-center gap-2 hard-edge px-4 label-type text-xs text-text-primary shadow-hard-sm hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none ${
-                          active ? "bg-highlight" : "bg-surface-raised"
-                        }`}
+                        className={
+                          isDesktop
+                            ? `flex h-12 cursor-pointer items-center gap-2 hard-edge px-4 label-type text-xs text-text-primary shadow-hard-sm hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none ${
+                                active ? "bg-highlight" : "bg-surface-raised"
+                              }`
+                            : `flex h-12 min-w-0 cursor-pointer items-center justify-center gap-2 px-1 label-type text-2xs text-text-primary ${
+                                i > 0 ? "border-l-[3px] border-solid border-border-strong" : ""
+                              } ${active ? "bg-highlight" : "bg-surface-raised"}`
+                        }
                       >
-                        {opt.key === "positions" ? (
-                          <Eye className="h-4 w-4 shrink-0" aria-hidden="true" />
-                        ) : (
-                          <CompassIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                        )}
-                        <span>{opt.label}</span>
+                        {/* No icon in the segmented form. A 16px glyph and its
+                            8px gap take 24px of a 174px cell, which is what
+                            turned "Current positions" into "Current positio…":
+                            the label is the whole of what the cell says, and a
+                            decoration that eats the words is not a trade. */}
+                        {isDesktop &&
+                          (opt.key === "positions" ? (
+                            <Eye className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          ) : (
+                            <CompassIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                          ))}
+                        <span className="min-w-0 truncate">{opt.label}</span>
                         {/* The count as a NUMERAL, in the mono face every other
                             figure in the product is set in. It used to be a
                             pill, which is a rounded tinted box on a system with
@@ -3432,16 +3500,63 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         {/* No icon. Portfolio's stat labels carry none, and a
                             generic pulse glyph beside the score's name adds no
                             information the words are missing. */}
-                        <CardTitle
-                          as="h3"
-                          size="sm"
-                          muted
-                          hint={`${RISK_SCORE_HINT} Your risk profile sets where alerts fire.`}
-                        >
-                          {RISK_SCORE_NAME}
-                        </CardTitle>
+                        <div className="hidden md:block">
+                          <CardTitle
+                            as="h3"
+                            size="sm"
+                            muted
+                            hint={`${RISK_SCORE_HINT} Your risk profile sets where alerts fire.`}
+                          >
+                            {RISK_SCORE_NAME}
+                          </CardTitle>
+                        </div>
 
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+                        {/* ONE STRIP ON A PHONE: the band as a plate carrying
+                            the score and the word, and the liquidation reading
+                            beside it. What it replaces at 390 is a 40px numeral,
+                            a chip, a delta line and a two-line verdict stacked
+                            down a 358px column, which is four rows of chrome
+                            over the one number the tab exists to move.
+
+                            The band cell is the screen's ONE risk-hued element,
+                            exactly as the chip it stands in for was: the chip
+                            and the strip never mount together, so the count is
+                            unchanged. The reading beside it comes from the same
+                            `watchOutlook` the row below the card reads, so the
+                            two cannot disagree, and the band still carries a
+                            WORD as well as a hue (SC 1.4.1). */}
+                        {!isDesktop && (
+                          <div className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)] hard-edge">
+                            <div
+                              className={`flex flex-col gap-1 border-r-[3px] border-solid border-border-strong p-3 ${RISK_CHIP[positionState.status]}`}
+                            >
+                              <span className="label-type text-2xs">{RISK_SCORE_NAME}</span>
+                              <span className="font-mono text-4xl font-bold tabular-nums leading-none">
+                                {positionState.riskScore}
+                              </span>
+                              <span className="label-type text-2xs">
+                                {BAND_WORD[positionState.status]}
+                              </span>
+                            </div>
+                            <div className="flex min-w-0 flex-col justify-center gap-1 bg-surface-raised p-3">
+                              <span className="label-type text-2xs text-text-muted">
+                                {watchLiquidationRow.label}
+                              </span>
+                              <span
+                                title={watchMarketUnlisted ? undefined : watchOutlook.hover}
+                                className="font-mono text-sm font-bold tabular-nums text-text-primary"
+                              >
+                                {watchMarketUnlisted
+                                  ? "Not measured"
+                                  : watchLiquidationRow.statesADrop
+                                    ? watchOutlook.strip
+                                    : watchOutlook.statValue}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="hidden flex-wrap items-baseline justify-between gap-x-6 gap-y-2 md:flex">
                           <div className="flex items-baseline gap-2">
                             {/* Neutral ink, like every other figure in the
                                 product, and set in MONO like every other
@@ -3491,7 +3606,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                             a chain like that, so the card silently loses its
                             verdict rather than failing the build. See
                             `BAND_VERDICT` for the wording. */}
-                        <p className="font-sans text-sm leading-relaxed text-text-secondary">
+                        <p className="hidden font-sans text-sm leading-relaxed text-text-secondary md:block">
                           {BAND_VERDICT[positionState.status]}
                         </p>
                       </div>
@@ -3502,6 +3617,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                             this surface reads a `PositionState` breakdown whose
                             field names are its own. */}
                         <ScoreBreakdownSection
+                          framed
                           valueOf={(driver) => driver.of(positionState.breakdown)}
                         />
 
@@ -4129,6 +4245,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     value={viewedWallet}
                     onChange={setViewedWalletChoice}
                     checkedAt={walletCheckedAt}
+                    compact
                   />
                 )}
 
@@ -4313,7 +4430,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       { label: "Liquidation buffer", sub: "Live feed unavailable" },
                     ];
                     return (
-                      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-4 sm:gap-6 xl:grid-cols-4">
                         {unknownCards.map(({ label, sub }) => (
                           <Card tone="raised" key={label}>
                             <Stat size="lg" label={label} value={notMeasured} sub={sub} />
@@ -4349,7 +4466,14 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     closestToLiquidation?.scoredCollateralSymbol ?? "",
                   );
                   return (
-                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+                    /* TWO UP ON A PHONE, four from `xl`. This was one column
+                       below `sm`, which put four cards and 470px of scroll
+                       between the page heading and the positions table, and the
+                       four figures it separated are the set a reader compares
+                       against each other. `Stat size="lg"` steps its figure down
+                       to 20px below `md` so a seven-figure collateral still fits
+                       a 171px card. */
+                    <div className="grid grid-cols-2 gap-4 sm:gap-6 xl:grid-cols-4">
                       <Card tone="raised">
                         <Stat
                           size="lg"

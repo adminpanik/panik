@@ -25,7 +25,21 @@ import React from "react";
  */
 const VALUE_SIZE = {
   md: "text-2xl",
-  lg: "text-stat",
+  /**
+   * 20px below `md`, 32px from there up.
+   *
+   * The four dashboard figures sit two-up at 390 rather than stacked, which
+   * leaves each card 171px wide and 139px of it inside the padding. "$261,200"
+   * at 32px in Space Mono measures 154px, so the phone either truncated a money
+   * figure or kept four full-width cards that took a screen and a half to
+   * scroll past. `text-lg` measures 96px and leaves room for a seven-figure
+   * wallet.
+   *
+   * Safe to make responsive HERE rather than at the call site: `size="lg"` is
+   * read by the Portfolio dashboard's four cards and by nothing else in the
+   * product (every other `size="lg"` in the tree is a `Button` or a `Field`).
+   */
+  lg: "text-lg md:text-stat",
 } as const;
 
 interface StatProps {
@@ -49,13 +63,22 @@ interface StatProps {
 }
 
 export function Stat({ label, value, sub, size = "md" }: StatProps) {
+  /**
+   * The dashboard card is 171px wide two-up at 390, and at that width
+   * "Liquidation buffer" is 145px of a 139px box: the CAPTION ellipsised, which
+   * leaves a figure whose label cannot be read. So the `lg` card, and only it,
+   * lets its caption and its sub wrap below `md` and goes back to one line from
+   * there up, where the four cards have 250px each and the ragged-block problem
+   * the truncation exists to prevent is real again.
+   */
+  const oneLine = size === "lg" ? "md:truncate" : "truncate";
   return (
     <div>
-      <span className="flex items-center gap-1 truncate label-type text-xs text-text-muted">
+      <span className={`flex items-center gap-1 label-type text-xs text-text-muted ${oneLine}`}>
         {label}
       </span>
       <span
-        className={`mt-2 block truncate font-mono font-bold tabular-nums text-text-primary ${VALUE_SIZE[size]}`}
+        className={`mt-2 block font-mono font-bold tabular-nums text-text-primary ${VALUE_SIZE[size]} ${oneLine}`}
       >
         {value}
       </span>
@@ -64,7 +87,7 @@ export function Stat({ label, value, sub, size = "md" }: StatProps) {
           the figure, and the eye reads that raggedness as disorder rather than
           as "this card had more to say". */}
       {sub ? (
-        <span className="mt-2 block truncate font-sans text-sm text-text-secondary">{sub}</span>
+        <span className={`mt-2 block font-sans text-sm text-text-secondary ${oneLine}`}>{sub}</span>
       ) : null}
     </div>
   );
