@@ -500,12 +500,21 @@ export const RISK_TEXT: Record<Band, string> = {
  * `Record<Band, string>`, so a band added to the engine fails the build here
  * instead of falling through to the raw token. `RiskChip` uppercases these
  * itself, so they are written as words.
+ *
+ * The word "risk" is NOT in them. It was, and it was the same word four times
+ * on every surface that lists positions, inside a block that is already the one
+ * thing on the screen carrying the risk ramp; what a reader compares across
+ * four rows is which step of the scale each one is on, and "risk" is the axis
+ * rather than a step. It also cost the chip a third of its width, which is what
+ * a fixed-width chip cannot spend. Where the axis is not obvious from context
+ * the surface names it: the Watch cell's own label is `RISK_SCORE_NAME`, and
+ * the Compass column head reads "Risk".
  */
 export const BAND_WORD: Record<Band, string> = {
-  LOW: "Low risk",
-  ELEVATED: "Elevated risk",
-  HIGH: "High risk",
-  CRITICAL: "Critical risk",
+  LOW: "Low",
+  ELEVATED: "Elevated",
+  HIGH: "High",
+  CRITICAL: "Critical",
 };
 
 /**

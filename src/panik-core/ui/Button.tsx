@@ -73,6 +73,19 @@ const BUTTON_SIZE = {
    */
   md: "h-12 px-5 text-sm",
   lg: "h-14 px-6 text-base",
+  /**
+   * A square for ONE glyph and no word, at the same 28px every chip in this
+   * system is. For a control that dismisses the thing it sits on: it has no
+   * label to set a width from, and at `md` it was a 48px block in the corner of
+   * a 69px card, which is a quarter of the card given to the way out of it.
+   *
+   * A size rather than `className="h-7 w-7 px-0"` at the call site, for the
+   * reason above the map: three utilities overriding three others on one
+   * element leaves which of each pair wins to Tailwind's emit order.
+   *
+   * Still over the 24px target floor (SC 2.5.8). Nothing primary is this size.
+   */
+  icon: "h-7 w-7 text-sm",
 } as const;
 
 /**
