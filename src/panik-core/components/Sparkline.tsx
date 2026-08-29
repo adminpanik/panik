@@ -21,7 +21,7 @@ export interface SparklineAxes {
 }
 
 /**
- * A single horizontal annotation — a threshold the series is measured against,
+ * A single horizontal annotation: a threshold the series is measured against,
  * not a second dataset. Deliberately one, not many: tinting every band behind
  * the line is the "everything is coloured" failure this design system exists to
  * prevent. It draws in a neutral border token UNDER the series so the series
@@ -122,7 +122,7 @@ export function Sparkline(props: {
    *
    * Auto-scale makes the line fill the box whatever the numbers are, so a
    * 39 -> 57 move and a 39 -> 41 move draw the same picture. Pass a domain
-   * wherever the scale itself carries meaning — a 0-100 risk score has fixed
+   * wherever the scale itself carries meaning: a 0-100 risk score has fixed
    * bands and a fixed alert threshold, and cropping to the observed range hides
    * both. A fixed domain draws a flatter line; that flatness is the fact.
    */

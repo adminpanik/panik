@@ -273,7 +273,7 @@ export function Listbox({
              other floating surface here. The edge is `strong` rather than the
              old `subtle`: a popover on a light page is a control's boundary,
              and there is no darker surface underneath to separate it by tone.
-             `shadow-hard` replaces `shadow-2xl` — the blurred shadow scale is
+             `shadow-hard` replaces `shadow-2xl`: the blurred shadow scale is
              gone from the theme entirely. */
           className={`absolute top-full ${LAYER.popover} mt-2 max-h-72 w-80 overflow-y-auto hard-edge bg-surface-overlay shadow-hard ${
             alignRight ? "right-0" : "left-0"

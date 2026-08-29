@@ -67,7 +67,7 @@ const NOTIFY_CHANNEL_CHIP: Record<string, { label: string; cls: string }> = {
  * Outcomes that render NO chip. Same rationale that left only `blocked` hued,
  * taken one step further: a chip that says "Sent · Telegram" on eleven of
  * twelve rows is the expected case drawn twelve times, and the one row that
- * matters — the alert that did not reach you — has to compete with it.
+ * matters, the alert that did not reach you, has to compete with it.
  *
  * `telegram` is delivery succeeding. `skipped` is a recovery, where the row's
  * own "back under your risk limit" already says there was nothing to send.
@@ -153,7 +153,7 @@ export function AlertFeed({ alerts, protocolLabel, targets, onSelectTarget }: Al
                 </span></>
               )}
             </span>
-            {/* Timestamps stay muted. This is what text-muted is FOR — you glance
+            {/* Timestamps stay muted. This is what text-muted is FOR: you glance
                 at it, you do not read it. */}
             <span className="text-xs font-sans text-text-muted shrink-0 tabular-nums">{when}</span>
           </>

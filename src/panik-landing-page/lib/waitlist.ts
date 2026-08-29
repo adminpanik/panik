@@ -17,7 +17,7 @@ export const waitlistConfigured = Boolean(SUPABASE_URL && SUPABASE_KEY);
 
 export type Appetite = "conservative" | "moderate" | "aggressive";
 
-/** Stable option keys — must match the DB CHECK lists. */
+/** Stable option keys, must match the DB CHECK lists. */
 export interface SignupAnswers {
   email: string;
   walletAddress: string;
@@ -27,7 +27,7 @@ export interface SignupAnswers {
   q4Frustrations: ("no_unified_view" | "slow_reaction" | "silent_risk" | "execution_friction")[];
   q5PortfolioSize: "lt_1k" | "1k_10k" | "10k_50k" | "50k_200k" | "gt_200k";
   additionalNotes?: string;
-  /** Honeypot — real users never fill this; bots do. */
+  /** Honeypot: real users never fill this; bots do. */
   honeypot?: string;
 }
 
@@ -40,7 +40,7 @@ export interface SignupResult {
 export const isValidEvmAddress = (a: string): boolean => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 
 /**
- * Client-side mirror of public.waitlist_appetite() — used only to SHOW the
+ * Client-side mirror of public.waitlist_appetite(), used only to SHOW the
  * profile on the success screen. Appetite is derived (never stored); the DB
  * view recomputes it for analysis. Keep this in sync with the SQL function.
  */
@@ -70,7 +70,7 @@ async function rpc(fn: string, args: Record<string, unknown>): Promise<Response>
   });
 }
 
-/** Submit a signup via the waitlist_signup RPC. Never throws — returns a result. */
+/** Submit a signup via the waitlist_signup RPC. Never throws, returns a result. */
 export async function submitSignup(answers: SignupAnswers): Promise<SignupResult> {
   if (!waitlistConfigured) return { ok: false, error: "config_missing" };
   try {
@@ -99,7 +99,7 @@ export async function submitSignup(answers: SignupAnswers): Promise<SignupResult
 /**
  * Returns true if the email is already on the waitlist (same normalisation
  * as the DB). Returns false on network failure (fail-open so the user can
- * still attempt to sign up — the server will handle it).
+ * still attempt to sign up: the server will handle it).
  */
 export async function checkEmailExists(email: string): Promise<boolean> {
   if (!waitlistConfigured) return false;
@@ -125,13 +125,13 @@ export async function getWaitlistCount(): Promise<number | null> {
   }
 }
 
-// ── Wallet connect — EIP-6963 multi-provider discovery (no wagmi) ───────────
+// Wallet connect: EIP-6963 multi-provider discovery (no wagmi)
 // EIP-6963 is the current standard for discovering injected wallets without
 // the legacy window.ethereum collision (when several wallets are installed
 // they fight over that single object). Each wallet announces itself with an
 // rdns id; we match MetaMask (io.metamask) / Coinbase (com.coinbase.wallet)
 // exactly. Falls back to window.ethereum for wallets that predate EIP-6963.
-// We only read the address — no signing, no chain switch.
+// We only read the address, no signing, no chain switch.
 
 interface Eip1193Provider {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;

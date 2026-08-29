@@ -398,7 +398,7 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
    * position rows use: Collateral and Debt are dollars, and a bare ratio on an
    * unstated scale was the one item here a non-expert could not read.
    *
-   * The asset is not repeated in the value — the card names it as the subtitle
+   * The asset is not repeated in the value: the card names it as the subtitle
    * under the protocol, and this strip has to fit a phone unwrapped. The exact
    * health factor is in the label's InfoTip, where every other "what is this
    * number" answer on this screen lives.
@@ -518,7 +518,7 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
       )}
       {/* A second, independent caveat: this one is about the SCORE on the rail,
           not the dollars. It is stated because the dial prints a real number
-          either way — the composite renormalises over what was measured — and a
+          either way, the composite renormalises over what was measured, and a
           reader has no way to tell a fully-measured 75 from a partly-measured
           one unless the card says so. Same block and same tip placement as the
           marker above it, for the same reasons. */}

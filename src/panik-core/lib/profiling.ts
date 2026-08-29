@@ -4,11 +4,11 @@
  */
 
 /**
- * PANIK onboarding profiling — deterministic, explainable scoring.
+ * PANIK onboarding profiling: deterministic, explainable scoring.
  *
  * Two independent outputs from one 5-question behavioral quiz:
- *   1. User SEGMENT   — Explorer | Yield Seeker | Liquidity Provider | Active Trader | Risk Optimizer
- *   2. Risk TIER      — Conservative … Aggressive (5 levels)
+ *   1. User SEGMENT: Explorer | Yield Seeker | Liquidity Provider | Active Trader | Risk Optimizer
+ *   2. Risk TIER: Conservative ... Aggressive (5 levels)
  *
  * Design notes (full rationale lives in the product spec):
  *  - Q2, Q4, Q5 are the behavioral core of the risk score (4 pts each = 12/18).
@@ -213,7 +213,7 @@ export interface ProfileResult {
 export function computeProfile(answers: Answers): ProfileResult {
   const ids: QuestionId[] = ["q1", "q2", "q3", "q4", "q5"];
 
-  // 1 — Risk score.
+  // 1. Risk score.
   let riskScore = 0;
   for (const id of ids) {
     const ans = answers[id];
@@ -221,7 +221,7 @@ export function computeProfile(answers: Answers): ProfileResult {
   }
   const riskTier = toRiskTier(riskScore);
 
-  // 2 — Segment scores.
+  // 2. Segment scores.
   const scores: Record<Segment, number> = {
     explorer: 0,
     yield_seeker: 0,
@@ -253,7 +253,7 @@ export function computeProfile(answers: Answers): ProfileResult {
     }
   }
 
-  // 3 — Behavioral overrides (beat the stated Q1 goal).
+  // 3. Behavioral overrides (beat the stated Q1 goal).
   let segment = best;
   const { q2, q3, q4 } = answers;
   if (q2 === "E" && q3 === "E" && q4 === "E") {

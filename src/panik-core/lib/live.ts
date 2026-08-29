@@ -1,5 +1,5 @@
 /**
- * Live data hooks — panik-core's only bridge to the scoring API.
+ * Live data hooks, panik-core's only bridge to the scoring API.
  * Every hook degrades gracefully (returns null / offline=true) so the demo
  * stays fully functional without `npm run dev:api`.
  */
@@ -8,8 +8,8 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * The engine's band vocabulary, not a copy of it. This used to be a literal
- * re-declaration of the same four strings, which meant `packages/scoring` — the
- * one place scoring is allowed to live — could gain a band and every consumer
+ * re-declaration of the same four strings, which meant `packages/scoring`, the
+ * one place scoring is allowed to live, could gain a band and every consumer
  * here would keep compiling and silently resolve `RISK_CHIP[band]` to
  * `undefined`. Importing it makes that a type error at the door.
  *
@@ -59,7 +59,7 @@ export type LiveProtocol = "aave_v3" | "moonwell" | "morpho" | "compound_v3";
 
 /**
  * Where a position sits relative to the limit the user's risk profile sets
- * (packages/scoring, `profile.ts`). An INTERNAL enum and a database column —
+ * (packages/scoring, `profile.ts`). An INTERNAL enum and a database column,
  * never a string to render. `lib/utils.ts` owns the two English phrasings.
  */
 export type ProfileStatus = "within" | "approaching" | "outside";
@@ -71,7 +71,7 @@ export interface LiveWalletPosition {
   band: Band;
   subScores: DegradableSubScores;
   healthFactor: number | null;
-  /** null when the engine could not price the position in USD — see below. */
+  /** null when the engine could not price the position in USD, see below. */
   collateralValueUsd: number | null;
   borrowValueUsd: number | null;
   /**
@@ -84,7 +84,7 @@ export interface LiveWalletPosition {
    * True when a market-context provider failed for THIS leg, so `subScores`
    * carries a null. The composite is weighted over what was measured, which
    * makes it a real number the UI may print; the null sub-scores are not.
-   * Optional because a payload cached before the field existed omits it — read
+   * Optional because a payload cached before the field existed omits it, read
    * it through `marketContextMissing()`, which derives the same condition from
    * the sub-scores themselves.
    */
@@ -201,7 +201,7 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
  * invited a reload, which spent another request from the same 60s window and so
  * guaranteed the next attempt failed too. Every limiter keys on the client IP,
  * and on one developer machine the app tab, the admin console and a stray curl
- * are all 127.0.0.1 sharing one budget — so this is reachable without anyone
+ * are all 127.0.0.1 sharing one budget, so this is reachable without anyone
  * abusing anything.
  *
  * Reads the status off `getJson`'s thrown message, which is the only thing that
@@ -217,8 +217,8 @@ function isRateLimited(err: unknown): boolean {
  *
  * 404 is the one status that says something about the DEPLOYMENT rather than
  * about the outside world: the path is not mounted, so a surface whose fallback
- * is "this feature is not live yet" is telling the truth. Every other failure —
- * a 5xx from a route that is mounted, or a fetch that never reached one — means
+ * is "this feature is not live yet" is telling the truth. Every other failure,
+ * a 5xx from a route that is mounted, or a fetch that never reached one, means
  * we could not get an answer, which is a different sentence and must not render
  * as the same card.
  *
@@ -263,7 +263,7 @@ function usePolled<T>(url: string, intervalMs: number): { data: T | null; offlin
 }
 
 /**
- * Live wallet positions for the WHOLE watch registry (60s — arch cadence).
+ * Live wallet positions for the WHOLE watch registry (60s, arch cadence).
  * ADMIN-GATED server-side: /api/scores now requires x-admin-key, because the
  * whole-registry view is an enumeration list of other people's wallets. The
  * browser sends no key, so this resolves `offline` and the ops view degrades to
@@ -279,7 +279,7 @@ export function useLiveScores() {
 }
 
 /**
- * Live positions for ONE wallet — the onboarded user's own wallet. Polls
+ * Live positions for ONE wallet, the onboarded user's own wallet. Polls
  * /api/positions every 60s; no-ops (returns null) when wallet is null. Degrades
  * gracefully offline like the other hooks.
  *
@@ -306,7 +306,7 @@ export function useWalletPositions(wallet: string | null, profile: string, chain
     //
     // `offline` resets with it. It is a fact about the last fetch for the
     // PREVIOUS wallet, and leaving it standing told the new wallet's panel "we
-    // could not reach the feed" before anything had been asked about it — which
+    // could not reach the feed" before anything had been asked about it, which
     // now also suppresses the loading state that should be showing instead.
     setData(null);
     setOffline(false);
@@ -454,7 +454,7 @@ export interface RegistryWallet {
 }
 
 /**
- * The watch registry — ops selector source, independent of scoreability.
+ * The watch registry, ops selector source, independent of scoreability.
  * ADMIN-GATED server-side (see useLiveScores): returns null for the browser.
  */
 export function useWalletRegistry() {
@@ -569,8 +569,8 @@ export interface AdvisorOpenPlan {
  * The action a recommendation offers, as a label and a prefill, or null when it
  * offers none.
  *
- * One function because three surfaces need the same answer — the Advisor card,
- * the Advisor popup and the Portfolio row — and deriving it three times is how
+ * One function because three surfaces need the same answer: the Advisor card,
+ * the Advisor popup and the Portfolio row, and deriving it three times is how
  * the vocabulary drifts. It already had: two call sites said "Reduce position"
  * and a third said "Reduce", for the same engine action opening the same modal.
  * Two names for one outcome teaches a user they are two different things.

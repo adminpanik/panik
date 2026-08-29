@@ -34,8 +34,8 @@ import React from "react";
  * inline-level outside a flex parent; inside one it blockifies to the same
  * thing.
  *
- * The same rectangle as `RiskChip` — 3px black edge, 3px black shadow, square
- * corners, uppercase Archivo 700 — but a WHITE plate and black ink, which is
+ * The same rectangle as `RiskChip`: 3px black edge, 3px black shadow, square
+ * corners, uppercase Archivo 700, but a WHITE plate and black ink, which is
  * the whole distinction. A chip on this look is either a band or it is not,
  * and the reader tells them apart by whether the fill is saturated. That means
  * this one can be sprinkled without spending the screen's colour budget, which

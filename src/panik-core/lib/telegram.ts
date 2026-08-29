@@ -114,7 +114,7 @@ export class OwnershipError extends Error {}
  *   "blocked"    we tried, we failed, and the user has reason to believe they
  *                are covered when they are not. This is the silent-failure case
  *                the banner exists for.
- *   "unverified" a precondition was never met — no wallet connected, or the
+ *   "unverified" a precondition was never met: no wallet connected, or the
  *                connected one is not the address being watched. Nothing broke.
  *                A watch-only address someone pasted to look around cannot be
  *                monitored and never could be, so raising a critical alarm over
@@ -132,7 +132,7 @@ export interface RegisterResult {
 
 /**
  * Wallets already registered in THIS page session, keyed lowercase:profile.
- * Module scope on purpose — AppDemo (onboarding) and OpenFlow (after an open)
+ * Module scope on purpose: AppDemo (onboarding) and OpenFlow (after an open)
  * both register, and a per-component ref meant the second one always missed and
  * fired a redundant signature prompt seconds after the user confirmed a
  * transaction. Registration is idempotent server-side, so skipping a repeat is
@@ -146,8 +146,8 @@ export function forgetRegistration(wallet: string, profile: RiskProfile): void {
 }
 
 /**
- * Register the onboarded wallet for monitoring. NEVER throws — callers treat it
- * as fire-and-forget — but it reports WHY it failed so the UI can say so.
+ * Register the onboarded wallet for monitoring. NEVER throws, callers treat it
+ * as fire-and-forget, but it reports WHY it failed so the UI can say so.
  * Silent failure here is the worst outcome this product has: the dashboard
  * works, the user believes they are covered, and no alert will ever arrive.
  */
@@ -192,7 +192,7 @@ function describeFailure(err: unknown): { error: string; severity: MonitoringSev
       severity: "blocked",
     };
   }
-  // Our own message, written for this screen — the only one safe to pass along.
+  // Our own message, written for this screen: the only one safe to pass along.
   if (err instanceof OwnershipError) return { error: err.message, severity: "unverified" };
   if (noWalletAvailable(err)) {
     return {
@@ -210,7 +210,7 @@ function describeFailure(err: unknown): { error: string; severity: MonitoringSev
  * No wallet to sign with: no extension installed, or none connected. wagmi
  * raises these as ProviderNotFoundError / ConnectorNotFoundError; the message
  * test is a fallback for the versions that only set one of the two, and is used
- * ONLY to classify — the string itself never reaches the screen.
+ * ONLY to classify, the string itself never reaches the screen.
  *
  * Exported for `lib/watchlist.ts`, which needs the same three-way split and
  * must not own a second copy of it: these predicates encode which wagmi/viem
@@ -243,7 +243,7 @@ interface LinkResponse {
   deepLink: string;
 }
 
-// /api/telegram/status returns ONLY `linked` — the @username is no longer
+// /api/telegram/status returns ONLY `linked`, the @username is no longer
 // exposed (unauthenticated, it mapped every wallet to a Telegram handle).
 // The card shows a generic "Connected" instead.
 interface StatusResponse {
@@ -263,7 +263,7 @@ async function fetchLinkStatus(wallet: string): Promise<StatusResponse | null> {
 /**
  * Hook driving the "Connect Telegram" button (with auto-confirm after Start).
  * The signature it collects is bound to the "telegram-link" action and cannot
- * be reused for anything else — nor can a registration signature be reused
+ * be reused for anything else, nor can a registration signature be reused
  * here, which is precisely the point.
  */
 export function useTelegramLink(getProof: GetProof) {

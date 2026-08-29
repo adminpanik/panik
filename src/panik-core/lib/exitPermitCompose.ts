@@ -1,6 +1,6 @@
 /**
  * Compose an ExitPermit MESSAGE from the user's choices plus engine/chain
- * defaults — the grant half of the delegation lifecycle (Phase 2.C).
+ * defaults, the grant half of the delegation lifecycle (Phase 2.C).
  *
  * The permit TYPE, domain and struct are NOT redefined here. They are imported
  * from server/exitPermit.ts, the single source of truth the backend recomputes
@@ -170,7 +170,7 @@ export function composeExitPermit(input: ComposeInput): ExitPermit {
 
 /**
  * The `{permit, signature}` request body for the 2.B submit endpoint, with
- * every bigint stringified — JSON cannot carry a bigint, and parsePermitBody
+ * every bigint stringified: JSON cannot carry a bigint, and parsePermitBody
  * accepts decimal strings. Mirrors permitToJson in server/exitDelegations.ts.
  */
 export function permitToRequestBody(permit: ExitPermit, signature: `0x${string}`) {

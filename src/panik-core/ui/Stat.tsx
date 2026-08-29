@@ -49,7 +49,7 @@ interface StatProps {
    * Secondary line under the figure: a ratio, a breakdown, a qualifier.
    *
    * OPTIONAL, and meant to stay that way. A subline earns its place only by
-   * carrying something the label and the figure do not already state — a
+   * carrying something the label and the figure do not already state: a
    * derived ratio, a count the figure is not, the band a score falls in. A
    * card with nothing further to say says nothing further; it does not get a
    * line of filler so the row looks tidy. The row stays tidy anyway, because

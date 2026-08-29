@@ -22,7 +22,7 @@ import { InfoTip } from "../components/InfoTip";
  *
  * Why a gauge and not the tinted pill this replaced. The pill stated "52 HIGH"
  * and left the reader to know what 52 was out of, which is exactly the fact
- * that makes the number actionable — 52 is not "bad", it is "halfway", and
+ * that makes the number actionable: 52 is not "bad", it is "halfway", and
  * halfway is a distance you can reason about. The wedge is that denominator,
  * drawn. It is also the honest geometry for this quantity: the score really is
  * a proportion of a fixed range with a wall at the top, which is what a radial
@@ -34,14 +34,14 @@ import { InfoTip } from "../components/InfoTip";
  * blocks was the one element that did. The wedge is also a better read than the
  * stroked arc at this size: a solid sector reaching the frame is legible at a
  * glance across four table rows, where 3px of arc had to be looked for. The
- * needle is what makes it a reading rather than a pie chart — it points at one
+ * needle is what makes it a reading rather than a pie chart: it points at one
  * position on the dial, which is the thing the score is.
  *
  * Colour appears exactly ONCE per dial, on the wedge, and it is the only place
  * it appears: the numeral, the needle, the frame and the plate are all black
  * ink. That is what holds the page's colour budget flat, four rows spending
  * four hued elements rather than twelve, and it is why the numeral is legible
- * on every band — black on a white plate is 21:1 regardless of what the wedge
+ * on every band: black on a white plate is 21:1 regardless of what the wedge
  * behind it is doing.
  *
  * The band word sits in the explanation rather than under the dial. Severity is
@@ -122,7 +122,7 @@ function needleTip(turn: number): readonly [number, number] {
  *
  * The sweep is capped just short of a full revolution: at exactly 1 the start
  * and end points coincide and SVG resolves the arc to nothing, so a score of
- * 100 — the one score that most needs to be unmissable — would draw an empty
+ * 100, the one score that most needs to be unmissable, would draw an empty
  * dial. Stopping at 0.9999 leaves a hairline the frame covers anyway.
  */
 function wedgePath(turn: number): string {
@@ -250,7 +250,7 @@ export function RiskDial({
 
   // The accessible name has to lead with the answer. It is the label for a
   // focusable element, so it replaces the numeral and the word for a screen
-  // reader rather than adding to them — starting it with the explanation would
+  // reader rather than adding to them: starting it with the explanation would
   // bury the score behind a sentence about scores.
   //
   // The four component names and the weight sentence are read from the engine,

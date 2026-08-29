@@ -384,7 +384,7 @@ function RevealStep(props: {
     );
   }
 
-  // Graceful fallback — API offline, non-EVM wallet, or error: show quiz result.
+  // Graceful fallback: API offline, non-EVM wallet, or error, show quiz result.
   if (phase === "error" || !data) {
     return (
       <RevealShell onEnter={props.onEnter} badge={quiz.segmentLabel} headline={`${quiz.riskTierLabel} risk profile`}>
@@ -395,7 +395,7 @@ function RevealStep(props: {
     );
   }
 
-  // No lending footprint — friendly newcomer card.
+  // No lending footprint: friendly newcomer card.
   if (data.features.lendingTxCount === 0) {
     return (
       <RevealShell onEnter={props.onEnter} badge={data.archetype} headline={data.tagline}>
