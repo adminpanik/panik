@@ -59,7 +59,7 @@ import {
 } from "./lib/utils";
 /**
  * The user's alert level, from the engine rather than a literal. A VALUE import
- * from `packages/scoring` — allowed here only because it is a DEEP import of
+ * from `packages/scoring`, allowed here only because it is a DEEP import of
  * `profile.ts`, whose sole import is type-only. The package barrel pulls viem
  * and must never reach a browser bundle (see lib/live.ts).
  */
@@ -67,7 +67,7 @@ import { ALERT_THRESHOLD, fitsProfile } from "../../packages/scoring/src/profile
 /**
  * The composite weights, from the engine for the same reason: `params.ts` has no
  * imports at all. Three surfaces on this file used to hard-code 40/25/20/15, one
- * of them inside an InfoTip that TEACHES the number — a re-weight in the engine
+ * of them inside an InfoTip that TEACHES the number: a re-weight in the engine
  * would have had the UI stating a wrong one with no visual tell.
  */
 import { COMPOSITE_WEIGHTS } from "../../packages/scoring/src/params";
@@ -224,7 +224,7 @@ const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
  * sub-score name, which is what indexes both.
  */
 interface RiskDriver {
-  /** Engine sub-score name — indexes DRIVER_LABEL and the live sub-scores. */
+  /** Engine sub-score name, indexes DRIVER_LABEL and the live sub-scores. */
   key: keyof typeof COMPOSITE_WEIGHTS;
   label: string;
   /**
@@ -326,7 +326,7 @@ const WIDE_MQ = "(min-width: 64rem)";
 
 /**
  * A CSS breakpoint, as a boolean. Used where a value is not expressible as a
- * class pair — a `height` prop on a chart — and, for the nav, where two copies
+ * class pair (a `height` prop on a chart), and, for the nav, where two copies
  * of the markup cannot both exist: two tablists would duplicate every `tab-*` id
  * the panels point at with `aria-labelledby` and would both write into the same
  * `tabRefs` map, so the roving tabindex would try to focus whichever mounted
@@ -466,7 +466,7 @@ const TAB_STATE = {
 } as const;
 
 /**
- * The application tablist — ARIA APG tabs, one instance mounted at a time.
+ * The application tablist: ARIA APG tabs, one instance mounted at a time.
  * Roving tabindex: only the selected tab is in the page tab order, so Tab
  * reaches the nav once and the arrows move within it instead of forcing five
  * stops past it. Activation follows focus because each panel is mounted on
@@ -678,7 +678,7 @@ function saveProfileForWallet(wallet: string, result: ProfileResult): void {
 interface VaultPreset {
   id: string;
   protocol: "Aave V3" | "Moonwell" | "Morpho" | "Compound V3";
-  /** Engine identifiers — must match packages/scoring MARKETS + the API's COMPASS_SCENARIOS ids. */
+  /** Engine identifiers, must match packages/scoring MARKETS + the API's COMPASS_SCENARIOS ids. */
   engineProtocol: "aave_v3" | "moonwell" | "morpho" | "compound_v3";
   collateralSymbol: string;
   assetPair: string;
@@ -729,7 +729,7 @@ function demoSubScores(total: number) {
 const PRICE_SCENARIOS = MARKET_SCENARIOS;
 type ScenarioKey = (typeof PRICE_SCENARIOS)[number]["key"] | "custom";
 
-// Engine-supported presets (Aave V3 + Moonwell on Base — the camp scope).
+// Engine-supported presets (Aave V3 + Moonwell on Base, the camp scope).
 // USD sizes mirror the API's COMPASS_SCENARIOS so live scores map 1:1 by id.
 const VAULT_PRESETS: VaultPreset[] = [
   {
@@ -1582,7 +1582,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   // Demo-only open-position flow (no signing; see OpenPositionModal).
   const [openPositionPreset, setOpenPositionPreset] = useState<VaultPreset | null>(null);
 
-  // ── First-time onboarding (no backend — localStorage-persisted) ──────────
+  // First-time onboarding (no backend, localStorage-persisted).
   // Null means closed; the value is WHY it is open, because the three entry
   // points want different things and only the first run is a first run. Read
   // ONCE, at mount: reading the flag live would make the mandatory pass
@@ -1693,7 +1693,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   //
   // The segment is READ here rather than held in state. It was a `useState`
   // seeded from localStorage, and after its badge was deleted this effect was
-  // the only thing left that ever looked at it — so the component was carrying
+  // the only thing left that ever looked at it, so the component was carrying
   // a render-triggering copy of a string that nothing renders. localStorage is
   // already the source of truth for it; the copy was the derived value.
   useEffect(() => {
@@ -1723,8 +1723,8 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   const [automaticRepayTarget, setAutomaticRepayTarget] = useState<number>(30);
   const [isRepayActive, setIsRepayActive] = useState<boolean>(true);
 
-  // ── LIVE data (scoring API; every hook degrades gracefully offline) ──────
-  // Declared FIRST — the memos below consume these (const = TDZ).
+  // LIVE data (scoring API; every hook degrades gracefully offline).
+  // Declared FIRST: the memos below consume these (const = TDZ).
   // Which chain the user is looking at (Settings > Network). A DISPLAY
   // preference, persisted in localStorage; see lib/chainMode.ts for why that is
   // legitimate here and is not for the wallet.
@@ -1760,7 +1760,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
    * Which watched wallet the Portfolio is SHOWING. Null means the bound one.
    *
    * Viewing is not identity. `onboardedWallet` stays the owner, the signer and
-   * the address alerts are sent for, whatever is selected here — the two were
+   * the address alerts are sent for, whatever is selected here: the two were
    * one variable until this, which is why the distinction is worth a second
    * name rather than a reassignment.
    */
@@ -2124,7 +2124,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   // This used to be the subline of the "Monitored capital" stat card, reading
   // "Connect Telegram for alerts". Two things were wrong with that. It is a
   // call to action, and a stat card is a place you READ a number, not a place
-  // you action anything — there is nothing to click, so the one sentence on
+  // you action anything: there is nothing to click, so the one sentence on
   // the dashboard telling a user they are unprotected was also the one
   // sentence they could do nothing about. And it made a card titled
   // "Monitored capital" spend half its area on a fact about Telegram.
@@ -2145,7 +2145,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
    * we could not reach (this wallet's exposure is UNKNOWN). DESIGN_SYSTEM calls
    * conflating "nothing to report" with "we could not look" a safety bug, and
    * an unreachable feed rendering as a permanent loading state is the same bug
-   * one step earlier — a skeleton says "any second now" for as long as the API
+   * one step earlier: a skeleton says "any second now" for as long as the API
    * is down.
    *
    * `useWalletPositions` already separates them: it holds `positions` at null
@@ -2442,7 +2442,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   const liveMacro = useMemo(() => {
     if (!portfolioPositions || portfolioPositions.length === 0) return null;
     // Legs whose USD values are unavailable (degraded price feed) carry no
-    // dollar weight here — their scores and health factors are still exact, so
+    // dollar weight here: their scores and health factors are still exact, so
     // `unpricedLegs` marks the totals as an UNDERSTATEMENT rather than truth.
     // Counted, not just flagged: a total that silently omits a $128,500 leg is
     // the same "unknown rendered as a zero" the null sub-scores exist to stop,
@@ -2551,8 +2551,8 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
    * Collateral allocation for the SELECTED wallet.
    *
    * Positions only. This used to fall back to a hand-typed
-   * wstETH/USDC/ETH/USDT split with dollar amounts, so a wallet holding nothing
-   * — and a wallet still loading — was shown a complete, plausible portfolio it
+   * wstETH/USDC/ETH/USDT split with dollar amounts, so a wallet holding nothing,
+   * and a wallet still loading, was shown a complete, plausible portfolio it
    * did not own, under a heading that claims to describe its collateral. The
    * fallback is deleted rather than hidden behind a flag: there is no state in
    * which inventing someone's holdings is the right answer, and the card now
@@ -2585,7 +2585,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
     // risk band.
     //
     // Cool-only leaves ~90 degrees of hue for four series, which is not enough
-    // on hue alone — measured against a 10px legend dot, sky-400 and cyan-300
+    // on hue alone: measured against a 10px legend dot, sky-400 and cyan-300
     // are the same colour. So each step moves in BOTH lightness and hue, and
     // the one genuinely weak pair is pushed to opposite ends of the list:
     //   0 sky-400    h 233 / L 75   bright blue
@@ -2753,8 +2753,8 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
   /**
    * The offline fallback score, for the minutes `/api/prospective` is
-   * unreachable. It is handed the market's REAL identity now — label and
-   * collateral symbol — because the health factor it reports is measured
+   * unreachable. It is handed the market's REAL identity now (label and
+   * collateral symbol) because the health factor it reports is measured
    * against the engine's listed threshold for that pair. The old call narrowed
    * every protocol that was not Aave to "Moonwell" before a 0.82 / 0.78 literal
    * decided the ratio, so a Morpho position was measured with Moonwell's name
@@ -2822,7 +2822,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   /**
    * How far the simulation has moved the score away from the real thing:
    * simulated score minus the live score of the position or market being
-   * simulated. It measures the SLIDERS, not time — nothing on this screen reads
+   * simulated. It measures the SLIDERS, not time: nothing on this screen reads
    * a 24-hour history, and this once rendered as "+24 in the last 24 hours".
    *
    * A line with nothing to say says nothing (see the render), which is the only
@@ -2833,7 +2833,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   /**
    * Watch's two core tiles: the drop to liquidation, and the LTV.
    *
-   * The drop is the VALUE and the exact health factor is the sub-line — Watch is
+   * The drop is the VALUE and the exact health factor is the sub-line: Watch is
    * the surface where someone is tuning the number, so it is worth a line of its
    * own rather than the hover it gets elsewhere. It costs no colour, because a
    * Stat value is always neutral ink.
@@ -2915,7 +2915,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
     setBorrowAmount(+(borrowAmount * 0.5).toFixed(2));
   };
 
-  // Profile-based filtering for Compass — runs on LIVE engine scores when
+  // Profile-based filtering for Compass, runs on LIVE engine scores when
   // the API is up (presetsWithLive), static fallbacks otherwise.
   //
   // On testnet the catalog is first cut to markets that can really open there
@@ -2990,8 +2990,8 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
   return (
     <>
-    {/* Onboarding overlay. First run: mandatory (no cancel). Every other way in
-        — the header chip, the Portfolio invitation, the risk-tier chip — is
+    {/* Onboarding overlay. First run: mandatory (no cancel). Every other way in,
+        the header chip, the Portfolio invitation, the risk-tier chip, is
         cancellable and says which job it is doing, and a wallet with a saved
         profile skips the quiz entirely.
 
@@ -3421,7 +3421,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                 {watchSource === "positions" && watchPositionMarkets.length === 0 ? (
                   /* Positions mode with nothing on-chain. `clear`, not
                      `problem`: we read the wallet successfully and it genuinely
-                     holds nothing — the same distinction Portfolio's empty
+                     holds nothing, the same distinction Portfolio's empty
                      wallet makes. One affordance, per the primitive's contract;
                      the source toggle directly above already offers the other
                      one. */
@@ -3672,8 +3672,8 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
                           {/* Absent when the simulation sits on the real numbers:
                               there is then no delta, and a zero dressed up as a
-                              trend is a movement that did not happen. Neutral ink
-                              — the arrow says the direction, and the chip beside
+                              trend is a movement that did not happen. Neutral ink:
+                              the arrow says the direction, and the chip beside
                               it already says the band. */}
                           {scoreDelta !== 0 && (
                             <p className="flex items-center gap-1 font-sans text-xs text-text-secondary">
@@ -3716,8 +3716,8 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
                   {/* What the score is a score OF, in the row treatment the
                       Compass panel uses for the same job. Liquidation distance
-                      leads, because the sliders move collateral, price and debt
-                      — the health factor is an OUTPUT here as it is everywhere
+                      leads, because the sliders move collateral, price and debt,
+                      the health factor is an OUTPUT here as it is everywhere
                       else, and it is the one figure on this screen a non-expert
                       cannot read. Values and sub-lines come from `watchOutlook`
                       beside `scoreDelta`.
@@ -3830,7 +3830,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                 <div className="col-span-1 xl:col-span-4 flex flex-col gap-6">
 
                   {/* Scenario presets (#3): the answer first, sliders second.
-                      Same `Card` as everything else on this tab now — it was a
+                      Same `Card` as everything else on this tab now: it was a
                       hand-typed copy of the raised tone that had drifted to
                       p-6. */}
                   <Card tone="raised" className="space-y-3">
@@ -3865,8 +3865,8 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     ) : (
                     /* Hairlines, not four bordered tiles inside a bordered card.
                        Selection is carried the way the market dropdown above
-                       carries it — a `border-l-2` accent plus a background
-                       shift — which is legible without giving every row an edge
+                       carries it: a `border-l-2` accent plus a background
+                       shift, which is legible without giving every row an edge
                        of its own, and `aria-pressed` states it for a reader who
                        cannot see either. */
                     <div
@@ -4058,7 +4058,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           }}
                           /* Neutral. These three inputs used to repaint
                              themselves red or amber once the value passed an
-                             arbitrary distance from the preset — a number the
+                             arbitrary distance from the preset, a number the
                              USER typed, styled as a risk band. What a
                              simulated price means for this position is the
                              score, the chip and the drop tile's job; the input
@@ -5475,13 +5475,13 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
       </div>
 
-      {/* 3. MOBILE NAV — a bottom tab bar, not a drawer.
+      {/* 3. MOBILE NAV: a bottom tab bar, not a drawer.
           Five flat, equal-weight sections that a user switches between
           constantly is the exact shape a tab bar is for: every destination
           stays one thumb-tap away and visibly labelled, and there is no
           open/close state, no focus trap and no scroll lock to get wrong. A
           hamburger drawer would hide five items behind a sixth control, cost
-          two taps per switch, and hide which section you are in — which is the
+          two taps per switch, and hide which section you are in, which is the
           one thing the nav exists to answer. It also sits last in the DOM,
           matching its position on screen, so focus order tracks reading order.
           `env(safe-area-inset-bottom)` keeps it clear of the home indicator. */}
@@ -5598,7 +5598,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           riskProfile={selectedRiskProfile}
           onClose={() => setOpenFlowPlan(null)}
           // A position opened but not monitored is the same silent failure as
-          // an unregistered onboarding — route it to the same banner.
+          // an unregistered onboarding: route it to the same banner.
           onMonitoring={(wallet, profile, result: RegisterResult) => {
             setMonitoringTarget({ wallet, profile });
             noteMonitoring(result);

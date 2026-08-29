@@ -180,7 +180,7 @@ export function useChainMode(): ChainMode {
  *
  * The composition, not just the primitives. `exitsExecutableOn` and
  * `exitAvailabilityLine` were already exported, so the two surfaces that offer
- * an exit — the Advisor card and the Portfolio row — each wrote the same three
+ * an exit, the Advisor card and the Portfolio row, each wrote the same three
  * lines around them, down to the same fallback sentence. That is one policy
  * decision ("is this control live, and why not") stored in two places, and the
  * product presents both as the same control: a third state, or a reworded hint,

@@ -28,7 +28,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Plus, Trash2, Undo2, WalletCards, X } from "lucide-react";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
-import { Button, Chip, EmptyState, FIELD_BOX, Skeleton } from "../ui";
+import { Button, Chip, EmptyState, Field, Skeleton } from "../ui";
 import { RISK_PROFILES, truncateAddress } from "../lib/utils";
 import { isEvmAddress, type GetProof } from "../lib/telegram";
 import {
@@ -447,19 +447,18 @@ function WalletRow({
         </div>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            type="text"
+          <Field
+            label="Name this wallet"
+            aria-label={`Name for ${truncateAddress(row.wallet)}`}
             value={row.label}
             maxLength={labelMax ?? undefined}
             disabled={disabled}
             onChange={(e) => onChange({ label: e.target.value })}
-            placeholder="Name this wallet"
-            aria-label={`Name for ${truncateAddress(row.wallet)}`}
             autoComplete="off"
             spellCheck={false}
             /* Same 160px floor as the add form's name field, and for the same
                reason: the picker and the remove button beside it do not shrink. */
-            className="h-10 min-w-40 flex-1 rounded-md border border-border-strong bg-surface-sunken px-3 font-sans text-sm text-text-primary placeholder:text-text-muted disabled:opacity-50"
+            className="min-w-40 flex-1"
           />
           <ProfileSelect
             value={row.profile}
@@ -551,23 +550,24 @@ function AddWalletForm({
             Any Base address, including one you do not control. Watching it does not let PANIK act
             on it.
           </p>
-          <input
-            type="text"
+          <Field
+            label="Wallet address"
+            aria-label="Address of the wallet to watch"
+            mono
             value={address}
             disabled={disabled}
             onChange={(e) => setAddress(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
             }}
-            placeholder="0x..."
-            aria-label="Address of the wallet to watch"
             autoComplete="off"
             spellCheck={false}
-            className={`w-full font-mono ${FIELD_BOX}`}
+            className="w-full"
           />
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="text"
+            <Field
+              label="Name (optional)"
+              aria-label="Name for the wallet to watch"
               value={label}
               maxLength={labelMax}
               disabled={disabled}
@@ -575,17 +575,15 @@ function AddWalletForm({
               onKeyDown={(e) => {
                 if (e.key === "Enter") submit();
               }}
-              placeholder="Name (optional)"
-              aria-label="Name for the wallet to watch"
               autoComplete="off"
               spellCheck={false}
               /* `min-w-40` is what makes the row wrap instead of crush. The
                  picker and the Add button are fixed width, so on a 390px panel
                  a `flex-1` name field was left ~120px and clipped its own
-                 placeholder mid-word. At a 160px floor the field takes its own
+                 caption mid-word. At a 160px floor the field takes its own
                  full-width line instead, which is the structural fix rather
                  than shrinking the text to hide the overflow. */
-              className={`min-w-40 flex-1 font-sans ${FIELD_BOX}`}
+              className="min-w-40 flex-1"
             />
             <ProfileSelect
               value={profile}

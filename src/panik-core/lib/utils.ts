@@ -168,7 +168,7 @@ export interface AssetLoanToValue {
  *
  * PER ASSET, which is the whole point: wstETH and WETH are 75% and 80% on the
  * same Aave, and the single 82/78 pair this replaced was neither of them on any
- * protocol. Null rather than a fallback literal — a market we hold no
+ * protocol. Null rather than a fallback literal: a market we hold no
  * parameters for is not a market with average parameters, and the caller has to
  * say so instead of printing a guess.
  */
@@ -374,7 +374,7 @@ export function calculateDynamicPosition(
  * not a safe position, and rendering it in the same neutral grey as chrome was
  * a silent safety claim. It is the one band that is not a flat block: white
  * under the shared 45-degree hatch, so "we did not measure this" cannot be read
- * as a fifth severity between LOW and CRITICAL. The old dashed edge is gone —
+ * as a fifth severity between LOW and CRITICAL. The old dashed edge is gone,
  * every edge in this system is 3px solid black, and a dashed one now reads as
  * a mistake rather than as a distinction.
  */
@@ -390,7 +390,7 @@ export const RISK_CHIP: Record<Band | "UNKNOWN", string> = {
  * The two halves of `RISK_CHIP` a chip does not use: a bare label colour and a
  * bare bar fill. Both existed as hand-written `x < 25 ? … : x < 50 ? …` chains
  * at nine call sites, and every one of those chains was missing its HIGH
- * branch — so a 50-74 score was painted CRITICAL red next to a chip reading
+ * branch, so a 50-74 score was painted CRITICAL red next to a chip reading
  * HIGH. Keeping the mapping in one table beside RISK_CHIP is what makes that
  * impossible to reintroduce: `Record<Band, …>` will not compile with a band
  * left out.
@@ -441,7 +441,7 @@ export const MARKET_CONTEXT_MISSING_HINT =
 
 /**
  * `AdvisorAction` in English. The union is an engine enum and it was reaching
- * the screen verbatim, in caps, as `EXIT` / `REDUCE` / `MONITOR` / `HOLD` — the
+ * the screen verbatim, in caps, as `EXIT` / `REDUCE` / `MONITOR` / `HOLD`, the
  * same class of leak `LIMIT_STATE` exists to stop, and shouting is not what
  * makes a label read as a label (see the typography section of the design
  * system: sentence case throughout).
@@ -600,16 +600,16 @@ export function bandOfHealthFactor(healthFactor: number): Band {
 }
 
 /**
- * `ProfileStatus` in English. The enum itself — "within" / "approaching" /
- * "outside" — is a database column describing a position's relation to the
+ * `ProfileStatus` in English. The enum itself, "within" / "approaching" /
+ * "outside", is a database column describing a position's relation to the
  * limit the user's profile sets, and it was reaching the screen verbatim: the
  * alert log rendered `approaching → outside`, which reads as a state-machine
  * dump and tells a user nothing about their money.
  *
  * TWO tables, because the same fact is two different sentences depending on
  * where it lands:
- *   STATE  — what a position IS right now      -> a position row's status line
- *   EVENT  — what just HAPPENED to it          -> a row in the alert log
+ *   STATE: what a position IS right now      -> a position row's status line
+ *   EVENT: what just HAPPENED to it          -> a row in the alert log
  *
  * Neither table contains the enum tokens, so no branch of either can put
  * "approaching" or "outside" back on screen. `Record<ProfileStatus, string>`
@@ -643,7 +643,7 @@ export function limitStateCopy(status: string): string {
 
 /**
  * What an alert row records, as one phrase. The DESTINATION is the event; the
- * origin is noise on a line that gets scanned, not read — `from_status` is
+ * origin is noise on a line that gets scanned, not read: `from_status` is
  * deliberately not a parameter here. It stays recoverable on the row's hover
  * via `limitStateCopy`, so nothing is deleted, only demoted.
  */
@@ -655,7 +655,7 @@ export interface LiquidationOutlook {
   /** Prose clause for a position row: "Liquidates if cbBTC falls 4.8%". */
   sentence: string;
   /**
-   * Compact VALUE for a labelled strip, where the asset is already named — a
+   * Compact VALUE for a labelled strip, where the asset is already named: a
    * value and nothing else. It used to carry its qualifying clause, and the stat
    * tile rendering it is a truncated 24px line, so the one state where that
    * clause is load-bearing came out as "0%, liquidatab…".
@@ -671,7 +671,7 @@ export interface LiquidationOutlook {
    * The same fact for a strip that has NO sub-line to hang `stripNote` on: a
    * label and a value that are each self-sufficient.
    *
-   * The Advisor card is exactly that shape — one flex row of label/value pairs —
+   * The Advisor card is exactly that shape, one flex row of label/value pairs,
    * and it was joining the two halves back together, so a debt-free leg rendered
    * "Drop to liquidation: none, no debt" and a liquidatable one "0%, liquidatable
    * now". A field named `value` holds a value; a clause in it is the thing that
@@ -754,7 +754,7 @@ const LIQUIDATION_RISK_LABEL = "Liquidation risk";
  *
  * "Health factor 1.20" is a ratio whose scale nobody outside DeFi knows: 1.20 is
  * dangerous where 1.20 of almost anything else is fine. The usable number is the
- * one every comparable product leads with, how far the collateral can fall — the
+ * one every comparable product leads with, how far the collateral can fall: the
  * SAME fact, converted exactly by the engine's `drawdownToLiquidation` and
  * rounded by `formatDrawdownPct`, the one way the engine's own prose rounds it.
  *
@@ -766,7 +766,7 @@ const LIQUIDATION_RISK_LABEL = "Liquidation risk";
  *   HF > 1   -> the drop.
  *
  * The exact health factor is demoted, never deleted: it opens `hover`, which is
- * never null — the no-debt case has an explanation too, and while the helper
+ * never null: the no-debt case has an explanation too, and while the helper
  * withheld it all three call sites wrote their own, differently.
  */
 export function liquidationOutlook(
@@ -906,8 +906,8 @@ export function formatPlainAmount(amount: number, symbol: string): string {
  * Whole-dollar USD, and the one place the "never render an unknown value as
  * $0" rule is enforced.
  *
- * That rule is a SAFETY requirement in a liquidation product — a position we
- * could not price is not a position worth nothing — and it was living as three
+ * That rule is a SAFETY requirement in a liquidation product: a position we
+ * could not price is not a position worth nothing, and it was living as three
  * separate `fmtUsd` consts in three components that disagreed about it: one
  * returned the ellipsis, one took `number` and so could not express the case
  * at all, and three more call sites interpolated the arithmetic inline with no

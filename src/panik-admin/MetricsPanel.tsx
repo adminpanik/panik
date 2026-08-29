@@ -52,7 +52,7 @@ function formatCount(value: number | null): string {
  * Not a timestamp, because neither end of the distribution summarised it. The
  * newest reading called all 21 positions current on the strength of one. The
  * oldest then read "7 d old" permanently, because a single Aave leg closed
- * on-chain keeps its final snapshot and pins the minimum to the day it closed —
+ * on-chain keeps its final snapshot and pins the minimum to the day it closed,
  * so the cue said the same thing whether the worker was healthy or dead.
  *
  * A count moves in proportion: one abandoned leg costs one of twenty-one and
@@ -63,7 +63,7 @@ function readingCue(m: AdminMetrics): string | undefined {
   // An older server, or the serverless mirror, returns no window: the mapper
   // floors the absent field to 0 and the sentence would become "0 of 21 read in
   // the last 0 min", which is not a degraded cue but a false one. Say nothing
-  // instead — the figure above it is still true, and this line is optional.
+  // instead: the figure above it is still true, and this line is optional.
   if (m.freshWindowMinutes <= 0) return undefined;
   const window = `${formatCount(m.freshWindowMinutes)} min`;
   return m.positionsFresh === m.positionsMonitored

@@ -40,7 +40,7 @@ const TILE =
 
 /**
  * Inset. 6px is right for a 24-32px tile sitting NEXT to text it belongs to.
- * It is wrong when the tile IS the content — on the "Protocols watched" card
+ * It is wrong when the tile IS the content: on the "Protocols watched" card
  * a 32px tile at p-1.5 leaves a 20px glyph, which reads smaller than the 28px
  * numerals in the three cards beside it even though the tile does not. Callers
  * that make the mark the value tighten the inset instead of growing the tile

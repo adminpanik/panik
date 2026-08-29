@@ -18,12 +18,12 @@ import { LAYER } from "../ui";
  * `children` replaces the help glyph with a custom anchor, for the case where
  * the thing being explained is itself the obvious hover target and a separate
  * "?" beside it would be a second control for one idea. The anchor keeps the
- * focus, the portal and the viewport flip either way — the alternative was a
+ * focus, the portal and the viewport flip either way. The alternative was a
  * native `title`, which cannot be focused, cannot be styled, and does not
  * appear for a keyboard user at all.
  *
  * THE HIT AREA IS 24px AND THE GLYPH IS NOT. This is a focusable element, so
- * WCAG 2.2 SC 2.5.8 applies to it, and it was a 12x12 target — measured, twelve
+ * WCAG 2.2 SC 2.5.8 applies to it, and it was a 12x12 target, measured, twelve
  * of them on the Watch tab alone. The fix is a centred 24x24 pseudo-element
  * rather than padding, because padding would make the ANCHOR 24px and shove the
  * label it sits beside: the glyph has to stay 12px next to 12px type, and only

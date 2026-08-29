@@ -17,12 +17,12 @@ import React from "react";
  *
  * That is a bigger gap than the old 1% / 25% / 50% white fills managed, and
  * unlike them it cannot be silently undone by a `bg-*` utility passed through
- * `className` — those tied with the tone's own fill at equal specificity and
+ * `className`: those tied with the tone's own fill at equal specificity and
  * the winner was whichever rule Tailwind emitted last.
  *
  * `lead` is worth rationing: at most one card per screen may take it, or "the
  * one thing to read here" stops meaning anything. Lavender is safe to spend on
- * it because `highlight` is nowhere on the risk ramp — a card can be the
+ * it because `highlight` is nowhere on the risk ramp: a card can be the
  * loudest box on the page without making a claim about the position inside it.
  *
  * Still nothing that tints by STATE. A card never says "risk" with its

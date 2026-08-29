@@ -29,7 +29,7 @@ export interface PositionState {
   collateralValue: number;
   borrowValue: number;
   /**
-   * Null when there is no debt — the same sentinel the engine uses. It was
+   * Null when there is no debt, the same sentinel the engine uses. It was
    * `number`, which forced the Watch simulator to substitute 9.99 for a
    * debt-free position and made the no-debt branch of `liquidationOutlook`
    * unreachable on that surface.

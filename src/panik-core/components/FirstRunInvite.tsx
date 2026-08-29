@@ -2,7 +2,7 @@
  * The Portfolio surface when there is no wallet to score.
  *
  * It replaces four skeleton cards, an empty allocation chart, an empty alert
- * feed and a permanent "Live feed unavailable" panel — a dashboard's worth of
+ * feed and a permanent "Live feed unavailable" panel, a dashboard's worth of
  * chrome describing nothing, shown to someone who has not handed us an address
  * yet. A product whose pitch is "give us a wallet and we watch it" cannot open
  * on a graveyard of its own eventual UI.

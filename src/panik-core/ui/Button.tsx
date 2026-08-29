@@ -37,7 +37,7 @@ const BUTTON_VARIANT = {
  * sliding into its own shadow: 3px on hover (the shadow is still there, just
  * shorter), 6px on active (the shadow is gone and the block has landed on it).
  * `ghost` has no shadow to travel into, so it is not in this map, and a
- * disabled button is excluded at the call below — a control that moves under
+ * disabled button is excluded at the call below: a control that moves under
  * the pointer while refusing the click is the worst of both.
  *
  * Written as translate rather than as a transition: there is no motion in this
@@ -91,7 +91,7 @@ const BUTTON_SIZE = {
 /**
  * `ComponentPropsWithRef`, not `ButtonHTMLAttributes`: in React 19 `ref` is an
  * ordinary prop on a function component, so it reaches the `<button>` through
- * the same spread as everything else — but only the ref-aware prop type admits
+ * the same spread as everything else, but only the ref-aware prop type admits
  * it. A caller that has to return focus to a button it rendered (the Portfolio
  * alert trigger) needs a handle on it, and wrapping the primitive in a plain
  * `<button>` to get one would be a second button treatment.

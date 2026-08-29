@@ -3,7 +3,7 @@
  *
  * Two things are load-bearing enough to pin here. First, that the defaults trace
  * to the engine/chain and that a composed permit passes the SAME scope check the
- * backend runs (validatePermitScope) — a UI that composes a permit the contract
+ * backend runs (validatePermitScope): a UI that composes a permit the contract
  * would reject sends the user to a wallet popup that ends in a 400. Second, the
  * revoke gate: a revocation is only ever reflected on a `success` receipt, never
  * on a reverted or missing one, because that is the difference between telling a

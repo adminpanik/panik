@@ -4,7 +4,7 @@
  * measure.
  *
  * The engine reports it as `null`, the API is a `JSON.stringify` of the engine's
- * object, and `lib/live.ts` declared it `number`. Nothing failed loudly — TypeScript
+ * object, and `lib/live.ts` declared it `number`. Nothing failed loudly: TypeScript
  * was satisfied, the response parsed, and `Math.round(null)` handed every render
  * site a 0, which on this ramp is the SAFEST score there is. A dead market feed
  * rendered as a calm market.
@@ -66,7 +66,7 @@ describe("degraded sub-scores over the wire", () => {
   it("survives JSON, which is the entire API serializer", () => {
     // scripts/api-server.ts spreads the engine's ActiveScore into res.json, and
     // scripts/watch-worker.ts persists JSON.stringify(s.subScores). Neither
-    // touches the values, so this round trip IS the wire format — the failure
+    // touches the values, so this round trip IS the wire format: the failure
     // was never a lossy serializer, it was a DTO that described it wrongly.
     const degraded = computeScoreFromAvailable(input({ assetRisk: null, systemicRisk: null }));
     const onWire = JSON.parse(
@@ -97,7 +97,7 @@ describe("degraded sub-scores over the wire", () => {
 
   it("Math.round is the trap: it turns every null into the best possible score", () => {
     // Kept as an executable note. This is what every render site did before
-    // this change, and it is silent — no throw, no NaN, just a good number.
+    // this change, and it is silent: no throw, no NaN, just a good number.
     const sub: DegradableSubScores = {
       positionHealth: 95,
       assetRisk: null,
@@ -110,17 +110,17 @@ describe("degraded sub-scores over the wire", () => {
 
   it("marketContextUnavailable survives the score_snapshots round trip with no column of its own", () => {
     // scripts/watch-worker.ts persists `JSON.stringify(s.subScores)` into the
-    // `sub_scores` jsonb column. Unlike `usdValuesUnavailable` — which got its
+    // `sub_scores` jsonb column. Unlike `usdValuesUnavailable`, which got its
     // own `usd_values_unavailable` boolean column in
     // 20260806000001_snapshot_degraded_prices.sql, because the dispatch loop
-    // needs to read it back to waive the dust gate — nothing reads
+    // needs to read it back to waive the dust gate, nothing reads
     // marketContextUnavailable back out of a persisted row today, and it does
     // not need a column: `node-pg` deserializes jsonb back into a plain
     // object with nulls intact (see the "survives JSON" test above), so a
     // `JSON.parse(JSON.stringify(...))` round trip is exactly what a real
     // read performs. Re-deriving it with `marketContextMissing()` on the far
     // side reproduces exactly what `ActiveAdapter` computed at write time
-    // (adapters/active.ts: `assetRisk === null || systemicRisk === null`) —
+    // (adapters/active.ts: `assetRisk === null || systemicRisk === null`),
     // the same DERIVED-not-STORED contract `marketContextMissing` already
     // documents for the live (non-persisted) path.
     const degraded = computeScoreFromAvailable(input({ assetRisk: null, systemicRisk: null }));

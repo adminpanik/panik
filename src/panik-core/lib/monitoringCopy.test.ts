@@ -5,7 +5,7 @@
  * It shipped broken. `registerWatchedWallet` interpolated `(err as Error)
  * .message` into its result, so a browser with no wallet extension rendered
  * "Provider not found. Version: @wagmi/core@3.5.1" in risk-critical red across
- * the top of the app — a library internal, a version number, and an alarm, for
+ * the top of the app: a library internal, a version number, and an alarm, for
  * the ordinary case of someone pasting an address to look around.
  *
  * These tests drive the real exported function through a stubbed `getProof`, so

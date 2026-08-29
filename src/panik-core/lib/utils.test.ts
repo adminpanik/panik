@@ -1,7 +1,7 @@
 /**
  * Plain-language risk copy. These strings are the product's whole answer to
  * "am I about to be liquidated", so the cases that are easy to get subtly
- * wrong — no debt, already liquidatable, a rounding that flatters — are the
+ * wrong, no debt, already liquidatable, a rounding that flatters, are the
  * ones asserted here rather than the happy path alone.
  */
 import { describe, expect, it } from "vitest";
@@ -185,7 +185,7 @@ describe("assetLoanToValue", () => {
   });
 
   it("moves the ceiling with the selected asset", () => {
-    // Same protocol, different asset, different ceiling — the behaviour the
+    // Same protocol, different asset, different ceiling: the behaviour the
     // single 82/78 literal could not express.
     expect(assetLoanToValue("Aave V3", "WETH")?.ceilingPct).toBe(76);
     expect(assetLoanToValue("Aave V3", "wstETH")?.ceilingPct).toBe(71);
@@ -199,7 +199,7 @@ describe("assetLoanToValue", () => {
    * The reason the ceiling is a margin below the borrow limit rather than the
    * limit itself: on Morpho and Moonwell the limit IS the liquidation
    * threshold, so a slider reaching it would offer a position whose starting
-   * health factor is exactly 1.00 — openable and immediately liquidatable.
+   * health factor is exactly 1.00, openable and immediately liquidatable.
    */
   it("never offers a position that opens liquidatable", () => {
     for (const [protocol, assets] of Object.entries(MARKETS)) {

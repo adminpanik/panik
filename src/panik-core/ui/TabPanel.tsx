@@ -15,8 +15,8 @@ const PANEL = "mx-auto w-full max-w-[1600px]";
 /**
  * The body of one tab. Five copies of this wrapper existed inline, identical
  * apart from the tab id and whether the children stacked at 24 or 32px, which
- * meant the ARIA contract — `role="tabpanel"` plus the `id`/`aria-labelledby`
- * pair that ties a panel to its tab — was retyped five times. A tabs pattern
+ * meant the ARIA contract, `role="tabpanel"` plus the `id`/`aria-labelledby`
+ * pair that ties a panel to its tab, was retyped five times. A tabs pattern
  * fails silently when one of those attributes is missing or points at the wrong
  * id: nothing looks wrong, the screen reader simply stops announcing which
  * panel it is in. Deriving both ids from `tab` is what makes them unable to
