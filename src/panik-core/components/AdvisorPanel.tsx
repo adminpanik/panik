@@ -67,6 +67,7 @@ import { InfoTip } from "./InfoTip";
 import { CardTitle } from "./CardTitle";
 import {
   ADVISOR_ACTION,
+  BAND_WORD,
   AI_PROSE_NOTE,
   formatUsd,
   liquidationOutlook,
@@ -352,7 +353,12 @@ function Reasoning({ rec, notes = [] }: { rec: AdvisorRecommendation; notes?: st
         /* No transition on either the ink or the chevron: the disclosure is
            open or it is shut, and there is no motion in this system. The
            chevron's rotation is still the state marker, it just arrives there. */
-        className="inline-flex min-h-6 shrink-0 cursor-pointer items-center gap-1 label-type text-xs text-text-secondary hover:text-text-primary hover:underline"
+        /* 44px and centred under the action on a phone, 24px and sized to
+           its own words from `md` up. The controls row stacks below `md`, so a
+           12px label with a 24px box under a full-width button is a target the
+           thumb misses; from `md` the row is horizontal again and a full-bleed
+           target there would read as a second call to action. */
+        className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-1 label-type text-xs text-text-secondary hover:text-text-primary hover:underline md:min-h-6 md:shrink-0 md:justify-start"
       >
         <ChevronRight
           className={`h-3.5 w-3.5 shrink-0 ${open ? "rotate-90" : ""}`}
@@ -413,6 +419,18 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
     n.usdValuesUnavailable === true ||
     n.collateralValueUsd === null ||
     n.borrowValueUsd === null;
+  /**
+   * The fourth cell of the phone's grid, and it is the one thing the three
+   * figures do not say: what this card is telling you to DO. At `md` and up the
+   * button already says it and `Outcomes` prices it, so this cell is `md:hidden`
+   * rather than a new column on the desktop strip.
+   *
+   * The repay is the engine's `repayPlan.repayUsd`, never a figure read back out
+   * of the sentence that quotes it, and only on the leg that has one. Every
+   * other action falls back to `ADVISOR_ACTION`, which is the verb this product
+   * prints for the engine's enum.
+   */
+  const repay = rec.action === "REDUCE" ? rec.repayPlan : undefined;
   const items: { label: string; value: string; hint?: string }[] = [
     // `statLabel`/`statValue`, not `strip` + `stripNote`: this strip is one flex
     // row of label/value pairs with no sub-line, and joining the two halves back
@@ -426,10 +444,20 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
     items.push({ label: "Debt", value: formatUsd(n.borrowValueUsd) });
   }
   return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5">
+    /* A 2 BY 2 GRID ON A PHONE, the flex row it always was from `md` up.
+       Wrapped, the row put "Drop to liquidation 4.8%" and "Collateral $128,500"
+       on one 358px line and "Debt" alone on the next, so three readings of one
+       position landed on two ragged lines that could not be compared down a
+       column. The grid gives each one a caption over its figure and a fixed
+       cell, which is the shape the Portfolio dashboard states the same
+       quantities in. */
+    <div className="grid grid-cols-2 gap-x-4 gap-y-3 md:flex md:flex-wrap md:items-baseline md:gap-x-6 md:gap-y-1.5">
       {items.map(({ label, value, hint }) => (
-        <div className="flex items-baseline gap-2" key={label}>
-          <span className="flex items-center gap-1 label-type text-xs text-text-muted">
+        <div
+          className="flex min-w-0 flex-col gap-0.5 md:flex-row md:items-baseline md:gap-2"
+          key={label}
+        >
+          <span className="flex min-h-8 min-w-0 content-end flex-wrap items-center gap-1 label-type text-xs text-text-muted md:min-h-0">
             {label}
             {hint && <InfoTip text={hint} />}
           </span>
@@ -437,11 +465,27 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
               here are dollar amounts and the third is a percentage or the short
               phrase the engine prints in place of one, so the whole strip is
               readings and it lines up across the three cards under it. */}
-          <span className="whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary">
+          <span className="truncate whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary">
             {value}
           </span>
         </div>
       ))}
+      {/* The action cell, phone only. Words, so it is set in Archivo: mono is
+          for readings, and "Reduce" is not one. */}
+      <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
+        <span className="label-type text-xs text-text-muted">
+          {repay ? "Repay" : "Action"}
+        </span>
+        {repay ? (
+          <span className="truncate whitespace-nowrap font-mono text-sm font-bold tabular-nums text-text-primary">
+            {formatUsd(repay.repayUsd)}
+          </span>
+        ) : (
+          <span className="truncate font-sans text-sm font-bold text-text-primary">
+            {ADVISOR_ACTION[rec.action]}
+          </span>
+        )}
+      </div>
       {/* Stands IN for the two money pairs rather than qualifying them, and it
           is the UNKNOWN band as `RiskChip` draws it: white under the shared
           45-degree hatch, which is the one texture in this system meaning
@@ -457,12 +501,20 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
           screen, and the reason this strip reached for one - that a tip's
           anchor cannot wrap - does not apply when the anchor sits inside a
           `whitespace-nowrap` chip that wraps as one piece. */}
+      {/* `hidden md:contents` on a WRAPPER, not `hidden` on the chip: the chip
+          carries `inline-flex` of its own and a `hidden` passed through
+          `className` is the same property, so which one wins is Tailwind's emit
+          order rather than the order they were written. The wrapper also keeps
+          the marker out of the phone's 2-by-2 grid, where `shrink-0` buys
+          nothing and three words were squeezed into a 146px cell. */}
       {usdUnknown && (
+        <span className="hidden md:contents">
         <RiskChip band="UNKNOWN">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {USD_UNAVAILABLE_LABEL}
           <InfoTip text={USD_UNAVAILABLE_HINT} />
         </RiskChip>
+        </span>
       )}
       {/* A second, independent caveat: this one is about the SCORE on the rail,
           not the dollars. It is stated because the dial prints a real number
@@ -471,11 +523,13 @@ function NumbersStrip({ rec }: { rec: AdvisorRecommendation }) {
           one unless the card says so. Same block and same tip placement as the
           marker above it, for the same reasons. */}
       {marketContextMissing(n.subScores) && (
+        <span className="hidden md:contents">
         <RiskChip band="UNKNOWN">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           {MARKET_CONTEXT_MISSING_LABEL}
           <InfoTip text={MARKET_CONTEXT_MISSING_HINT} />
         </RiskChip>
+        </span>
       )}
     </div>
   );
@@ -742,7 +796,13 @@ function RecommendationCard({
        dial inside it was already spending. */
     <Card tone="raised" className="space-y-4">
       <div className="flex items-start gap-3">
-        <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
+        {/* The mark is the desktop card's left rail. On a phone the header is
+            the protocol, the ticker and the band, and a 32px logo beside three
+            things that already name the position is 40px of a 358px line spent
+            on decoration. */}
+        <div className="hidden md:block">
+          <ProtocolLogo protocol={PROTOCOL_LABEL[rec.protocol]} size="w-8 h-8" />
+        </div>
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -781,6 +841,18 @@ function RecommendationCard({
                 aria-hidden="true"
               />
             ) : null}
+            {/* The band, on the line that identifies the position, and ONLY
+                where the dial is not drawing it: the two never mount together,
+                so this spends no risk hue the card was not already spending.
+                `score` is the dial's own numeral, in the one block, because a
+                score and its band are one reading. */}
+            <RiskChip
+              band={rec.numbers.band}
+              score={rec.numbers.total}
+              className="ml-auto md:hidden"
+            >
+              {BAND_WORD[rec.numbers.band]}
+            </RiskChip>
           </div>
 
           {/* The lead. On a card with a button the sentence is the whole lead
@@ -797,7 +869,11 @@ function RecommendationCard({
                 white card. `ADVISOR_ACTION`, not `rec.action`, so the engine's
                 union never reaches the screen. */}
             {hasAction ? null : <Chip>{ADVISOR_ACTION[rec.action]}</Chip>}
-            <p className="text-sm font-sans leading-relaxed text-text-primary">
+            {/* The prose is the desktop card. On a phone the header, the grid
+                and the button carry the whole decision, and the paragraphs that
+                elaborate it are one press away in `Details` rather than four
+                cards' worth of scroll between a reader and the control. */}
+            <p className="hidden text-sm font-sans leading-relaxed text-text-primary md:block">
               {rec.sections.recommendation}
             </p>
           </div>
@@ -807,7 +883,7 @@ function RecommendationCard({
 
         {/* The rail, matching a Portfolio position row: the score, and the one
             thing you can do about it, in the same place on both screens. */}
-        <div className="flex shrink-0 flex-col items-center gap-2">
+        <div className="hidden shrink-0 flex-col items-center gap-2 md:flex">
           <RiskDial score={rec.numbers.total} band={rec.numbers.band} subScores={rec.numbers.subScores} />
         </div>
       </div>
@@ -816,7 +892,9 @@ function RecommendationCard({
           between the reading and the controls because that is the order the
           decision is made in: here is the position, here is what each way out
           costs and leaves, here are the buttons. */}
-      <Outcomes routes={routes} />
+      <div className="hidden md:block">
+        <Outcomes routes={routes} />
+      </div>
 
       {/* One row: the action, then `Details` as the secondary affordance beside
           it. They are not two calls to action - a 42px filled plate against 12px
@@ -829,7 +907,7 @@ function RecommendationCard({
           own full-width row under the controls at every width, which is the one
           geometry a native `<details>` could not give (see `Reasoning`). No
           child of this row is ever narrower than the card. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-border-subtle pt-4">
+      <div className="flex flex-col items-stretch gap-3 border-t border-border-subtle pt-4 md:flex-row md:flex-wrap md:items-center md:gap-x-4 md:gap-y-3">
         {hasAction ? <ActionButton rec={rec} onExit={onExit} onOpen={onOpen} /> : null}
         {/* The costs of a route the card demoted. Money facts about a
             transaction, which is why they are not deleted and why they sit
