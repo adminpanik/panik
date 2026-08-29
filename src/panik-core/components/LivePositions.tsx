@@ -390,7 +390,7 @@ export function LivePositions({
                   Never hidden - the band and the name are the two facts a 390px
                   phone still has to carry, and everything dropped below them is
                   repeated in the row's disclosure. */}
-              <th scope="col" className={`${TH} w-px`}>
+              <th scope="col" className={`${TH} w-px text-center`}>
                 Risk
               </th>
             </tr>
