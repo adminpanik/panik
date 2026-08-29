@@ -112,6 +112,13 @@ import { OpenPositionModal } from "./components/OpenPositionModal";
 import { InfoTip } from "./components/InfoTip";
 import { CardTitle } from "./components/CardTitle";
 import { PageHeader } from "./components/PageHeader";
+import {
+  SettingsCard,
+  SettingsCardBlock,
+  SettingsCardFooter,
+  SettingsCardTitle,
+  SettingsRow,
+} from "./components/SettingsCard";
 import { MarketTable } from "./components/MarketTable";
 import {
   Button,
@@ -181,7 +188,7 @@ import {
   viewParamWallet,
 } from "./lib/watchlist";
 import type { SessionState } from "./lib/session";
-import { describeMembership, type AccountState } from "./lib/account";
+import { membershipLedger, type AccountState } from "./lib/account";
 import { WalletsPanel } from "./components/WalletsPanel";
 import { WalletSelector } from "./components/WalletSelector";
 import { ReadOnlyBanner, SessionCard, SessionNote } from "./components/SessionControls";
@@ -1426,6 +1433,11 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   // Navigation tabs exactly reflecting the Figma screenshot
   const [activeTab, setActiveTab] = useState<SidebarTab>("portfolio");
   const isDesktop = useMediaQuery(DESKTOP_MQ);
+
+  // The Settings account card's second ledger row: what this account holds and,
+  // when the server returned one, the date it ends. Read here rather than in the
+  // card so the branch that has no account cannot ask for a label at all.
+  const membershipRow = accountState.account ? membershipLedger(accountState.account) : null;
   const isWide = useMediaQuery(WIDE_MQ);
 
   // Arrow / Home / End navigation for the tablist. Focus has to be moved
@@ -4773,36 +4785,35 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             {/* VIEW E: SETTINGS TAB (Sentry preferences + Telegram alert dispatcher) */}
             {activeTab === "settings" && (
               <TabPanel key="settings" tab="settings">
-                {/* ONE settled column, centred, and no sidebar.
+                {/* A GRID OF LEDGERS, two columns from `lg` up and one below it.
 
-                    This was a 12-column split whose right track held a single
-                    three-line privacy note. Measured at a 1440 window: the panel
-                    is 1114px, the sidebar track took 355px of it (32%) and ran
-                    853px tall to match its neighbour, so roughly 790px of the
-                    tab was permanently empty page with a hairline down the
-                    middle of it. The note belonged to the Telegram card anyway,
-                    and now sits under it.
+                    This was one 768px column of six cards, each of which was a
+                    heading over a bold line, a muted sentence and a button. At
+                    1440 that column ran 1,240px tall with 340px of empty page
+                    either side of it, so the whole tab was a scroll through
+                    facts that each occupied a third of the width they had. None
+                    of the six is longer than three lines, which is exactly the
+                    case a two-track grid is for.
 
-                    Settings is a stack of forms rather than a dashboard, and a
-                    form has a measure: `max-w-3xl` is 768px, within 33px of the
-                    735px these cards already rendered at, so the cards are the
-                    width they were and the slack is split evenly instead of
-                    dumped on one side. `TabPanel`'s own 1600px cap still applies
-                    above it.
+                    `max-w-5xl` is 1024px, the same width `lg` starts at, so the
+                    grid never splits into two tracks narrower than the column it
+                    replaced. Below `lg` it is one track and the cards stack in
+                    the order they are written.
 
-                    The page header is INSIDE the column rather than above it,
-                    so the heading, the rule under it and every card share one
-                    left edge. A full-width rule over an inset stack reads as
-                    two different pages joined at the top. */}
-                <div className="mx-auto w-full max-w-3xl space-y-6">
-                    {/* The other four tabs' page header, exactly: an `h1` at
-                        `text-2xl` over a hairline with `pb-5`. This tab was
-                        running its own smaller one (`h2`, `text-lg`,
-                        `tracking-wide`, `pb-3`), so moving between tabs restated
-                        the heading at two sizes with no rule saying which was
-                        which. */}
+                    `items-start` so a short card does not stretch to its taller
+                    neighbour: these are ledgers of different lengths, and a card
+                    padded out with dead space to match a sibling reads as
+                    missing content.
+
+                    Telegram sits BELOW the grid rather than in it. It is the one
+                    card with a body that is not two ledger rows (a code to
+                    paste, an error to read) and the only one whose action is
+                    the screen's primary, so a full-width row is where the eye
+                    lands last and the offer is unambiguous. */}
+                <div className="mx-auto w-full max-w-5xl space-y-6">
                     <PageHeader title="Settings" />
 
+                    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
                     {/* WHO THIS BROWSER IS, first, because everything under it
                         is scoped to that.
 
@@ -4812,29 +4823,29 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         tab. None of those three is a thing anyone does twice a
                         session, and sign-out in particular is a deliberate, rare
                         action a user goes LOOKING for. */}
-                    {accountState.account && (
-                      <Card tone="raised" className="space-y-3">
-                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-                          <UserRound className="h-4 w-4 text-text-primary" />
-                          <h3 className="text-sm font-sans font-semibold text-text-primary">Account</h3>
-                        </div>
-                        <p className="font-sans text-sm font-bold text-text-primary">
-                          {accountState.account.email}
-                        </p>
+                    {accountState.account && membershipRow && (
+                      <SettingsCard>
+                        <SettingsCardTitle icon={UserRound} title="Account" />
+                        <SettingsRow label="Email" value={accountState.account.email} />
                         {/* Stated from the grant the server returned, never
                             assumed: a membership with no expiry gets no date
-                            rather than an invented one. */}
-                        <p className="font-sans text-xs text-text-secondary">
-                          {describeMembership(accountState.account)}
-                        </p>
-                        <Button
-                          variant="secondary"
-                          disabled={accountState.busy}
-                          onClick={() => void accountState.signOut()}
-                        >
-                          {accountState.busy ? "Signing out..." : "Sign out"}
-                        </Button>
-                      </Card>
+                            rather than an invented one, and the row it takes is
+                            named for what it actually holds. */}
+                        <SettingsRow
+                          label={membershipRow.label}
+                          value={membershipRow.value}
+                        />
+                        <SettingsCardFooter>
+                          <Button
+                            variant="secondary"
+                            className="w-full sm:w-auto"
+                            disabled={accountState.busy}
+                            onClick={() => void accountState.signOut()}
+                          >
+                            {accountState.busy ? "Signing out..." : "Sign out"}
+                          </Button>
+                        </SettingsCardFooter>
+                      </SettingsCard>
                     )}
 
                     {/* The risk profile, which was a chip in the header wearing
@@ -4842,33 +4853,34 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
 
                         It is a SETTING: it decides the limit every position on
                         every tab is measured against, and where alerts fire.
-                        The line under it is the threshold itself, from the
-                        engine, which is the one thing the tier's name cannot
-                        say. */}
+                        The second row is the threshold itself, from the engine,
+                        which is the one thing the tier's name cannot say. It is
+                        written against the 100 it is a score out of, because a
+                        bare 50 is not a reading. */}
                     {riskTier && (
-                      <Card tone="raised" className="space-y-3">
-                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-                          <Sliders className="h-4 w-4 text-text-primary" />
-                          <h3 className="text-sm font-sans font-semibold text-text-primary">
-                            Risk profile
-                          </h3>
-                        </div>
-                        <p className="font-sans text-sm font-bold text-text-primary">
-                          {RISK_TIER_LABELS[riskTier]}
-                        </p>
-                        <p className="font-sans text-xs text-text-secondary">
-                          Alerts fire at {ALERT_THRESHOLD[selectedRiskProfile]} on the 0 to 100
-                          score.
-                        </p>
-                        <Button
-                          variant="secondary"
-                          onClick={() =>
-                            setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")
-                          }
-                        >
-                          Retake the questions
-                        </Button>
-                      </Card>
+                      <SettingsCard>
+                        <SettingsCardTitle icon={Sliders} title="Risk profile" />
+                        <SettingsRow
+                          label="Profile"
+                          value={RISK_TIER_LABELS[riskTier]}
+                          mono={false}
+                        />
+                        <SettingsRow
+                          label="Alerts fire at"
+                          value={`${ALERT_THRESHOLD[selectedRiskProfile]} / 100`}
+                        />
+                        <SettingsCardFooter>
+                          <Button
+                            variant="secondary"
+                            className="w-full sm:w-auto"
+                            onClick={() =>
+                              setOnboardingIntent(onboardedWallet ? "retake-quiz" : "switch-wallet")
+                            }
+                          >
+                            Retake the questions
+                          </Button>
+                        </SettingsCardFooter>
+                      </SettingsCard>
                     )}
 
                     {/* Which chain the positions, scores and exits on every
@@ -4876,7 +4888,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         in the header is the selected state of this control. */}
                     <ChainModeSwitch />
 
-                    {/* Identity, above the two cards that depend on it: where
+                    {/* Identity, beside the two cards that depend on it: where
                         alerts go and what standing permission exists are both
                         answers to "for which wallet", and this is the card that
                         says how PANIK knows. It is also the only home for sign
@@ -4890,117 +4902,6 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       onSignIn={signInThisBrowser}
                       onSignOut={signOutThisBrowser}
                     />
-
-                    {/* Telegram alerts dispatcher (the real Connect flow).
-
-                        Withheld entirely under a read-only session. Every
-                        control on it is a write that ends in a `telegram-link`
-                        signature this reader cannot produce, and the card's own
-                        status line describes alert delivery for a wallet they
-                        have not proved they hold. A disabled copy would state
-                        the same facts while offering nothing, so the honest
-                        version of "you cannot change this here" is not to show
-                        the control at all: the banner above already says why,
-                        and the Settings card above it says how to fix it. */}
-                    {!readOnlySession && (
-                      <Card tone="raised" className="space-y-3">
-                        <div className="flex items-center gap-2 border-b border-border-subtle pb-2.5">
-                          <Bell className="w-4 h-4 text-text-primary" />
-                          <h3 className="flex items-center gap-1.5 text-sm font-sans font-semibold text-text-primary">
-                            Telegram alerts
-                            <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise." />
-                          </h3>
-                        </div>
-                        {/* "Get a Telegram message when this wallet nears your
-                            moderate risk limit" used to stand here. It restates
-                            the card's own heading and the profile card above it,
-                            and the threshold it alludes to is stated exactly
-                            there. The status line below is the fact this card
-                            carries. */}
-                        <div className="flex flex-col sm:flex-row gap-3 pt-1">
-                          <div className="flex-1 h-10 px-3 flex items-center bg-surface-base/80 border border-border-subtle rounded-md font-sans text-xs truncate">
-                            {telegramLink.status === "connected" ? (
-                              <span className="text-risk-low flex items-center gap-1.5">
-                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                Connected
-                              </span>
-                            ) : (
-                              /* States COVERAGE, not progress. This used to read
-                                 "Linking 0x1234...abcd", which describes a
-                                 handshake that has not been started and reads as
-                                 "something is happening" on the one screen where
-                                 the honest answer is "nothing is". The wallet is
-                                 already named in the top bar, so the words are
-                                 spent on the fact that matters. */
-                              <span className="text-text-secondary">
-                                {telegramEligible
-                                  ? "Not connected. No alerts are being sent"
-                                  : "No EVM wallet onboarded, so no alerts can be sent"}
-                              </span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
-                            onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
-                            className="h-10 px-4 rounded-md text-2xs font-sans font-extrabold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-text-primary text-surface-base hover:opacity-90 cursor-pointer"
-                          >
-                            {telegramLink.status === "signing" ? "Sign in wallet..." :
-                             telegramLink.status === "requesting" ? "Opening..." :
-                             telegramLink.status === "connected" ? "Reconnect" :
-                             telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
-                          </button>
-                        </div>
-                        {/* "Sign to prove wallet ownership, free, no
-                            transaction, no gas" is gone: the account card above
-                            already says what a PANIK signature costs, and it
-                            said the same thing twice on one screen.
-
-                            The one line that survives on this branch is the one
-                            that says what to DO, because a control the reader
-                            cannot use has to say why. */}
-                        {!telegramEligible && (
-                          <p className="text-xs font-sans text-text-secondary">
-                            Add a wallet starting 0x to enable alerts.
-                          </p>
-                        )}
-                        {/* The instructions, and only while a link is open: a
-                            reader whose browser did not follow it has no other
-                            way to finish. Not decoration, not an explanation of
-                            the feature. */}
-                        {telegramLink.status === "opened" && (
-                          <div className="space-y-1.5 border-t border-border-subtle pt-1.5">
-                            <p className="text-xs font-sans text-text-secondary leading-relaxed">
-                              Send this to <strong className="text-text-primary">@{telegramBotUsername}</strong> if the link did not open:
-                            </p>
-                            <div className="flex items-center break-all hard-edge bg-surface-sunken px-2.5 py-1.5 font-mono text-xs select-all">
-                              /start {telegramLink.code}
-                            </div>
-                          </div>
-                        )}
-                        {telegramLink.status === "error" && telegramLink.error && (
-                          <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
-                        )}
-                      </Card>
-                    )}
-
-                    {/* A data-handling commitment and the only place /stop is
-                        documented, so it is never deleted - but it is now the
-                        two facts rather than the paragraph around them.
-                        Withheld with the card it belongs to, because a promise
-                        about a feature this screen is not offering has nothing
-                        to attach itself to.
-
-                        Deliberately NOT the `Card` primitive the cards above it
-                        are. It is a footnote to the card it follows, and giving
-                        it the same plate would make it read as a fifth
-                        setting. */}
-                    {!readOnlySession && (
-                      <p className="font-sans text-xs leading-relaxed text-text-secondary">
-                        Stored: your Telegram chat id and wallet address. Send /stop in the bot to
-                        disable.
-                      </p>
-                    )}
 
                     {/* Two cards, two different things being granted, and they
                         sit in this order on purpose.
@@ -5018,6 +4919,89 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         a scoped ExitPermit the user signs; the relayer that uses
                         it is Phase 4. */}
                     <DelegationManager riskProfile={selectedRiskProfile} />
+                    </div>
+
+                    {/* Telegram alerts dispatcher (the real Connect flow).
+
+                        Withheld entirely under a read-only session. Every
+                        control on it is a write that ends in a `telegram-link`
+                        signature this reader cannot produce, and the card's own
+                        status row describes alert delivery for a wallet they
+                        have not proved they hold. A disabled copy would state
+                        the same facts while offering nothing, so the honest
+                        version of "you cannot change this here" is not to show
+                        the control at all: the banner above already says why,
+                        and the Settings card above it says how to fix it. */}
+                    {!readOnlySession && (
+                      <SettingsCard>
+                        <SettingsCardTitle
+                          icon={Bell}
+                          title="Telegram alerts"
+                          extra={
+                            /* Both hover sentences the card used to spend page
+                               on: what makes an alert fire, and how to stop
+                               them. The second was a floating paragraph under
+                               the card, which is the one place a data-handling
+                               promise cannot be missed and also the one place it
+                               competed with the button beside it. What is STORED
+                               is a row of the ledger now, because it is a fact
+                               about this account rather than a footnote. */
+                            <InfoTip text="Alerts fire only on a real transition toward liquidation: debounced, deduped and rate-limited, never on noise. Send /stop in the bot to disable them." />
+                          }
+                        />
+                        {/* States COVERAGE, not progress. The status box used to
+                            read "Linking 0x1234...abcd", which describes a
+                            handshake that has not been started and reads as
+                            "something is happening" on the one screen where the
+                            honest answer is "nothing is". */}
+                        <SettingsRow
+                          label="Status"
+                          value={
+                            telegramLink.status === "connected"
+                              ? "Connected"
+                              : telegramEligible
+                                ? "Not connected"
+                                : "No wallet added"
+                          }
+                        />
+                        <SettingsRow
+                          label="Stored"
+                          value="Chat id, wallet address"
+                          mono={false}
+                        />
+                        {/* The instructions, and only while a link is open: a
+                            reader whose browser did not follow it has no other
+                            way to finish. Not decoration, not an explanation of
+                            the feature. */}
+                        {telegramLink.status === "opened" && (
+                          <SettingsCardBlock>
+                            <p className="text-xs font-sans text-text-secondary leading-relaxed">
+                              Send this to <strong className="text-text-primary">@{telegramBotUsername}</strong> if the link did not open:
+                            </p>
+                            <div className="mt-2 flex items-center break-all hard-edge bg-surface-sunken px-2.5 py-1.5 font-mono text-xs select-all">
+                              /start {telegramLink.code}
+                            </div>
+                          </SettingsCardBlock>
+                        )}
+                        {telegramLink.status === "error" && telegramLink.error && (
+                          <SettingsCardBlock>
+                            <p className="text-xs font-sans text-risk-critical">{telegramLink.error}</p>
+                          </SettingsCardBlock>
+                        )}
+                        <SettingsCardFooter>
+                          <Button
+                            className="w-full sm:w-auto"
+                            disabled={!telegramEligible || telegramLink.status === "requesting" || telegramLink.status === "signing"}
+                            onClick={() => onboardedWallet && telegramLink.connect(onboardedWallet)}
+                          >
+                            {telegramLink.status === "signing" ? "Sign in wallet..." :
+                             telegramLink.status === "requesting" ? "Opening..." :
+                             telegramLink.status === "connected" ? "Reconnect" :
+                             telegramLink.status === "opened" ? "Waiting..." : "Connect Telegram"}
+                          </Button>
+                        </SettingsCardFooter>
+                      </SettingsCard>
+                    )}
 
                     {/* Emergency auto repayment trigger (interactive preference).
                         Hidden per business-dev QA (2026-07-03) until the
