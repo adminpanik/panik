@@ -35,10 +35,13 @@ import {
 } from "./relayerPolicy";
 import { MemoryRelayerAttemptStore } from "./relayerAttemptStore";
 import {
+  PinnedEndpointOperation,
   RelayerSignerPool,
   bumpFee,
+  endpointLabel,
+  type PinnedEndpointClient,
   type RelayerSigner,
-  type RelayerTxRequest,
+  type SignerOperation,
 } from "./relayerSigner";
 import { EXIT_KIND, hfToWad, type ExitPermit } from "./exitPermit";
 import type { DelegationRow, DelegationStatus, DelegationStore } from "./exitDelegationStore";
@@ -177,26 +180,108 @@ class FakeChain implements RelayerChain {
   }
 }
 
+/**
+ * What a scripted endpoint recorded: the viem args the pinned operation built,
+ * not the RelayerTxRequest it was built from.
+ */
+interface SentTx {
+  to: `0x${string}`;
+  data: `0x${string}`;
+  gas: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+  nonce: number;
+  value: bigint;
+}
+
+interface FakeEndpointOptions {
+  /** What eth_chainId answers. A mismatch is how a wrong-network node looks. */
+  chainId?: number;
+  /** What eth_getTransactionCount(pending) answers on THIS node. */
+  nonce?: number;
+  balance?: bigint;
+  /** Set to make the health probe fail: this node is down. */
+  downChainId?: boolean;
+  /** Set to make only the nonce read fail, which is what forces a failover. */
+  downNonce?: boolean;
+  throwOnSend?: string | null;
+}
+
+/**
+ * One RPC endpoint, scripted.
+ *
+ * The nonce lives on the ENDPOINT rather than on the signer, because that is
+ * the whole point: a pending nonce is a fact about one node's mempool, and two
+ * nodes are entitled to disagree. A test that put the nonce on the signer could
+ * not express the bug this file now guards against.
+ */
+class FakeEndpoint implements PinnedEndpointClient {
+  readonly sent: SentTx[] = [];
+  nonceReads = 0;
+  chainIdReads = 0;
+  /** Flipped mid-test to take an endpoint down between submissions. */
+  down = false;
+
+  constructor(
+    readonly url: string,
+    private readonly o: FakeEndpointOptions = {},
+  ) {}
+
+  async getChainId(): Promise<number> {
+    this.chainIdReads += 1;
+    if (this.down || this.o.downChainId) throw new Error(`${this.url} unreachable`);
+    return this.o.chainId ?? CHAIN_ID;
+  }
+  async getTransactionCount(): Promise<number> {
+    this.nonceReads += 1;
+    if (this.o.downNonce) throw new Error(`${this.url} nonce read failed`);
+    return this.o.nonce ?? 5;
+  }
+  async getBalance(): Promise<bigint> {
+    return this.o.balance ?? 10n ** 18n;
+  }
+  async sendTransaction(args: unknown): Promise<`0x${string}`> {
+    this.sent.push(args as SentTx);
+    if (this.o.throwOnSend) throw new Error(this.o.throwOnSend);
+    return ("0x" + String(this.sent.length).padStart(64, "1")) as `0x${string}`;
+  }
+}
+
+/**
+ * A signer over scripted endpoints, using the REAL PinnedEndpointOperation.
+ *
+ * Not a hand-written stub of the operation: the pinning rules are the thing
+ * under test, so every submission in this file goes through them.
+ */
 class FakeSigner implements RelayerSigner {
-  sent: RelayerTxRequest[] = [];
+  readonly endpoints: FakeEndpoint[];
   constructor(
     readonly label = "fake-0",
     readonly address = "0x00000000000000000000000000000000000000f1" as `0x${string}`,
     readonly chainId = CHAIN_ID,
     private readonly bal = 10n ** 18n,
-    private readonly throwOnSend: string | null = null,
-    private nonce = 5,
-  ) {}
-  async sendTransaction(tx: RelayerTxRequest): Promise<`0x${string}`> {
-    this.sent.push(tx);
-    if (this.throwOnSend) throw new Error(this.throwOnSend);
-    return ("0x" + String(this.sent.length).padStart(64, "1")) as `0x${string}`;
+    throwOnSend: string | null = null,
+    nonce = 5,
+    endpoints?: FakeEndpoint[],
+  ) {
+    this.endpoints =
+      endpoints ?? [new FakeEndpoint("https://one.test", { chainId, nonce, throwOnSend, balance: bal })];
   }
-  async pendingNonce(): Promise<number> {
-    return this.nonce;
+  async beginOperation(): Promise<SignerOperation> {
+    return PinnedEndpointOperation.open(
+      this.endpoints.map((e) => e.url),
+      this.chainId,
+      this.label,
+      this.address,
+      (url) => this.endpoints.find((e) => e.url === url)!,
+    );
   }
   async balance(): Promise<bigint> {
     return this.bal;
+  }
+  /** Every broadcast this signer made, across every endpoint, in order. */
+  get sent(): SentTx[] {
+    return this.endpoints.flatMap((e) => e.sent);
   }
 }
 
@@ -731,6 +816,190 @@ describe("signer pool", () => {
     // The next lease reuses 42: a gap here would strand every later transaction.
     const lease = (await deps.pool!.acquire())!;
     expect(lease.nonce).toBe(42);
+  });
+});
+
+/**
+ * Endpoint pinning (the nonce-safety tests).
+ *
+ * THE FAILURE THESE EXIST FOR. Reads on the executor side go through viem's
+ * `fallback()` over the public-first ladder, which routes each call
+ * independently. Under that transport a single submission could read
+ * `eth_getTransactionCount(pending)` from node B (because node A rate-limited
+ * that one call) and broadcast to node A. Two mempools, two different answers:
+ * a nonce that is already spent (the transaction is a duplicate and replaces
+ * nothing) or one that is too high (every later transaction from that EOA
+ * queues behind a gap that never fills). Neither is visible in a log until the
+ * relayer has silently stopped protecting anyone.
+ *
+ * So: one submission, one node. These tests assert that the nonce read and the
+ * broadcast land on the SAME endpoint, that failover RE-READS rather than
+ * carrying a nonce across, and that no cached sequence from one node is ever
+ * handed to another.
+ */
+describe("endpoint pinning", () => {
+  const A = "https://a.test";
+  const B = "https://b.test";
+  const labelA = endpointLabel(A, 0);
+  const labelB = endpointLabel(B, 1);
+
+  const twoEndpointSigner = (a: FakeEndpointOptions, b: FakeEndpointOptions) =>
+    new FakeSigner(
+      "pinned",
+      "0x00000000000000000000000000000000000000f7",
+      CHAIN_ID,
+      10n ** 18n,
+      null,
+      0,
+      [new FakeEndpoint(A, { chainId: CHAIN_ID, ...a }), new FakeEndpoint(B, { chainId: CHAIN_ID, ...b })],
+    );
+
+  it("reads the nonce and broadcasts through the SAME endpoint", async () => {
+    const signer = twoEndpointSigner({ nonce: 5 }, { nonce: 99 });
+    const [a, b] = signer.endpoints as [FakeEndpoint, FakeEndpoint];
+    const { deps, events } = harness({ signer });
+
+    const report = await runRelayerTick([candidate], deps);
+    expect(report.submitted).toBe(1);
+
+    expect(a.nonceReads).toBe(1);
+    expect(a.sent).toHaveLength(1);
+    expect(a.sent[0]!.nonce).toBe(5);
+    // The second rung is never touched: no read, no broadcast, no second view.
+    expect(b.nonceReads).toBe(0);
+    expect(b.sent).toHaveLength(0);
+
+    const attempted = events.find((e) => e.type === "relayer.attempted") as
+      | { endpoint: string }
+      | undefined;
+    expect(attempted?.endpoint).toBe(labelA);
+  });
+
+  it("pins the next endpoint when the first is down, nonce and send together", async () => {
+    const signer = twoEndpointSigner({ downChainId: true, nonce: 5 }, { nonce: 99 });
+    const [a, b] = signer.endpoints as [FakeEndpoint, FakeEndpoint];
+    const { deps, events } = harness({ signer });
+
+    expect((await runRelayerTick([candidate], deps)).submitted).toBe(1);
+
+    expect(a.nonceReads).toBe(0);
+    expect(a.sent).toHaveLength(0);
+    expect(b.nonceReads).toBe(1);
+    expect(b.sent).toHaveLength(1);
+    // 99 is B's own pending count. A's 5 never reaches a transaction.
+    expect(b.sent[0]!.nonce).toBe(99);
+    const attempted = events.find((e) => e.type === "relayer.attempted") as { endpoint: string };
+    expect(attempted.endpoint).toBe(labelB);
+  });
+
+  it("skips an endpoint answering for the wrong chain", async () => {
+    const signer = twoEndpointSigner({ chainId: 1, nonce: 5 }, { nonce: 99 });
+    const [a, b] = signer.endpoints as [FakeEndpoint, FakeEndpoint];
+    const lease = (await new RelayerSignerPool([signer]).acquire())!;
+    expect(lease.operation.endpoint).toBe(labelB);
+    expect(lease.nonce).toBe(99);
+    expect(a.nonceReads).toBe(0);
+    expect(b.nonceReads).toBe(1);
+  });
+
+  it("RE-READS the nonce after failing over, never carrying the dead node's answer", async () => {
+    // A is healthy enough to be pinned but cannot answer the nonce read: the
+    // one shape where failover happens with an endpoint already chosen.
+    const signer = twoEndpointSigner({ downNonce: true, nonce: 5 }, { nonce: 99 });
+    const [a, b] = signer.endpoints as [FakeEndpoint, FakeEndpoint];
+    const lease = (await new RelayerSignerPool([signer]).acquire())!;
+
+    expect(a.nonceReads).toBe(1); // tried, failed
+    expect(b.nonceReads).toBe(1); // re-read on the new node, not carried over
+    expect(lease.operation.endpoint).toBe(labelB);
+    expect(lease.nonce).toBe(99);
+  });
+
+  it("never hands a cached nonce from one endpoint to a submission on another", async () => {
+    const signer = twoEndpointSigner({ nonce: 5 }, { nonce: 99 });
+    const [a, b] = signer.endpoints as [FakeEndpoint, FakeEndpoint];
+    const pool = new RelayerSignerPool([signer]);
+
+    const first = (await pool.acquire())!;
+    expect(first.operation.endpoint).toBe(labelA);
+    expect(first.nonce).toBe(5);
+    first.release(true); // the pool now caches 6, stamped as A's
+
+    // A goes down between submissions, so the next one is pinned to B. The
+    // cached 6 describes A's mempool and B never agreed to it: reusing it is
+    // the duplicate/gap this whole design exists to prevent.
+    a.down = true;
+    const second = (await pool.acquire())!;
+    expect(second.operation.endpoint).toBe(labelB);
+    expect(second.nonce).toBe(99);
+    expect(second.nonce).not.toBe(6);
+    expect(b.nonceReads).toBe(1);
+  });
+
+  it("keeps advancing the local sequence while the endpoint does not change", async () => {
+    // The re-read is a failover behaviour, not a per-submission cost: polling
+    // the node every time would race the relayer's own mempool.
+    const signer = twoEndpointSigner({ nonce: 5 }, { nonce: 99 });
+    const [a] = signer.endpoints as [FakeEndpoint, FakeEndpoint];
+    const pool = new RelayerSignerPool([signer]);
+
+    const nonces: number[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const lease = (await pool.acquire())!;
+      nonces.push(lease.nonce);
+      lease.release(true);
+    }
+    expect(nonces).toEqual([5, 6, 7]);
+    expect(a.nonceReads).toBe(1);
+  });
+
+  it("refuses to change endpoint once anything has been broadcast", async () => {
+    const signer = twoEndpointSigner({ nonce: 5 }, { nonce: 99 });
+    const op = await signer.beginOperation();
+    await op.sendTransaction({
+      to: EXECUTOR,
+      data: "0x",
+      gas: 1n,
+      maxFeePerGas: 1n,
+      maxPriorityFeePerGas: 1n,
+      nonce: 5,
+      chainId: CHAIN_ID,
+    });
+    // A send that threw may still have reached the mempool, so re-reading the
+    // nonce anywhere else could produce a second transaction on nonce 5.
+    await expect(op.failover()).rejects.toThrow(/after a broadcast/);
+  });
+
+  it("refuses a transaction naming another chain, before it reaches a node", async () => {
+    const signer = twoEndpointSigner({ nonce: 5 }, { nonce: 99 });
+    const [a] = signer.endpoints as [FakeEndpoint, FakeEndpoint];
+    const op = await signer.beginOperation();
+    await expect(
+      op.sendTransaction({
+        to: EXECUTOR,
+        data: "0x",
+        gas: 1n,
+        maxFeePerGas: 1n,
+        maxPriorityFeePerGas: 1n,
+        nonce: 5,
+        chainId: 1,
+      }),
+    ).rejects.toThrow(/is on chain 84532/);
+    expect(a.sent).toHaveLength(0);
+  });
+
+  it("throws, naming every rejection, when no endpoint is healthy", async () => {
+    const signer = twoEndpointSigner({ downChainId: true }, { chainId: 1 });
+    await expect(signer.beginOperation()).rejects.toThrow(/no healthy endpoint for chain 84532/);
+    await expect(signer.beginOperation()).rejects.toThrow(/answers for chain 1/);
+  });
+
+  it("never puts a raw endpoint URL in a label an operator could see", () => {
+    // The Alchemy rung carries an API key in its path.
+    const label = endpointLabel("https://base-sepolia.g.alchemy.com/v2/SECRETKEY", 2);
+    expect(label).toBe("2:base-sepolia.g.alchemy.com");
+    expect(label).not.toContain("SECRETKEY");
+    expect(endpointLabel("not a url", 0)).toBe("0:unparsed");
   });
 });
 
