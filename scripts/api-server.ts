@@ -1862,10 +1862,10 @@ app.post("/api/exit/delegations/revoke", strictLimit, async (req, res) => {
 });
 
 // ── Product trial codes - business-card "Try Now" + admin ──────────────────
-// Mirrors api/try/redeem.ts, api/try/access.ts, api/admin/campaigns.ts. The
-// SECURITY DEFINER RPCs enforce usage/time limits atomically; these routes only
-// capture IP/UA (for the attempt log) and gate the admin surface behind
-// ADMIN_ACCESS_KEY. See supabase/migrations/20260704000001_product_codes.sql.
+// Mirrors api/try/access.ts, api/admin/campaigns.ts. The SECURITY DEFINER RPCs
+// enforce usage/time limits atomically; these routes only capture IP/UA (for
+// the attempt log) and gate the admin surface behind ADMIN_ACCESS_KEY. See
+// supabase/migrations/20260704000001_product_codes.sql.
 const campaignsConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY);
 
 app.post("/api/try/access", strictLimit, async (req, res) => {

@@ -9,8 +9,8 @@
  * - Admin CRUD (create / list / expire) hits the table REST API directly.
  *
  * Tables + functions: see supabase/migrations/20260704000001_product_codes.sql.
- * Used by api/try/redeem.ts, api/try/access.ts, api/admin/campaigns.ts and the
- * mirrored routes in scripts/api-server.ts.
+ * Used by api/try/access.ts, api/admin/campaigns.ts, the account redeem flow,
+ * and the mirrored routes in scripts/api-server.ts.
  */
 
 import { randomInt } from "node:crypto";
@@ -37,7 +37,7 @@ function randomSuffix(n: number): string {
 /**
  * PostgREST error bodies quote the failing SQL and, on an auth failure, the
  * project ref — they belong in the server log, never in a thrown message that
- * an unauthenticated route might echo back (e.g. /api/try/redeem).
+ * an unauthenticated route might echo back (e.g. /api/try/access).
  */
 async function logErrorBody(scope: string, res: { status: number; text(): Promise<string> }): Promise<void> {
   const body = await res.text().catch(() => "");
