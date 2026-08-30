@@ -501,9 +501,20 @@ function WalletRow({
               onClick={() => onChange({ removed: true })}
               aria-label={`Stop watching ${name}`}
               title={`Stop watching ${name}`}
+              /* Icon-only below `sm`: at 390 this row is the profile select
+                 (already reading "Alerts at Conservative") beside a
+                 fixed-width button, and the label left too little room for
+                 the select's own text, clipping it mid-word. `max-sm:!px-0`
+                 needs the `!`: `size="md"`'s own `px-5` is unconditional (no
+                 responsive prefix), the same specificity as an unprefixed
+                 override, so without it this is the identical emit-order
+                 race the close button hit. `max-sm:w-12` needs no `!`, since
+                 there is no competing width class to race against below
+                 `sm`, and the query simply stops applying from `sm` up. */
+              className="max-sm:w-12 max-sm:!px-0"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Remove
+              <span className="hidden sm:inline">Remove</span>
             </Button>
           </div>
         </div>
