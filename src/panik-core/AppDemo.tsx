@@ -873,14 +873,24 @@ const FALLBACK_SCORE_NOTE =
  * Which profile the Compass table is partitioned on.
  *
  * A component rather than the loop it was, because the control now has two
- * homes: the page header's action slot from `md` up, which is where the
+ * homes: the page header's action slot from `lg` up, which is where the
  * approved table design puts it, and directly under the header below that. At
  * 390 the page's own name and three 48px plates come to 338px inside a 358px
  * column, so a header carrying both would have to ellipsise one of them or grow
  * past the 72px every other tab is drawn at.
  *
- * Exactly ONE of the two mounts at a time, off `isDesktop`, never a second copy
- * behind `hidden md:flex`: two `aria-pressed` groups with the same label are
+ * The cutoff is `isWide` (`lg`, 1024px), not `isDesktop` (`md`, 768px), because
+ * the sidebar and the three padded plates both claim width the same width
+ * budget draws the heading from: at 768 the header column measures 438px, the
+ * three plates measure 394px of it, and the 28px left for "COMPASS" at
+ * `text-2xl` (148px wide) is a heading truncated to a sliver rather than a
+ * shorter one. The header column does not clear the 558px both need until
+ * about 888px, so `md` through just under `lg` gets the segmented mount below
+ * the header, same as the phone width, and only `lg` up puts the toggle in
+ * the action slot.
+ *
+ * Exactly ONE of the two mounts at a time, off `isWide`, never a second copy
+ * behind `hidden lg:flex`: two `aria-pressed` groups with the same label are
  * two answers to "which profile is selected" for anything reading the tree.
  *
  * Three copies of one button became a map over the three profiles, so the
@@ -888,7 +898,7 @@ const FALLBACK_SCORE_NOTE =
  * the selected plate, not cobalt: cobalt is the nav's block and means "the
  * section you are in".
  *
- * Below `md` the mount also switches SHAPE, via `variant`: three independent
+ * Below `lg` the mount also switches SHAPE, via `variant`: three independent
  * shadow-cast plates that wrap onto a second line is what a 358px column below
  * the header used to render, and a control that reflows its own layout reads
  * as unstable in a way a page header's fixed-width action slot does not. The
@@ -3162,13 +3172,17 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             {activeTab === "compass" && (
               <TabPanel key="compass" tab="compass" gap="space-y-6">
                 {/* The profile chooser is the page's one control, so it sits in
-                    the header's action slot where the approved design puts it.
-                    `RiskProfileToggle` owns which of its two homes it takes at
-                    this width, and only one of them mounts. */}
+                    the header's action slot where the approved design puts it,
+                    from `lg` up. Below that the header can't carry "COMPASS"
+                    and three padded plates on the same line without truncating
+                    the heading (see `RiskProfileToggle`'s comment for the
+                    measured widths), so the toggle mounts below the header
+                    instead. `RiskProfileToggle` owns which of its two homes it
+                    takes at this width, and only one of them mounts. */}
                 <PageHeader
                   title="Compass"
                   action={
-                    isDesktop ? (
+                    isWide ? (
                       <RiskProfileToggle
                         selected={selectedRiskProfile}
                         onSelect={setSelectedRiskProfile}
@@ -3176,7 +3190,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     ) : undefined
                   }
                 />
-                {!isDesktop && (
+                {!isWide && (
                   <RiskProfileToggle
                     selected={selectedRiskProfile}
                     onSelect={setSelectedRiskProfile}
