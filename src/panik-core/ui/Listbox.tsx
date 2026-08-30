@@ -115,6 +115,16 @@ export interface ListboxProps {
    * always rendered.
    */
   panelClassName?: string;
+  /**
+   * Which edge of the trigger the panel hangs from vertically, `"bottom"` by
+   * default (the only value every existing caller ever rendered). The
+   * sidebar's trigger sits at the bottom of a 900px viewport, and a panel
+   * opening downward from there is clipped by the window with only its first
+   * row visible. `"top"` swaps `top-full mt-2` for `bottom-full mb-2`, the
+   * same 8px gap on the other edge; nothing about `alignRight`'s horizontal
+   * measurement changes, since that answers a different question.
+   */
+  placement?: "bottom" | "top";
 }
 
 export function Listbox({
@@ -129,6 +139,7 @@ export function Listbox({
   optionLabel,
   className = "",
   panelClassName = "w-80",
+  placement = "bottom",
 }: ListboxProps) {
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
@@ -288,7 +299,7 @@ export function Listbox({
              and there is no darker surface underneath to separate it by tone.
              `shadow-hard` replaces `shadow-2xl`: the blurred shadow scale is
              gone from the theme entirely. */
-          className={`absolute top-full ${LAYER.popover} mt-2 max-h-72 ${panelClassName} overflow-y-auto hard-edge bg-surface-overlay shadow-hard ${
+          className={`absolute ${placement === "top" ? "bottom-full mb-2" : "top-full mt-2"} ${LAYER.popover} max-h-72 ${panelClassName} overflow-y-auto hard-edge bg-surface-overlay shadow-hard ${
             alignRight ? "right-0" : "left-0"
           }`}
         >

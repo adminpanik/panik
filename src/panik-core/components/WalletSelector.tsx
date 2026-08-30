@@ -180,9 +180,7 @@ export function WalletSelector({
         }
         optionLabel={(i) => rowLabel(options[i])}
         optionClassName={({ selected: sel, active }) =>
-          `flex w-full items-center gap-2 px-3 py-2.5 text-left ${
-            active ? "bg-highlight" : sel ? "bg-highlight" : ""
-          }`
+          `flex w-full items-center gap-2 px-3 py-2.5 text-left ${active || sel ? "bg-highlight" : ""}`
         }
         renderOption={(i, { selected: sel }) => rowBody(options[i], sel)}
       />
@@ -242,11 +240,14 @@ export function WalletSelector({
              every other `Listbox` opens at: the sidebar has no room for a
              floating panel spilling past its own right edge. */
           panelClassName="w-full"
+          /* The block sits at the BOTTOM of the sidebar, under the nav's
+             permanent space for it: a panel opening downward from there runs
+             past the window, clipped to its first row. Opening upward is the
+             only direction with room. */
+          placement="top"
           optionLabel={(i) => rowLabel(options[i])}
           optionClassName={({ selected: sel, active }) =>
-            `flex w-full items-center gap-2 px-3 py-2.5 text-left ${
-              active ? "bg-highlight" : sel ? "bg-highlight" : ""
-            }`
+            `flex w-full items-center gap-2 px-3 py-2.5 text-left ${active || sel ? "bg-highlight" : ""}`
           }
           renderOption={(i, { selected: sel }) => rowBody(options[i], sel)}
         />
