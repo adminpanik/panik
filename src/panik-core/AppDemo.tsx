@@ -4990,7 +4990,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         >
                           Alert history
                         </CardTitle>
-                        <div className={`flex-1 px-4 pt-4 ${showSeeAll ? "" : "pb-4"}`}>{feed}</div>
+                        <div className="flex-1 p-4">{feed}</div>
                         {showSeeAll && (
                           <div className="shrink-0 border-t-[3px] border-solid border-border-strong px-4 py-3">
                             {seeAllButton}
