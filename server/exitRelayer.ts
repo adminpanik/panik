@@ -403,12 +403,17 @@ type SubmitResult = { ok: true; txHash: `0x${string}` } | { ok: false; reason: S
  *
  * The order is the whole safety argument:
  *   1. lease a signer (exclusive, so its nonce sequence cannot be double-spent),
+ *      which PINS one RPC endpoint and reads the nonce from it,
  *   2. check its balance (an underfunded relayer produces a stuck tx, not a
  *      clean failure),
  *   3. CLAIM the durable attempt row BEFORE broadcasting, so a crash between
  *      here and the receipt leaves evidence that stops a re-fire,
- *   4. broadcast,
- *   5. wait, replacing with a >=10% fee bump if it sticks,
+ *   4. broadcast THROUGH THE LEASE'S OPERATION, never through the signer: the
+ *      nonce in `tx` describes one node's mempool and is only valid there. See
+ *      the endpoint-pinning note at the top of server/relayerSigner.ts.
+ *   5. wait, replacing with a >=10% fee bump if it sticks, on the same pinned
+ *      node, so the replacement is priced against the transaction that node
+ *      actually holds,
  *   6. verify `status === "success"` — viem does NOT throw on revert, so a
  *      resolved receipt is not a successful one, and treating it as one is how
  *      a failed exit gets reported as protection.
@@ -429,7 +434,7 @@ async function submitOnce(input: SubmitInput): Promise<SubmitResult> {
   let claimed = false;
 
   try {
-    const balance = await lease.signer.balance();
+    const balance = await lease.operation.balance();
     const low = balance < deps.limits.minSignerBalanceWei;
     deps.emit({
       type: "relayer.balance",
@@ -474,13 +479,14 @@ async function submitOnce(input: SubmitInput): Promise<SubmitResult> {
       chainId: deps.expectedChainId,
     };
 
-    let txHash = await lease.signer.sendTransaction(tx);
+    let txHash = await lease.operation.sendTransaction(tx);
     deps.emit({
       type: "relayer.attempted",
       wallet,
       nonce: permit.nonce.toString(),
       txHash,
       signer: lease.signer.address,
+      endpoint: lease.operation.endpoint,
       gas: gas.toString(),
       maxFeePerGas: tx.maxFeePerGas.toString(),
     });
@@ -504,7 +510,7 @@ async function submitOnce(input: SubmitInput): Promise<SubmitResult> {
           maxPriorityFeePerGas: bumpFee(tx.maxPriorityFeePerGas),
         };
         try {
-          const newHash = await lease.signer.sendTransaction(replacement);
+          const newHash = await lease.operation.sendTransaction(replacement);
           deps.emit({
             type: "relayer.replaced",
             wallet,

@@ -250,6 +250,13 @@ export type RelayerEvent =
       nonce: string;
       txHash: string;
       signer: string;
+      /**
+       * The RPC endpoint the nonce was read from AND the broadcast went to, as
+       * a log-safe `index:host` label. Never the URL: the Alchemy rung carries
+       * an API key in its path. Present so an operator can tell which node's
+       * mempool a submission is sitting in.
+       */
+      endpoint: string;
       gas: string;
       maxFeePerGas: string;
     }
