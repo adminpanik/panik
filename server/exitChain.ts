@@ -29,7 +29,8 @@
  * signers, the coverage sweep and this reader must all be on the same
  * endpoints. That resolution used to be copied into server/relayerChain.ts, and
  * two copies of one ladder is how a relayer and a reader end up disagreeing
- * about what the chain says.
+ * about what the chain says. Reads fail over across that ladder; a SUBMISSION
+ * pins one rung of it, for the reason spelled out on `executorRpcTransport`.
  */
 
 import { createPublicClient, fallback, http } from "viem";
@@ -156,6 +157,13 @@ export function executorRpcUrls(
  *
  * `rpcUrl` pins one endpoint explicitly (the fork test's anvil node), and pins
  * it alone — a fork run must never silently drift onto a public node.
+ *
+ * NOT FOR SIGNING. A fallback routes each call independently, which is right
+ * for a read and wrong for a nonce: `eth_getTransactionCount(pending)` and
+ * `eth_sendRawTransaction` landing on two nodes with different mempool views
+ * hands out a duplicate or a gapped nonce. The relayer's signer therefore
+ * consumes `executorRpcUrls` directly and pins ONE rung per submission — see
+ * the header of server/relayerSigner.ts.
  */
 export function executorRpcTransport(rpcUrl?: string, chainId: number = EXIT_CHAIN_ID) {
   const urls = rpcUrl ? [rpcUrl] : executorRpcUrls(chainId);
