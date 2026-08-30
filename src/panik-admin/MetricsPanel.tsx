@@ -170,7 +170,7 @@ export function MetricsPanel({
       ) : !metrics ? (
         <div className="grid md:grid-cols-3">
           {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className={`p-5 ${cellRules(i)}`}>
+            <div key={i} className={`p-5 ${i === 4 ? "md:col-span-2" : ""} ${cellRules(i)}`}>
               <Skeleton className="h-4 w-28" />
               <Skeleton className="mt-2 h-8 w-36" />
             </div>
@@ -238,18 +238,18 @@ export function MetricsPanel({
               sub="Active in the watch registry"
             />
           </div>
-          <div className={`p-5 ${cellRules(4)}`}>
+          {/* `md:col-span-2`: five figures in a three-column grid leave a
+              sixth cell with nothing in it, which reads as a missing figure
+              rather than as empty grid track. Giving the last cell the
+              remaining two columns fills the row instead of leaving a
+              bordered blank beside it. */}
+          <div className={`p-5 md:col-span-2 ${cellRules(4)}`}>
             <Stat
               label="Positions monitored"
               value={formatCount(metrics.positionsMonitored)}
               sub={freshness ?? undefined}
             />
           </div>
-          {/* Five figures in a three-column grid leave one cell empty, and
-              without this the second row's rule stopped two thirds of the way
-              across. Only from `md`: at one column it would be a stray rule
-              under the last figure. */}
-          <div aria-hidden="true" className={`hidden md:block ${cellRules(5)}`} />
         </div>
       )}
       {/* `loading` is read so a reload while figures are already on screen is

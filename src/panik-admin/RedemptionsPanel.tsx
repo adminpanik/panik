@@ -40,7 +40,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
 import { Button, Chip, EmptyState, Skeleton } from "../panik-core/ui";
-import { Ledger, NotRecorded, Td, Th, Tr } from "./ui/controls";
+import { Ledger, NotRecorded, StackedFact, StackedRow, Td, Th, Tr } from "./ui/controls";
 import {
   isSignedOut,
   listRedemptions,
@@ -158,11 +158,18 @@ export function RedemptionsPanel({
   return (
     <div className="flex flex-col gap-5">
       <section>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <h4 className={SECTION}>Redeemed by {redemptions.length}, still on file</h4>
-          <Button variant="ghost" onClick={refresh} aria-label="Reload redemptions">
+        {/* `flex-nowrap` and a truncating caption, not `flex-wrap`: at 390px
+            the caption and Reload used to wrap onto two lines the moment the
+            "Redeemed by N, still on file" sentence grew past the width left
+            beside the button. The caption gives way instead, and below `sm`
+            Reload sheds its word and becomes the icon alone. */}
+        <div className="mb-2 flex flex-nowrap items-center justify-between gap-3">
+          <h4 className={`min-w-0 truncate ${SECTION}`}>
+            Redeemed by {redemptions.length}, still on file
+          </h4>
+          <Button variant="ghost" onClick={refresh} aria-label="Reload" className="shrink-0">
             <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-            Reload
+            <span className="hidden sm:inline">Reload</span>
           </Button>
         </div>
         {clearedLine ? (
@@ -179,38 +186,66 @@ export function RedemptionsPanel({
             }
           />
         ) : (
-          <div className="hard-edge bg-surface-raised">
-            <Ledger
-              minWidth="min-w-[44rem]"
-              head={
-                <>
-                  <Th>Email</Th>
-                  <Th>Redeemed</Th>
-                  <Th>First opened</Th>
-                  <Th>Claim address</Th>
-                  <Th>Browser</Th>
-                </>
-              }
-            >
+          <>
+            <div className="hidden md:block hard-edge bg-surface-raised">
+              <Ledger
+                minWidth="min-w-[44rem]"
+                head={
+                  <>
+                    <Th>Email</Th>
+                    <Th>Redeemed</Th>
+                    <Th>First opened</Th>
+                    <Th>Claim address</Th>
+                    <Th>Browser</Th>
+                  </>
+                }
+              >
+                {redemptions.map((r, i) => (
+                  <Tr key={`${r.created_at}-${i}`}>
+                    <Td className="font-sans font-bold text-text-primary">
+                      {r.email ?? <NotRecorded>no email captured</NotRecorded>}
+                    </Td>
+                    <Td className="whitespace-nowrap font-mono text-text-secondary">
+                      {when(r.created_at)}
+                    </Td>
+                    <Td className="whitespace-nowrap font-mono text-text-secondary">
+                      {r.first_opened_at ? when(r.first_opened_at) : <NotRecorded>not opened yet</NotRecorded>}
+                    </Td>
+                    <Td className="font-mono text-text-secondary">{r.claim_ip ?? <NotRecorded />}</Td>
+                    <Td className="font-sans text-text-secondary" title={r.claim_user_agent ?? undefined}>
+                      {shortAgent(r.claim_user_agent) ?? <NotRecorded />}
+                    </Td>
+                  </Tr>
+                ))}
+              </Ledger>
+            </div>
+
+            <div className="md:hidden hard-edge bg-surface-raised">
               {redemptions.map((r, i) => (
-                <Tr key={`${r.created_at}-${i}`}>
-                  <Td className="font-sans font-bold text-text-primary">
-                    {r.email ?? <NotRecorded>no email captured</NotRecorded>}
-                  </Td>
-                  <Td className="whitespace-nowrap font-mono text-text-secondary">
-                    {when(r.created_at)}
-                  </Td>
-                  <Td className="whitespace-nowrap font-mono text-text-secondary">
-                    {r.first_opened_at ? when(r.first_opened_at) : <NotRecorded>not opened yet</NotRecorded>}
-                  </Td>
-                  <Td className="font-mono text-text-secondary">{r.claim_ip ?? <NotRecorded />}</Td>
-                  <Td className="font-sans text-text-secondary" title={r.claim_user_agent ?? undefined}>
+                <StackedRow
+                  key={`${r.created_at}-${i}`}
+                  lead={r.email ?? <NotRecorded>no email captured</NotRecorded>}
+                >
+                  <StackedFact label="Redeemed">
+                    <span className="font-mono">{when(r.created_at)}</span>
+                  </StackedFact>
+                  <StackedFact label="First opened">
+                    {r.first_opened_at ? (
+                      <span className="font-mono">{when(r.first_opened_at)}</span>
+                    ) : (
+                      <NotRecorded>not opened yet</NotRecorded>
+                    )}
+                  </StackedFact>
+                  <StackedFact label="Claim address">
+                    {r.claim_ip ? <span className="font-mono">{r.claim_ip}</span> : <NotRecorded />}
+                  </StackedFact>
+                  <StackedFact label="Browser">
                     {shortAgent(r.claim_user_agent) ?? <NotRecorded />}
-                  </Td>
-                </Tr>
+                  </StackedFact>
+                </StackedRow>
               ))}
-            </Ledger>
-          </div>
+            </div>
+          </>
         )}
       </section>
 
@@ -221,37 +256,58 @@ export function RedemptionsPanel({
             Every attempt against this code succeeded.
           </p>
         ) : (
-          <div className="hard-edge bg-surface-raised">
-            <Ledger
-              minWidth="min-w-[38rem]"
-              head={
-                <>
-                  <Th>Outcome</Th>
-                  <Th>When</Th>
-                  <Th>Address</Th>
-                  <Th>Browser</Th>
-                </>
-              }
-            >
+          <>
+            <div className="hidden md:block hard-edge bg-surface-raised">
+              <Ledger
+                minWidth="min-w-[38rem]"
+                head={
+                  <>
+                    <Th>Outcome</Th>
+                    <Th>When</Th>
+                    <Th>Address</Th>
+                    <Th>Browser</Th>
+                  </>
+                }
+              >
+                {failed.map((a, i) => (
+                  <Tr key={`${a.created_at}-${i}`}>
+                    <Td>
+                      {/* `whitespace-nowrap` because the outcome column is the
+                          narrowest in the table and a wrapped chip breaks out
+                          of its own 24px box. */}
+                      <Chip className="whitespace-nowrap">{OUTCOME_LABEL[a.outcome]}</Chip>
+                    </Td>
+                    <Td className="whitespace-nowrap font-mono text-text-secondary">
+                      {when(a.created_at)}
+                    </Td>
+                    <Td className="font-mono text-text-secondary">{a.ip ?? <NotRecorded />}</Td>
+                    <Td className="font-sans text-text-secondary" title={a.user_agent ?? undefined}>
+                      {shortAgent(a.user_agent) ?? <NotRecorded />}
+                    </Td>
+                  </Tr>
+                ))}
+              </Ledger>
+            </div>
+
+            <div className="md:hidden hard-edge bg-surface-raised">
               {failed.map((a, i) => (
-                <Tr key={`${a.created_at}-${i}`}>
-                  <Td>
-                    {/* `whitespace-nowrap` because the outcome column is the
-                        narrowest in the table and a wrapped chip breaks out of
-                        its own 24px box. */}
-                    <Chip className="whitespace-nowrap">{OUTCOME_LABEL[a.outcome]}</Chip>
-                  </Td>
-                  <Td className="whitespace-nowrap font-mono text-text-secondary">
-                    {when(a.created_at)}
-                  </Td>
-                  <Td className="font-mono text-text-secondary">{a.ip ?? <NotRecorded />}</Td>
-                  <Td className="font-sans text-text-secondary" title={a.user_agent ?? undefined}>
+                <StackedRow
+                  key={`${a.created_at}-${i}`}
+                  lead={<Chip className="whitespace-nowrap">{OUTCOME_LABEL[a.outcome]}</Chip>}
+                >
+                  <StackedFact label="When">
+                    <span className="font-mono">{when(a.created_at)}</span>
+                  </StackedFact>
+                  <StackedFact label="Address">
+                    {a.ip ? <span className="font-mono">{a.ip}</span> : <NotRecorded />}
+                  </StackedFact>
+                  <StackedFact label="Browser">
                     {shortAgent(a.user_agent) ?? <NotRecorded />}
-                  </Td>
-                </Tr>
+                  </StackedFact>
+                </StackedRow>
               ))}
-            </Ledger>
-          </div>
+            </div>
+          </>
         )}
       </section>
     </div>
