@@ -194,6 +194,12 @@ export function WalletsPanel({
   const count = draftCount(draft);
   const atCap = max !== null && count >= max;
   const busy = status === "signing" || status === "saving";
+  // The footer itself, gone rather than sitting there reading "No unsaved
+  // changes": with nothing staged and nothing left to report, a save bar is
+  // an empty control taking up the last thing on screen for no reason. It
+  // stays for a result the reader has not seen yet (an error, or the
+  // confirmation right after a save clears the draft back to zero ops).
+  const showFooter = !readOnly && (ops.length > 0 || status === "error" || status === "saved");
 
   const patch = (wallet: string, change: Partial<WatchDraftRow>) => {
     // Any edit invalidates the previous outcome: a green "saved" line sitting
@@ -346,11 +352,11 @@ export function WalletsPanel({
         )}
       </div>
 
-      {/* The whole save footer, gone rather than disabled: there is nothing to
-          stage, so a greyed "Save changes" would be a control describing an
-          action that is not merely unavailable but meaningless here. The panel
-          says why at the top, once. */}
-      {!readOnly && (
+      {/* The whole save footer, gone rather than disabled: with nothing
+          staged and no result to report, a greyed "Save changes" beside "No
+          unsaved changes" was a control describing an action that is not
+          merely unavailable but meaningless here. */}
+      {showFooter && (
         <div className="flex shrink-0 items-center justify-between gap-4 border-t-[3px] border-border-strong px-6 py-4">
           <div className="flex min-w-0 flex-col gap-1">
             {/* The API's own words, verbatim. It names the operation that
@@ -367,11 +373,11 @@ export function WalletsPanel({
                 Saved. PANIK is watching {count} wallet{count === 1 ? "" : "s"} for you.
               </p>
             )}
-            <span className="text-xs font-sans tabular-nums text-text-secondary">
-              {ops.length === 0
-                ? "No unsaved changes"
-                : `${ops.length} unsaved change${ops.length === 1 ? "" : "s"}`}
-            </span>
+            {ops.length > 0 && (
+              <span className="text-xs font-sans tabular-nums text-text-secondary">
+                {ops.length} unsaved change{ops.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
           <Button
             size="lg"
