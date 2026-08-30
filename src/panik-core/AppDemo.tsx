@@ -1375,7 +1375,7 @@ function RiskBreakdownPanel({
               {/* Keyed on the band this preset ALREADY carries, not on a band
                   re-derived from its number: the re-derived chain had no HIGH
                   branch, so a preset labelled HIGH was painted CRITICAL red. */}
-              <RiskChip band={preset.riskStatus}>{preset.riskStatus}</RiskChip>
+              <RiskChip band={preset.riskStatus}>{BAND_WORD[preset.riskStatus]}</RiskChip>
             </div>
           </div>
           <div className="flex items-baseline gap-1.5">

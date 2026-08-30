@@ -13,7 +13,7 @@
 import React, { useEffect, useRef } from "react";
 import { ArrowLeft } from "lucide-react";
 import type { HistoryAlert, LiveProtocol } from "../lib/live";
-import { limitEventCopy, limitStateCopy } from "../lib/utils";
+import { BAND_WORD, limitEventCopy, limitStateCopy } from "../lib/utils";
 import { Button, Card, EmptyState, Skeleton } from "../ui";
 import { InfoTip } from "./InfoTip";
 
@@ -126,7 +126,7 @@ export function AlertFeed({ alerts, protocolLabel, targets, onSelectTarget }: Al
            row: the band is a pure function of the score, and "approaching →
            outside" is a state-machine dump on the card whose job is to say what
            happened to someone's money. What happened is the destination. */
-        const hover = `PANIK score ${a.score} (${a.band}). ${
+        const hover = `PANIK score ${a.score} (${BAND_WORD[a.band]}). ${
           a.from_status
             ? `Previously ${limitStateCopy(a.from_status)}.`
             : "First reading recorded for this position."
