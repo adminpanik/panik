@@ -1862,35 +1862,11 @@ app.post("/api/exit/delegations/revoke", strictLimit, async (req, res) => {
 });
 
 // ── Product trial codes - business-card "Try Now" + admin ──────────────────
-// Mirrors api/try/redeem.ts, api/try/access.ts, api/admin/campaigns.ts. The
-// SECURITY DEFINER RPCs enforce usage/time limits atomically; these routes only
-// capture IP/UA (for the attempt log) and gate the admin surface behind
-// ADMIN_ACCESS_KEY. See supabase/migrations/20260704000001_product_codes.sql.
+// Mirrors api/try/access.ts, api/admin/campaigns.ts. The SECURITY DEFINER RPCs
+// enforce usage/time limits atomically; these routes only capture IP/UA (for
+// the attempt log) and gate the admin surface behind ADMIN_ACCESS_KEY. See
+// supabase/migrations/20260704000001_product_codes.sql.
 const campaignsConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY);
-
-// Mirrors the trial_grants_email_format CHECK: a permissive typo screen, not deliverability.
-const TRY_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-app.post("/api/try/redeem", strictLimit, async (req, res) => {
-  const body = (req.body ?? {}) as { code?: string; email?: string; honeypot?: string };
-  const code = String(body.code ?? "").trim();
-  const email = String(body.email ?? "").trim().toLowerCase();
-  if (String(body.honeypot ?? "").trim() !== "") { res.status(200).json({ ok: false, outcome: "not_found" }); return; }
-  if (!code) { res.status(400).json({ ok: false, error: "missing code" }); return; }
-  if (!TRY_EMAIL_RE.test(email)) { res.status(400).json({ ok: false, error: "invalid email" }); return; }
-  if (!campaignsConfigured) { res.status(503).json({ ok: false, error: "unconfigured (SUPABASE_*)" }); return; }
-  try {
-    const result = await CampaignStore.fromEnv().redeem(code, email, clientIp(req), userAgent(req.headers));
-    if (result.outcome === "success" && result.token) {
-      res.json({ ok: true, outcome: "success", trialUrl: `/app?trial=${result.token}` });
-    } else {
-      res.json({ ok: false, outcome: result.outcome });
-    }
-  } catch (err) {
-    console.error(`POST /api/try/redeem -> 502: ${(err as Error).message}`);
-    res.status(502).json({ ok: false, error: "redemption failed" });
-  }
-});
 
 app.post("/api/try/access", strictLimit, async (req, res) => {
   const token = String((req.body as { token?: string } | undefined)?.token ?? "").trim();
