@@ -23,12 +23,18 @@
  * failed": the unreachable-list state borrows `EmptyState`'s dashed
  * risk-unknown treatment, and a save error takes the same critical text the
  * Telegram card's error line already uses.
+ *
+ * ONE CARD PER WALLET. Each watched address is its own bordered, shadowed
+ * block with a black band up top: the identity band never changes shape
+ * whether the card underneath is the live editor, the staged-for-removal
+ * state or the read-only sentence, so a reader scanning several wallets is
+ * scanning the same shape every time.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Plus, Trash2, Undo2, WalletCards, X } from "lucide-react";
+import { ChevronDown, Plus, Trash2, Undo2, X } from "lucide-react";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
-import { Button, Chip, EmptyState, Field, Skeleton } from "../ui";
+import { Button, Card, EmptyState, Field, Skeleton } from "../ui";
 import { RISK_PROFILES, truncateAddress } from "../lib/utils";
 import { isEvmAddress, type GetProof } from "../lib/telegram";
 import {
@@ -72,25 +78,38 @@ function ProfileSelect({
   disabled,
   label,
   onChange,
+  optionLabel = profileLabel,
+  className = "",
 }: {
   value: RiskProfile;
   disabled: boolean;
   /** The accessible name. The visible one is on the row this sits in. */
   label: string;
   onChange: (profile: RiskProfile) => void;
+  /**
+   * How an option reads. Defaults to the bare profile name for the Add
+   * card, where this select sits beside the "Name (optional)" field in a
+   * form the reader is already filling in, so "Conservative" is plainly a
+   * value being chosen. A wallet card's select sits beside a Remove button
+   * instead, with nothing labelling it as a profile picker, so it passes
+   * "Alerts at {profile}" and reads as a whole fact on its own.
+   */
+  optionLabel?: (p: RiskProfile) => string;
+  /** Where the control sits: `flex-1`, `w-[148px]`, and so on. */
+  className?: string;
 }) {
   return (
-    <div className="relative inline-flex">
+    <div className={`relative inline-flex ${className}`}>
       <select
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as RiskProfile)}
         aria-label={label}
-        className="h-10 w-full cursor-pointer appearance-none rounded-md border border-border-strong bg-surface-sunken pl-3 pr-9 font-sans text-sm text-text-primary disabled:opacity-50"
+        className="h-12 w-full cursor-pointer appearance-none hard-edge bg-surface-raised pl-3 pr-9 font-sans text-sm text-text-primary disabled:opacity-40"
       >
         {RISK_PROFILES.map((p) => (
           <option key={p} value={p}>
-            {profileLabel(p)}
+            {optionLabel(p)}
           </option>
         ))}
       </select>
@@ -175,6 +194,31 @@ export function WalletsPanel({
   const count = draftCount(draft);
   const atCap = max !== null && count >= max;
   const busy = status === "signing" || status === "saving";
+  // The footer itself, gone rather than sitting there reading "No unsaved
+  // changes": with nothing staged and nothing left to report, a save bar is
+  // an empty control taking up the last thing on screen for no reason. It
+  // stays for a result the reader has not seen yet (an error, or the
+  // confirmation right after a save clears the draft back to zero ops).
+  const showFooter = !readOnly && (ops.length > 0 || status === "error" || status === "saved");
+
+  /**
+   * The Add form, collapsed behind a button by default. It opens on request
+   * rather than sitting on screen at all times, which is what let the old
+   * "{count} of {max} watched" counter disappear too: the form itself, once
+   * open, is the only place that context still matters.
+   */
+  const [addOpen, setAddOpen] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  // Skips the focus-return on the initial render (addOpen starts false, and
+  // there is no button press to return focus TO yet) and fires only on the
+  // true -> false transition, whether that came from Cancel or a successful
+  // add: either way the form is gone and its trigger is the sensible place
+  // for focus to land.
+  const addWasOpen = useRef(false);
+  useEffect(() => {
+    if (addWasOpen.current && !addOpen) addButtonRef.current?.focus();
+    addWasOpen.current = addOpen;
+  }, [addOpen]);
 
   const patch = (wallet: string, change: Partial<WatchDraftRow>) => {
     // Any edit invalidates the previous outcome: a green "saved" line sitting
@@ -188,6 +232,9 @@ export function WalletsPanel({
     setStatus("idle");
     setSaveError(null);
     setDraft((rows) => [...rows, row]);
+    // A successful add is also a close: there is nothing left in the form to
+    // look at once the row it was for now exists as a card above it.
+    setAddOpen(false);
   };
 
   const save = async () => {
@@ -219,44 +266,36 @@ export function WalletsPanel({
       }}
       className="flex h-full flex-col overflow-hidden outline-hidden"
     >
-      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle p-5">
-        <div className="flex min-w-0 items-start gap-3">
-          <WalletCards className="mt-0.5 h-5 w-5 shrink-0 text-text-secondary" aria-hidden="true" />
-          <div className="min-w-0">
-            <h3
-              id="wallets-panel-heading"
-              className="text-sm font-sans font-bold text-text-primary"
-            >
-              Wallets
-            </h3>
-            {/* Keep-inline by the three-way test: it names the one thing a
-                reader cannot infer from the rows, which is that the level beside
-                each address decides when that wallet raises an alert. */}
-            <span className="mt-1 block text-xs font-sans leading-relaxed text-text-secondary">
-              {readOnly
-                ? "Wallets PANIK watches for this account. Sign in with your wallet to change the list."
-                : "Wallets PANIK watches for you. The level beside each one sets when it alerts."}
-            </span>
-          </div>
-        </div>
+      <div className="flex shrink-0 items-center justify-between border-b-[3px] border-border-strong px-6 py-4">
+        <h3 id="wallets-panel-heading" className="text-base font-sans font-bold text-text-primary">
+          Wallets
+        </h3>
         <Button
           variant="secondary"
           onClick={onClose}
           aria-label="Close wallets"
           title={ops.length > 0 ? "Close without saving your changes" : "Close wallets"}
+          /* `!px-0`, not `px-0`: `size="md"`'s own `px-5` is the same
+             specificity, so which one wins is Tailwind's emit order rather
+             than which is listed last here (the exact gotcha `Card`'s own
+             doc comment names for `className` overrides). Without the `!`
+             this squeezed the button's 48px box down to an 8px content
+             width and flexbox shrank the 16px `X` into a 3px sliver. */
+          className="h-12 w-12 !px-0"
         >
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto p-5">
-        {/* The cap, stated only once it is known. A counter that guesses the
-            limit is a counter that teaches a wrong one the day the server
-            raises it, so the number comes off the read that produced the list. */}
-        {max !== null && (
-          <p className="text-xs font-sans text-text-secondary tabular-nums">
-            {count} of {max} watched
-            {atCap && ". Remove one to add another."}
+      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6">
+        {/* The cap used to be stated here as "{count} of {max} watched" on
+            every open. It is gone now that the form it explained is gone too:
+            the number only ever mattered to explain why the Add button might
+            be disabled, and the disabled button now says that itself, beside
+            itself, at the one moment it is true. */}
+        {readOnly && (
+          <p className="text-sm font-sans text-text-secondary">
+            Sign in with your wallet to change the list.
           </p>
         )}
 
@@ -296,7 +335,7 @@ export function WalletsPanel({
         )}
 
         {draft.length > 0 && (
-          <ul className="divide-y divide-border-subtle">
+          <div className="flex flex-col gap-4">
             {draft.map((row) => (
               <WalletRow
                 key={row.wallet}
@@ -309,7 +348,7 @@ export function WalletsPanel({
                 onChange={(change) => patch(row.wallet, change)}
               />
             ))}
-          </ul>
+          </div>
         )}
 
         {/* No add form until the server has said how long a list may be and how
@@ -317,44 +356,79 @@ export function WalletsPanel({
             both, and the reader would find out which guess was wrong from a
             rejected batch. */}
         {!readOnly && max !== null && labelMax !== null && (
-          <AddWalletForm
-            defaultProfile={defaultProfile}
-            labelMax={labelMax}
-            atCap={atCap}
-            max={max}
-            disabled={busy}
-            alreadyWatched={(w) => draft.some((r) => r.wallet === w && !r.removed)}
-            onAdd={addRow}
-          />
+          atCap ? (
+            <div>
+              {/* Disabled rather than hidden: a button that vanished at cap
+                  would leave the reader wondering whether adding wallets is
+                  a thing this panel does at all. Disabled and explained is
+                  the same fact the old counter used to carry, now stated
+                  only at the one moment it is true. */}
+              <Button variant="secondary" disabled className="w-full">
+                <Plus className="h-3.5 w-3.5" />
+                Add a wallet
+              </Button>
+              <p className="mt-2 text-xs font-sans text-text-secondary">
+                Your list is full at {max} wallets. Remove one to add another.
+              </p>
+            </div>
+          ) : addOpen ? (
+            <AddWalletForm
+              defaultProfile={defaultProfile}
+              labelMax={labelMax}
+              disabled={busy}
+              alreadyWatched={(w) => draft.some((r) => r.wallet === w && !r.removed)}
+              onAdd={addRow}
+              onCancel={() => setAddOpen(false)}
+            />
+          ) : (
+            <Button
+              ref={addButtonRef}
+              variant="secondary"
+              onClick={() => setAddOpen(true)}
+              className="w-full"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add a wallet
+            </Button>
+          )
         )}
       </div>
 
-      {/* The whole save footer, gone rather than disabled: there is nothing to
-          stage, so a greyed "Save changes" would be a control describing an
-          action that is not merely unavailable but meaningless here. The panel
-          says why at the top, once. */}
-      {!readOnly && (
-      <div className="shrink-0 space-y-2 border-t border-border-subtle p-5">
-        {/* The API's own words, verbatim. It names the operation that failed
-            ("ops[2].label is longer than 60 characters"), and rewording it here
-            would throw away the only part that says which row to fix. */}
-        {status === "error" && saveError && (
-          <p role="alert" className="text-xs font-sans leading-relaxed text-risk-critical">
-            {saveError}
-          </p>
-        )}
-        {status === "saved" && (
-          <p role="status" className="text-xs font-sans text-text-secondary">
-            Saved. PANIK is watching {count} wallet{count === 1 ? "" : "s"} for you.
-          </p>
-        )}
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-sans tabular-nums text-text-secondary">
-            {ops.length === 0
-              ? "No unsaved changes"
-              : `${ops.length} unsaved change${ops.length === 1 ? "" : "s"}`}
-          </span>
-          <Button size="lg" onClick={() => void save()} disabled={ops.length === 0 || busy}>
+      {/* The whole save footer, gone rather than disabled: with nothing
+          staged and no result to report, a greyed "Save changes" beside "No
+          unsaved changes" was a control describing an action that is not
+          merely unavailable but meaningless here. */}
+      {showFooter && (
+        <div className="flex shrink-0 items-center justify-between gap-4 border-t-[3px] border-border-strong px-6 py-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            {/* The API's own words, verbatim. It names the operation that
+                failed ("ops[2].label is longer than 60 characters"), and
+                rewording it here would throw away the only part that says
+                which row to fix. */}
+            {status === "error" && saveError && (
+              <p role="alert" className="text-xs font-sans leading-relaxed text-risk-critical">
+                {saveError}
+              </p>
+            )}
+            {status === "saved" && (
+              <p role="status" className="text-xs font-sans text-text-secondary">
+                Saved. PANIK is watching {count} wallet{count === 1 ? "" : "s"} for you.
+              </p>
+            )}
+            {ops.length > 0 && (
+              <span className="text-xs font-sans tabular-nums text-text-secondary">
+                {ops.length} unsaved change{ops.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+          <Button
+            size="lg"
+            onClick={() => void save()}
+            disabled={ops.length === 0 || busy}
+            // Stated before the popup, not after it: one signature covers the
+            // whole batch, which is the fact that makes staging worth doing.
+            title="Saving asks for one signature covering every change above. Free, no transaction, no gas."
+          >
             {status === "signing"
               ? "Sign in wallet..."
               : status === "saving"
@@ -362,15 +436,6 @@ export function WalletsPanel({
                 : "Save changes"}
           </Button>
         </div>
-        {/* Stated before the popup, not after it. One signature covers the whole
-            batch, which is the fact that makes staging worth doing and the one a
-            reader would otherwise learn by counting prompts. */}
-        {ops.length > 0 && status !== "error" && (
-          <p className="text-xs font-sans leading-relaxed text-text-secondary">
-            Saving asks for one signature covering every change above. Free, no transaction, no gas.
-          </p>
-        )}
-      </div>
       )}
     </div>
   );
@@ -380,9 +445,14 @@ export function WalletsPanel({
  * One watched wallet: what it is called, what it is, and what level it alerts
  * at.
  *
- * Both fields are live inputs rather than an edit mode, because this panel is
- * only ever opened to change something and a per-row edit toggle would put a
- * click in front of every change while the save is batched anyway.
+ * A black identity band up top, unchanged across every state below it, so a
+ * reader scanning several cards is scanning the same shape each time: the
+ * address and the "your wallet" / "showing in Portfolio" marker are always in
+ * the same place, and only the body changes with what there is to do.
+ *
+ * Both editable fields are live inputs rather than an edit mode, because this
+ * panel is only ever opened to change something and a per-row edit toggle
+ * would put a click in front of every change while the save is batched anyway.
  */
 function WalletRow({
   row,
@@ -402,21 +472,27 @@ function WalletRow({
   onChange: (change: Partial<WatchDraftRow>) => void;
 }) {
   const name = row.label.trim() || truncateAddress(row.wallet);
+  // The one marker a wallet gets on its band, or none: an owned wallet is
+  // never also "showing in Portfolio" (it always is, trivially), so at most
+  // one of these is ever true.
+  const plateText = isOwner ? "Your wallet" : isViewed ? "Showing in Portfolio" : null;
   return (
-    <li className="py-4 first:pt-0 last:pb-0">
-      <div className="flex flex-wrap items-center gap-2">
+    <Card tone="raised" padded={false}>
+      <div className="flex items-center justify-between gap-2 bg-text-primary px-4 py-2.5 text-white">
         {/* Mono is reserved for hex addresses, and this is one. Truncated with
             the whole thing on hover: a 42-character string is not something a
             reader checks by reading, it is something they check by comparing
             the ends. */}
-        <span
-          className="font-mono text-xs text-text-secondary"
-          title={row.wallet}
-        >
+        <span className="min-w-0 truncate font-mono text-sm font-bold" title={row.wallet}>
           {truncateAddress(row.wallet)}
         </span>
-        {isOwner && <Chip>Your wallet</Chip>}
-        {isViewed && !isOwner && <Chip>Showing in Portfolio</Chip>}
+        {/* A white plate on the black band, not `Chip`: `Chip`'s own black
+            border and shadow are invisible on a black fill. */}
+        {plateText && (
+          <span className="label-type inline-flex h-6 shrink-0 items-center bg-surface-raised px-2 text-2xs text-text-primary">
+            {plateText}
+          </span>
+        )}
       </div>
 
       {readOnly ? (
@@ -424,12 +500,12 @@ function WalletRow({
            called and the level it alerts at. Rendered as a sentence rather than
            as a disabled input, because a greyed-out field still reads as
            something to click, and there is nothing here to click. */
-        <p className="mt-2 text-xs font-sans leading-relaxed text-text-secondary">
+        <p className="p-4 text-xs font-sans leading-relaxed text-text-secondary">
           {row.label.trim() ? `${row.label.trim()}. ` : ""}
           Alerts at the {profileLabel(row.profile)} level.
         </p>
       ) : row.removed ? (
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 p-4">
           <span className="text-xs font-sans leading-relaxed text-text-secondary">
             {isOwner
               ? "Staged for removal. PANIK would stop watching your own wallet."
@@ -446,9 +522,9 @@ function WalletRow({
           </Button>
         </div>
       ) : (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2 p-4">
           <Field
-            label="Name this wallet"
+            label="Name"
             aria-label={`Name for ${truncateAddress(row.wallet)}`}
             value={row.label}
             maxLength={labelMax ?? undefined}
@@ -456,29 +532,42 @@ function WalletRow({
             onChange={(e) => onChange({ label: e.target.value })}
             autoComplete="off"
             spellCheck={false}
-            /* Same 160px floor as the add form's name field, and for the same
-               reason: the picker and the remove button beside it do not shrink. */
-            className="min-w-40 flex-1"
+            className="w-full"
           />
-          <ProfileSelect
-            value={row.profile}
-            disabled={disabled}
-            label={`Alert level for ${name}`}
-            onChange={(profile) => onChange({ profile })}
-          />
-          <Button
-            variant="secondary"
-            disabled={disabled}
-            onClick={() => onChange({ removed: true })}
-            aria-label={`Stop watching ${name}`}
-            title={`Stop watching ${name}`}
-            className="h-10"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex gap-2">
+            <ProfileSelect
+              value={row.profile}
+              disabled={disabled}
+              label={`Alert level for ${name}`}
+              onChange={(profile) => onChange({ profile })}
+              optionLabel={(p) => `Alerts at ${profileLabel(p)}`}
+              className="flex-1"
+            />
+            <Button
+              variant="secondary"
+              disabled={disabled}
+              onClick={() => onChange({ removed: true })}
+              aria-label={`Stop watching ${name}`}
+              title={`Stop watching ${name}`}
+              /* Icon-only below `sm`: at 390 this row is the profile select
+                 (already reading "Alerts at Conservative") beside a
+                 fixed-width button, and the label left too little room for
+                 the select's own text, clipping it mid-word. `max-sm:!px-0`
+                 needs the `!`: `size="md"`'s own `px-5` is unconditional (no
+                 responsive prefix), the same specificity as an unprefixed
+                 override, so without it this is the identical emit-order
+                 race the close button hit. `max-sm:w-12` needs no `!`, since
+                 there is no competing width class to race against below
+                 `sm`, and the query simply stops applying from `sm` up. */
+              className="max-sm:w-12 max-sm:!px-0"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Remove</span>
+            </Button>
+          </div>
         </div>
       )}
-    </li>
+    </Card>
   );
 }
 
@@ -489,27 +578,42 @@ function WalletRow({
  * batch: the server validates every op again, and a batch is all-or-nothing, so
  * one malformed address would otherwise cost a signature and reject the four
  * good edits beside it.
+ *
+ * MOUNTED ONLY WHILE OPEN. The parent renders this in place of its own
+ * trigger button rather than always and toggling a class, so opening and
+ * closing is opening and closing this component: the address field can grab
+ * focus on mount instead of on some later "did this just open" effect, and
+ * the cap can no longer be reached while this is on screen at all, which is
+ * what let the old in-form at-cap branch go.
  */
 function AddWalletForm({
   defaultProfile,
   labelMax,
-  atCap,
-  max,
   disabled,
   alreadyWatched,
   onAdd,
+  onCancel,
 }: {
   defaultProfile: RiskProfile;
   labelMax: number;
-  atCap: boolean;
-  max: number;
   disabled: boolean;
   alreadyWatched: (wallet: string) => boolean;
   onAdd: (row: WatchDraftRow) => void;
+  onCancel: () => void;
 }) {
   const [address, setAddress] = useState("");
   const [label, setLabel] = useState("");
   const [profile, setProfile] = useState<RiskProfile>(defaultProfile);
+
+  // A wrapper ref rather than a ref on `Field` itself: `Field`'s own prop
+  // type is `InputHTMLAttributes`, which does not admit a ref (see
+  // `Button`'s doc comment on why `ComponentPropsWithRef` is the type that
+  // does), and this address field is the only reason this form would ever
+  // need one.
+  const addressWrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    addressWrap.current?.querySelector("input")?.focus();
+  }, []);
 
   const typed = address.trim();
   const lower = typed.toLowerCase();
@@ -527,82 +631,80 @@ function AddWalletForm({
         : null;
 
   const submit = () => {
-    if (!valid || duplicate || atCap || disabled) return;
+    if (!valid || duplicate || disabled) return;
     onAdd({ wallet: lower, profile, label: label.trim(), isNew: true, removed: false });
+  };
+
+  const cancel = () => {
     setAddress("");
     setLabel("");
     setProfile(defaultProfile);
+    onCancel();
   };
 
   return (
-    <div className="space-y-2 rounded-md border border-border-subtle bg-white/[0.02] p-4">
-      <h4 className="text-xs font-sans font-bold text-text-primary">Add a wallet</h4>
-      {atCap ? (
-        /* The reason, beside the thing it disables. A greyed form with no
-           sentence is a screen refusing without saying why, and the cap is a
-           number the reader can act on. */
-        <p className="text-xs font-sans leading-relaxed text-text-secondary">
-          Your list is full at {max} wallets. Remove one above and save, then add another.
+    <div className="flex flex-col gap-2 hard-edge bg-surface-sunken p-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+        <h4 className="text-sm font-sans font-bold text-text-primary">Add a wallet</h4>
+        <p className="text-xs font-sans text-text-muted">
+          Watching it does not let PANIK act on it.
         </p>
-      ) : (
-        <>
-          <p className="text-xs font-sans leading-relaxed text-text-secondary">
-            Any Base address, including one you do not control. Watching it does not let PANIK act
-            on it.
-          </p>
-          <Field
-            label="Wallet address"
-            aria-label="Address of the wallet to watch"
-            mono
-            value={address}
-            disabled={disabled}
-            onChange={(e) => setAddress(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-            }}
-            autoComplete="off"
-            spellCheck={false}
-            className="w-full"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <Field
-              label="Name (optional)"
-              aria-label="Name for the wallet to watch"
-              value={label}
-              maxLength={labelMax}
-              disabled={disabled}
-              onChange={(e) => setLabel(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submit();
-              }}
-              autoComplete="off"
-              spellCheck={false}
-              /* `min-w-40` is what makes the row wrap instead of crush. The
-                 picker and the Add button are fixed width, so on a 390px panel
-                 a `flex-1` name field was left ~120px and clipped its own
-                 caption mid-word. At a 160px floor the field takes its own
-                 full-width line instead, which is the structural fix rather
-                 than shrinking the text to hide the overflow. */
-              className="min-w-40 flex-1"
-            />
-            <ProfileSelect
-              value={profile}
-              disabled={disabled}
-              label="Alert level for the wallet to watch"
-              onChange={setProfile}
-            />
-            <Button
-              onClick={submit}
-              disabled={!valid || duplicate || disabled}
-              className="h-10"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add
-            </Button>
-          </div>
-          {hint && <p className="text-xs font-sans leading-relaxed text-text-secondary">{hint}</p>}
-        </>
-      )}
+      </div>
+      <div ref={addressWrap}>
+        <Field
+          label="Wallet address"
+          aria-label="Address of the wallet to watch"
+          mono
+          value={address}
+          disabled={disabled}
+          onChange={(e) => setAddress(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          autoComplete="off"
+          spellCheck={false}
+          className="w-full"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Field
+          label="Name (optional)"
+          aria-label="Name for the wallet to watch"
+          value={label}
+          maxLength={labelMax}
+          disabled={disabled}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          autoComplete="off"
+          spellCheck={false}
+          /* `min-w-40` is what makes the row wrap instead of crush. The
+             picker beside it is a fixed 148px, so on a 390px panel a
+             `flex-1` name field left too little room and clipped its own
+             caption mid-word. At a 160px floor the field takes its own
+             full-width line instead, which is the structural fix rather
+             than shrinking the text to hide the overflow. */
+          className="min-w-40 flex-1"
+        />
+        <ProfileSelect
+          value={profile}
+          disabled={disabled}
+          label="Alert level for the wallet to watch"
+          onChange={setProfile}
+          className="w-[148px]"
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button variant="ghost" onClick={cancel} disabled={disabled}>
+          Cancel
+        </Button>
+        <Button onClick={submit} disabled={!valid || duplicate || disabled} className="flex-1">
+          <Plus className="h-3.5 w-3.5" />
+          Add
+        </Button>
+      </div>
+      {hint && <p className="text-xs font-sans leading-relaxed text-text-secondary">{hint}</p>}
     </div>
   );
 }
