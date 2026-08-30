@@ -201,6 +201,25 @@ export function WalletsPanel({
   // confirmation right after a save clears the draft back to zero ops).
   const showFooter = !readOnly && (ops.length > 0 || status === "error" || status === "saved");
 
+  /**
+   * The Add form, collapsed behind a button by default. It opens on request
+   * rather than sitting on screen at all times, which is what let the old
+   * "{count} of {max} watched" counter disappear too: the form itself, once
+   * open, is the only place that context still matters.
+   */
+  const [addOpen, setAddOpen] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  // Skips the focus-return on the initial render (addOpen starts false, and
+  // there is no button press to return focus TO yet) and fires only on the
+  // true -> false transition, whether that came from Cancel or a successful
+  // add: either way the form is gone and its trigger is the sensible place
+  // for focus to land.
+  const addWasOpen = useRef(false);
+  useEffect(() => {
+    if (addWasOpen.current && !addOpen) addButtonRef.current?.focus();
+    addWasOpen.current = addOpen;
+  }, [addOpen]);
+
   const patch = (wallet: string, change: Partial<WatchDraftRow>) => {
     // Any edit invalidates the previous outcome: a green "saved" line sitting
     // over three fresh unsaved edits is the panel claiming work it has not done.
@@ -213,6 +232,9 @@ export function WalletsPanel({
     setStatus("idle");
     setSaveError(null);
     setDraft((rows) => [...rows, row]);
+    // A successful add is also a close: there is nothing left in the form to
+    // look at once the row it was for now exists as a card above it.
+    setAddOpen(false);
   };
 
   const save = async () => {
@@ -266,22 +288,16 @@ export function WalletsPanel({
       </div>
 
       <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6">
-        {/* The cap, stated only once it is known. A counter that guesses the
-            limit is a counter that teaches a wrong one the day the server
-            raises it, so the number comes off the read that produced the list. */}
-        <div>
-          {max !== null && (
-            <p className="text-sm font-sans text-text-secondary tabular-nums">
-              {count} of {max} watched
-              {atCap && ". Remove one to add another."}
-            </p>
-          )}
-          {readOnly && (
-            <p className="mt-1 text-sm font-sans text-text-secondary">
-              Sign in with your wallet to change the list.
-            </p>
-          )}
-        </div>
+        {/* The cap used to be stated here as "{count} of {max} watched" on
+            every open. It is gone now that the form it explained is gone too:
+            the number only ever mattered to explain why the Add button might
+            be disabled, and the disabled button now says that itself, beside
+            itself, at the one moment it is true. */}
+        {readOnly && (
+          <p className="text-sm font-sans text-text-secondary">
+            Sign in with your wallet to change the list.
+          </p>
+        )}
 
         {loading && (
           <ul className="divide-y divide-border-subtle" aria-hidden="true">
@@ -340,15 +356,41 @@ export function WalletsPanel({
             both, and the reader would find out which guess was wrong from a
             rejected batch. */}
         {!readOnly && max !== null && labelMax !== null && (
-          <AddWalletForm
-            defaultProfile={defaultProfile}
-            labelMax={labelMax}
-            atCap={atCap}
-            max={max}
-            disabled={busy}
-            alreadyWatched={(w) => draft.some((r) => r.wallet === w && !r.removed)}
-            onAdd={addRow}
-          />
+          atCap ? (
+            <div>
+              {/* Disabled rather than hidden: a button that vanished at cap
+                  would leave the reader wondering whether adding wallets is
+                  a thing this panel does at all. Disabled and explained is
+                  the same fact the old counter used to carry, now stated
+                  only at the one moment it is true. */}
+              <Button variant="secondary" disabled className="w-full">
+                <Plus className="h-3.5 w-3.5" />
+                Add a wallet
+              </Button>
+              <p className="mt-2 text-xs font-sans text-text-secondary">
+                Your list is full at {max} wallets. Remove one to add another.
+              </p>
+            </div>
+          ) : addOpen ? (
+            <AddWalletForm
+              defaultProfile={defaultProfile}
+              labelMax={labelMax}
+              disabled={busy}
+              alreadyWatched={(w) => draft.some((r) => r.wallet === w && !r.removed)}
+              onAdd={addRow}
+              onCancel={() => setAddOpen(false)}
+            />
+          ) : (
+            <Button
+              ref={addButtonRef}
+              variant="secondary"
+              onClick={() => setAddOpen(true)}
+              className="w-full"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add a wallet
+            </Button>
+          )
         )}
       </div>
 
@@ -536,27 +578,42 @@ function WalletRow({
  * batch: the server validates every op again, and a batch is all-or-nothing, so
  * one malformed address would otherwise cost a signature and reject the four
  * good edits beside it.
+ *
+ * MOUNTED ONLY WHILE OPEN. The parent renders this in place of its own
+ * trigger button rather than always and toggling a class, so opening and
+ * closing is opening and closing this component: the address field can grab
+ * focus on mount instead of on some later "did this just open" effect, and
+ * the cap can no longer be reached while this is on screen at all, which is
+ * what let the old in-form at-cap branch go.
  */
 function AddWalletForm({
   defaultProfile,
   labelMax,
-  atCap,
-  max,
   disabled,
   alreadyWatched,
   onAdd,
+  onCancel,
 }: {
   defaultProfile: RiskProfile;
   labelMax: number;
-  atCap: boolean;
-  max: number;
   disabled: boolean;
   alreadyWatched: (wallet: string) => boolean;
   onAdd: (row: WatchDraftRow) => void;
+  onCancel: () => void;
 }) {
   const [address, setAddress] = useState("");
   const [label, setLabel] = useState("");
   const [profile, setProfile] = useState<RiskProfile>(defaultProfile);
+
+  // A wrapper ref rather than a ref on `Field` itself: `Field`'s own prop
+  // type is `InputHTMLAttributes`, which does not admit a ref (see
+  // `Button`'s doc comment on why `ComponentPropsWithRef` is the type that
+  // does), and this address field is the only reason this form would ever
+  // need one.
+  const addressWrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    addressWrap.current?.querySelector("input")?.focus();
+  }, []);
 
   const typed = address.trim();
   const lower = typed.toLowerCase();
@@ -574,79 +631,80 @@ function AddWalletForm({
         : null;
 
   const submit = () => {
-    if (!valid || duplicate || atCap || disabled) return;
+    if (!valid || duplicate || disabled) return;
     onAdd({ wallet: lower, profile, label: label.trim(), isNew: true, removed: false });
+  };
+
+  const cancel = () => {
     setAddress("");
     setLabel("");
     setProfile(defaultProfile);
+    onCancel();
   };
 
   return (
     <div className="flex flex-col gap-2 hard-edge bg-surface-sunken p-4">
-      <h4 className="text-sm font-sans font-bold text-text-primary">Add a wallet</h4>
-      {atCap ? (
-        /* The reason, beside the thing it disables. A greyed form with no
-           sentence is a screen refusing without saying why, and the cap is a
-           number the reader can act on. */
-        <p className="text-xs font-sans leading-relaxed text-text-secondary">
-          Your list is full at {max} wallets. Remove one above and save, then add another.
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+        <h4 className="text-sm font-sans font-bold text-text-primary">Add a wallet</h4>
+        <p className="text-xs font-sans text-text-muted">
+          Watching it does not let PANIK act on it.
         </p>
-      ) : (
-        <>
-          <p className="text-xs font-sans leading-relaxed text-text-muted">
-            Any Base address, even one you do not control. Watching it does not let PANIK act on
-            it.
-          </p>
-          <Field
-            label="Wallet address"
-            aria-label="Address of the wallet to watch"
-            mono
-            value={address}
-            disabled={disabled}
-            onChange={(e) => setAddress(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-            }}
-            autoComplete="off"
-            spellCheck={false}
-            className="w-full"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <Field
-              label="Name (optional)"
-              aria-label="Name for the wallet to watch"
-              value={label}
-              maxLength={labelMax}
-              disabled={disabled}
-              onChange={(e) => setLabel(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submit();
-              }}
-              autoComplete="off"
-              spellCheck={false}
-              /* `min-w-40` is what makes the row wrap instead of crush. The
-                 picker beside it is a fixed 148px, so on a 390px panel a
-                 `flex-1` name field left too little room and clipped its own
-                 caption mid-word. At a 160px floor the field takes its own
-                 full-width line instead, which is the structural fix rather
-                 than shrinking the text to hide the overflow. */
-              className="min-w-40 flex-1"
-            />
-            <ProfileSelect
-              value={profile}
-              disabled={disabled}
-              label="Alert level for the wallet to watch"
-              onChange={setProfile}
-              className="w-[148px]"
-            />
-          </div>
-          <Button onClick={submit} disabled={!valid || duplicate || disabled} className="mt-1 w-full">
-            <Plus className="h-3.5 w-3.5" />
-            Add
-          </Button>
-          {hint && <p className="text-xs font-sans leading-relaxed text-text-secondary">{hint}</p>}
-        </>
-      )}
+      </div>
+      <div ref={addressWrap}>
+        <Field
+          label="Wallet address"
+          aria-label="Address of the wallet to watch"
+          mono
+          value={address}
+          disabled={disabled}
+          onChange={(e) => setAddress(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          autoComplete="off"
+          spellCheck={false}
+          className="w-full"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Field
+          label="Name (optional)"
+          aria-label="Name for the wallet to watch"
+          value={label}
+          maxLength={labelMax}
+          disabled={disabled}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          autoComplete="off"
+          spellCheck={false}
+          /* `min-w-40` is what makes the row wrap instead of crush. The
+             picker beside it is a fixed 148px, so on a 390px panel a
+             `flex-1` name field left too little room and clipped its own
+             caption mid-word. At a 160px floor the field takes its own
+             full-width line instead, which is the structural fix rather
+             than shrinking the text to hide the overflow. */
+          className="min-w-40 flex-1"
+        />
+        <ProfileSelect
+          value={profile}
+          disabled={disabled}
+          label="Alert level for the wallet to watch"
+          onChange={setProfile}
+          className="w-[148px]"
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button variant="ghost" onClick={cancel} disabled={disabled}>
+          Cancel
+        </Button>
+        <Button onClick={submit} disabled={!valid || duplicate || disabled} className="flex-1">
+          <Plus className="h-3.5 w-3.5" />
+          Add
+        </Button>
+      </div>
+      {hint && <p className="text-xs font-sans leading-relaxed text-text-secondary">{hint}</p>}
     </div>
   );
 }
