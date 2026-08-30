@@ -9,7 +9,6 @@ import {
   ShieldAlert,
   AlertTriangle,
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   ChevronDown,
   ChevronRight,
@@ -3024,12 +3023,15 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
       {isDesktop && (
       <aside className={`w-64 h-full shrink-0 flex flex-col justify-between border-r border-border-subtle bg-surface-base p-6 ${LAYER.chrome}`}>
 
-        {/* Sidebar Header Brand block */}
+        {/* Sidebar Header Brand block. The mark is the way back to the
+            landing page here, the same link the phone header's mark already
+            is, rather than a second "Back to landing" link further down the
+            rail restating it. */}
         <div className="space-y-8">
-          <div className="flex items-center gap-2.5">
+          <a href="/" title="Back to landing" className="flex items-center gap-2.5 no-underline">
             <img src="/panik-mark.svg" alt="PANIK" width={32} height={32} style={{ objectFit: "contain" }} />
             <span className="font-sans font-extrabold text-lg text-text-primary leading-none">PANIK</span>
-          </div>
+          </a>
 
           <NavTabs
             variant="sidebar"
@@ -3040,8 +3042,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
           />
         </div>
 
-        {/* The bottom of the rail: which wallet everything above is about, and
-            the way out.
+        {/* The bottom of the rail: which wallet everything above is about.
 
             The wallet lives HERE now rather than in the header, and this is the
             fix for three separate complaints at once. The header carried a
@@ -3050,24 +3051,20 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
             panels that appeared over whatever the reader was looking at. Whose
             money is on screen is true on every tab, so it belongs on the one
             surface that is also on every tab; and the sidebar had 208px of
-            permanent empty space under the nav to put it in. */}
-        <div className="space-y-4">
-          {viewedWallet && portfolioWalletOptions.length > 0 && (
-            <WalletSelector
-              options={portfolioWalletOptions}
-              value={viewedWallet}
-              onChange={setViewedWalletChoice}
-              checkedAt={walletCheckedAt}
-            />
-          )}
-          <a
-            href="/"
-            className="group flex cursor-pointer items-center gap-2 font-sans text-xs text-text-secondary no-underline hover:text-text-primary"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 text-text-muted" />
-            <span>Back to landing</span>
-          </a>
-        </div>
+            permanent empty space under the nav to put it in.
+
+            No wrapper here, unlike the brand block above: this is the rail's
+            only other flex child, so `justify-between` on the `aside` needs
+            nothing more than the element itself to push it to the bottom, and
+            an empty `<div>` when there is no wallet to show would be an
+            orphan gap where nothing else ever sat. */}
+        {viewedWallet && portfolioWalletOptions.length > 0 && (
+          <WalletSelector
+            options={portfolioWalletOptions}
+            value={viewedWallet}
+            onChange={setViewedWalletChoice}
+          />
+        )}
       </aside>
       )}
 
@@ -3135,7 +3132,6 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                 options={portfolioWalletOptions}
                 value={viewedWallet}
                 onChange={setViewedWalletChoice}
-                checkedAt={walletCheckedAt}
               />
             )}
           </header>

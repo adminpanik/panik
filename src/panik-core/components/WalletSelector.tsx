@@ -18,8 +18,7 @@
  * WHAT STAYS A PLAIN BLOCK is the ONE-OPTION case: a trigger with nothing to
  * switch to is a picker that cannot pick, so with a single wallet this renders
  * the same identity as an inert `<div>`, no chevron, no pointer, nothing to
- * press. `checkedAt` sits under the block either way, outside the trigger,
- * because it is a fact about the reading, not part of the value being chosen.
+ * press.
  *
  * THE PANEL MATCHES THE SIDEBAR'S 264PX rather than the 320px every other
  * `Listbox` opens at, via the `panelClassName` escape hatch: a popover
@@ -46,12 +45,6 @@ export interface WalletSelectorProps {
   /** The wallet currently shown, already validated against `options`. */
   value: string;
   onChange: (wallet: string) => void;
-  /**
-   * When the figures for this wallet were last read, already worded, or null
-   * when the feed has not answered. Null renders no line rather than an epoch
-   * date: see `checkedAgo` in lib/utils.
-   */
-  checkedAt: string | null;
   /**
    * The TOP-STRIP form, for the phone, where there is no sidebar to put a block
    * in.
@@ -84,7 +77,6 @@ export function WalletSelector({
   options,
   value,
   onChange,
-  checkedAt,
   bar = false,
 }: WalletSelectorProps) {
   const target = value.toLowerCase();
@@ -208,56 +200,52 @@ export function WalletSelector({
     </span>
   );
 
+  // No wrapping element: each branch already returns exactly one root (the
+  // plain block or the `Listbox`), and there is nothing else in this shape
+  // for a wrapper to hold since the "checked N ago" line moved out.
+  if (options.length < 2) {
+    /* With one wallet there is nothing to switch TO, so the block states
+       the identity and offers no control: a trigger with one option is a
+       picker that cannot pick. Same test the bar shape applies to
+       itself above. */
+    return (
+      <div className="flex h-14 w-full items-center justify-between gap-2 hard-edge bg-surface-raised px-3">
+        {identity}
+        {!selected.own && (
+          <Eye aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+        )}
+      </div>
+    );
+  }
   return (
-    <div>
-      {options.length < 2 ? (
-        /* With one wallet there is nothing to switch TO, so the block states
-           the identity and offers no control: a trigger with one option is a
-           picker that cannot pick. Same test the bar shape applies to
-           itself above. */
-        <div className="flex h-14 w-full items-center justify-between gap-2 hard-edge bg-surface-raised px-3">
+    <Listbox
+      label="Which wallet to show"
+      count={options.length}
+      selectedIndex={selectedIndex}
+      onCommit={(i) => onChange(options[i].wallet)}
+      trigger={
+        <>
           {identity}
           {!selected.own && (
             <Eye aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
           )}
-        </div>
-      ) : (
-        <Listbox
-          label="Which wallet to show"
-          count={options.length}
-          selectedIndex={selectedIndex}
-          onCommit={(i) => onChange(options[i].wallet)}
-          trigger={
-            <>
-              {identity}
-              {!selected.own && (
-                <Eye aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-              )}
-            </>
-          }
-          triggerClassName="flex h-14 w-full cursor-pointer items-center justify-between gap-2 hard-edge bg-surface-raised px-3"
-          /* The panel matches the trigger's own 264px rather than the 320px
-             every other `Listbox` opens at: the sidebar has no room for a
-             floating panel spilling past its own right edge. */
-          panelClassName="w-full"
-          /* The block sits at the BOTTOM of the sidebar, under the nav's
-             permanent space for it: a panel opening downward from there runs
-             past the window, clipped to its first row. Opening upward is the
-             only direction with room. */
-          placement="top"
-          optionLabel={(i) => rowLabel(options[i])}
-          optionClassName={({ selected: sel, active }) =>
-            `flex w-full items-center gap-2 px-3 py-2.5 text-left ${active || sel ? "bg-highlight" : ""}`
-          }
-          renderOption={(i, { selected: sel }) => rowBody(options[i], sel)}
-        />
-      )}
-
-      {/* A fact the code knows, so it stays: how old the reading on screen is
-          is the one thing a reader cannot work out by looking at it. */}
-      {checkedAt && (
-        <span className="mt-1.5 block font-sans text-xs text-text-muted">{checkedAt}</span>
-      )}
-    </div>
+        </>
+      }
+      triggerClassName="flex h-14 w-full cursor-pointer items-center justify-between gap-2 hard-edge bg-surface-raised px-3"
+      /* The panel matches the trigger's own 264px rather than the 320px
+         every other `Listbox` opens at: the sidebar has no room for a
+         floating panel spilling past its own right edge. */
+      panelClassName="w-full"
+      /* The block sits at the BOTTOM of the sidebar, under the nav's
+         permanent space for it: a panel opening downward from there runs
+         past the window, clipped to its first row. Opening upward is the
+         only direction with room. */
+      placement="top"
+      optionLabel={(i) => rowLabel(options[i])}
+      optionClassName={({ selected: sel, active }) =>
+        `flex w-full items-center gap-2 px-3 py-2.5 text-left ${active || sel ? "bg-highlight" : ""}`
+      }
+      renderOption={(i, { selected: sel }) => rowBody(options[i], sel)}
+    />
   );
 }
