@@ -4912,40 +4912,39 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                        allocation card absent this takes the whole row instead
                        of leaving half of it empty. */
                     const span = allocation.length > 0 ? "lg:col-span-6" : "lg:col-span-12";
-                    const body = (
+                    /* Only when the preview falls short of the log. Below
+                       that the card IS the whole history, and a control
+                       that opens a page showing what you are already
+                       looking at is a control that does nothing.
+
+                       It names the length, because how far the history runs
+                       is the one thing a four-row preview cannot say. */
+                    const showSeeAll = alertsNewestFirst.length > ALERT_PREVIEW_COUNT;
+                    const seeAllButton = showSeeAll ? (
+                      <Button
+                        ref={alertHistoryTrigger}
+                        variant="secondary"
+                        className="w-full justify-center"
+                        onClick={() => setAlertHistoryOpen(true)}
+                      >
+                        See all {alertsNewestFirst.length} alerts
+                      </Button>
+                    ) : null;
+                    const feed = (
                       <>
                     {alertsNewestFirst.length ? (
-                      <>
-                        {/* Rules, not boxes. Bordered, tinted rows inside a Card
-                            that is already bordered is chrome wrapping chrome; a
-                            hairline separates rows for free. `AlertFeed` owns the
-                            row, and the history page draws it from the same
-                            component, so the preview and the full log cannot
-                            drift into two treatments. */}
-                        <AlertFeed
-                          alerts={alertsNewestFirst.slice(0, ALERT_PREVIEW_COUNT)}
-                          protocolLabel={LIVE_PROTOCOL_LABEL}
-                          targets={alertTargets}
-                          onSelectTarget={setHighlightedPositionKey}
-                        />
-                        {/* Only when the preview falls short of the log. Below
-                            that the card IS the whole history, and a control
-                            that opens a page showing what you are already
-                            looking at is a control that does nothing.
-
-                            It names the length, because how far the history runs
-                            is the one thing a four-row preview cannot say. */}
-                        {alertsNewestFirst.length > ALERT_PREVIEW_COUNT && (
-                          <Button
-                            ref={alertHistoryTrigger}
-                            variant="secondary"
-                            className="mt-3 w-full shrink-0 justify-center lg:mt-auto"
-                            onClick={() => setAlertHistoryOpen(true)}
-                          >
-                            See all {alertsNewestFirst.length} alerts
-                          </Button>
-                        )}
-                      </>
+                      /* Rules, not boxes. Bordered, tinted rows inside a Card
+                         that is already bordered is chrome wrapping chrome; a
+                         hairline separates rows for free. `AlertFeed` owns the
+                         row, and the history page draws it from the same
+                         component, so the preview and the full log cannot
+                         drift into two treatments. */
+                      <AlertFeed
+                        alerts={alertsNewestFirst.slice(0, ALERT_PREVIEW_COUNT)}
+                        protocolLabel={LIVE_PROTOCOL_LABEL}
+                        targets={alertTargets}
+                        onSelectTarget={setHighlightedPositionKey}
+                      />
                     ) : historyLoading ? (
                       /* Before the log has been read, the card cannot say
                          whether it is empty. The rows it is about to have,
@@ -4970,16 +4969,33 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                       </>
                     );
                     return isDesktop ? (
-                      <Card className={`flex flex-col ${span}`}>
+                      /* `padded={false}`: the footer band below has to meet
+                         the card's own left and right edges the way
+                         `SettingsCardFooter` and `MarketTable`'s footer row
+                         do, on its own `border-t-[3px]` rule rather than a
+                         `margin-top: auto` fighting the grid row's stretched
+                         height for space. That auto margin used to collapse
+                         to 0 whenever the Asset allocation card beside this
+                         one left no slack, which glued the button straight
+                         onto the fourth row with no seam between them. The
+                         feed's own div grows (`flex-1`) to take up any actual
+                         slack instead, so the button always keeps its rule
+                         and its padding no matter how tall the sibling is. */
+                      <Card padded={false} className={`flex flex-col ${span}`}>
                         <CardTitle
                           as="h3"
                           size="sm"
-                          className="mb-4 shrink-0"
+                          className="shrink-0 px-4 pt-4"
                           hint="Every risk-status change PANIK detected. A chip appears only when the alert did not reach you; delivered alerts stay quiet."
                         >
                           Alert history
                         </CardTitle>
-                        {body}
+                        <div className={`flex-1 px-4 pt-4 ${showSeeAll ? "" : "pb-4"}`}>{feed}</div>
+                        {showSeeAll && (
+                          <div className="shrink-0 border-t-[3px] border-solid border-border-strong px-4 py-3">
+                            {seeAllButton}
+                          </div>
+                        )}
                       </Card>
                     ) : (
                       /* The count stands in for the card on the closed line:
@@ -5003,7 +5019,8 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         className={span}
                         bodyClassName="flex flex-col"
                       >
-                        {body}
+                        {feed}
+                        {showSeeAll && <div className="mt-3 shrink-0">{seeAllButton}</div>}
                       </FoldingCard>
                     );
                   })()}
