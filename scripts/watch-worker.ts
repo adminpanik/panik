@@ -103,6 +103,7 @@ import {
   scoreMaxAgeMs,
   type StampedScore,
 } from "../server/scoreFreshness";
+import { shouldSnapshot } from "../server/snapshotDecision";
 import { assessRpc, endpointsForChain, sampleAll } from "../server/rpcHealth";
 import { RelayerWatch, balanceAlerts, type SignerBalance } from "../server/relayerHealth";
 import { sweepCoverage, type CoverageMarkets, type SweepTarget } from "../server/coverageSweep";
@@ -336,14 +337,19 @@ function syncWatched(service: WatchService, rows: WatchedRow[]): void {
 }
 
 // ── persistence ──────────────────────────────────────────────────────────────
-async function maybeSnapshot(s: ActiveScore): Promise<void> {
+/**
+ * `prev` MUST be the score recorded for this key BEFORE the current tick's
+ * `s` was scored. Never read it from `lastScored` here, because the caller
+ * (the WatchService `scoreWallet` callback below) stamps `lastScored` with
+ * `s` itself immediately upon scoring. Reading the cache from inside this
+ * function used to compare `s` against the very entry it had just become,
+ * which is always "unchanged" and is why change-triggered snapshots never
+ * fired: only the heartbeat ever did.
+ */
+async function maybeSnapshot(s: ActiveScore, prev: ActiveScore | undefined): Promise<void> {
   const k = key(s.wallet, s.protocol);
-  const prev = lastScored.get(k)?.score;
   const lastAt = lastSnapshotAt.get(k) ?? 0;
-  const changed =
-    !prev || prev.total !== s.total || prev.band !== s.band;
-  const heartbeatDue = Date.now() - lastAt >= SNAPSHOT_HEARTBEAT_MS;
-  if (!changed && !heartbeatDue) return;
+  if (!shouldSnapshot(prev, s, lastAt, SNAPSHOT_HEARTBEAT_MS, Date.now())) return;
 
   // Degraded legs have null USD, so LTV comes from the engine's own ratio
   // (denomination-free) rather than from dividing two unknowns.
@@ -419,8 +425,13 @@ const service = new WatchService({
     legsScoredTotal += scores.length;
     const at = Date.now();
     for (const s of scores) {
-      lastScored.set(key(s.wallet, s.protocol), { score: s, at });
-      void maybeSnapshot(s);
+      const k = key(s.wallet, s.protocol);
+      // Capture the PREVIOUS entry before overwriting the cache: maybeSnapshot
+      // must compare against what was there before this tick, not against `s`
+      // itself. See the comment on maybeSnapshot.
+      const prev = lastScored.get(k)?.score;
+      lastScored.set(k, { score: s, at });
+      void maybeSnapshot(s, prev);
     }
     return scores;
   },
