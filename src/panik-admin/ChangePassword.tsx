@@ -17,7 +17,7 @@
  */
 
 import { useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check } from "lucide-react";
 
 import { Button, Card } from "../panik-core/ui";
 import { Field } from "./ui/controls";
@@ -80,11 +80,11 @@ export function ChangePassword({
 
   if (done) {
     return (
-      <Card tone="panel" className="mx-auto max-w-md">
-        <h1 className="flex items-center gap-2 text-lg font-sans font-bold text-text-primary">
+      <Card tone="raised" className="mx-auto w-full max-w-md">
+        <h1 className="flex items-center gap-2 label-type text-xs text-text-primary">
           <Check className="h-4 w-4 shrink-0" aria-hidden="true" /> Password changed
         </h1>
-        <p className="mt-2 text-sm font-sans text-text-secondary">
+        <p className="mt-3 font-sans text-sm text-text-secondary">
           Use the new password next time you sign in. You are still signed in here, so nothing else
           needs doing.
         </p>
@@ -98,62 +98,61 @@ export function ChangePassword({
   }
 
   return (
-    <Card tone="panel" className="mx-auto max-w-md">
+    <Card tone="raised" className="mx-auto w-full max-w-md">
       <form onSubmit={submit}>
-        <h1 className="text-lg font-sans font-bold text-text-primary">
+        <h1 className="label-type text-xs text-text-primary">
           {firstRun ? "Set your own password" : "Change password"}
         </h1>
-        <p className="mt-2 text-sm font-sans text-text-secondary">
+        <p className="mt-3 font-sans text-sm text-text-secondary">
           {firstRun
             ? `This account is still on the password it was set up with, which was sent to you over chat. Replace it with something only you have seen. At least ${MIN_PASSWORD_LENGTH} characters.`
             : `At least ${MIN_PASSWORD_LENGTH} characters. The new password is sent straight to Supabase and is not stored anywhere in this page.`}
         </p>
 
-        <Field
-          className="mt-5"
-          label="New password"
-          type="password"
-          autoComplete="new-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          hint={tooShort ? `${MIN_PASSWORD_LENGTH - password.length} more characters needed.` : undefined}
-          disabled={busy}
-          required
-        />
-        <Field
-          className="mt-4"
-          label="New password again"
-          type="password"
-          autoComplete="new-password"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          hint={mismatch ? "The two do not match yet." : undefined}
-          disabled={busy}
-          required
-        />
-        {needsNonce && (
+        <div className="mt-5 flex flex-col gap-4">
           <Field
-            className="mt-4"
-            label="Code from your email"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            value={nonce}
-            onChange={(e) => setNonce(e.target.value)}
-            hint="This project confirms a password change by email."
+            label="New password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            hint={tooShort ? `${MIN_PASSWORD_LENGTH - password.length} more characters needed.` : undefined}
             disabled={busy}
             required
           />
-        )}
+          <Field
+            label="New password again"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            hint={mismatch ? "The two do not match yet." : undefined}
+            disabled={busy}
+            required
+          />
+          {needsNonce && (
+            <Field
+              label="Code from your email"
+              inputMode="numeric"
+              mono
+              autoComplete="one-time-code"
+              value={nonce}
+              onChange={(e) => setNonce(e.target.value)}
+              hint="This project confirms a password change by email."
+              disabled={busy}
+              required
+            />
+          )}
+        </div>
 
         {error && (
-          <p role="alert" className="mt-4 text-xs font-sans text-text-secondary">
+          <p role="alert" className="mt-4 font-sans text-xs text-text-secondary">
             {error}
           </p>
         )}
 
-        <div className="mt-6 flex flex-wrap items-center gap-2">
-          <Button type="submit" disabled={busy || !ready}>
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+        <div className="mt-6 flex flex-col gap-2">
+          <Button type="submit" className="w-full" disabled={busy || !ready}>
             {busy ? "Saving" : "Save new password"}
           </Button>
           {onDismiss && (
