@@ -88,9 +88,11 @@ function ProfileSelect({
   onChange: (profile: RiskProfile) => void;
   /**
    * How an option reads. Defaults to the bare profile name for the Add
-   * card, where the field beside it already says "Alert level"; a wallet
-   * card's select has no such neighbour, so it passes "Alerts at
-   * {profile}" and reads as a whole fact on its own.
+   * card, where this select sits beside the "Name (optional)" field in a
+   * form the reader is already filling in, so "Conservative" is plainly a
+   * value being chosen. A wallet card's select sits beside a Remove button
+   * instead, with nothing labelling it as a profile picker, so it passes
+   * "Alerts at {profile}" and reads as a whole fact on its own.
    */
   optionLabel?: (p: RiskProfile) => string;
   /** Where the control sits: `flex-1`, `w-[148px]`, and so on. */
@@ -245,7 +247,13 @@ export function WalletsPanel({
           onClick={onClose}
           aria-label="Close wallets"
           title={ops.length > 0 ? "Close without saving your changes" : "Close wallets"}
-          className="h-12 w-12 px-0"
+          /* `!px-0`, not `px-0`: `size="md"`'s own `px-5` is the same
+             specificity, so which one wins is Tailwind's emit order rather
+             than which is listed last here (the exact gotcha `Card`'s own
+             doc comment names for `className` overrides). Without the `!`
+             this squeezed the button's 48px box down to an 8px content
+             width and flexbox shrank the 16px `X` into a 3px sliver. */
+          className="h-12 w-12 !px-0"
         >
           <X className="h-4 w-4" />
         </Button>
@@ -257,7 +265,7 @@ export function WalletsPanel({
             raises it, so the number comes off the read that produced the list. */}
         <div>
           {max !== null && (
-            <p className="text-xs font-sans text-text-secondary tabular-nums">
+            <p className="text-sm font-sans text-text-secondary tabular-nums">
               {count} of {max} watched
               {atCap && ". Remove one to add another."}
             </p>
@@ -416,6 +424,10 @@ function WalletRow({
   onChange: (change: Partial<WatchDraftRow>) => void;
 }) {
   const name = row.label.trim() || truncateAddress(row.wallet);
+  // The one marker a wallet gets on its band, or none: an owned wallet is
+  // never also "showing in Portfolio" (it always is, trivially), so at most
+  // one of these is ever true.
+  const plateText = isOwner ? "Your wallet" : isViewed ? "Showing in Portfolio" : null;
   return (
     <Card tone="raised" padded={false}>
       <div className="flex items-center justify-between gap-2 bg-text-primary px-4 py-2.5 text-white">
@@ -428,16 +440,10 @@ function WalletRow({
         </span>
         {/* A white plate on the black band, not `Chip`: `Chip`'s own black
             border and shadow are invisible on a black fill. */}
-        {isOwner ? (
+        {plateText && (
           <span className="label-type inline-flex h-6 shrink-0 items-center bg-surface-raised px-2 text-2xs text-text-primary">
-            Your wallet
+            {plateText}
           </span>
-        ) : (
-          isViewed && (
-            <span className="label-type inline-flex h-6 shrink-0 items-center bg-surface-raised px-2 text-2xs text-text-primary">
-              Showing in Portfolio
-            </span>
-          )
         )}
       </div>
 
