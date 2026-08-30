@@ -81,7 +81,7 @@ export interface RelayerTxRequest {
  * A log-safe name for an endpoint: its position in the ladder and its HOST.
  *
  * NEVER the full URL. The Alchemy rung carries an API key in its path and this
- * string reaches events, logs and error messages — server/rpcHealth.ts holds
+ * string reaches events, logs and error messages; server/rpcHealth.ts holds
  * the same line for the same reason. The index keeps two rungs on one host
  * distinguishable, so the label is a usable cache key as well as a log line.
  */
@@ -169,8 +169,8 @@ export interface RelayerSigner {
  * A submission pinned to one endpoint, with explicit failover.
  *
  * `connect` is injected so the pinning rules are exercised directly in tests
- * against scripted endpoints — the failure this class prevents cannot be
- * reproduced against a live node on demand.
+ * against scripted endpoints, because the failure this class prevents cannot
+ * be reproduced against a live node on demand.
  */
 export class PinnedEndpointOperation implements SignerOperation {
   private index = -1;
@@ -214,7 +214,7 @@ export class PinnedEndpointOperation implements SignerOperation {
    * Take the next endpoint that answers `eth_chainId` with the RIGHT chain.
    *
    * One probe per operation, not per call: it costs a single round trip and it
-   * catches the two conditions that make the rest of the submission worthless —
+   * catches the two conditions that make the rest of the submission worthless:
    * a node that is down, and a node answering for another network. The ladder
    * is public-first, and a public endpoint pointed at the wrong chain would
    * otherwise be discovered by a reverted transaction that still cost gas.
@@ -340,7 +340,7 @@ export class LocalKeyRelayerSigner implements RelayerSigner {
     const chain = chainFor(chainId);
     // One retry, not two: a single blip should not churn endpoints, but a node
     // that is genuinely down must not hold the submission for seconds when the
-    // next rung is one probe away. Retrying a send is safe — the same signed
+    // next rung is one probe away. Retrying a send is safe: the same signed
     // payload has the same hash and the node dedupes it.
     this.connect = (url: string) =>
       createWalletClient({
@@ -407,7 +407,7 @@ export class LocalKeyRelayerSigner implements RelayerSigner {
  *        c. recovers the parity by trying yParity 0 and 1 and keeping the one
  *           that recovers to `this.address`,
  *        d. broadcasts the serialized signed tx via `eth_sendRawTransaction`.
- *   4. It NEVER exports or logs key material — KMS cannot export it, which is
+ *   4. It NEVER exports or logs key material: KMS cannot export it, which is
  *      the point.
  */
 export class KmsRelayerSigner implements RelayerSigner {
@@ -506,7 +506,7 @@ export class RelayerSignerPool {
    * The nonce this submission must use, read from the endpoint it is PINNED to.
    *
    * A read failure is not fatal while nothing has been broadcast: step to the
-   * next endpoint and read again there. The re-read is the whole point — the
+   * next endpoint and read again there. The re-read is the whole point: the
    * value the dead node would have given is not transferable, and carrying it
    * across is the duplicate-nonce failure this module exists to prevent.
    */

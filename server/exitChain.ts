@@ -162,7 +162,7 @@ export function executorRpcUrls(
  * for a read and wrong for a nonce: `eth_getTransactionCount(pending)` and
  * `eth_sendRawTransaction` landing on two nodes with different mempool views
  * hands out a duplicate or a gapped nonce. The relayer's signer therefore
- * consumes `executorRpcUrls` directly and pins ONE rung per submission — see
+ * consumes `executorRpcUrls` directly and pins ONE rung per submission. See
  * the header of server/relayerSigner.ts.
  */
 export function executorRpcTransport(rpcUrl?: string, chainId: number = EXIT_CHAIN_ID) {

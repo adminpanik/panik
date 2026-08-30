@@ -411,7 +411,7 @@ type SubmitResult = { ok: true; txHash: `0x${string}` } | { ok: false; reason: S
  *   4. broadcast THROUGH THE LEASE'S OPERATION, never through the signer: the
  *      nonce in `tx` describes one node's mempool and is only valid there. See
  *      the endpoint-pinning note at the top of server/relayerSigner.ts.
- *   5. wait, replacing with a >=10% fee bump if it sticks — on the same pinned
+ *   5. wait, replacing with a >=10% fee bump if it sticks, on the same pinned
  *      node, so the replacement is priced against the transaction that node
  *      actually holds,
  *   6. verify `status === "success"` — viem does NOT throw on revert, so a
