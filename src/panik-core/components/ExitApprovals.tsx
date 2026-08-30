@@ -42,7 +42,7 @@ import { useAccount, useConnect, usePublicClient, useSwitchChain } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../lib/exit.generated";
 import { asContractClient, EXIT_ERC20_ABI, EXIT_NETWORK_LABEL, getExitChain, isExitExecutable } from "../lib/exit";
-import { exitsExecutableOn, useChainMode } from "../lib/chainMode";
+import { exitsExecutableOn, exitUnavailableLine, useChainMode } from "../lib/chainMode";
 import { classifyExitError } from "../lib/exitRpc";
 import { readUserReserves } from "../lib/exitPosition";
 import { resolveATokens } from "../lib/exitReserves";
@@ -384,12 +384,13 @@ export function ExitApprovals() {
   if (!exitsExecutableOn(chainMode) || !isExitExecutable(PROTOCOL)) {
     // Nothing can be approved on this chain, so nothing is: the ledger row
     // states the count the reader came for, in the column every other value on
-    // the tab is read down. The sentence it replaces said the same thing in
-    // seven words and in a different place on the card from its neighbours.
+    // the tab is read down. `exitUnavailableLine` is the why, restored under
+    // it - "None" on its own reads as an empty state rather than as a chain
+    // the executor simply is not deployed on yet.
     return (
       <SettingsCard>
         {header}
-        <SettingsRow label="Granted" value="None" />
+        <SettingsRow label="Granted" value="None" hint={exitUnavailableLine(chainMode)} />
       </SettingsCard>
     );
   }

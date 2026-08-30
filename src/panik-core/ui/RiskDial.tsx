@@ -1,6 +1,6 @@
 import React, { useId } from "react";
 import type { Band, DegradableSubScores } from "../lib/live";
-import { marketContextMissing, RISK_SCORE_NAME, RISK_TEXT } from "../lib/utils";
+import { BAND_WORD, marketContextMissing, RISK_SCORE_NAME, RISK_TEXT } from "../lib/utils";
 /**
  * The score's vocabulary, from the engine that owns the score. A DEEP import of
  * a leaf module (its only runtime import is `params.ts`, which has none), for
@@ -142,7 +142,7 @@ function wedgePath(turn: number): string {
  * screenshots, tsc, and the design checklist's computed-style scan.
  */
 export function riskScoreLabel(score: number, band: Band): string {
-  return `${RISK_SCORE_NAME} ${score} of 100, ${band}.`;
+  return `${RISK_SCORE_NAME} ${score} of 100, ${BAND_WORD[band]}.`;
 }
 
 export function RiskDial({

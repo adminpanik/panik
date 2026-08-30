@@ -38,7 +38,7 @@ import {
   EXIT_CHAIN_ID,
 } from "../lib/exit.generated";
 import { asContractClient, EXIT_ENV, getExitChain } from "../lib/exit";
-import { exitsExecutableOn, useChainMode } from "../lib/chainMode";
+import { exitsExecutableOn, exitUnavailableLine, useChainMode } from "../lib/chainMode";
 import { PROTOCOL_ID } from "../lib/exitLegs";
 import type { LiveProtocol } from "../lib/live";
 import { liquidationOutlook, PROTOCOL_LABEL } from "../lib/utils";
@@ -440,11 +440,13 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   if (!exitsExecutableOn(chainMode)) {
     // Nothing can be granted on this chain, so nothing is: the ledger row
     // states the count in the column every other value on the tab is read
-    // down, in place of a sentence that sat where no neighbour's did.
+    // down. `exitUnavailableLine` is the why, restored under it - "None" on
+    // its own reads as an empty state rather than as a chain the executor
+    // simply is not deployed on yet.
     return (
       <SettingsCard>
         {header}
-        <SettingsRow label="Granted" value="None" />
+        <SettingsRow label="Granted" value="None" hint={exitUnavailableLine(chainMode)} />
       </SettingsCard>
     );
   }
