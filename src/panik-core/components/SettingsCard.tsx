@@ -59,26 +59,37 @@ export function SettingsCardTitle({
  * `mono` is on by default because the right column is readings. It is turned
  * off for the two values that are genuinely words rather than a reading, so a
  * phrase does not get set in a face built for digits.
+ *
+ * `hint` is the one sentence a value is allowed to need: why it reads the way
+ * it does, when that is not obvious from the label and value alone ("Granted:
+ * None" says what, not why). It sits under the value rather than beside it, so
+ * the row still reads as a ledger line first, and it takes the same
+ * `text-xs text-text-secondary` every other secondary line on this tab uses.
  */
 export function SettingsRow({
   label,
   value,
   mono = true,
+  hint,
 }: {
   label: React.ReactNode;
   value: React.ReactNode;
   mono?: boolean;
+  hint?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-t-[3px] border-solid border-border-strong px-5 py-3 first:border-t-0">
-      <span className="min-w-0 font-sans text-sm text-text-primary">{label}</span>
-      <span
-        className={`min-w-0 truncate text-right text-sm text-text-primary ${
-          mono ? "font-mono font-bold tabular-nums" : "font-sans"
-        }`}
-      >
-        {value}
-      </span>
+    <div className="border-t-[3px] border-solid border-border-strong px-5 py-3 first:border-t-0">
+      <div className="flex items-center justify-between gap-4">
+        <span className="min-w-0 font-sans text-sm text-text-primary">{label}</span>
+        <span
+          className={`min-w-0 truncate text-right text-sm text-text-primary ${
+            mono ? "font-mono font-bold tabular-nums" : "font-sans"
+          }`}
+        >
+          {value}
+        </span>
+      </div>
+      {hint && <p className="mt-1 text-xs text-text-secondary">{hint}</p>}
     </div>
   );
 }
