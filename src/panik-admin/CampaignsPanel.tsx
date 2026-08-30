@@ -418,10 +418,14 @@ export function CampaignsPanel({
       {/* Counts of what is loaded, nothing derived or predicted. */}
       <div className="grid gap-8 md:grid-cols-3">
         <Card tone="raised">
-          <Stat label="Voucher codes" value={pending ? "..." : campaigns.length} />
+          <Stat label="Voucher codes" value={pending ? "..." : campaigns.length} sub="Created to date" />
         </Card>
         <Card tone="raised">
-          <Stat label="Still redeemable" value={pending ? "..." : live.length} />
+          <Stat
+            label="Still redeemable"
+            value={pending ? "..." : live.length}
+            sub="Accepting redemptions now"
+          />
         </Card>
         {/* Deliberately NOT "how many people we have". This is the per-code
             counter, which keeps counting a redemption after the trial itself is

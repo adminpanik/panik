@@ -222,8 +222,12 @@ export default function App() {
           {/* One block, five tabs, divided by the same 3px edge everything else
               on this look is drawn with. Below `sm` the strip scrolls inside
               itself: five words do not fit 358px, and the PAGE must never be
-              the thing that travels sideways. */}
-          <div className="hard-edge overflow-x-auto bg-surface-raised">
+              the thing that travels sideways. From `sm` there is room for all
+              five, so the strip stops pretending to be a full-width bar:
+              `sm:w-fit` on the box and `sm:flex-none` on each tab shrink it to
+              its own content instead of five equal columns stretched across
+              the 1240px column. */}
+          <div className="hard-edge overflow-x-auto bg-surface-raised sm:w-fit">
             <div
               role="tablist"
               aria-label="Admin sections"
@@ -245,7 +249,7 @@ export default function App() {
                       tabRefs.current[id] = el;
                     }}
                     onClick={() => selectTab(id)}
-                    className={`flex min-h-12 flex-1 cursor-pointer items-center justify-center whitespace-nowrap px-5 label-type text-xs ${
+                    className={`flex min-h-12 flex-1 sm:flex-none cursor-pointer items-center justify-center whitespace-nowrap px-5 py-3 label-type text-xs ${
                       i > 0 ? "border-l-[3px] border-border-strong" : ""
                     } ${TAB_STATE[selected ? "selected" : "resting"]}`}
                   >
