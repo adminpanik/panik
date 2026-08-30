@@ -7,6 +7,28 @@
  * was too small, and a column of "code not found" from one address says
  * somebody is guessing codes.
  *
+ * ── WHY TWO NUMBERS DISAGREE, AND WHY THAT IS NOT A BUG ───────────────────
+ * The row above this panel says "Redeemed 2 of 10" and this panel could say
+ * "Redeemed by 0", which read as a contradiction and were reported as one.
+ * They count different things and both are correct:
+ *
+ *   product_campaigns.redemption_count  a RUNNING TOTAL. The redeem RPC
+ *                                       increments it once per successful
+ *                                       redemption and nothing ever decrements
+ *                                       it (20260704000001_product_codes.sql).
+ *   trial_grants rows                   the CONTACT LIST. A pg_cron job deletes
+ *                                       a grant 30 days after its trial
+ *                                       expired, so a redemption from two
+ *                                       months ago is counted above and gone
+ *                                       from here.
+ *
+ * Neither can be made to equal the other without either losing the total or
+ * keeping personal data past its retention window, so the gap is STATED
+ * instead: the heading says how many are still on file, and a line below it
+ * says how many more this code has taken and where they went. A panel that
+ * said "Nobody has redeemed this code yet" over a counter reading 2 was the
+ * actual defect.
+ *
  * ── PERSONAL DATA ─────────────────────────────────────────────────────────
  * The claim IP and browser string are personal data. They are here because the
  * operator asked to see who redeemed a card, and they go no further than this
@@ -17,8 +39,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
-import { Button, EmptyState, Skeleton } from "../panik-core/ui";
-import { NotRecorded, StatusPill, TableScroller, Th } from "./ui/controls";
+import { Button, Chip, EmptyState, Skeleton } from "../panik-core/ui";
+import { Ledger, NotRecorded, Td, Th, Tr } from "./ui/controls";
 import {
   isSignedOut,
   listRedemptions,
@@ -51,13 +73,22 @@ function shortAgent(agent: string | null): string | null {
   return agent.length > 44 ? `${agent.slice(0, 44)}...` : agent;
 }
 
+/** A section heading inside the drill-down. Label type at the 11px floor. */
+const SECTION = "label-type text-2xs text-text-muted";
+
 export function RedemptionsPanel({
   session,
   code,
+  redemptionCount,
   onSignedOut,
 }: {
   session: Session;
   code: string;
+  /**
+   * The campaign's own running total, so this panel can explain its own
+   * shortfall rather than leaving the reader to spot it. See the header.
+   */
+  redemptionCount: number;
   onSignedOut: () => void;
 }) {
   const [redemptions, setRedemptions] = useState<CampaignRedemption[]>([]);
@@ -86,9 +117,22 @@ export function RedemptionsPanel({
 
   const failed = attempts.filter((a) => a.outcome !== "success");
 
+  /**
+   * Redemptions this code has taken that are no longer on file. Floored at
+   * zero: a grant inserted between the campaign list load and this fetch would
+   * otherwise render "-1 cleared", which is a fact about a race rather than
+   * about the data.
+   */
+  const clearedOff = Math.max(0, redemptionCount - redemptions.length);
+  const clearedLine =
+    clearedOff > 0
+      ? `This code has been redeemed ${redemptionCount} time${redemptionCount === 1 ? "" : "s"} in total. ` +
+        `${clearedOff} of those trial${clearedOff === 1 ? " has" : "s have"} expired and been cleared from the contact list, which happens 30 days after a trial ends.`
+      : null;
+
   if (loading && redemptions.length === 0 && attempts.length === 0) {
     return (
-      <div className="mt-4 flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-3/4" />
@@ -98,114 +142,116 @@ export function RedemptionsPanel({
 
   if (error) {
     return (
-      <div className="mt-4">
-        <EmptyState
-          tone="problem"
-          title="Could not load redemptions"
-          hint={error}
-          action={
-            <Button variant="secondary" onClick={refresh}>
-              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
-            </Button>
-          }
-        />
-      </div>
+      <EmptyState
+        tone="problem"
+        title="Could not load redemptions"
+        hint={error}
+        action={
+          <Button variant="secondary" onClick={refresh}>
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
+          </Button>
+        }
+      />
     );
   }
 
   return (
-    <div className="mt-4 flex flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <section>
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <h4 className="text-sm font-sans font-bold text-text-primary">
-            Redeemed by {redemptions.length}
-          </h4>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <h4 className={SECTION}>Redeemed by {redemptions.length}, still on file</h4>
           <Button variant="ghost" onClick={refresh} aria-label="Reload redemptions">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
             Reload
           </Button>
         </div>
+        {clearedLine ? (
+          <p className="mb-2 max-w-[640px] font-sans text-xs text-text-secondary">{clearedLine}</p>
+        ) : null}
         {redemptions.length === 0 ? (
           <EmptyState
             tone="clear"
-            title="Nobody has redeemed this code yet"
-            hint="Each scan that starts a trial shows up here with the email it was claimed with."
+            title={clearedOff > 0 ? "No redemptions still on file" : "Nobody has redeemed this code yet"}
+            hint={
+              clearedOff > 0
+                ? "The emails this code captured have passed their retention window. The total above is what it has taken."
+                : "Each scan that starts a trial shows up here with the email it was claimed with."
+            }
           />
         ) : (
-          <TableScroller>
-            <table className="w-full min-w-[40rem] text-left text-sm font-sans">
-              <thead>
-                <tr>
+          <div className="hard-edge bg-surface-raised">
+            <Ledger
+              minWidth="min-w-[44rem]"
+              head={
+                <>
                   <Th>Email</Th>
                   <Th>Redeemed</Th>
                   <Th>First opened</Th>
                   <Th>Claim address</Th>
                   <Th>Browser</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {redemptions.map((r, i) => (
-                  <tr key={`${r.created_at}-${i}`} className="border-t border-border-subtle">
-                    <td className="py-2 pr-4 text-text-primary">
-                      {r.email ?? <NotRecorded>no email captured</NotRecorded>}
-                    </td>
-                    <td className="whitespace-nowrap py-2 pr-4 text-text-secondary">
-                      {when(r.created_at)}
-                    </td>
-                    <td className="whitespace-nowrap py-2 pr-4 text-text-secondary">
-                      {r.first_opened_at ? when(r.first_opened_at) : <NotRecorded>not opened yet</NotRecorded>}
-                    </td>
-                    <td className="py-2 pr-4 text-text-secondary">
-                      {r.claim_ip ?? <NotRecorded />}
-                    </td>
-                    <td className="py-2 pr-4 text-text-secondary" title={r.claim_user_agent ?? undefined}>
-                      {shortAgent(r.claim_user_agent) ?? <NotRecorded />}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableScroller>
+                </>
+              }
+            >
+              {redemptions.map((r, i) => (
+                <Tr key={`${r.created_at}-${i}`}>
+                  <Td className="font-sans font-bold text-text-primary">
+                    {r.email ?? <NotRecorded>no email captured</NotRecorded>}
+                  </Td>
+                  <Td className="whitespace-nowrap font-mono text-text-secondary">
+                    {when(r.created_at)}
+                  </Td>
+                  <Td className="whitespace-nowrap font-mono text-text-secondary">
+                    {r.first_opened_at ? when(r.first_opened_at) : <NotRecorded>not opened yet</NotRecorded>}
+                  </Td>
+                  <Td className="font-mono text-text-secondary">{r.claim_ip ?? <NotRecorded />}</Td>
+                  <Td className="font-sans text-text-secondary" title={r.claim_user_agent ?? undefined}>
+                    {shortAgent(r.claim_user_agent) ?? <NotRecorded />}
+                  </Td>
+                </Tr>
+              ))}
+            </Ledger>
+          </div>
         )}
       </section>
 
       <section>
-        <h4 className="mb-2 text-sm font-sans font-bold text-text-primary">
-          Attempts that did not redeem: {failed.length}
-        </h4>
+        <h4 className={`mb-2 ${SECTION}`}>Attempts that did not redeem: {failed.length}</h4>
         {failed.length === 0 ? (
-          <p className="text-xs font-sans text-text-secondary">
+          <p className="font-sans text-xs text-text-secondary">
             Every attempt against this code succeeded.
           </p>
         ) : (
-          <TableScroller>
-            <table className="w-full min-w-[34rem] text-left text-sm font-sans">
-              <thead>
-                <tr>
+          <div className="hard-edge bg-surface-raised">
+            <Ledger
+              minWidth="min-w-[38rem]"
+              head={
+                <>
                   <Th>Outcome</Th>
                   <Th>When</Th>
                   <Th>Address</Th>
                   <Th>Browser</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {failed.map((a, i) => (
-                  <tr key={`${a.created_at}-${i}`} className="border-t border-border-subtle">
-                    <td className="py-2 pr-4">
-                      <StatusPill tone="done">{OUTCOME_LABEL[a.outcome]}</StatusPill>
-                    </td>
-                    <td className="whitespace-nowrap py-2 pr-4 text-text-secondary">
-                      {when(a.created_at)}
-                    </td>
-                    <td className="py-2 pr-4 text-text-secondary">{a.ip ?? <NotRecorded />}</td>
-                    <td className="py-2 pr-4 text-text-secondary" title={a.user_agent ?? undefined}>
-                      {shortAgent(a.user_agent) ?? <NotRecorded />}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableScroller>
+                </>
+              }
+            >
+              {failed.map((a, i) => (
+                <Tr key={`${a.created_at}-${i}`}>
+                  <Td>
+                    {/* `whitespace-nowrap` because the outcome column is the
+                        narrowest in the table and a wrapped chip breaks out of
+                        its own 24px box. */}
+                    <Chip className="whitespace-nowrap">{OUTCOME_LABEL[a.outcome]}</Chip>
+                  </Td>
+                  <Td className="whitespace-nowrap font-mono text-text-secondary">
+                    {when(a.created_at)}
+                  </Td>
+                  <Td className="font-mono text-text-secondary">{a.ip ?? <NotRecorded />}</Td>
+                  <Td className="font-sans text-text-secondary" title={a.user_agent ?? undefined}>
+                    {shortAgent(a.user_agent) ?? <NotRecorded />}
+                  </Td>
+                </Tr>
+              ))}
+            </Ledger>
+          </div>
         )}
       </section>
     </div>
