@@ -9,15 +9,20 @@
  * The code itself is generated server-side from a CSPRNG (campaignStore.ts);
  * there is no field for typing one, because a hand-picked voucher code is a
  * guessable voucher code.
+ *
+ * The create form is collapsed behind a button in the title band rather than
+ * standing open above the list, which is the shape the product's own Wallets
+ * panel uses: the form is the rarer act, and a permanently open one pushed the
+ * codes themselves below the fold.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { Ban, Check, ChevronDown, Copy, Download, Loader2, Plus, RefreshCw } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronRight, Copy, Download, Plus, RefreshCw } from "lucide-react";
 
-import { Button, Card, EmptyState, Skeleton, Stat } from "../panik-core/ui";
+import { Button, Card, Chip, EmptyState, Skeleton, Stat } from "../panik-core/ui";
 import { evaluateCampaign, formatRemaining, type CampaignStatus } from "../panik-try/lib/trialLogic";
-import { Field, StatusPill } from "./ui/controls";
+import { Field, Panel, PANEL_BODY, ReloadButton } from "./ui/controls";
 import { RedemptionsPanel } from "./RedemptionsPanel";
 import {
   createCampaign,
@@ -36,6 +41,16 @@ const STATUS_LABEL: Record<CampaignStatus, string> = {
   expired: "Claim window closed",
   disabled: "Switched off",
 };
+
+/**
+ * A secondary button that is an anchor, for the one control on this console
+ * that has to be a link: `download` on a data URL is what saves the QR, and a
+ * `<button>` cannot carry it. Written out rather than passed through `Button`
+ * because that primitive renders a `<button>`; `no-underline` because
+ * index.css underlines every anchor in the product and this one is a control.
+ */
+const ANCHOR_BUTTON =
+  "inline-flex h-12 cursor-pointer items-center justify-center gap-2 px-5 font-sans text-sm font-bold uppercase tracking-[0.02em] no-underline hard-edge shadow-hard-sm bg-surface-raised text-text-primary hover:bg-highlight";
 
 function tryUrl(code: string): string {
   return `${window.location.origin}/try?code=${code}`;
@@ -75,26 +90,34 @@ function QrBlock({ code }: { code: string }) {
   }
 
   return (
-    <div className="mt-4 flex flex-col items-start gap-4 rounded-md border border-border-subtle p-4 sm:flex-row sm:items-center">
+    <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-start">
       {dataUrl ? (
-        <img src={dataUrl} alt={`QR code linking to the trial page for ${code}`} className="h-32 w-32 shrink-0 rounded-sm bg-white p-1" />
+        <img
+          src={dataUrl}
+          alt={`QR code linking to the trial page for ${code}`}
+          className="h-32 w-32 shrink-0 hard-edge bg-white p-1"
+        />
       ) : (
         <Skeleton className="h-32 w-32 shrink-0" />
       )}
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-sans text-text-secondary">Print this link on the card</p>
-        <p className="mt-1 break-all text-sm font-sans text-text-primary">{url}</p>
+        <p className="label-type text-2xs text-text-muted">Print this link on the card</p>
+        <p className="mt-1 break-all font-mono text-sm text-text-primary">{url}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <a
             href={dataUrl || undefined}
             download={`${code}.png`}
             aria-disabled={dataUrl ? undefined : true}
-            className={`inline-flex items-center gap-1.5 rounded-md border border-border-subtle px-3.5 py-2 text-xs font-sans font-bold text-text-secondary transition-all hover:bg-white/[0.04] hover:text-text-primary ${dataUrl ? "" : "pointer-events-none opacity-50"}`}
+            className={`${ANCHOR_BUTTON} ${dataUrl ? "" : "pointer-events-none opacity-40"}`}
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" /> Download QR
           </a>
           <Button variant="secondary" onClick={copy}>
-            {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+            {copied ? (
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
             {copied ? "Copied" : "Copy link"}
           </Button>
         </div>
@@ -107,10 +130,12 @@ function QrBlock({ code }: { code: string }) {
 function CreateForm({
   session,
   onCreated,
+  onCancel,
   onSignedOut,
 }: {
   session: Session;
   onCreated: (c: Campaign) => void;
+  onCancel: () => void;
   onSignedOut: () => void;
 }) {
   const [label, setLabel] = useState("");
@@ -119,6 +144,17 @@ function CreateForm({
   const [claimWindowDays, setClaimWindowDays] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  /**
+   * Focus the first field the moment the form opens, so the operator who just
+   * pressed "New voucher code" is typing rather than hunting. A wrapper ref
+   * rather than a ref on `Field`: its prop type is `InputHTMLAttributes`, which
+   * does not admit one.
+   */
+  const firstField = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    firstField.current?.querySelector("input")?.focus();
+  }, []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -146,62 +182,68 @@ function CreateForm({
   }
 
   return (
-    <Card tone="panel" className="mb-6">
-      <form onSubmit={submit}>
-        <h2 className="text-base font-sans font-bold text-text-primary">New voucher code</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+    <form onSubmit={submit} className="border-b-[3px] border-border-strong bg-surface-sunken p-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div ref={firstField} className="sm:col-span-2">
           <Field
-            className="sm:col-span-2"
             label="Label"
-            placeholder="ETHDenver booth cards"
             hint="Internal note, so you can tell two print runs apart."
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             disabled={busy}
           />
-          <Field
-            label="Trial length in days"
-            type="number"
-            min="1"
-            value={trialDays}
-            onChange={(e) => setTrialDays(e.target.value)}
-            hint="Per person. The clock starts when they first open the app."
-            disabled={busy}
-            required
-          />
-          <Field
-            label="How many people can redeem it"
-            type="number"
-            min="1"
-            value={maxRedemptions}
-            onChange={(e) => setMaxRedemptions(e.target.value)}
-            hint="The batch stops accepting redemptions at this count."
-            disabled={busy}
-            required
-          />
-          <Field
-            className="sm:col-span-2"
-            label="Claim window in days"
-            type="number"
-            min="1"
-            placeholder="No deadline"
-            value={claimWindowDays}
-            onChange={(e) => setClaimWindowDays(e.target.value)}
-            hint="Deadline for redeeming the card itself. Leave blank for no deadline."
-            disabled={busy}
-          />
         </div>
-        {error && (
-          <p role="alert" className="mt-4 text-xs font-sans text-text-secondary">
-            {error}
-          </p>
-        )}
-        <Button type="submit" className="mt-5" disabled={busy}>
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
-          {busy ? "Creating" : "Create voucher code"}
+        <Field
+          label="Trial length in days"
+          type="number"
+          mono
+          min="1"
+          value={trialDays}
+          onChange={(e) => setTrialDays(e.target.value)}
+          hint="Per person. The clock starts when they first open the app."
+          disabled={busy}
+          required
+        />
+        <Field
+          label="How many people can redeem it"
+          type="number"
+          mono
+          min="1"
+          value={maxRedemptions}
+          onChange={(e) => setMaxRedemptions(e.target.value)}
+          hint="The batch stops accepting redemptions at this count."
+          disabled={busy}
+          required
+        />
+        <Field
+          wrapClassName="sm:col-span-2"
+          label="Claim window in days"
+          type="number"
+          mono
+          min="1"
+          value={claimWindowDays}
+          onChange={(e) => setClaimWindowDays(e.target.value)}
+          hint="Deadline for redeeming the card itself. Leave blank for no deadline."
+          disabled={busy}
+        />
+      </div>
+      {error && (
+        <p role="alert" className="mt-4 font-sans text-xs text-text-secondary">
+          {error}
+        </p>
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {/* No spinner: there is no motion in this system, and the word on a
+            disabled button carries the same fact. */}
+        <Button type="submit" disabled={busy}>
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          {busy ? "Creating" : "Create"}
         </Button>
-      </form>
-    </Card>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -237,61 +279,72 @@ function CampaignRow({
   }
 
   const panelId = `campaign-detail-${campaign.id}`;
+  const Caret = open ? ChevronDown : ChevronRight;
 
   return (
-    <li className="border-t border-border-subtle py-4 first:border-t-0 first:pt-0">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="text-sm font-sans font-bold text-text-primary">{campaign.campaign_code}</span>
-        <StatusPill tone={status === "active" ? "live" : "done"}>{STATUS_LABEL[status]}</StatusPill>
-        {campaign.label && (
-          <span className="min-w-0 truncate text-xs font-sans text-text-secondary">{campaign.label}</span>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            aria-controls={panelId}
-          >
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
-            {open ? "Hide" : "Details"}
-          </Button>
-          {campaign.is_active && (
-            <Button variant="secondary" onClick={expire} disabled={busy}>
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Ban className="h-3.5 w-3.5" aria-hidden="true" />}
-              Switch off
-            </Button>
+    <li className="border-t-[3px] border-border-strong first:border-t-0">
+      <div className="flex flex-col gap-2 p-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="font-mono text-sm font-bold text-text-primary">
+            {campaign.campaign_code}
+          </span>
+          {/* Inverted for the one live state, plain for the three finished
+              ones. No hue either way: an exhausted batch is an inventory fact,
+              not a risk band, and the five risk hues mean liquidation risk
+              everywhere else in the product. */}
+          <Chip className={status === "active" ? "bg-text-primary text-white" : ""}>
+            {STATUS_LABEL[status]}
+          </Chip>
+          {campaign.label && (
+            <span className="min-w-0 truncate font-sans text-xs text-text-secondary">
+              {campaign.label}
+            </span>
           )}
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              aria-controls={panelId}
+            >
+              <Caret className="h-3.5 w-3.5" aria-hidden="true" />
+              {open ? "Hide" : "Details"}
+            </Button>
+            {campaign.is_active && (
+              <Button variant="secondary" onClick={expire} disabled={busy}>
+                <Ban className="h-3.5 w-3.5" aria-hidden="true" />
+                {busy ? "Switching off" : "Switch off"}
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* The four facts as one sentence rather than as a four-cell
+            definition list: they are short, they are always all present, and
+            the list spent a whole row of the card on four captions. */}
+        <p className="font-sans text-xs text-text-secondary">
+          Redeemed{" "}
+          <span className="font-mono">
+            {campaign.redemption_count} of {campaign.max_redemptions}
+          </span>
+          , trial <span className="font-mono">{trialLength(campaign.trial_duration_hours)}</span>,{" "}
+          <span className="font-mono">{claimWindow}</span>, created{" "}
+          <span className="font-mono">{new Date(campaign.created_at).toLocaleDateString()}</span>
+        </p>
       </div>
 
-      <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-xs font-sans">
-        <div>
-          <dt className="text-text-muted">Redeemed</dt>
-          <dd className="mt-0.5 text-sm text-text-primary">
-            {campaign.redemption_count} of {campaign.max_redemptions}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-text-muted">Trial length</dt>
-          <dd className="mt-0.5 text-sm text-text-primary">{trialLength(campaign.trial_duration_hours)}</dd>
-        </div>
-        <div>
-          <dt className="text-text-muted">Claim window</dt>
-          <dd className="mt-0.5 text-sm text-text-primary">{claimWindow}</dd>
-        </div>
-        <div>
-          <dt className="text-text-muted">Created</dt>
-          <dd className="mt-0.5 text-sm text-text-primary">
-            {new Date(campaign.created_at).toLocaleDateString()}
-          </dd>
-        </div>
-      </dl>
-
       {open && (
-        <div id={panelId}>
+        <div
+          id={panelId}
+          className="flex flex-col gap-5 border-t-[3px] border-border-strong bg-surface-sunken p-4"
+        >
           <QrBlock code={campaign.campaign_code} />
-          <RedemptionsPanel session={session} code={campaign.campaign_code} onSignedOut={onSignedOut} />
+          <RedemptionsPanel
+            session={session}
+            code={campaign.campaign_code}
+            redemptionCount={campaign.redemption_count}
+            onSignedOut={onSignedOut}
+          />
         </div>
       )}
     </li>
@@ -309,6 +362,17 @@ export function CampaignsPanel({
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const createButtonRef = useRef<HTMLButtonElement>(null);
+  // Skips the focus-return on the initial render and fires only on the true ->
+  // false transition, whether that came from Cancel or a successful create:
+  // either way the form is gone and its trigger is where focus belongs.
+  const wasCreating = useRef(false);
+  useEffect(() => {
+    if (wasCreating.current && !creating) createButtonRef.current?.focus();
+    wasCreating.current = creating;
+  }, [creating]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -338,69 +402,93 @@ export function CampaignsPanel({
     });
   }
 
+  function onCreated(next: Campaign) {
+    upsert(next);
+    // A successful create is also a close: there is nothing left in the form to
+    // look at once the code it was for exists as a row below it.
+    setCreating(false);
+  }
+
   const live = campaigns.filter((c) => evaluateCampaign(c) === "active");
   const claimed = campaigns.reduce((sum, c) => sum + c.redemption_count, 0);
+  const pending = loading && campaigns.length === 0;
 
   return (
     <>
       {/* Counts of what is loaded, nothing derived or predicted. */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div className="grid gap-8 md:grid-cols-3">
         <Card tone="raised">
-          <Stat label="Voucher codes" value={loading && campaigns.length === 0 ? "..." : campaigns.length} />
+          <Stat label="Voucher codes" value={pending ? "..." : campaigns.length} sub="Created to date" />
         </Card>
         <Card tone="raised">
           <Stat
             label="Still redeemable"
-            value={loading && campaigns.length === 0 ? "..." : live.length}
+            value={pending ? "..." : live.length}
+            sub="Accepting redemptions now"
           />
         </Card>
         {/* Deliberately NOT "how many people we have". This is the per-code
             counter, which keeps counting a redemption after the trial itself is
-            cleaned up 30 days past expiry, so it runs ahead of the roster above.
+            cleaned up 30 days past expiry, so it runs ahead of the Trials tab.
             Two names, because they are two quantities. */}
-        <Card tone="raised" className="col-span-2 sm:col-span-1">
+        <Card tone="raised">
           <Stat
             label="Redemptions to date"
-            value={loading && campaigns.length === 0 ? "..." : claimed}
+            value={pending ? "..." : claimed}
             sub="Counted per code, expired trials included"
           />
         </Card>
       </div>
 
-      <CreateForm session={session} onCreated={upsert} onSignedOut={onSignedOut} />
-
-      <Card tone="panel">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base font-sans font-bold text-text-primary">Voucher codes</h2>
-          <Button variant="ghost" onClick={refresh} aria-label="Reload voucher codes">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
-            Reload
-          </Button>
-        </div>
+      <Panel
+        title="Voucher codes"
+        actions={
+          <>
+            <ReloadButton onClick={refresh} label="Reload voucher codes" />
+            {!creating && (
+              <Button ref={createButtonRef} onClick={() => setCreating(true)}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New voucher code
+              </Button>
+            )}
+          </>
+        }
+      >
+        {creating && (
+          <CreateForm
+            session={session}
+            onCreated={onCreated}
+            onCancel={() => setCreating(false)}
+            onSignedOut={onSignedOut}
+          />
+        )}
 
         {error ? (
-          <EmptyState
-            tone="problem"
-            title="Could not load the voucher codes"
-            hint={error}
-            action={
-              <Button variant="secondary" onClick={refresh}>
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
-              </Button>
-            }
-          />
-        ) : loading && campaigns.length === 0 ? (
-          <div className="flex flex-col gap-3">
+          <div className={PANEL_BODY}>
+            <EmptyState
+              tone="problem"
+              title="Could not load the voucher codes"
+              hint={error}
+              action={
+                <Button variant="secondary" onClick={refresh}>
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
+                </Button>
+              }
+            />
+          </div>
+        ) : pending ? (
+          <div className={`flex flex-col gap-3 ${PANEL_BODY}`}>
             <Skeleton className="h-5 w-64" />
             <Skeleton className="h-5 w-full" />
             <Skeleton className="h-5 w-3/4" />
           </div>
         ) : campaigns.length === 0 ? (
-          <EmptyState
-            tone="clear"
-            title="No voucher codes yet"
-            hint="Create one above and a printable QR appears with it."
-          />
+          <div className={PANEL_BODY}>
+            <EmptyState
+              tone="clear"
+              title="No voucher codes yet"
+              hint="Create one from the button above and a printable QR appears with it."
+            />
+          </div>
         ) : (
           <ul>
             {campaigns.map((c) => (
@@ -414,7 +502,7 @@ export function CampaignsPanel({
             ))}
           </ul>
         )}
-      </Card>
+      </Panel>
     </>
   );
 }
