@@ -497,7 +497,7 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
     >
       {TABS.map(({ id, label, icon: Icon, shortLabel }) => {
         const selected = activeTab === id;
-        const displayLabel = !vertical && id === "portfolio" && shortLabel ? shortLabel : label;
+        const displayLabel = vertical ? label : (shortLabel ?? label);
         return (
           <button
             key={id}
