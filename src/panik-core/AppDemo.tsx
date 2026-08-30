@@ -200,8 +200,8 @@ import { motion, AnimatePresence } from "motion/react";
 type SidebarTab = "compass" | "watch" | "advisor" | "portfolio" | "settings";
 
 /** Source of truth for the sidebar: order here is the arrow-key order. */
-const TABS: { id: SidebarTab; label: string; icon: typeof Wallet }[] = [
-  { id: "portfolio", label: "Portfolio", icon: Wallet },
+const TABS: { id: SidebarTab; label: string; icon: typeof Wallet; shortLabel?: string }[] = [
+  { id: "portfolio", label: "Portfolio", icon: Wallet, shortLabel: "Port" },
   { id: "compass", label: "Compass", icon: CompassIcon },
   { id: "watch", label: "Watch", icon: Eye },
   { id: "advisor", label: "Advisor", icon: Sparkles },
@@ -495,8 +495,9 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
       }
       onKeyDown={onKeyDown}
     >
-      {TABS.map(({ id, label, icon: Icon }) => {
+      {TABS.map(({ id, label, icon: Icon, shortLabel }) => {
         const selected = activeTab === id;
+        const displayLabel = vertical ? label : (shortLabel ?? label);
         return (
           <button
             key={id}
@@ -504,6 +505,7 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
             id={`tab-${id}`}
             aria-selected={selected}
             aria-controls={`panel-${id}`}
+            aria-label={label}
             tabIndex={selected ? 0 : -1}
             ref={(el) => {
               tabRefs.current[id] = el;
@@ -520,7 +522,7 @@ function NavTabs({ variant, activeTab, onSelect, tabRefs, onKeyDown }: NavTabsPr
             } ${TAB_STATE[selected ? "selected" : "resting"]}`}
           >
             <Icon className={vertical ? "h-4 w-4 shrink-0" : "h-5 w-5 shrink-0"} aria-hidden="true" />
-            <span className="max-w-full truncate">{label}</span>
+            <span className="max-w-full truncate">{displayLabel}</span>
           </button>
         );
       })}
