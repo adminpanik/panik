@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * The dashboard: five figures describing what PANIK is watching right now.
- * The first panel of the admin console at /admin, behind the same gate as every
- * other panel there.
+ * The Watching tab of the admin console at /admin, behind the same gate as
+ * every other panel there.
  *
  * ── TWO LABELS THAT ARE DELIBERATELY NOT WHAT WAS ASKED FOR ───────────────
  * "TVL" is rendered as "Collateral monitored". PANIK is non-custodial: this
@@ -21,29 +21,37 @@
  * of implying one the data cannot support.
  *
  * ── SIMULATED PRICES ARE NOT IN THESE NUMBERS ─────────────────────────────
- * The simulator panel sits directly below this one, and a scenario armed there
- * multiplies the collateral USD written into every snapshot it produces. The
- * RPC filters those rows out, so "Collateral monitored" keeps reporting the
- * market while a crash is being demonstrated. The cost is that the reading can
- * be older than the last tick, which is what the staleness cue is for.
+ * A scenario armed on the Simulator tab multiplies the collateral USD written
+ * into every snapshot it produces. The RPC filters those rows out, so
+ * "Collateral monitored" keeps reporting the market while a crash is being
+ * demonstrated. The cost is that the reading can be older than the last tick,
+ * which is what the staleness cue is for.
  *
  * Nothing here renders an unknown as a zero, and nothing renders a known zero
  * as an unknown. A missing price, an events pipeline that has never ingested
  * anything, and a genuine zero are three different statements, and the tiles
- * say which one they mean.
+ * say which one they mean. The unknown is now the WORDS "Not on record" rather
+ * than an ellipsis: "$…" is a dollar sign in front of nothing, which reads as
+ * a figure that failed to render rather than as a fact we do not hold.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
-import { Button, Card, EmptyState, Skeleton, Stat } from "../panik-core/ui";
+import { Button, EmptyState, Skeleton, Stat } from "../panik-core/ui";
 import { formatUsd } from "../panik-core/lib/utils";
+import { Panel, PANEL_BODY, ReloadButton } from "./ui/controls";
 import { getMetrics, isSignedOut, type AdminMetrics } from "./lib/adminApi";
 import type { Session } from "./lib/supabaseAuth";
 
-/** Count -> text. Null is unknown, and unknown is never 0. Pairs with "$…". */
-function formatCount(value: number | null): string {
-  return value === null ? "…" : value.toLocaleString("en-US");
+/** Count -> text. Null is unknown, and unknown is never 0. */
+function formatCount(value: number): string {
+  return value.toLocaleString("en-US");
+}
+
+/** A figure we do not hold, in words. Never a zero and never a bare glyph. */
+function NotOnRecord() {
+  return <span className="font-sans text-base text-text-secondary">Not on record</span>;
 }
 
 /**
@@ -89,6 +97,22 @@ function elapsed(iso: string | null): string | null {
   return `${Math.round(hours / 24)} d`;
 }
 
+/**
+ * The rules BETWEEN the tiles, as one expression read by every cell.
+ *
+ * A grid of bordered cards would draw a 3px edge twice wherever two cards meet.
+ * Rules on the cells instead: a top rule on everything past the first row, a
+ * left rule on everything past the first column, and the card's own edge closes
+ * the outside. The row and column a cell is in depends on the breakpoint, which
+ * is why both are written as a base rule and an `md:` correction rather than as
+ * one static string.
+ */
+function cellRules(i: number): string {
+  const top = i > 0 ? (i < 3 ? "border-t-[3px] md:border-t-0" : "border-t-[3px]") : "";
+  const left = i % 3 !== 0 ? "md:border-l-[3px]" : "";
+  return `border-border-strong ${top} ${left}`;
+}
+
 export function MetricsPanel({
   session,
   onSignedOut,
@@ -126,82 +150,116 @@ export function MetricsPanel({
   const eventsSpan = elapsed(metrics?.txOldestAt ?? null);
 
   return (
-    <Card tone="panel" className="mb-6">
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <h2 className="text-base font-sans font-bold text-text-primary">What PANIK is watching</h2>
-        <Button variant="ghost" className="ml-auto" onClick={refresh} aria-label="Reload the figures">
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
-          Reload
-        </Button>
-      </div>
-
+    <Panel
+      title="What PANIK is watching"
+      actions={<ReloadButton onClick={refresh} label="Reload the figures" />}
+    >
       {error ? (
-        <EmptyState
-          tone="problem"
-          title="Could not load the figures"
-          hint={error}
-          action={
-            <Button variant="secondary" onClick={refresh}>
-              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
-            </Button>
-          }
-        />
+        <div className={PANEL_BODY}>
+          <EmptyState
+            tone="problem"
+            title="Could not load the figures"
+            hint={error}
+            action={
+              <Button variant="secondary" onClick={refresh}>
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Try again
+              </Button>
+            }
+          />
+        </div>
       ) : !metrics ? (
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid md:grid-cols-3">
           {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i}>
+            <div key={i} className={`p-5 ${cellRules(i)}`}>
               <Skeleton className="h-4 w-28" />
               <Skeleton className="mt-2 h-8 w-36" />
             </div>
           ))}
         </div>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-          <Stat
-            label="Collateral monitored"
-            value={formatUsd(metrics.collateralUsd)}
-            sub={
-              unpriced > 0
-                ? `${formatCount(unpriced)} of ${formatCount(metrics.positionsMonitored)} positions had no price`
-                : (freshness ?? undefined)
-            }
-          />
-          <Stat
-            label="Transaction volume"
-            value={metrics.eventsReady ? formatUsd(metrics.txVolumeUsd) : "$…"}
-            sub={
-              !metrics.eventsReady
-                ? "No lending events on record yet"
-                : metrics.txUnpriced && metrics.txUnpriced > 0
-                  ? `${formatCount(metrics.txUnpriced)} of ${formatCount(metrics.txCount)} events carried no USD amount`
+        <div className="grid md:grid-cols-3">
+          <div className={`p-5 ${cellRules(0)}`}>
+            <Stat
+              label="Collateral monitored"
+              value={
+                metrics.collateralUsd === null ? <NotOnRecord /> : formatUsd(metrics.collateralUsd)
+              }
+              sub={
+                unpriced > 0
+                  ? `${formatCount(unpriced)} of ${formatCount(metrics.positionsMonitored)} positions had no price`
+                  : (freshness ?? undefined)
+              }
+            />
+          </div>
+          <div className={`p-5 ${cellRules(1)}`}>
+            <Stat
+              label="Transaction volume"
+              value={
+                metrics.eventsReady && metrics.txVolumeUsd !== null ? (
+                  formatUsd(metrics.txVolumeUsd)
+                ) : (
+                  <NotOnRecord />
+                )
+              }
+              sub={
+                !metrics.eventsReady
+                  ? "No lending events on record yet"
+                  : metrics.txUnpriced && metrics.txUnpriced > 0
+                    ? `${formatCount(metrics.txUnpriced)} of ${formatCount(metrics.txCount ?? 0)} events carried no USD amount`
+                    : eventsSpan
+                      ? `Events on record go back ${eventsSpan}`
+                      : undefined
+              }
+            />
+          </div>
+          <div className={`p-5 ${cellRules(2)}`}>
+            <Stat
+              label="Transactions"
+              value={
+                metrics.eventsReady && metrics.txCount !== null ? (
+                  formatCount(metrics.txCount)
+                ) : (
+                  <NotOnRecord />
+                )
+              }
+              sub={
+                !metrics.eventsReady
+                  ? "No lending events on record yet"
                   : eventsSpan
                     ? `Events on record go back ${eventsSpan}`
                     : undefined
-            }
-          />
-          <Stat
-            label="Transactions"
-            value={metrics.eventsReady ? formatCount(metrics.txCount) : "…"}
-            sub={
-              !metrics.eventsReady
-                ? "No lending events on record yet"
-                : eventsSpan
-                  ? `Events on record go back ${eventsSpan}`
-                  : undefined
-            }
-          />
-          <Stat
-            label="Wallets connected"
-            value={formatCount(metrics.walletsConnected)}
-            sub="Active in the watch registry"
-          />
-          <Stat
-            label="Positions monitored"
-            value={formatCount(metrics.positionsMonitored)}
-            sub={freshness ?? undefined}
-          />
+              }
+            />
+          </div>
+          <div className={`p-5 ${cellRules(3)}`}>
+            <Stat
+              label="Wallets connected"
+              value={formatCount(metrics.walletsConnected)}
+              sub="Active in the watch registry"
+            />
+          </div>
+          <div className={`p-5 ${cellRules(4)}`}>
+            <Stat
+              label="Positions monitored"
+              value={formatCount(metrics.positionsMonitored)}
+              sub={freshness ?? undefined}
+            />
+          </div>
+          {/* Five figures in a three-column grid leave one cell empty, and
+              without this the second row's rule stopped two thirds of the way
+              across. Only from `md`: at one column it would be a stray rule
+              under the last figure. */}
+          <div aria-hidden="true" className={`hidden md:block ${cellRules(5)}`} />
         </div>
       )}
-    </Card>
+      {/* `loading` is read so a reload while figures are already on screen is
+          not a silent no-op: the panel keeps the last reading and says it is
+          fetching a new one, rather than blanking back to skeletons. */}
+      {loading && metrics ? (
+        <p className="border-t-[3px] border-border-strong px-5 py-2 font-sans text-xs text-text-muted">
+          Reading again.
+        </p>
+      ) : null}
+    </Panel>
   );
 }
