@@ -4183,7 +4183,32 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                     below, where it states the fact and stops. */}
                 <PageHeader title="Advisor" />
 
-                {advisorLive.report ? (
+                {/* No wallet bound: there is no report to be loading, offline,
+                    or not-yet-built for, so none of the three branches below
+                    apply. Rendering the "not open yet" card here was the other
+                    half of the bug this comment replaces - it told a reader
+                    with no wallet that a shipped feature was still on the
+                    roadmap, which is a fact about a report that was never
+                    requested. Portfolio's equivalent state gets a whole
+                    invitation card; this tab needs no more than silence, since
+                    the shell already prompts for a wallet elsewhere. */}
+                {!boundMode ? null : advisorLive.loading ? (
+                  /* First fetch for this wallet, genuinely in flight. Reuses
+                     the same reserved-block treatment as Portfolio's
+                     `portfolioLoading` cards (see STATE 2 of 4 below): shape
+                     holds the space, no figure or sentence claims an answer
+                     the code does not have yet. */
+                  <div className="space-y-4">
+                    <Card tone="raised" className="space-y-3">
+                      <Skeleton className="h-5 w-56" />
+                      <Skeleton className="h-4 w-full max-w-md" />
+                    </Card>
+                    <Card tone="raised" className="space-y-3">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-24 w-full" />
+                    </Card>
+                  </div>
+                ) : advisorLive.report ? (
                   <AdvisorPanel
                     report={advisorLive.report}
                     onExit={viewingWatchOnly ? undefined : (prefill) => setExitPrefill(prefill)}

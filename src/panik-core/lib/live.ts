@@ -686,21 +686,32 @@ export interface AdvisorReport {
  * the expensive narration for 5 min). Null wallet degrades to a null report.
  *
  * `offline` is the same flag every other hook here raises, and the Advisor tab
- * has to read it. A null report alone covers three different situations - no
- * wallet bound, first fetch still in flight, and a service that could not be
- * reached - and the tab's only fallback was "Advisor is not live yet", so a
- * 502 from a route that exists rendered as the feature not existing. Telling
- * someone a risk advisor was never built is a worse answer than telling them it
- * is unreachable, because only one of the two invites them to look again.
+ * has to read it. A null report alone used to cover three different
+ * situations at once - no wallet bound, first fetch still in flight, and a
+ * service that could not be reached - and the tab's only fallback was
+ * "Advisor is not live yet", so a 502 from a route that exists rendered as the
+ * feature not existing, and the FIRST fetch for a freshly bound wallet read
+ * the same way for the second or two before it resolved. Telling someone a
+ * risk advisor was never built is a worse answer than telling them it is
+ * unreachable or that it is still loading, because only those two invite them
+ * to look again.
+ *
+ * `loading` is what separates "no answer yet" from "confirmed there is no
+ * route": true from the moment a wallet is bound until the first attempt for
+ * it - success or failure - settles, then false for the rest of that wallet's
+ * polling. The tab's default branch (the not-live-yet card) is only reachable
+ * once `loading` has cleared, which is what keeps a first-fetch window or a
+ * rate-limited retry from reading as a feature that was never shipped.
  *
  * The 404 case is deliberately NOT `offline`: a path that is not mounted is the
  * one reading under which the not-live-yet card is true, so it stays in the
- * tab's default branch. A rate-limited poll is a retry rather than an outage,
- * same as everywhere else here.
+ * tab's default branch once loading clears. A rate-limited poll is a retry
+ * rather than an outage, same as everywhere else here.
  */
 export function useAdvisor(wallet: string | null, profile: string, chain: string) {
   const [data, setData] = useState<AdvisorReport | null>(null);
   const [offline, setOffline] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // Reset on wallet OR chain change - advice is about a position, and each
@@ -709,10 +720,16 @@ export function useAdvisor(wallet: string | null, profile: string, chain: string
     // `offline` resets with it, unconditionally, for the reason
     // `useWalletPositions` spells out: it is a fact about the last fetch for the
     // PREVIOUS wallet, and now that the tab renders a "we could not reach the
-    // advisor" panel from it, leaving it standing would make that panel the
-    // first thing a newly bound wallet sees.
+    // advisor" panel from it, leaving it standing told the new wallet's panel
+    // "we could not reach the feed" before anything had been asked about it.
+    //
+    // `loading` follows the same rule: it is true only while THIS wallet's
+    // first attempt is outstanding, so a wallet switch never leaves the
+    // previous wallet's settled state (loaded, offline, or not-built) standing
+    // over the new one's first fetch.
     setData(null);
     setOffline(false);
+    setLoading(Boolean(wallet));
     if (!wallet) return;
     let cancelled = false;
     const url =
@@ -727,6 +744,8 @@ export function useAdvisor(wallet: string | null, profile: string, chain: string
         }
       } catch (err) {
         if (!cancelled && !isRateLimited(err) && !isRouteAbsent(err)) setOffline(true);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     };
     void load();
@@ -737,7 +756,7 @@ export function useAdvisor(wallet: string | null, profile: string, chain: string
     };
   }, [wallet, profile, chain]);
 
-  return { report: data, offline };
+  return { report: data, offline, loading };
 }
 
 export interface ProspectiveArgs {
