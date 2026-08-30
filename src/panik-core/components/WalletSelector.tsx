@@ -4,26 +4,27 @@
  *
  * Which wallet PANIK is watching, and the control that changes it.
  *
- * IT IS A BLOCK NOW, NOT A DROPDOWN, and that is the whole change. It used to
- * be a `Listbox` beside the Portfolio heading, one of three floating panels the
- * shell could open over itself: a wallet menu in the header, an account menu
- * beside it and this. Every one of them was a shadowed layer that appeared
- * somewhere the pointer was not, over content the reader was mid-way through.
- * The sidebar has a permanent 208px of room at the bottom and nothing in it,
- * which is where a fact that is true on every screen belongs.
+ * THE CARD IS THE TRIGGER. The sidebar shape used to be a static block (name,
+ * address, a "Switch" button, an inline `<ul>` of plain buttons under it) built
+ * on the theory that the options were already in the page, so a combobox model
+ * would teach a keyboard contract for something reachable with Tab alone.
+ * Measured against the header's wallet menu and the Watch market picker, that
+ * was two ideas of "a dropdown" in one product: one had `aria-activedescendant`
+ * and arrow keys, the other was a button toggling a `<ul>` with none of it. The
+ * block now wears the same `Listbox` primitive the phone strip below already
+ * uses, so there is exactly one keyboard contract for "collapsed value, panel
+ * of rows" anywhere in the app.
  *
- * So the block STATES the answer - the name, the address and when it was last
- * read - and the list only appears when there is a choice to make, inline,
- * pushing the block up rather than covering anything. No shadow on it, because
- * it is not floating over anything to cast one.
+ * WHAT STAYS A PLAIN BLOCK is the ONE-OPTION case: a trigger with nothing to
+ * switch to is a picker that cannot pick, so with a single wallet this renders
+ * the same identity as an inert `<div>`, no chevron, no pointer, nothing to
+ * press. `checkedAt` sits under the block either way, outside the trigger,
+ * because it is a fact about the reading, not part of the value being chosen.
  *
- * A PLAIN LIST OF BUTTONS, not the `Listbox` primitive. That one is a combobox:
- * a collapsed trigger reporting a value, with `aria-activedescendant` and a
- * roving cursor, and every part of that contract exists because the options are
- * NOT in the page. These are: they are five buttons in the sidebar's own flow,
- * each reachable with Tab and pressable with Enter or Space for free, and
- * dressing them as a combobox would add a keyboard model a reader has to learn
- * in order to use something they can already see.
+ * THE PANEL MATCHES THE SIDEBAR'S 264PX rather than the 320px every other
+ * `Listbox` opens at, via the `panelClassName` escape hatch: a popover
+ * spilling past the rail's own right edge would be the one floating surface
+ * in the product that does not fit the space it opens from.
  *
  * WHAT THE ROWS CARRY, and why none of it is colour. The current wallet is
  * marked with a check (SC 1.4.1: never state anything by hue alone, and the
@@ -33,11 +34,11 @@
  * risk hue anywhere: which wallet you are looking at is not a risk band.
  */
 
-import React, { useId, useState } from "react";
+import React from "react";
 import { Check, Eye } from "lucide-react";
 import { truncateAddress } from "../lib/utils";
 import type { WalletChoice } from "../lib/watchlist";
-import { Button, Listbox } from "../ui";
+import { Listbox } from "../ui";
 
 export interface WalletSelectorProps {
   /** Built by `viewableWallets`, which is the authority on what may be shown. */
@@ -68,14 +69,13 @@ export interface WalletSelectorProps {
    * the way to change it are one thing rather than two, and the Portfolio gets
    * that space back for the positions.
    *
-   * IT IS A `Listbox` HERE, unlike the sidebar block, and the difference is the
-   * one the primitive's own contract turns on: the sidebar's options are IN the
-   * page (five buttons in a rail with room under them), so a combobox model
-   * would add a keyboard contract for something already reachable with Tab.
-   * From a 56px strip they are not in the page and cannot be, so this is a
-   * collapsed trigger reporting a value with a panel behind it, which is
-   * exactly what that primitive is - including the outside-press dismissal and
-   * the arrow keys, neither of which the inline list needs or has.
+   * BOTH SHAPES ARE `Listbox` NOW, the strip and the sidebar block alike, so
+   * there is one keyboard contract for "collapsed value, panel of rows"
+   * anywhere this control appears. What still differs is size and context: the
+   * strip is `h-8` inside a 56px header with only the address on show, where
+   * the sidebar's `h-14` trigger is the whole block, carrying a name line and
+   * the panel sized to the rail's own 264px rather than this primitive's usual
+   * 320px.
    */
   bar?: boolean;
 }
@@ -97,8 +97,6 @@ export function WalletSelector({
     options.findIndex((o) => o.wallet === target),
   );
   const selected = options[selectedIndex];
-  const [open, setOpen] = useState(false);
-  const listId = useId();
 
   // The address once, not twice: an unnamed wallet IS its address, and
   // "0x9b1f…a5c7, 0x9b1f…a5c7" is a row read out stuttering.
@@ -191,91 +189,73 @@ export function WalletSelector({
     );
   }
 
-  return (
-    <div className="hard-edge bg-surface-raised">
-      <div className="space-y-1.5 p-3">
-        <div className="space-y-1.5">
-        <span className="block label-type text-xs text-text-secondary">Watching wallet</span>
-
-        {selected.label?.trim() && (
-          <span className="block truncate font-sans text-sm font-bold text-text-primary">
-            {selected.label.trim()}
-          </span>
-        )}
-        {/* Mono is reserved for hexadecimal, and this is the only hexadecimal
-            in the block. The whole address on hover, as the Wallets panel does
-            it: 42 characters is not something a reader checks by reading, it is
-            something they check by comparing the ends. */}
-        <span
-          title={selected.wallet}
-          className="block truncate font-mono text-base font-bold text-text-primary"
-        >
-          {truncateAddress(selected.wallet)}
+  /**
+   * The block's left column, shared by both shapes below: a name (when the
+   * wallet has one) over the truncated address, both truncating rather than
+   * wrapping so the block never grows past its own two lines.
+   */
+  const identity = (
+    <span className="flex min-w-0 flex-1 flex-col">
+      {selected.label?.trim() && (
+        <span className="truncate font-sans text-sm font-bold text-text-primary">
+          {selected.label.trim()}
         </span>
+      )}
+      <span
+        title={selected.wallet}
+        className="truncate font-mono text-xs font-bold text-text-primary"
+      >
+        {truncateAddress(selected.wallet)}
+      </span>
+    </span>
+  );
 
-        {/* The marker, not an essay: the full watch-only explanation lives in
-            the Wallets panel and on the alerts themselves. */}
-        {!selected.own && (
-          <span className="flex items-center gap-1.5 font-sans text-sm text-text-secondary">
-            <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-            Watch only
-          </span>
-        )}
-
-        {/* A fact the code knows, so it stays: how old the reading on screen is
-            is the one thing a reader cannot work out by looking at it. */}
-        {checkedAt && (
-          <span className="block font-sans text-sm text-text-secondary">{checkedAt}</span>
-        )}
+  return (
+    <div>
+      {options.length < 2 ? (
+        /* With one wallet there is nothing to switch TO, so the block states
+           the identity and offers no control: a trigger with one option is a
+           picker that cannot pick. Same test the bar shape applies to
+           itself above. */
+        <div className="flex h-14 w-full items-center justify-between gap-2 hard-edge bg-surface-raised px-3">
+          {identity}
+          {!selected.own && (
+            <Eye aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+          )}
         </div>
+      ) : (
+        <Listbox
+          label="Which wallet to show"
+          count={options.length}
+          selectedIndex={selectedIndex}
+          onCommit={(i) => onChange(options[i].wallet)}
+          trigger={
+            <>
+              {identity}
+              {!selected.own && (
+                <Eye aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+              )}
+            </>
+          }
+          triggerClassName="flex h-14 w-full cursor-pointer items-center justify-between gap-2 hard-edge bg-surface-raised px-3"
+          /* The panel matches the trigger's own 264px rather than the 320px
+             every other `Listbox` opens at: the sidebar has no room for a
+             floating panel spilling past its own right edge. */
+          panelClassName="w-full"
+          optionLabel={(i) => rowLabel(options[i])}
+          optionClassName={({ selected: sel, active }) =>
+            `flex w-full items-center gap-2 px-3 py-2.5 text-left ${
+              active ? "bg-highlight" : sel ? "bg-highlight" : ""
+            }`
+          }
+          renderOption={(i, { selected: sel }) => rowBody(options[i], sel)}
+        />
+      )}
 
-        {/* Only when there is a choice to make. With one wallet on the list the
-            control has exactly one option, which is a picker that cannot pick,
-            and it would sit in the sidebar on every screen implying the app
-            could be showing something else. */}
-        {options.length > 1 && (
-          <Button
-            variant="ghost"
-            aria-expanded={open}
-            aria-controls={listId}
-            onClick={() => setOpen((v) => !v)}
-            className="h-8 px-0"
-          >
-            {open ? "Close" : "Switch"}
-          </Button>
-        )}
-      </div>
-
-      {open && options.length > 1 && (
-        <ul id={listId} className="border-t-[3px] border-solid border-border-strong">
-          {options.map((o, i) => {
-            const current = i === selectedIndex;
-            return (
-              <li
-                key={o.wallet}
-                className={i > 0 ? "border-t border-border-subtle" : ""}
-              >
-                <button
-                  type="button"
-                  /* `aria-current` rather than `aria-selected`: this is a set of
-                     links to one of several views, not a set of options inside
-                     a widget that reports a value. */
-                  aria-current={current ? "true" : undefined}
-                  aria-label={rowLabel(o)}
-                  onClick={() => {
-                    onChange(o.wallet);
-                    setOpen(false);
-                  }}
-                  className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2.5 text-left hover:bg-highlight ${
-                    current ? "bg-highlight" : ""
-                  }`}
-                >
-                  {rowBody(o, current)}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+      {/* A fact the code knows, so it stays: how old the reading on screen is
+          is the one thing a reader cannot work out by looking at it. */}
+      {checkedAt && (
+        <span className="mt-1.5 block font-sans text-xs text-text-muted">{checkedAt}</span>
       )}
     </div>
   );

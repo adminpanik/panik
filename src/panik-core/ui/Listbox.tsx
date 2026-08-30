@@ -103,6 +103,18 @@ export interface ListboxProps {
   optionLabel?: (index: number) => string;
   /** Extra utilities on the positioning wrapper, which is always `relative`. */
   className?: string;
+  /**
+   * Replaces the panel's own width, `w-80` by default (see `PANEL_W` above).
+   * The sidebar's block is 264px and has no room for a 320px panel spilling
+   * past its own edge, so it passes `w-full` here to match the trigger
+   * instead. A REPLACEMENT rather than an appended class: two width utilities
+   * of equal specificity have the same problem `Card`'s doc comment already
+   * names for `className` overrides, whichever one Tailwind emits last wins,
+   * not whichever is listed last in the string. Omit it and every existing
+   * caller is pixel-identical, since the default is the same `w-80` this
+   * always rendered.
+   */
+  panelClassName?: string;
 }
 
 export function Listbox({
@@ -116,6 +128,7 @@ export function Listbox({
   optionClassName,
   optionLabel,
   className = "",
+  panelClassName = "w-80",
 }: ListboxProps) {
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
@@ -275,7 +288,7 @@ export function Listbox({
              and there is no darker surface underneath to separate it by tone.
              `shadow-hard` replaces `shadow-2xl`: the blurred shadow scale is
              gone from the theme entirely. */
-          className={`absolute top-full ${LAYER.popover} mt-2 max-h-72 w-80 overflow-y-auto hard-edge bg-surface-overlay shadow-hard ${
+          className={`absolute top-full ${LAYER.popover} mt-2 max-h-72 ${panelClassName} overflow-y-auto hard-edge bg-surface-overlay shadow-hard ${
             alignRight ? "right-0" : "left-0"
           }`}
         >
