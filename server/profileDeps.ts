@@ -62,9 +62,30 @@ export function transactionPoolerUrl(): string {
   }
 }
 
+/**
+ * Everything that takes up no room in a pasted address: ordinary whitespace,
+ * the non-breaking space, the soft hyphen, and the zero-width and bidi-format
+ * characters a copy out of a PDF or a rich-text document can carry. All of it
+ * is DELETED, internally as well as at the ends, because `.trim()` alone stops
+ * at the outer edges and an address pasted with one of these in the middle
+ * otherwise fails a format check with nothing for the reader to see wrong.
+ * Same character class as `VOUCHER_BLANKS` in `server/accounts.ts`, applied
+ * here to addresses instead of voucher codes.
+ *
+ * TWIN: `ADDRESS_INVISIBLES` in `src/panik-core/lib/telegram.ts` (client) and
+ * `src/panik-landing-page/lib/waitlist.ts` (landing copy) is a
+ * character-for-character copy and must stay one. The `isEvmAddress` test
+ * below asserts all three agree on every case, so they cannot drift apart
+ * silently.
+ */
+const ADDRESS_INVISIBLES = /[\s\u00AD\u200B-\u200F\u2060\uFEFF]/g;
+
+/** Strip the characters above. */
+export const stripAddressInvisibles = (a: string): string => a.replace(ADDRESS_INVISIBLES, "");
+
 /** Validate an EVM address (the only addresses the lending spells cover). */
 export function isEvmAddress(wallet: unknown): wallet is string {
-  return typeof wallet === "string" && /^0x[0-9a-fA-F]{40}$/.test(wallet.trim());
+  return typeof wallet === "string" && /^0x[0-9a-fA-F]{40}$/.test(stripAddressInvisibles(wallet));
 }
 
 /**
