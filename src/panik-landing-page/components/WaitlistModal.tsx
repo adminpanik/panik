@@ -413,6 +413,10 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
                 type="email"
                 id="modal-email-input"
                 label="Email address"
+                inputMode="email"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
