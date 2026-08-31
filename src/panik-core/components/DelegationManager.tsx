@@ -20,7 +20,7 @@
  *     not a hopeful local flag.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ShieldCheck, Wallet } from "lucide-react";
 import {
   useAccount,
@@ -232,6 +232,20 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   const [loading, setLoading] = useState(false);
 
   const [granting, setGranting] = useState(false);
+  /**
+   * One grant at a time.
+   *
+   * `granting` is state, so it is stale for the rest of the frame in which it
+   * is set: two clicks landing before React re-renders both see
+   * `granting === false` and both run `grant()`. Each call draws a FRESH
+   * `randomNonce()`, so the two signatures are two distinct, individually valid
+   * permits - the wallet is asked to sign twice and the backend stores two
+   * standing permissions where the user granted one, each needing its own
+   * revocation. The nonce scheme is right as it is; what was missing is that
+   * only one call may be in flight. A ref is written synchronously, so the
+   * second call sees the first one's mark.
+   */
+  const inFlightRef = useRef(false);
   const [grantError, setGrantError] = useState<string | null>(null);
   const [grantOk, setGrantOk] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
@@ -302,7 +316,11 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
   );
 
   const grant = useCallback(async () => {
+    if (inFlightRef.current) return;
     if (!address || !publicClient || slippageBps === null) return;
+    // Claimed here, released in `finally`. Nothing between this line and the
+    // `try` awaits, so no second call can slip in behind it.
+    inFlightRef.current = true;
     setGranting(true);
     setGrantError(null);
     setGrantOk(false);
@@ -349,6 +367,7 @@ export function DelegationManager({ riskProfile, collateralSymbol }: Props) {
     } catch (err) {
       setGrantError((err as Error).message.split("\n")[0]?.slice(0, 200) ?? "grant failed");
     } finally {
+      inFlightRef.current = false;
       setGranting(false);
     }
   }, [
