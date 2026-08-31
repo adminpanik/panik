@@ -16,6 +16,11 @@
  * Both are pure functions with no viem, wagmi or `import.meta` dependency, so
  * they are unit tested directly - the transport wiring that consumes them lives
  * in `./exit`.
+ *
+ * The classification half is not exit-only: the OPEN flow signs against the
+ * same chain through the same viem client and leaks the same paragraph when it
+ * fails, so it routes its failures through `classifyExitError` too rather than
+ * keeping a second, weaker copy of this reasoning.
  */
 
 /**
@@ -78,7 +83,28 @@ export function exitRpcUrls(chainId: number, override?: string | null): string[]
 
 // ── Failure classification ────────────────────────────────────────────────
 
-export type ExitFailureKind = "network" | "rejected" | "reverted" | "unknown";
+export type ExitFailureKind = "network" | "rejected" | "reverted" | "stated" | "unknown";
+
+/**
+ * A failure whose sentence the flow already wrote.
+ *
+ * This classifier exists because viem's own messages are unreadable and carry
+ * the endpoint URL and the calldata. Neither is true of a message a flow
+ * authored for one exact situation ("Insufficient cbBTC: need ~0.00120, have
+ * 0.00000"), and replacing that with "Something went wrong" would throw away
+ * the only sentence that tells the user what to do about it.
+ *
+ * Throwing this instead of a plain Error keeps the sentence, and keeps the
+ * decision at the throw site rather than in a regex over error text. The
+ * message must therefore be safe to render: no URL, no JSON-RPC body, no
+ * calldata, no contract address.
+ */
+export class StatedFailure extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StatedFailure";
+  }
+}
 
 export interface ExitFailure {
   kind: ExitFailureKind;
@@ -190,6 +216,12 @@ export function exitFailureMessage(kind: ExitFailureKind, network: string): stri
       // A revert is the one case where "nothing changed" is knowable: a
       // reverted transaction leaves no state behind.
       return `${network} would not accept this transaction, so nothing in your position changed.`;
+    case "stated":
+      // A stated failure carries its own sentence on the error, so there is no
+      // generic wording for it here; `classifyExitError` never routes one
+      // through this function. Reaching this case means a caller asked for a
+      // sentence the kind does not have, and the catch-all is the honest
+      // answer. Falls through deliberately.
     default:
       return "Something went wrong. Try again in a moment.";
   }
@@ -204,6 +236,15 @@ export function exitFailureMessage(kind: ExitFailureKind, network: string): stri
  * are separated by putting the decisive marker first.
  */
 export function classifyExitError(err: unknown, network: string): ExitFailure {
+  // Ahead of every pattern: a stated failure is not a machine error waiting to
+  // be recognised, it is a sentence the flow already chose. Only a flow that
+  // throws `StatedFailure` can reach this branch, so no existing caller's
+  // behaviour moves.
+  if (err instanceof StatedFailure) {
+    const message = err.message.replace(/\s+/g, " ").trim();
+    return { kind: "stated", message, detail: message.slice(0, 500) };
+  }
+
   const facts = collectFacts(err);
 
   let kind: ExitFailureKind = "unknown";

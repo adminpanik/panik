@@ -37,6 +37,13 @@
 import { isEvmAddress, stripAddressInvisibles } from "./profileDeps";
 import type { RiskProfile } from "../packages/scoring/src/types";
 
+/** Length + a 6-char prefix of a rejected input, never the whole value; a
+ * non-string gets just its typeof. */
+function redactedShape(value: unknown): string {
+  if (typeof value !== "string") return `type=${typeof value}`;
+  return `len=${value.length} prefix=${value.slice(0, 6)}`;
+}
+
 /**
  * How many wallets one owner may watch.
  *
@@ -131,7 +138,10 @@ export function parseWatchlistOps(body: unknown): { ops: WatchOp[] } | { error: 
     if (op !== "add" && op !== "update" && op !== "remove") {
       return { error: `${at}.op must be one of add, update, remove` };
     }
-    if (!isEvmAddress(wallet)) return { error: `${at}.wallet is not an EVM address` };
+    if (!isEvmAddress(wallet)) {
+      console.warn(`parseWatchlistOps: rejected ${at}.wallet, not an EVM address (${redactedShape(wallet)})`);
+      return { error: `${at}.wallet is not an EVM address` };
+    }
     const target = stripAddressInvisibles(wallet).toLowerCase();
     // Two ops on one wallet in one batch have no defined order once they reach
     // SQL, so "add then remove" and "remove then add" would differ by luck.

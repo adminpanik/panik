@@ -10,7 +10,7 @@
  */
 
 import { CampaignStore } from "../../server/campaignStore";
-import { buildCreateInput, type RawCreateBody } from "../../server/adminCampaigns";
+import { createCampaignIdempotent, type RawCreateBody } from "../../server/adminCampaigns";
 import { authorizeAdminRequest, type AdminReqHeaders } from "../../server/adminGate";
 
 interface Req {
@@ -67,10 +67,14 @@ export default async function handler(req: Req, res: Res): Promise<void> {
       return;
     }
 
-    const { input, error } = buildCreateInput(body);
-    if (error) { res.status(400).json({ error }); return; }
-    const campaign = await store.createCampaign(input!);
-    res.status(201).json({ campaign });
+    // Idempotency (a replayed create returns the campaign it already minted
+    // instead of minting a second one) lives in createCampaignIdempotent, the
+    // one place both this route and the Express mirror call it - see
+    // server/adminCampaigns.ts for why that is an in-memory cache rather than
+    // a migration.
+    const result = await createCampaignIdempotent(body, store);
+    if (result.error) { res.status(result.status).json({ error: result.error }); return; }
+    res.status(result.status).json({ campaign: result.campaign });
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
   }

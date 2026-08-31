@@ -35,6 +35,13 @@ export interface CreateInput {
   trialDays: number;
   maxRedemptions: number;
   claimWindowDays?: number;
+  /**
+   * Minted once via `crypto.randomUUID()` when the create form opens and
+   * echoed on every submit of that form. The server treats a replayed key as
+   * "you already did this" and hands back the campaign that key minted
+   * instead of minting a second one (server/adminCampaigns.ts).
+   */
+  idempotencyKey: string;
 }
 
 /**
