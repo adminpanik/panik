@@ -181,6 +181,14 @@ export class CampaignStore {
    * Attempt a redemption; atomic + logged in SQL. Never over-decrements.
    * `email` is captured on the minted grant (the /try flow requires it) so the
    * roster reflects who redeemed each card.
+   *
+   * IDEMPOTENT PER (campaign, email) since
+   * supabase/migrations/20260831000001_idempotent_campaign_redeem.sql: calling
+   * it again with an address that already holds a grant on this campaign
+   * returns that grant's token, mints nothing and spends no slot. Passing no
+   * email opts out of that, because there is then nobody to be idempotent
+   * about; the /try flow requires one and the account flow supplies the
+   * verified address, so in practice every caller is covered.
    */
   async redeem(
     code: string,

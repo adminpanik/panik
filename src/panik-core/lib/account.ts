@@ -176,10 +176,11 @@ const storeAccountSession = (session: AccountSession | null) =>
  */
 const PENDING_VOUCHER_KEY = "panik_pending_voucher";
 
-/** The code a URL carries, uppercased, or null. */
+/** The code a URL carries, in the one shape codes are compared in, or null. */
 function voucherFromUrl(search: string): string | null {
-  const raw = new URLSearchParams(search).get("code")?.trim().toUpperCase();
-  return raw ? raw : null;
+  const raw = new URLSearchParams(search).get("code");
+  const code = raw === null ? "" : normalizeVoucherCode(raw);
+  return code ? code : null;
 }
 
 const readPendingVoucher = () =>
@@ -430,6 +431,57 @@ export async function fetchAccount(token: string): Promise<AccountRead> {
 const VOUCHER_FAILED = "That code could not be checked. Try again in a moment.";
 
 /**
+ * Everything that takes up no room on the printed card: ordinary spaces and
+ * tabs, the non-breaking space a paste out of a PDF carries, and the zero-width
+ * and bidi-format characters a messaging app or a justified block of text can
+ * leave behind. All of it is DELETED, internally as well as at the ends, because
+ * "PANIK-TRY- 45QUHHUP" is the same card as the one without the space and a
+ * reader retyping a printed string should not have to know that.
+ *
+ * THE SOFT HYPHEN IS DELETED, NOT FOLDED, and it belongs here rather than with
+ * the dashes below. It renders as nothing, so it never arrives INSTEAD of a
+ * hyphen the reader can see; it arrives BESIDE one, out of justified or
+ * hyphenated text. Folding it to a hyphen turned PANIK-<SHY>TRY-45QUHHUP into
+ * PANIK--TRY-45QUHHUP, which fails CAMPAIGN_CODE_RE exactly as the en dash did:
+ * one invisible character traded for another, and the same unactionable refusal.
+ */
+const VOUCHER_BLANKS = /[\s\u00AD\u200B-\u200F\u2060\uFEFF]/g;
+
+/**
+ * Every dash a keyboard can produce where a person meant a hyphen: the Unicode
+ * hyphens and dashes U+2010 to U+2015 (which includes the en dash and the em
+ * dash), the mathematical minus, and the small/fullwidth forms a CJK keyboard
+ * emits. Every one of them is VISIBLE, which is the whole of what separates this
+ * set from the blanks above: a visible dash is standing where a hyphen was meant,
+ * so it is replaced. An invisible character stands nowhere, so it is deleted.
+ *
+ * THIS IS THE INCIDENT. On 2026-08-31 a tester retyped PANIK-TRY-45QUHHUP on an
+ * iPhone and was told the code was not recognised, with no attempt logged
+ * anywhere: iOS smart punctuation had turned the two hyphens into en dashes, so
+ * the string failed CAMPAIGN_CODE_RE in server/accounts.ts before any database
+ * call could record it. The characters were visually identical on screen, which
+ * is exactly why the user had nothing to correct.
+ */
+const VOUCHER_DASHES = /[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+
+/**
+ * The one shape a voucher code is compared in.
+ *
+ * TWIN: `normalizeVoucherCode` in `server/accounts.ts` is a character-for-
+ * character copy and must stay one. The server cannot import this module -
+ * lib/account.ts pulls in lib/goTrue.ts, which reads `import.meta.env` at module
+ * scope, and the Express/Vercel side runs under plain Node where that is
+ * undefined and the import throws on load. `server/accounts.test.ts` imports
+ * both and asserts they agree on every case below, so the copies cannot drift.
+ *
+ * The server applies it too, before its own regexes: a browser holding
+ * yesterday's bundle is the case this fix exists for.
+ */
+export function normalizeVoucherCode(raw: string): string {
+  return raw.replace(VOUCHER_BLANKS, "").replace(VOUCHER_DASHES, "-").toUpperCase();
+}
+
+/**
  * Redeem an invite code.
  *
  * The refusal is the SERVER'S sentence. server/accounts.ts wrote those for a
@@ -444,7 +496,7 @@ export async function redeemVoucher(
   token: string,
   code: string,
 ): Promise<{ ok: boolean; error: string | null }> {
-  const res = await callApi(VOUCHER_URL, token, { code: code.trim() });
+  const res = await callApi(VOUCHER_URL, token, { code: normalizeVoucherCode(code) });
   if (!res) return { ok: false, error: UNREACHABLE };
   const body = res.body as { ok?: unknown; error?: unknown } | null;
   if (res.ok && body?.ok === true) return { ok: true, error: null };

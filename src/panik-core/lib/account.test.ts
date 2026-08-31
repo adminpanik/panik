@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   asAccount,
   membershipLedger,
+  normalizeVoucherCode,
   gateScreen,
   readAuthHash,
   type Account,
@@ -238,5 +239,77 @@ describe("gateScreen", () => {
     expect(gateScreen(state({ account, busy: true }))).toBeNull();
     expect(gateScreen(state({ account, configured: false }))).toBeNull();
     expect(gateScreen(state({ session: null, configured: false }))).toBe("signin");
+  });
+});
+
+describe("normalizeVoucherCode", () => {
+  /**
+   * The 2026-08-31 refusal, character for character. iOS smart punctuation had
+   * turned both hyphens of PANIK-TRY-45QUHHUP into en dashes on the way into
+   * the field. At 14px the two are the same glyph, so the reader was told the
+   * code was not recognised and had nothing on screen to correct.
+   */
+  it("undoes the iOS smart-punctuation rewrite", () => {
+    expect(normalizeVoucherCode("PANIK\u2013TRY\u201345QUHHUP")).toBe("PANIK-TRY-45QUHHUP");
+  });
+
+  it("folds every other dash a keyboard can produce", () => {
+    const dashes = [
+      "\u2010", // hyphen
+      "\u2011", // non-breaking hyphen
+      "\u2012", // figure dash
+      "\u2013", // en dash
+      "\u2014", // em dash
+      "\u2015", // horizontal bar
+      "\u2212", // minus sign
+      "\uFE58", // small em dash
+      "\uFE63", // small hyphen-minus
+      "\uFF0D", // fullwidth hyphen-minus
+    ];
+    for (const dash of dashes) {
+      expect(normalizeVoucherCode(`PANIK${dash}TRY${dash}45QUHHUP`)).toBe("PANIK-TRY-45QUHHUP");
+    }
+  });
+
+  it("deletes a soft hyphen instead of folding it, even beside a real one", () => {
+    // It renders as nothing, so it never arrives INSTEAD of a hyphen the reader
+    // can see; it arrives beside one, out of hyphenated or justified text.
+    // Folding it to a hyphen made PANIK--TRY-45QUHHUP, which fails the regex
+    // exactly as the en dash did: one invisible character traded for another.
+    expect(normalizeVoucherCode("PANIK-\u00ADTRY-45QUHHUP")).toBe("PANIK-TRY-45QUHHUP");
+    expect(normalizeVoucherCode("PANIK\u00AD-TRY\u00AD-45QUHHUP")).toBe("PANIK-TRY-45QUHHUP");
+    expect(normalizeVoucherCode("PANIK-TRY-45QU\u00ADHHUP")).toBe("PANIK-TRY-45QUHHUP");
+  });
+
+  it("deletes every other character that renders as nothing", () => {
+    // Zero-width and bidi-format marks, all of which a paste can carry in and
+    // none of which the reader can see to remove.
+    const invisible = ["\u200B", "\u200C", "\u200D", "\u200E", "\u200F", "\u2060", "\uFEFF"];
+    for (const ch of invisible) {
+      expect(normalizeVoucherCode(`PANIK-${ch}TRY-45QU${ch}HHUP`)).toBe("PANIK-TRY-45QUHHUP");
+    }
+  });
+
+  it("removes whitespace inside the code, not only at the ends", () => {
+    // A reader copying a printed string in groups is not making a mistake, and
+    // a paste out of a PDF brings a non-breaking space with it.
+    expect(normalizeVoucherCode("  PANIK-TRY- 45QU HHUP\u000A")).toBe("PANIK-TRY-45QUHHUP");
+    expect(normalizeVoucherCode("PANIK-TRY-\u00A045QUHHUP")).toBe("PANIK-TRY-45QUHHUP");
+    expect(normalizeVoucherCode("PANIK-TRY-45\u200BQUHHUP")).toBe("PANIK-TRY-45QUHHUP");
+  });
+
+  it("uppercases, because the card is printed in upper case and the SQL compares it there", () => {
+    expect(normalizeVoucherCode("panik-try-45quhhup")).toBe("PANIK-TRY-45QUHHUP");
+  });
+
+  it("leaves a code that is wrong rather than merely mistyped exactly as wrong", () => {
+    // This changes the SHAPE of a string, never its content. Nothing here can
+    // turn a code the reader does not hold into one they do.
+    expect(normalizeVoucherCode("hunter1")).toBe("HUNTER1");
+    expect(normalizeVoucherCode("PANIK\u2013TRY\u2013HUNTER1")).toBe("PANIK-TRY-HUNTER1");
+  });
+
+  it("is a no-op on a code that was already clean", () => {
+    expect(normalizeVoucherCode("PANIK-TRY-45QUHHUP")).toBe("PANIK-TRY-45QUHHUP");
   });
 });

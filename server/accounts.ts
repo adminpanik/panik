@@ -42,6 +42,58 @@ import { AccountConflict, type AccountStore, type AccountWallet, type Membership
 import { verifyWalletOwnership } from "./walletAuth";
 import type { NonceStore } from "./nonceStore";
 
+/**
+ * Everything that takes up no room on the printed card: ordinary spaces and
+ * tabs, the non-breaking space a paste out of a PDF carries, and the zero-width
+ * and bidi-format characters a messaging app or a justified block of text can
+ * leave behind. All of it is DELETED, internally as well as at the ends, because
+ * "PANIK-TRY- 45QUHHUP" is the same card as the one without the space and a
+ * reader retyping a printed string should not have to know that.
+ *
+ * THE SOFT HYPHEN IS DELETED, NOT FOLDED, and it belongs here rather than with
+ * the dashes below. It renders as nothing, so it never arrives INSTEAD of a
+ * hyphen the reader can see; it arrives BESIDE one, out of justified or
+ * hyphenated text. Folding it to a hyphen turned PANIK-<SHY>TRY-45QUHHUP into
+ * PANIK--TRY-45QUHHUP, which fails CAMPAIGN_CODE_RE exactly as the en dash did:
+ * one invisible character traded for another, and the same unactionable refusal.
+ */
+const VOUCHER_BLANKS = /[\s\u00AD\u200B-\u200F\u2060\uFEFF]/g;
+
+/**
+ * Every dash a keyboard can produce where a person meant a hyphen: the Unicode
+ * hyphens and dashes U+2010 to U+2015 (which includes the en dash and the em
+ * dash), the mathematical minus, and the small/fullwidth forms a CJK keyboard
+ * emits. Every one of them is VISIBLE, which is the whole of what separates this
+ * set from the blanks above: a visible dash is standing where a hyphen was meant,
+ * so it is replaced. An invisible character stands nowhere, so it is deleted.
+ *
+ * THIS IS THE INCIDENT. On 2026-08-31 a tester retyped PANIK-TRY-45QUHHUP on an
+ * iPhone and was told the code was not recognised, with no attempt logged
+ * anywhere: iOS smart punctuation had turned the two hyphens into en dashes, so
+ * the string failed CAMPAIGN_CODE_RE below before any database call could record
+ * it. The characters were visually identical on screen, which is exactly why the
+ * user had nothing to correct.
+ */
+const VOUCHER_DASHES = /[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+
+/**
+ * The one shape a voucher code is compared in.
+ *
+ * TWIN: `normalizeVoucherCode` in `src/panik-core/lib/account.ts` is a
+ * character-for-character copy and must stay one. This module cannot import that
+ * one: lib/account.ts pulls in lib/goTrue.ts, which reads `import.meta.env` at
+ * module scope, and this side runs under plain Node where that is undefined and
+ * the import throws on load. `server/accounts.test.ts` imports both and asserts
+ * they agree on every case, so the copies cannot drift silently.
+ *
+ * Applied here as well as in the browser because the browser is not a trust
+ * boundary and, more prosaically, because a phone holding yesterday's bundle is
+ * the exact case this fix exists for.
+ */
+export function normalizeVoucherCode(raw: string): string {
+  return raw.replace(VOUCHER_BLANKS, "").replace(VOUCHER_DASHES, "-").toUpperCase();
+}
+
 /** The printed campaign code. Mirrors the CHECK on product_campaigns.campaign_code. */
 const CAMPAIGN_CODE_RE = /^PANIK-TRY-[2-9A-HJ-NP-Z]{4,8}$/;
 
@@ -97,12 +149,22 @@ export interface VoucherInput {
  * burn a second campaign slot on someone who is already in, and the insert
  * still tolerates a 409 because two requests can pass that check concurrently
  * — the partial unique index in the migration is the real arbiter.
+ *
+ * That check is a shortcut, NOT the guard. Two requests racing arrive here with
+ * no membership either side of them, and until 2026-08-31 both went on to spend
+ * a campaign slot: one account took two of PANIK-TRY-45QUHHUP's in sixteen
+ * seconds. `redeem_campaign_code` is now idempotent per (campaign, email) -
+ * supabase/migrations/20260831000001_idempotent_campaign_redeem.sql - so a
+ * second call for an address that already holds a grant hands back THAT grant's
+ * token without minting a row or incrementing the count. The email below is the
+ * account's own verified address, which is what makes that key trustworthy
+ * here: it is not a field the caller chose.
  */
 export async function redeemVoucher(
   deps: VoucherDeps,
   input: VoucherInput,
 ): Promise<VoucherResult> {
-  const code = String(input.code ?? "").trim().toUpperCase();
+  const code = normalizeVoucherCode(String(input.code ?? ""));
   if (TRIAL_TOKEN_RE.test(code)) return { outcome: "trial_link" };
   if (!CAMPAIGN_CODE_RE.test(code)) return { outcome: "invalid" };
 

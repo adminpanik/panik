@@ -35,10 +35,11 @@
  * did next, so it is gone by the three-way test in `docs/DESIGN_SYSTEM.md`.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, LogIn, Mail, Ticket, type LucideIcon } from "lucide-react";
 import { BootSkeleton, Button, Card, EmptyState, Field, Notice } from "../ui";
 import {
+  normalizeVoucherCode,
   RESEND_COOLDOWN_MS,
   WAITLIST_URL,
   type AccountState,
@@ -303,20 +304,40 @@ function VoucherScreen({ account }: { account: AccountState }) {
   /** The one predicate the guard and the control's disabled state both use. */
   const canSubmit = code.trim() !== "" && !account.busy;
 
+  /**
+   * The second half of the double-submit guard, and the half `account.busy`
+   * cannot be.
+   *
+   * `busy` is React state, so it is only true on the NEXT render. Two Enter
+   * presses (or a click and an Enter) inside one frame both read the same stale
+   * `canSubmit === true` from this closure and both reach the network. A ref
+   * changes on the spot, before the second call can read it. On 2026-08-31 one
+   * account posted the same code twice in sixteen seconds and wrote two rows to
+   * trial_grants; the migration in this branch makes the SERVER refuse to spend
+   * a second slot for it, which is where that has to be settled, and this stops
+   * the browser sending the second request in the first place.
+   */
+  const inFlight = useRef(false);
+
   const submit = useCallback(async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || inFlight.current) return;
+    inFlight.current = true;
     setError(null);
-    const result = await account.redeem(code);
-    if (!result.ok) {
-      setError(result.error);
-      return;
+    try {
+      const result = await account.redeem(code);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      // The app is NOT entered here. `reload` is what re-reads GET /api/account
+      // and opens the gate, and putting it behind a control means the reader is
+      // told the code worked instead of being teleported by a screen that
+      // vanished; it also means the membership on screen is the server's answer
+      // rather than this component's assumption about what the POST did.
+      setRedeemed(true);
+    } finally {
+      inFlight.current = false;
     }
-    // The app is NOT entered here. `reload` is what re-reads GET /api/account
-    // and opens the gate, and putting it behind a control means the reader is
-    // told the code worked instead of being teleported by a screen that
-    // vanished; it also means the membership on screen is the server's answer
-    // rather than this component's assumption about what the POST did.
-    setRedeemed(true);
   }, [account, canSubmit, code]);
 
   if (redeemed) {
@@ -351,10 +372,20 @@ function VoucherScreen({ account }: { account: AccountState }) {
           autoComplete="off"
           spellCheck={false}
           autoCapitalize="characters"
+          // iOS "smart punctuation" lives under autocorrect, not under
+          // spellcheck: with it on, typing PANIK-TRY-45QUHHUP into a text field
+          // silently rewrites both hyphens as en dashes. That is the whole of
+          // the 2026-08-31 incident, and it is why the field says so out loud
+          // rather than relying on the normalization below to clean up after it.
+          autoCorrect="off"
           value={code}
           disabled={account.busy}
           onChange={(e) => {
-            setCode(e.target.value.toUpperCase());
+            // Normalized on every keystroke, so what the reader sees in the box
+            // is exactly the string that will be posted. A field that accepts a
+            // character and then quietly sends a different one is how a refusal
+            // becomes unactionable: the code on screen looked right.
+            setCode(normalizeVoucherCode(e.target.value));
             if (error) setError(null);
           }}
           onKeyDown={(e) => {
