@@ -56,6 +56,28 @@ function tryUrl(code: string): string {
   return `${window.location.origin}/try?code=${code}`;
 }
 
+/**
+ * Synchronous re-entrancy guard: while `run` is in flight, a second call is a
+ * no-op rather than a second invocation. `busy` React state does not read
+ * back as true until the next render, so two submits inside one frame (a
+ * double click, or Enter held into the click) both see it false; a plain
+ * mutable ref, checked and set before anything async happens, closes that gap.
+ *
+ * Exported as a standalone function - rather than kept inline in
+ * `CreateForm.submit` - so the double-invoke behaviour can be pinned by a
+ * unit test without a DOM: this suite runs `*.test.ts` under Node, and there
+ * is no React Testing Library dependency to add one for a `*.test.tsx`.
+ */
+export async function guardInFlight(ref: { current: boolean }, run: () => Promise<void>): Promise<void> {
+  if (ref.current) return;
+  ref.current = true;
+  try {
+    await run();
+  } finally {
+    ref.current = false;
+  }
+}
+
 /** Trial length as words. Hours below a day, whole days above. */
 function trialLength(hours: number): string {
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"}`;
@@ -146,6 +168,24 @@ function CreateForm({
   const [error, setError] = useState("");
 
   /**
+   * Backs `guardInFlight` (above): without it, two submits inside the same
+   * frame both call `createCampaign` before `busy` state re-renders, each
+   * minting a fresh code and campaign server-side. `busy` stays purely for
+   * rendering the button.
+   */
+  const inFlightRef = useRef(false);
+
+  /**
+   * One key per time this form is open, minted lazily on first render rather
+   * than in a `useState` initializer so `crypto.randomUUID()` runs at most
+   * once per mount. Echoed on every submit while the form stays open, so a
+   * client retry after a dropped response is also a replay the server can
+   * recognise (server/adminCampaigns.ts) rather than a second campaign.
+   */
+  const idempotencyKeyRef = useRef<string | null>(null);
+  if (idempotencyKeyRef.current === null) idempotencyKeyRef.current = crypto.randomUUID();
+
+  /**
    * Focus the first field the moment the form opens, so the operator who just
    * pressed "New voucher code" is typing rather than hunting. A wrapper ref
    * rather than a ref on `Field`: its prop type is `InputHTMLAttributes`, which
@@ -158,27 +198,34 @@ function CreateForm({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    const input: CreateInput = {
-      label: label.trim() || undefined,
-      trialDays: Number(trialDays),
-      maxRedemptions: Number(maxRedemptions),
-      claimWindowDays: claimWindowDays.trim() ? Number(claimWindowDays) : undefined,
-    };
-    // Ranges are checked by buildCreateInput() on the server, which is the same
-    // validator the serverless mirror uses. Its message is what shows up here.
-    const res = await createCampaign(session, input);
-    setBusy(false);
-    if (res.ok && res.data) {
-      onCreated(res.data.campaign);
-      setLabel("");
-    } else if (isSignedOut(res.status)) {
-      onSignedOut();
-    } else {
-      setError(res.error ?? "Could not create the campaign.");
-    }
+    await guardInFlight(inFlightRef, async () => {
+      setBusy(true);
+      setError("");
+      try {
+        const input: CreateInput = {
+          label: label.trim() || undefined,
+          trialDays: Number(trialDays),
+          maxRedemptions: Number(maxRedemptions),
+          claimWindowDays: claimWindowDays.trim() ? Number(claimWindowDays) : undefined,
+          idempotencyKey: idempotencyKeyRef.current!,
+        };
+        // Ranges are checked by buildCreateInput() on the server, which is
+        // the same validator the serverless mirror uses. Its message is what
+        // shows up here.
+        const res = await createCampaign(session, input);
+        if (res.ok && res.data) {
+          idempotencyKeyRef.current = null;
+          onCreated(res.data.campaign);
+          setLabel("");
+        } else if (isSignedOut(res.status)) {
+          onSignedOut();
+        } else {
+          setError(res.error ?? "Could not create the campaign.");
+        }
+      } finally {
+        setBusy(false);
+      }
+    });
   }
 
   return (

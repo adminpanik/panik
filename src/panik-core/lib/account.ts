@@ -278,7 +278,8 @@ export async function sendMagicLink(email: string): Promise<{ ok: boolean; error
         "That sign-in link could not be sent. Try again in a moment.",
       ),
     };
-  } catch {
+  } catch (err) {
+    console.error("panik account: sign-in link request failed", err);
     return { ok: false, error: UNREACHABLE };
   }
 }
@@ -354,7 +355,8 @@ async function callApi(
       ...(sending ? { body: JSON.stringify(post) } : {}),
     });
     return { status: res.status, ok: res.ok, body: await res.json().catch(() => null) };
-  } catch {
+  } catch (err) {
+    console.error("panik account: request to PANIK API failed", err);
     return null;
   }
 }
@@ -417,7 +419,10 @@ const ACCOUNT_UNAVAILABLE = "PANIK could not check your account. Try again in a 
 
 export async function fetchAccount(token: string): Promise<AccountRead> {
   const res = await callApi(ACCOUNT_URL, token);
-  if (!res) return { ok: false, expired: false, error: UNREACHABLE };
+  if (!res) {
+    console.error("panik account: fetchAccount could not reach the server");
+    return { ok: false, expired: false, error: UNREACHABLE };
+  }
   if (res.status === 401) return { ok: false, expired: true };
   if (!res.ok) {
     const body = res.body as { error?: unknown } | null;
@@ -497,7 +502,10 @@ export async function redeemVoucher(
   code: string,
 ): Promise<{ ok: boolean; error: string | null }> {
   const res = await callApi(VOUCHER_URL, token, { code: normalizeVoucherCode(code) });
-  if (!res) return { ok: false, error: UNREACHABLE };
+  if (!res) {
+    console.error("panik account: redeemVoucher could not reach the server");
+    return { ok: false, error: UNREACHABLE };
+  }
   const body = res.body as { ok?: unknown; error?: unknown } | null;
   if (res.ok && body?.ok === true) return { ok: true, error: null };
   return { ok: false, error: readableServerError(body?.error, VOUCHER_FAILED) };

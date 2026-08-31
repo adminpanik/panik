@@ -46,6 +46,11 @@ export interface HandlerResult {
   body: unknown;
 }
 
+/** Length + a 6-char prefix of a rejected wallet string, never the whole value. */
+function redactedWalletShape(w: string): string {
+  return `len=${w.length} prefix=${w.slice(0, 6)}`;
+}
+
 /** Injected collaborators; production wires the Supabase store + viem reader. */
 export interface DelegationDeps {
   store: DelegationStore;
@@ -272,7 +277,10 @@ export async function liveDelegationsFor(
  */
 export async function listLiveDelegations(wallet: unknown, deps: DelegationDeps): Promise<HandlerResult> {
   const w = String(wallet ?? "").trim().toLowerCase();
-  if (!isEvmAddress(w)) return { status: 400, body: { error: "invalid EVM wallet address" } };
+  if (!isEvmAddress(w)) {
+    console.warn(`listLiveDelegations: rejected invalid wallet address (${redactedWalletShape(w)})`);
+    return { status: 400, body: { error: "invalid EVM wallet address" } };
+  }
 
   let reconciled: ReconciledRow[];
   try {
@@ -312,7 +320,10 @@ export async function listLiveDelegations(wallet: unknown, deps: DelegationDeps)
 export async function revokeDelegation(body: unknown, deps: DelegationDeps): Promise<HandlerResult> {
   const { wallet, txHash } = (body ?? {}) as { wallet?: unknown; txHash?: unknown };
   const w = String(wallet ?? "").trim().toLowerCase();
-  if (!isEvmAddress(w)) return { status: 400, body: { error: "invalid EVM wallet address" } };
+  if (!isEvmAddress(w)) {
+    console.warn(`revokeDelegation: rejected invalid wallet address (${redactedWalletShape(w)})`);
+    return { status: 400, body: { error: "invalid EVM wallet address" } };
+  }
 
   let evidence: string | null = null;
   if (txHash !== undefined && txHash !== null && txHash !== "") {
