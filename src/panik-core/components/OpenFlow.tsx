@@ -24,6 +24,7 @@ import { formatTokenAmount } from "../lib/exitLegs";
 import type { AdvisorOpenPlan, Band } from "../lib/live";
 import { useProspective } from "../lib/live";
 import { CHAIN_MODE_LABEL, getChainMode } from "../lib/chainMode";
+import { classifyExitError, StatedFailure } from "../lib/exitRpc";
 import { Button, Chip, Field, LAYER, Notice, SCRIM } from "../ui";
 import {
   borrowAsset,
@@ -173,6 +174,10 @@ export function OpenFlow({
   const [chainMode] = useState(getChainMode);
   const config = useMemo(() => openChainConfig(chainMode), [chainMode]);
   const openChainId = config.chainId;
+  // The chain named in a failure sentence: the one this modal is frozen to,
+  // never the wallet's current network. Frozen with the mode above, so the
+  // sentence cannot name a chain the sequence did not run on.
+  const networkLabel = CHAIN_MODE_LABEL[chainMode];
 
   const publicClient = usePublicClient({ chainId: openChainId });
 
@@ -426,7 +431,12 @@ export function OpenFlow({
         const deficit = faucetDeficit(balance, collateralAmount);
         if (deficit > 0n) {
           if (!config.faucet) {
-            throw new Error(
+            // `StatedFailure`, not a plain Error: this sentence was written for
+            // the user and is the only one that says what to do about the
+            // shortfall, so the classifier hands it through instead of
+            // flattening it to "Something went wrong". It names two amounts and
+            // a symbol - no endpoint, no calldata, nothing to leak.
+            throw new StatedFailure(
               `Insufficient ${plan.collateralSymbol}: need ~${(Number(collateralAmount) / 10 ** token.decimals).toFixed(5)}, ` +
                 `have ${(Number(balance) / 10 ** token.decimals).toFixed(5)}`,
             );
@@ -495,10 +505,17 @@ export function OpenFlow({
         setDoneHash(hashes[hashes.length - 1] ?? null);
       }
     } catch (err) {
-      const message = (err as Error).message ?? String(err);
-      if (mountedRef.current) {
-        setError(message.split("\n")[0]?.slice(0, 300) ?? "transaction failed");
-      }
+      // The same rule the exit flow already follows, for the same reason: viem
+      // builds a transport error's `.message` out of the endpoint URL and the
+      // whole JSON-RPC request body, so the old
+      // `.message.split("\n")[0].slice(0, 300)` could put an https:// endpoint
+      // and a line of calldata on screen, and made a wallet dismissal, an
+      // unreachable node and an on-chain revert read identically. The raw text
+      // goes to the console, where it is useful; the modal gets a sentence.
+      // A `StatedFailure` this flow raised itself keeps its own wording.
+      const failure = classifyExitError(err, networkLabel);
+      console.error(`[open] execution failed (${failure.kind}):`, failure.detail, err);
+      if (mountedRef.current) setError(failure.message);
     } finally {
       inFlightRef.current = false;
       if (mountedRef.current) setExecuting(false);
@@ -508,6 +525,7 @@ export function OpenFlow({
     address,
     progressKey,
     config,
+    networkLabel,
     commitProgress,
     say,
     plan,
