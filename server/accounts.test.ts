@@ -339,6 +339,8 @@ const NORMALIZATION_CASES = [
   "PANIK\u2013TRY\u201345QUHHUP",
   "PANIK\u2014TRY\u201445QUHHUP",
   "PANIK\u00ADTRY\u00AD45QUHHUP",
+  "PANIK-\u00ADTRY-\u00AD45QUHHUP",
+  "PANIK-\u200BTRY-\u2060\uFEFF45QUHHUP",
   "PANIK\uFF0DTRY\uFF0D45QUHHUP",
   "  PANIK-TRY- 45QU HHUP\u000A",
   "PANIK-TRY-\u00A045QUHHUP",
@@ -383,6 +385,19 @@ describe("redeemVoucher, on a code a phone rewrote", () => {
     // The browser normalises before it posts, but the browser is not a trust
     // boundary and a phone can be running yesterday's JavaScript for weeks.
     expect(normalizeVoucherCode("PANIK\u2013TRY\u20138X2QRT4Z")).toBe(CODE);
+  });
+
+  it("redeems one carrying a soft hyphen beside a real hyphen", async () => {
+    // The soft hyphen is DELETED, not folded. Folding it produced
+    // PANIK--TRY-8X2QRT4Z, which is the same unactionable refusal the en dash
+    // produced, with one invisible character traded for another.
+    const campaigns = new FakeCampaigns();
+    const result = await redeemVoucher(
+      { store: fakeStore(), campaigns: asCampaigns(campaigns) },
+      { userId: USER, email: EMAIL, code: "PANIK-\u00ADTRY-\u00AD8X2QRT4Z" },
+    );
+    expect(result.outcome).toBe("success");
+    expect(campaigns.redeemCalls).toEqual([{ code: CODE, email: EMAIL }]);
   });
 
   it("still refuses a code that is wrong rather than merely mistyped", async () => {

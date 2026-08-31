@@ -43,19 +43,29 @@ import { verifyWalletOwnership } from "./walletAuth";
 import type { NonceStore } from "./nonceStore";
 
 /**
- * Everything that is not a character of the code: ordinary spaces and tabs, the
- * non-breaking space a paste out of a PDF carries, and the zero-width joiners a
- * messaging app can leave behind. All of it is removed, INTERNALLY as well as at
- * the ends, because "PANIK-TRY- 45QUHHUP" is the same card as the one without
- * the space and a reader retyping a printed string should not have to know that.
+ * Everything that takes up no room on the printed card: ordinary spaces and
+ * tabs, the non-breaking space a paste out of a PDF carries, and the zero-width
+ * and bidi-format characters a messaging app or a justified block of text can
+ * leave behind. All of it is DELETED, internally as well as at the ends, because
+ * "PANIK-TRY- 45QUHHUP" is the same card as the one without the space and a
+ * reader retyping a printed string should not have to know that.
+ *
+ * THE SOFT HYPHEN IS DELETED, NOT FOLDED, and it belongs here rather than with
+ * the dashes below. It renders as nothing, so it never arrives INSTEAD of a
+ * hyphen the reader can see; it arrives BESIDE one, out of justified or
+ * hyphenated text. Folding it to a hyphen turned PANIK-<SHY>TRY-45QUHHUP into
+ * PANIK--TRY-45QUHHUP, which fails CAMPAIGN_CODE_RE exactly as the en dash did:
+ * one invisible character traded for another, and the same unactionable refusal.
  */
-const VOUCHER_BLANKS = /[\s\u200B-\u200D\uFEFF]/g;
+const VOUCHER_BLANKS = /[\s\u00AD\u200B-\u200F\u2060\uFEFF]/g;
 
 /**
  * Every dash a keyboard can produce where a person meant a hyphen: the Unicode
  * hyphens and dashes U+2010 to U+2015 (which includes the en dash and the em
- * dash), the soft hyphen, the mathematical minus, and the small/fullwidth forms
- * a CJK keyboard emits.
+ * dash), the mathematical minus, and the small/fullwidth forms a CJK keyboard
+ * emits. Every one of them is VISIBLE, which is the whole of what separates this
+ * set from the blanks above: a visible dash is standing where a hyphen was meant,
+ * so it is replaced. An invisible character stands nowhere, so it is deleted.
  *
  * THIS IS THE INCIDENT. On 2026-08-31 a tester retyped PANIK-TRY-45QUHHUP on an
  * iPhone and was told the code was not recognised, with no attempt logged
@@ -64,7 +74,7 @@ const VOUCHER_BLANKS = /[\s\u200B-\u200D\uFEFF]/g;
  * it. The characters were visually identical on screen, which is exactly why the
  * user had nothing to correct.
  */
-const VOUCHER_DASHES = /[\u00AD\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+const VOUCHER_DASHES = /[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
 
 /**
  * The one shape a voucher code is compared in.

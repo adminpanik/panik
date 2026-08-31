@@ -255,7 +255,6 @@ describe("normalizeVoucherCode", () => {
 
   it("folds every other dash a keyboard can produce", () => {
     const dashes = [
-      "\u00AD", // soft hyphen, invisible, arrives with justified text
       "\u2010", // hyphen
       "\u2011", // non-breaking hyphen
       "\u2012", // figure dash
@@ -269,6 +268,25 @@ describe("normalizeVoucherCode", () => {
     ];
     for (const dash of dashes) {
       expect(normalizeVoucherCode(`PANIK${dash}TRY${dash}45QUHHUP`)).toBe("PANIK-TRY-45QUHHUP");
+    }
+  });
+
+  it("deletes a soft hyphen instead of folding it, even beside a real one", () => {
+    // It renders as nothing, so it never arrives INSTEAD of a hyphen the reader
+    // can see; it arrives beside one, out of hyphenated or justified text.
+    // Folding it to a hyphen made PANIK--TRY-45QUHHUP, which fails the regex
+    // exactly as the en dash did: one invisible character traded for another.
+    expect(normalizeVoucherCode("PANIK-\u00ADTRY-45QUHHUP")).toBe("PANIK-TRY-45QUHHUP");
+    expect(normalizeVoucherCode("PANIK\u00AD-TRY\u00AD-45QUHHUP")).toBe("PANIK-TRY-45QUHHUP");
+    expect(normalizeVoucherCode("PANIK-TRY-45QU\u00ADHHUP")).toBe("PANIK-TRY-45QUHHUP");
+  });
+
+  it("deletes every other character that renders as nothing", () => {
+    // Zero-width and bidi-format marks, all of which a paste can carry in and
+    // none of which the reader can see to remove.
+    const invisible = ["\u200B", "\u200C", "\u200D", "\u200E", "\u200F", "\u2060", "\uFEFF"];
+    for (const ch of invisible) {
+      expect(normalizeVoucherCode(`PANIK-${ch}TRY-45QU${ch}HHUP`)).toBe("PANIK-TRY-45QUHHUP");
     }
   });
 
