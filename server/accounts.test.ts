@@ -126,6 +126,25 @@ describe("redeemVoucher", () => {
     expect(campaigns.redeemCalls).toEqual([]);
   });
 
+  it("logs a rejected code's shape (length + prefix), never the code itself", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const campaigns = new FakeCampaigns();
+    const secret = "hunter2-not-a-real-voucher";
+    const normalized = secret.toUpperCase(); // what normalizeVoucherCode produces here
+
+    await redeemVoucher(
+      { store: fakeStore(), campaigns: asCampaigns(campaigns) },
+      { userId: USER, email: EMAIL, code: secret },
+    );
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = warn.mock.calls[0]!.join(" ");
+    expect(logged).not.toContain(normalized);
+    expect(logged).toContain(`len=${normalized.length}`);
+    expect(logged).toContain(`prefix=${normalized.slice(0, 6)}`);
+    warn.mockRestore();
+  });
+
   it("reports a code the campaign says is used up", async () => {
     const campaigns = new FakeCampaigns();
     campaigns.redeemResult = { outcome: "exhausted" };

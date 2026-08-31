@@ -94,6 +94,12 @@ export function normalizeVoucherCode(raw: string): string {
   return raw.replace(VOUCHER_BLANKS, "").replace(VOUCHER_DASHES, "-").toUpperCase();
 }
 
+/** Length + a 6-char prefix, never the full string: a voucher code can double
+ * as a bearer token, so a rejection log gets the shape, not the secret. */
+function redactedCodeShape(code: string): string {
+  return `len=${code.length} prefix=${code.slice(0, 6)}`;
+}
+
 /** The printed campaign code. Mirrors the CHECK on product_campaigns.campaign_code. */
 const CAMPAIGN_CODE_RE = /^PANIK-TRY-[2-9A-HJ-NP-Z]{4,8}$/;
 
@@ -166,7 +172,10 @@ export async function redeemVoucher(
 ): Promise<VoucherResult> {
   const code = normalizeVoucherCode(String(input.code ?? ""));
   if (TRIAL_TOKEN_RE.test(code)) return { outcome: "trial_link" };
-  if (!CAMPAIGN_CODE_RE.test(code)) return { outcome: "invalid" };
+  if (!CAMPAIGN_CODE_RE.test(code)) {
+    console.warn(`redeemVoucher: rejected code with bad format (${redactedCodeShape(code)})`);
+    return { outcome: "invalid" };
+  }
 
   const existing = await deps.store.liveMembership(input.userId);
   if (existing) return { outcome: "already_member", membership: existing };
