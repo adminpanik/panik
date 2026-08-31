@@ -38,7 +38,7 @@ import { checkSignerCode, type SignerCodeCheck } from "./exit7702";
 import type { ExitChainReader } from "./exitChain";
 import type { DelegationRow, DelegationStatus, DelegationStore } from "./exitDelegationStore";
 import { EXECUTOR_ADDRESS, EXIT_CHAIN_ID } from "../src/panik-core/lib/exit.generated";
-import { isEvmAddress } from "./profileDeps";
+import { isEvmAddress, stripAddressInvisibles } from "./profileDeps";
 
 /** A response the caller writes verbatim to whichever transport it holds. */
 export interface HandlerResult {
@@ -276,7 +276,7 @@ export async function liveDelegationsFor(
  * signature is value-safe: it authorizes only an exit that pays the user.
  */
 export async function listLiveDelegations(wallet: unknown, deps: DelegationDeps): Promise<HandlerResult> {
-  const w = String(wallet ?? "").trim().toLowerCase();
+  const w = stripAddressInvisibles(String(wallet ?? "")).toLowerCase();
   if (!isEvmAddress(w)) {
     console.warn(`listLiveDelegations: rejected invalid wallet address (${redactedWalletShape(w)})`);
     return { status: 400, body: { error: "invalid EVM wallet address" } };
@@ -319,7 +319,7 @@ export async function listLiveDelegations(wallet: unknown, deps: DelegationDeps)
  */
 export async function revokeDelegation(body: unknown, deps: DelegationDeps): Promise<HandlerResult> {
   const { wallet, txHash } = (body ?? {}) as { wallet?: unknown; txHash?: unknown };
-  const w = String(wallet ?? "").trim().toLowerCase();
+  const w = stripAddressInvisibles(String(wallet ?? "")).toLowerCase();
   if (!isEvmAddress(w)) {
     console.warn(`revokeDelegation: rejected invalid wallet address (${redactedWalletShape(w)})`);
     return { status: 400, body: { error: "invalid EVM wallet address" } };

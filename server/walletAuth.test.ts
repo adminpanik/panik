@@ -99,6 +99,36 @@ describe("verifyWalletOwnership", () => {
     expect(result.wallet).toBe(alice.address.toLowerCase());
   });
 
+  /**
+   * Unlike the other three server boundaries this PR hardens, a dirty address
+   * cannot round-trip clean through THIS one: viem's own SIWE parser requires
+   * the address line to be exactly `0x` + 40 hex characters
+   * (`node_modules/viem/utils/siwe/parseSiweMessage.ts`'s `prefixRegex`), so a
+   * zero-width space anywhere near the address breaks the whole prefix match
+   * rather than riding through as part of it - `parsed.address` comes back
+   * undefined, not dirty. `stripAddressInvisibles` on the line below is
+   * defense in depth for consistency with the other three call sites, but it
+   * never actually fires through this endpoint; this test pins that down
+   * instead of leaving it an assumption.
+   */
+  it("rejects a message whose address line carries an invisible character, before the wallet check ever runs", async () => {
+    const nonce = (await store.issue()).nonce;
+    const cleanMessage = buildOwnershipMessage({
+      address: alice.address,
+      domain: DOMAIN,
+      uri: URI,
+      nonce,
+      action: "wallet-register",
+    });
+    const ZWSP = String.fromCharCode(0x200b);
+    const dirtyMessage = cleanMessage.replace(alice.address, ZWSP + alice.address);
+    const signature = await alice.signMessage({ message: dirtyMessage });
+    const result = await verifyWalletOwnership({ message: dirtyMessage, signature }, "wallet-register", store);
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(401);
+    expect(result.error).toMatch(/no valid wallet/);
+  });
+
   it("consumes the nonce, so an identical replay is rejected", async () => {
     const proof = await makeProof();
     const first = await verifyWalletOwnership(proof, "wallet-register", store);

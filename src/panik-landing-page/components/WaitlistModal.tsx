@@ -9,7 +9,7 @@ import { Button, Card, Chip, LAYER, Notice, SCRIM, TextField } from "../../panik
 import { truncateAddress } from "../../panik-core/lib/utils";
 import { MarkPlate } from "./MarkPlate";
 import {
-  submitSignup, checkEmailExists, deriveAppetite, isValidEvmAddress, connectWallet,
+  submitSignup, checkEmailExists, deriveAppetite, isValidEvmAddress, stripAddressInvisibles, connectWallet,
   type SignupAnswers, type Appetite, type WalletRdns,
 } from "../lib/waitlist";
 
@@ -413,6 +413,10 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
                 type="email"
                 id="modal-email-input"
                 label="Email address"
+                inputMode="email"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
@@ -564,8 +568,16 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
                 id="manual-wallet-input"
                 label="Public EVM address"
                 mono
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 value={wallet}
-                onChange={(e) => { setWallet(e.target.value.trim()); if (walletError) setWalletError(""); }}
+                // Stripped here, not only inside `isValidEvmAddress`: a paste out
+                // of a PDF or rich-text doc can carry a zero-width space, soft
+                // hyphen, or BOM anywhere in the string, and leaving it in
+                // `wallet` would mean the address this modal submits still
+                // carries it even once the format check tolerates it.
+                onChange={(e) => { setWallet(stripAddressInvisibles(e.target.value)); if (walletError) setWalletError(""); }}
                 onBlur={() => {
                   if (wallet && !isValidEvmAddress(wallet))
                     setWalletError("That does not look like a valid EVM address (0x + 40 hex characters).");

@@ -13,6 +13,7 @@ import {
   type ProfileResult,
 } from "../lib/profiling";
 import { useWalletProfile, type WalletProfileData } from "../lib/profileApi";
+import { stripAddressInvisibles } from "../lib/telegram";
 import { Button, Chip, Field, LAYER, Notice, SCRIM, Skeleton } from "../ui";
 
 /**
@@ -20,9 +21,13 @@ import { Button, Chip, Field, LAYER, Notice, SCRIM, Skeleton } from "../ui";
  * Base (EVM): 0x + 40 hex chars (42 total). EVM-only by design: the on-chain
  * analyzer, alert worker, and every backend table are EVM-only, so accepting
  * anything else would onboard a wallet that can never be monitored.
+ *
+ * `stripAddressInvisibles` (see `lib/telegram.ts`) runs before the regex, same
+ * as `isEvmAddress` there: a paste out of a PDF or rich-text doc can carry a
+ * zero-width space, soft hyphen, or BOM that `.trim()` alone does not remove.
  */
 export function isPlausibleWalletAddress(raw: string): boolean {
-  const a = raw.trim();
+  const a = stripAddressInvisibles(raw);
   if (!a) return false;
   return /^0x[0-9a-fA-F]{40}$/.test(a);
 }
@@ -161,7 +166,10 @@ export function Onboarding({
   };
 
   const handleWalletChange = (value: string) => {
-    setWallet(value);
+    // Stripped here, not only inside `isPlausibleWalletAddress`, so the wallet
+    // this flow completes with (`submitWallet`, `handleEnter`) never carries an
+    // invisible character forward once the format check starts tolerating it.
+    setWallet(stripAddressInvisibles(value));
     if (walletError) setWalletError("");
   };
 

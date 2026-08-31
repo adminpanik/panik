@@ -173,6 +173,28 @@ describe("linkWallet", () => {
     routedFetch([]);
     await expect(store().linkWallet(USER, "not-a-wallet")).rejects.toThrow(/EVM/);
   });
+
+  /**
+   * A dirty address that only got trimmed, not stripped, would have reached
+   * SQL carrying the invisible character (isEvmAddress tolerates it, .trim()
+   * does not remove it) - the address a later linkWallet/unlinkWallet call for
+   * the SAME wallet would never match. This is the round trip: what gets
+   * written is the same clean, lowercase string `unlinkWallet` below queries
+   * back out with.
+   */
+  it("strips invisible characters before it reaches SQL, so the stored address is the clean one", async () => {
+    const calls = routedFetch([
+      [
+        /^POST .*\/account_wallets\?/,
+        { status: 201, body: [{ wallet: WALLET, verified_at: "t0", created_at: "t0" }] },
+      ],
+    ]);
+    const ZWSP = String.fromCharCode(0x200b);
+    const dirty = ZWSP + WALLET.toUpperCase().replace("0X", "0x");
+    const linked = await store().linkWallet(USER, dirty);
+    expect(linked.wallet).toBe(WALLET);
+    expect(calls[0]!.body).toMatchObject({ user_id: USER, wallet: WALLET });
+  });
 });
 
 describe("unlinkWallet", () => {

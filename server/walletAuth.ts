@@ -47,7 +47,7 @@
 
 import { verifyMessage } from "viem";
 import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
-import { isEvmAddress } from "./profileDeps";
+import { isEvmAddress, stripAddressInvisibles } from "./profileDeps";
 import { SupabaseNonceStore, type NonceStore } from "./nonceStore";
 import {
   actionResource,
@@ -132,7 +132,7 @@ export async function verifyWalletOwnership(
   // parseSiweMessage never throws; a non-SIWE string just yields empty fields.
   const parsed = parseSiweMessage(message);
   if (!isEvmAddress(parsed.address)) return deny(401, "sign-in message names no valid wallet");
-  const address = parsed.address.trim().toLowerCase();
+  const address = stripAddressInvisibles(parsed.address).toLowerCase();
 
   if (!parsed.domain || !allowed.includes(parsed.domain.toLowerCase())) {
     return deny(401, "sign-in message is for a different site");

@@ -145,6 +145,20 @@ describe("parseWatchlistOps", () => {
     });
   });
 
+  /**
+   * The wallet this returns is what `applyWatchlistOps` stores and what the
+   * `seen` de-dup set above compares against, so a dirty address that only
+   * got trimmed (not stripped) would be stored dirty and then never match a
+   * clean lookup - the same "validated leniently, missed on lookup" bug fixed
+   * at the other three server boundaries in this PR.
+   */
+  it("strips invisible characters from the wallet before it is stored or compared", () => {
+    const ZWSP = String.fromCharCode(0x200b);
+    const dirty = ZWSP + checksummed(A);
+    const out = parseWatchlistOps({ ops: [{ op: "add", wallet: dirty, profile: "moderate" }] });
+    expect(out).toEqual({ ops: [{ op: "add", wallet: A, profile: "moderate" }] });
+  });
+
   it("rejects an update that changes nothing", () => {
     expect(parseWatchlistOps({ ops: [{ op: "update", wallet: A }] })).toEqual({
       error: expect.stringContaining("changes nothing"),

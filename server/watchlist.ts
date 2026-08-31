@@ -34,7 +34,7 @@
  * anywhere. Tables: supabase/migrations/20260814000004_watch_subscriptions.sql.
  */
 
-import { isEvmAddress } from "./profileDeps";
+import { isEvmAddress, stripAddressInvisibles } from "./profileDeps";
 import type { RiskProfile } from "../packages/scoring/src/types";
 
 /** Length + a 6-char prefix of a rejected input, never the whole value; a
@@ -142,7 +142,7 @@ export function parseWatchlistOps(body: unknown): { ops: WatchOp[] } | { error: 
       console.warn(`parseWatchlistOps: rejected ${at}.wallet, not an EVM address (${redactedShape(wallet)})`);
       return { error: `${at}.wallet is not an EVM address` };
     }
-    const target = wallet.trim().toLowerCase();
+    const target = stripAddressInvisibles(wallet).toLowerCase();
     // Two ops on one wallet in one batch have no defined order once they reach
     // SQL, so "add then remove" and "remove then add" would differ by luck.
     if (seen.has(target)) return { error: `${at}.wallet appears more than once in this batch` };

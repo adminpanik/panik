@@ -37,7 +37,28 @@ export interface SignupResult {
   error?: string;
 }
 
-export const isValidEvmAddress = (a: string): boolean => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
+/**
+ * Everything that takes up no room in a pasted address: ordinary whitespace,
+ * the non-breaking space, the soft hyphen, and the zero-width and bidi-format
+ * characters a copy out of a PDF or a rich-text document can carry. All of it
+ * is DELETED, internally as well as at the ends, because `.trim()` alone stops
+ * at the outer edges and an address pasted with one of these in the middle
+ * otherwise fails a format check with nothing for the reader to see wrong.
+ *
+ * TWIN: `ADDRESS_INVISIBLES` in `src/panik-core/lib/telegram.ts` (client) and
+ * `server/profileDeps.ts` (server twin) is a character-for-character copy and
+ * must stay one. This file cannot import `lib/telegram.ts`: that module pulls
+ * in wagmi, which the landing bundle deliberately does without (see the
+ * EIP-6963 wallet-connect block below). `server/profileDeps.test.ts` asserts
+ * all three agree on every case, so they cannot drift apart silently.
+ */
+const ADDRESS_INVISIBLES = /[\s\u00AD\u200B-\u200F\u2060\uFEFF]/g;
+
+/** Strip the characters above. */
+export const stripAddressInvisibles = (a: string): string => a.replace(ADDRESS_INVISIBLES, "");
+
+export const isValidEvmAddress = (a: string): boolean =>
+  /^0x[0-9a-fA-F]{40}$/.test(stripAddressInvisibles(a));
 
 /**
  * Client-side mirror of public.waitlist_appetite(), used only to SHOW the
