@@ -90,7 +90,7 @@ import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
 import { logNarration, type NarrationLogRow, type NarrationStore } from "../server/narrationLog";
-import { buildCreateInput, type RawCreateBody } from "../server/adminCampaigns";
+import { createCampaignIdempotent, type RawCreateBody } from "../server/adminCampaigns";
 import { adminAuthGate } from "../server/adminAuth";
 import { adminBearerGate } from "../server/adminGate";
 import { MetricsStore } from "../server/metricsStore";
@@ -2035,9 +2035,9 @@ async function adminCampaigns(req: express.Request, res: express.Response): Prom
       res.json({ campaign: updated });
       return;
     }
-    const { input, error } = buildCreateInput(body);
-    if (error) { res.status(400).json({ error }); return; }
-    res.status(201).json({ campaign: await store.createCampaign(input!) });
+    const result = await createCampaignIdempotent(body, store);
+    if (result.error) { res.status(result.status).json({ error: result.error }); return; }
+    res.status(result.status).json({ campaign: result.campaign });
   } catch (err) {
     serverError(req, res, 502, err);
   }
