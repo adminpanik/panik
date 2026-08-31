@@ -16,7 +16,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { privateKeyToAccount } from "viem/accounts";
 
-import { linkAccountWallet, redeemVoucher, VOUCHER_REFUSALS } from "./accounts";
+import { linkAccountWallet, normalizeVoucherCode, redeemVoucher, VOUCHER_REFUSALS } from "./accounts";
+import { normalizeVoucherCode as browserNormalizeVoucherCode } from "../src/panik-core/lib/account";
 import { AccountConflict, type AccountStore, type Membership } from "./accountStore";
 import type { CampaignStore, OpenResult, RedeemResult } from "./campaignStore";
 import type { IssuedNonce, NonceStore } from "./nonceStore";
@@ -322,5 +323,209 @@ describe("linkAccountWallet", () => {
     expect(result.outcome).toBe("wallet_taken");
     expect(result.status).toBe(409);
     expect(result.error).not.toMatch(/@|user|account [0-9a-f]{8}/i);
+  });
+});
+
+// ── the shape a code is compared in ─────────────────────────────────────────
+
+/**
+ * Every string the two normalizations have to answer the same way: the incident
+ * itself, each dash variant on its own, the whitespace cases, and two codes that
+ * are simply wrong.
+ */
+const NORMALIZATION_CASES = [
+  "PANIK-TRY-45QUHHUP",
+  "panik-try-45quhhup",
+  "PANIK\u2013TRY\u201345QUHHUP",
+  "PANIK\u2014TRY\u201445QUHHUP",
+  "PANIK\u00ADTRY\u00AD45QUHHUP",
+  "PANIK\uFF0DTRY\uFF0D45QUHHUP",
+  "  PANIK-TRY- 45QU HHUP\u000A",
+  "PANIK-TRY-\u00A045QUHHUP",
+  "PANIK-TRY-45\u200BQUHHUP",
+  "hunter1",
+  "",
+];
+
+describe("normalizeVoucherCode", () => {
+  /**
+   * The server's copy and the browser's copy are one function written twice.
+   * They cannot be one function imported twice: src/panik-core/lib/account.ts
+   * pulls in lib/goTrue.ts, which reads `import.meta.env` at module scope, and
+   * this side runs under plain Node where that is undefined and the import
+   * throws on load. This test is what stands in for the import, so a change to
+   * one copy that is not made to the other fails here rather than in a user's
+   * hands six weeks later.
+   */
+  it("agrees with its browser twin, character for character", () => {
+    for (const raw of NORMALIZATION_CASES) {
+      expect(normalizeVoucherCode(raw)).toBe(browserNormalizeVoucherCode(raw));
+    }
+  });
+
+  it("is what turns the 2026-08-31 refusal back into a redemption", () => {
+    expect(normalizeVoucherCode("PANIK\u2013TRY\u201345QUHHUP")).toBe("PANIK-TRY-45QUHHUP");
+  });
+});
+
+describe("redeemVoucher, on a code a phone rewrote", () => {
+  it("redeems it, and sends SQL the clean string", async () => {
+    const campaigns = new FakeCampaigns();
+    const result = await redeemVoucher(
+      { store: fakeStore(), campaigns: asCampaigns(campaigns) },
+      { userId: USER, email: EMAIL, code: " panik\u2013try\u20138X2Q RT4Z " },
+    );
+    expect(result.outcome).toBe("success");
+    expect(campaigns.redeemCalls).toEqual([{ code: CODE, email: EMAIL }]);
+  });
+
+  it("applies the same rule on the server, for a browser holding an old bundle", () => {
+    // The browser normalises before it posts, but the browser is not a trust
+    // boundary and a phone can be running yesterday's JavaScript for weeks.
+    expect(normalizeVoucherCode("PANIK\u2013TRY\u20138X2QRT4Z")).toBe(CODE);
+  });
+
+  it("still refuses a code that is wrong rather than merely mistyped", async () => {
+    const campaigns = new FakeCampaigns();
+    const result = await redeemVoucher(
+      { store: fakeStore(), campaigns: asCampaigns(campaigns) },
+      { userId: USER, email: EMAIL, code: "PANIK\u2013TRY\u2013HUNTER1" },
+    );
+    // "1" is not in the printed alphabet, so this is a code nobody holds. It
+    // must stay invalid: normalization repairs typography, not content.
+    expect(result.outcome).toBe("invalid");
+    expect(campaigns.redeemCalls).toEqual([]);
+  });
+});
+
+// ── one account, one slot ───────────────────────────────────────────────────
+
+/**
+ * `redeem_campaign_code` as the 2026-08-31 migration defines it, with the
+ * interleaving left visible.
+ *
+ * The `await` between reading the grants and writing one is the window the
+ * incident went through: on that day two submits from one account sixteen
+ * seconds apart both read "no grant for this address", both incremented
+ * redemption_count and both minted a row. `serialised` decides whether the
+ * critical section is held the way `pg_advisory_xact_lock(campaign, email)`
+ * holds it in SQL, so the two arrangements can be compared in one test file.
+ */
+class CampaignRpc {
+  maxRedemptions = 50;
+  redemptionCount = 0;
+  /** lower(email) -> access_token, i.e. trial_grants keyed by the new index. */
+  readonly grants = new Map<string, string>();
+  private minted = 0;
+  private tail: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly serialised = true) {}
+
+  redeem(_code: string, email?: string | null): Promise<RedeemResult> {
+    const run = () => this.attempt(email);
+    if (!this.serialised) return run();
+    const next = this.tail.then(run);
+    this.tail = next.catch(() => undefined);
+    return next;
+  }
+
+  private async attempt(email?: string | null): Promise<RedeemResult> {
+    const key = (email ?? "").trim().toLowerCase();
+    const held = key === "" ? undefined : this.grants.get(key);
+    await Promise.resolve();
+    if (held !== undefined) return { outcome: "success", token: held };
+    if (this.redemptionCount >= this.maxRedemptions) return { outcome: "exhausted" };
+    this.redemptionCount += 1;
+    const token = `PANIK-8X2QR${this.minted++}`;
+    if (key !== "") this.grants.set(key, token);
+    return { outcome: "success", token };
+  }
+
+  async openTrial(): Promise<OpenResult> {
+    return { outcome: "active", expiresAt: new Date(NOW + 86_400_000).toISOString() };
+  }
+}
+
+/** CampaignRpc wears the CampaignStore shape; only redeem/openTrial are called. */
+const asRpc = (c: CampaignRpc) => c as unknown as CampaignStore;
+
+/** An account store with the memberships unique index actually enforced. */
+function soleMembershipStore(): AccountStore {
+  let live: Membership | null = null;
+  return {
+    liveMembership: vi.fn(async () => live),
+    createMembership: vi.fn(async () => {
+      if (live) throw new AccountConflict("dupe", "membership-exists");
+      live = membership();
+      return live;
+    }),
+  } as unknown as AccountStore;
+}
+
+describe("redeemVoucher, submitted twice by one account", () => {
+  it("spends one campaign slot and mints one grant", async () => {
+    const campaigns = new CampaignRpc();
+    const deps = { store: soleMembershipStore(), campaigns: asRpc(campaigns) };
+    const results = await Promise.all([
+      redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE }),
+      redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE }),
+    ]);
+    expect(campaigns.redemptionCount).toBe(1);
+    expect(campaigns.grants.size).toBe(1);
+    // Both callers are told they are in, which is true of both of them. The one
+    // that lost the memberships race reads back the row the winner wrote rather
+    // than being handed a 409 it cannot act on.
+    expect(results.map((r) => r.outcome).sort()).toEqual(["already_member", "success"]);
+  });
+
+  it("is idempotent on a later submit too, not only a concurrent one", async () => {
+    const campaigns = new CampaignRpc();
+    const deps = { store: soleMembershipStore(), campaigns: asRpc(campaigns) };
+    const first = await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE });
+    const second = await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE });
+    expect(first.outcome).toBe("success");
+    expect(second.outcome).toBe("already_member");
+    expect(campaigns.redemptionCount).toBe(1);
+  });
+
+  it("reproduces the incident once the critical section is not held", async () => {
+    // Not a test of production code: it is what makes the two tests above mean
+    // something. The fake has a real window between its read and its write, so
+    // an unserialised pair of submits burns two slots exactly as 45QUHHUP did.
+    // A pre-check SELECT with no lock is that arrangement, which is why the
+    // migration takes the lock instead of only adding the check.
+    const campaigns = new CampaignRpc(false);
+    const deps = { store: soleMembershipStore(), campaigns: asRpc(campaigns) };
+    await Promise.all([
+      redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE }),
+      redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE }),
+    ]);
+    expect(campaigns.redemptionCount).toBe(2);
+    expect(campaigns.grants.size).toBe(1);
+  });
+
+  it("does not treat two different accounts as one", async () => {
+    const campaigns = new CampaignRpc();
+    const results = await Promise.all([
+      redeemVoucher(
+        { store: soleMembershipStore(), campaigns: asRpc(campaigns) },
+        { userId: USER, email: EMAIL, code: CODE },
+      ),
+      redeemVoucher(
+        { store: soleMembershipStore(), campaigns: asRpc(campaigns) },
+        { userId: "6f1c0d3a-0d7e-4a1e-9f2a-2c4b8d5e7a90", email: "other@example.com", code: CODE },
+      ),
+    ]);
+    expect(results.every((r) => r.outcome === "success")).toBe(true);
+    expect(campaigns.redemptionCount).toBe(2);
+    expect(campaigns.grants.size).toBe(2);
+  });
+
+  it("keys on the address case-insensitively, the way lower(email) does", async () => {
+    const campaigns = new CampaignRpc();
+    const deps = { store: fakeStore(), campaigns: asRpc(campaigns) };
+    await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE });
+    await redeemVoucher(deps, { userId: USER, email: EMAIL.toUpperCase(), code: CODE });
+    expect(campaigns.redemptionCount).toBe(1);
   });
 });
