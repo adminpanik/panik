@@ -223,6 +223,19 @@ export function OpenFlow({
     setProgress(progressKey ? loadProgress(progressKey) : EMPTY_PROGRESS);
   }, [progressKey]);
 
+  /**
+   * One signing sequence at a time.
+   *
+   * `executing` is state, so it is stale for the rest of the frame in which it
+   * is set: two clicks landing before React re-renders both read
+   * `executing === false`, both pass the button's `disabled` prop, and both run
+   * a full simulate + `writeContractAsync` sequence. That is two wallet prompts
+   * on a good day and two supplies of the same collateral on a wallet that
+   * confirms without asking. A ref is written synchronously, so the second call
+   * sees the first one's mark. The state stays for rendering only.
+   */
+  const inFlightRef = useRef(false);
+
   // The executor loop is async and outlives an unmount; stop touching state.
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -299,7 +312,11 @@ export function OpenFlow({
   const heading = `Open ${plan.collateralSymbol} on ${PROTOCOL_LABEL[plan.protocol] ?? plan.protocol}`;
 
   const execute = useCallback(async () => {
+    if (inFlightRef.current) return;
     if (!publicClient || !address || !progressKey) return;
+    // Claimed here, released in `finally`. Nothing between this line and the
+    // `try` awaits, so no second call can slip in behind it.
+    inFlightRef.current = true;
     const client = asContractClient(publicClient);
     setExecuting(true);
     setError(null);
@@ -483,6 +500,7 @@ export function OpenFlow({
         setError(message.split("\n")[0]?.slice(0, 300) ?? "transaction failed");
       }
     } finally {
+      inFlightRef.current = false;
       if (mountedRef.current) setExecuting(false);
     }
   }, [

@@ -13,7 +13,7 @@
  * Mainnet cutover is a config flip.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, CheckCircle2, ExternalLink, X } from "lucide-react";
 import { parseEventLogs } from "viem";
 import {
@@ -291,6 +291,19 @@ export function ExitFlow({
   const [receipt, setReceipt] = useState<{ hash: string; usdcReceived: bigint } | null>(null);
 
   /**
+   * One signing sequence at a time.
+   *
+   * `step` is state, so it is stale for the rest of the frame in which it is
+   * set: two clicks landing before React re-renders both see `step === "review"`,
+   * both pass the button's `disabled` prop, and both run the approvals, the
+   * simulation and `writeContractAsync`. That is two wallet prompts, and on a
+   * wallet that confirms without asking, two `atomicExit` transactions against
+   * the same position. A ref is written synchronously, so the second call sees
+   * the first one's mark; `step` stays for rendering only.
+   */
+  const inFlightRef = useRef(false);
+
+  /**
    * What this modal is CURRENTLY doing, which starts as what the advisor asked
    * for and can be narrowed once by the user (see `fallbackOffered`).
    *
@@ -547,7 +560,11 @@ export function ExitFlow({
   }, [step, loadPosition]);
 
   const execute = useCallback(async () => {
+    if (inFlightRef.current) return;
     if (!publicClient || !address || !position) return;
+    // Claimed here, released in `finally`. Nothing between this line and the
+    // `try` awaits, so no second call can slip in behind it.
+    inFlightRef.current = true;
     const client = asContractClient(publicClient);
     setStep("executing");
     setNotice(null);
@@ -611,6 +628,8 @@ export function ExitFlow({
           : failure.message,
       });
       setStep("review");
+    } finally {
+      inFlightRef.current = false;
     }
   }, [publicClient, address, position, ensureApprovals, writeContractAsync, kind, fallbackOffered]);
 
