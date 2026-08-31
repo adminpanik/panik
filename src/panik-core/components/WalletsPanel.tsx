@@ -36,7 +36,7 @@ import { ChevronDown, Plus, Trash2, Undo2, X } from "lucide-react";
 import type { RiskProfile } from "../../../packages/scoring/src/types";
 import { Button, Card, EmptyState, Field, Skeleton } from "../ui";
 import { RISK_PROFILES, truncateAddress } from "../lib/utils";
-import { isEvmAddress, type GetProof } from "../lib/telegram";
+import { isEvmAddress, stripAddressInvisibles, type GetProof } from "../lib/telegram";
 import {
   draftCount,
   draftFromSubscriptions,
@@ -657,7 +657,12 @@ function AddWalletForm({
           mono
           value={address}
           disabled={disabled}
-          onChange={(e) => setAddress(e.target.value)}
+          // Stripped on every keystroke, not just before the regex: a paste out
+          // of a PDF or rich-text doc can carry a zero-width space or BOM
+          // anywhere in the string, and leaving it in `address` would mean the
+          // wallet actually saved (`lower`, below) still carries it even once
+          // `isEvmAddress` starts tolerating it.
+          onChange={(e) => setAddress(stripAddressInvisibles(e.target.value))}
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
