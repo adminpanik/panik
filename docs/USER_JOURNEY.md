@@ -3,7 +3,7 @@
 > Status: **Design doc** — free waitlist (Journey B) in build 2026-06-14; Founding-User Escrow (Journey A) still design.
 > Last updated: 2026-06-14
 > Companion to [`BACKEND_PLAN.md`](./BACKEND_PLAN.md). Where the two disagree, this doc wins for journey/flow; the backend plan wins for infra/security mechanics.
-> **This doc never wins over the deployed contract.** For escrow mechanics, `contracts/src/PanikEscrow.sol` and [`technical-docs/ESCROW_SYSTEM.md`](./technical-docs/ESCROW_SYSTEM.md) are authoritative — this doc describes the journey around them.
+> **This doc never wins over the deployed contract.** For escrow mechanics, [`contracts/src/PanikEscrow.sol`](../contracts/src/PanikEscrow.sol) is authoritative — this doc describes the journey around it.
 >
 > **Reconciled with the business-dev doc (2026-06-14) — read before trusting any number below:**
 > - Escrow amount is **$5 USDC** (every "$3" below is historical — treat as $5). The refund window is **one global 90-day deadline fixed at contract deployment**, shared by every depositor — *not* 90 days from each depositor's own timestamp. (Earlier revisions of this doc specified a per-depositor clock; the shipped contract does not implement one. `depositTime[wallet]` is recorded as an audit value only and feeds no time math.)

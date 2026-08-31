@@ -215,7 +215,7 @@ Required environment variables are documented in `.env.example`. Two will refuse
 
 ### Escrow (Base Sepolia)
 
-Deployed via `forge script`; the deploy script resolves the USDC address from the chain id rather than an env var, so a stale testnet value cannot hardwire a mainnet contract to the wrong token. See [`docs/technical-docs/ESCROW_SYSTEM.md`](docs/technical-docs/ESCROW_SYSTEM.md).
+Deployed via `forge script`; the deploy script resolves the USDC address from the chain id rather than an env var, so a stale testnet value cannot hardwire a mainnet contract to the wrong token. See [`contracts/src/PanikEscrow.sol`](contracts/src/PanikEscrow.sol).
 
 ## 🚀 How to Run Locally
 
