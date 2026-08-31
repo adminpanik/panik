@@ -139,6 +139,16 @@ export interface VoucherInput {
  * burn a second campaign slot on someone who is already in, and the insert
  * still tolerates a 409 because two requests can pass that check concurrently
  * — the partial unique index in the migration is the real arbiter.
+ *
+ * That check is a shortcut, NOT the guard. Two requests racing arrive here with
+ * no membership either side of them, and until 2026-08-31 both went on to spend
+ * a campaign slot: one account took two of PANIK-TRY-45QUHHUP's in sixteen
+ * seconds. `redeem_campaign_code` is now idempotent per (campaign, email) -
+ * supabase/migrations/20260831000001_idempotent_campaign_redeem.sql - so a
+ * second call for an address that already holds a grant hands back THAT grant's
+ * token without minting a row or incrementing the count. The email below is the
+ * account's own verified address, which is what makes that key trustworthy
+ * here: it is not a field the caller chose.
  */
 export async function redeemVoucher(
   deps: VoucherDeps,
