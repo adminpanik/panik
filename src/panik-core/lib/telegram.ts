@@ -32,7 +32,29 @@ import { buildOwnershipMessage, type OwnershipAction } from "../../../server/siw
 
 export type RiskProfile = "conservative" | "moderate" | "aggressive";
 
-export const isEvmAddress = (a: string): boolean => /^0x[0-9a-fA-F]{40}$/.test(a.trim());
+/**
+ * Everything that takes up no room in a pasted address: ordinary whitespace,
+ * the non-breaking space, the soft hyphen, and the zero-width and bidi-format
+ * characters a copy out of a PDF or a rich-text document can carry. All of it
+ * is DELETED, internally as well as at the ends, because a browser wallet
+ * extension and `.trim()` both stop at the outer edges and an address pasted
+ * with one of these in the middle otherwise fails a format check with nothing
+ * for the reader to see wrong. Same character class as `VOUCHER_BLANKS` in
+ * `server/accounts.ts`, applied here to addresses instead of voucher codes.
+ *
+ * TWIN: `ADDRESS_INVISIBLES` in `server/profileDeps.ts` (server twin) and
+ * `src/panik-landing-page/lib/waitlist.ts` (landing copy) is a
+ * character-for-character copy and must stay one. `server/profileDeps.test.ts`
+ * asserts all three agree on every case, so they cannot drift apart silently.
+ */
+const ADDRESS_INVISIBLES = /[\s\u00AD\u200B-\u200F\u2060\uFEFF]/g;
+
+/** Strip the characters above. Used before both the format check and anywhere
+ * the address is used as a value (signed, sent, stored), so an honest paste
+ * is never accepted by the check and then carried forward uncleaned. */
+export const stripAddressInvisibles = (a: string): string => a.replace(ADDRESS_INVISIBLES, "");
+
+export const isEvmAddress = (a: string): boolean => /^0x[0-9a-fA-F]{40}$/.test(stripAddressInvisibles(a));
 
 /** A signed wallet-ownership proof, as the API expects it in the body. */
 export interface OwnershipProof {
@@ -65,7 +87,7 @@ export function useWalletOwnership(): { getProof: GetProof } {
 
   const getProof = useCallback<GetProof>(
     async (wallet, action) => {
-      const target = wallet.trim().toLowerCase();
+      const target = stripAddressInvisibles(wallet).toLowerCase();
       if (!isEvmAddress(target)) throw new OwnershipError("Needs an EVM wallet (0x...).");
 
       let signer = isConnected ? address : undefined;
@@ -142,7 +164,7 @@ const registeredThisSession = new Set<string>();
 
 /** Forget a wallet's registration so a retry actually re-runs it. */
 export function forgetRegistration(wallet: string, profile: RiskProfile): void {
-  registeredThisSession.delete(`${wallet.trim().toLowerCase()}:${profile}`);
+  registeredThisSession.delete(`${stripAddressInvisibles(wallet).toLowerCase()}:${profile}`);
 }
 
 /**
@@ -156,7 +178,7 @@ export async function registerWatchedWallet(
   profile: RiskProfile,
   getProof: GetProof,
 ): Promise<RegisterResult> {
-  const target = wallet.trim().toLowerCase();
+  const target = stripAddressInvisibles(wallet).toLowerCase();
   if (!isEvmAddress(target))
     return { ok: false, error: "Monitoring needs an EVM wallet (0x...).", severity: "unverified" };
   const key = `${target}:${profile}`;
@@ -168,8 +190,19 @@ export async function registerWatchedWallet(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...proof, profile }),
     });
-    if (!res.ok)
-      return { ok: false, error: "Panik could not enable monitoring for this wallet.", severity: "blocked" };
+    if (!res.ok) {
+      // Same `body?.error ?? fallback` pattern as `lib/watchlist.ts`'s
+      // `saveWatchlist`: the server's own sentence names WHY registration was
+      // refused (a distinct one per case), and a generic fallback speaks for it
+      // only when the body carries nothing usable.
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      console.error("registerWatchedWallet: request failed", res.status, body);
+      return {
+        ok: false,
+        error: body?.error ?? "Panik could not enable monitoring for this wallet.",
+        severity: "blocked",
+      };
+    }
     registeredThisSession.add(key);
     return { ok: true, error: null, severity: null };
   } catch (err) {
@@ -233,6 +266,24 @@ export function rejectedSignature(err: unknown): boolean {
   return e?.code === 4001 || e?.name === "UserRejectedRequestError" || /rejected|denied/i.test(e?.message ?? "");
 }
 
+/**
+ * What `useTelegramLink.connect` shows when getting the ownership signature
+ * fails, before it ever asks the server for a link code. Same doctrine as
+ * `describeFailure` above: no library string reaches the screen, and only our
+ * own `OwnershipError` is trusted verbatim because this file wrote it.
+ *
+ * A plain, exported function rather than inlined in the hook's `catch`, so it
+ * can be unit-tested directly: this repo has no jsdom/testing-library, so a
+ * hook's closures are not otherwise reachable from a test.
+ */
+export function describeTelegramSignatureFailure(err: unknown): string {
+  if (rejectedSignature(err)) return "Signature declined. Telegram alerts need it.";
+  if (err instanceof OwnershipError) return err.message;
+  if (noWalletAvailable(err)) return "Telegram alerts need a connected wallet. Connect it and try again.";
+  console.error("useTelegramLink.connect: signature failed", err);
+  return "Could not get a signature for Telegram alerts. Try again.";
+}
+
 // "signing" = waiting on the ownership signature in the wallet;
 // "opened" = deep link launched, waiting for Start; "connected" = link confirmed.
 type LinkStatus = "idle" | "signing" | "requesting" | "opened" | "connected" | "error";
@@ -252,7 +303,8 @@ interface StatusResponse {
 
 async function fetchLinkStatus(wallet: string): Promise<StatusResponse | null> {
   try {
-    const res = await fetch(`/api/telegram/status?wallet=${encodeURIComponent(wallet.trim().toLowerCase())}`);
+    const target = stripAddressInvisibles(wallet).toLowerCase();
+    const res = await fetch(`/api/telegram/status?wallet=${encodeURIComponent(target)}`);
     if (!res.ok) return null;
     return (await res.json()) as StatusResponse;
   } catch {
@@ -305,9 +357,8 @@ export function useTelegramLink(getProof: GetProof) {
         setStatus("signing");
         proof = await getProof(wallet, "telegram-link");
       } catch (err) {
-        // Rejecting the prompt is a normal choice, not a crash.
         setStatus("error");
-        setError(rejectedSignature(err) ? "Signature declined. Telegram alerts need it." : (err as Error).message);
+        setError(describeTelegramSignatureFailure(err));
         return;
       }
       setStatus("requesting");
@@ -318,8 +369,14 @@ export function useTelegramLink(getProof: GetProof) {
           body: JSON.stringify(proof),
         });
         if (!res.ok) {
-          const txt = await res.text().catch(() => "");
-          throw new Error(`http_${res.status}: ${txt.slice(0, 120)}`);
+          // Same `body?.error ?? fallback` pattern as `lib/watchlist.ts`'s
+          // `saveWatchlist` and `registerWatchedWallet` above: the distinguishing
+          // sentence is the server's, the raw status/body is for the console only.
+          const body = (await res.json().catch(() => null)) as { error?: string } | null;
+          console.error("useTelegramLink.connect: link request failed", res.status, body);
+          setStatus("error");
+          setError(body?.error ?? "Could not start the Telegram connection. Try again.");
+          return;
         }
         const data = (await res.json()) as LinkResponse;
         setCode(data.code);
@@ -340,8 +397,9 @@ export function useTelegramLink(getProof: GetProof) {
           }
         }, 3000);
       } catch (err) {
+        console.error("useTelegramLink.connect: link request errored", err);
         setStatus("error");
-        setError((err as Error).message);
+        setError("Could not reach PANIK to start the Telegram connection. Try again.");
       }
     },
     [stopPoll, getProof],
