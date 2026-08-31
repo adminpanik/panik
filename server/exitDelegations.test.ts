@@ -279,6 +279,24 @@ describe("listLiveDelegations", () => {
     expect(res.status).toBe(200);
     expect((res.body as any).delegations).toEqual([]);
   });
+
+  /**
+   * Before `stripAddressInvisibles` was applied at this file's own boundary,
+   * `w` stayed dirty past the `isEvmAddress` check (which now tolerates it)
+   * and `FakeStore.listActive` compares against the CLEAN address the row was
+   * stored under, so the dirty query matched nothing: the exact "validated,
+   * then missed on lookup" bug a lenient check without a matching normalize
+   * would reintroduce.
+   */
+  it("finds a delegation stored under the clean address even when queried with a dirty one", async () => {
+    await submit(basePermit({ nonce: 1n }));
+    const ZWSP = String.fromCharCode(0x200b);
+    const dirty = ZWSP + USER;
+    const res = await listLiveDelegations(dirty, deps);
+    expect(res.status).toBe(200);
+    expect((res.body as any).wallet).toBe(USER);
+    expect((res.body as any).delegations).toHaveLength(1);
+  });
 });
 
 describe("revokeDelegation", () => {

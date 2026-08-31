@@ -14,7 +14,7 @@
  * Tables + comments: supabase/migrations/20260816000001_accounts.sql.
  */
 
-import { isEvmAddress } from "./profileDeps";
+import { isEvmAddress, stripAddressInvisibles } from "./profileDeps";
 
 /**
  * PostgREST error bodies quote the failing SQL and, on an auth failure, the
@@ -313,7 +313,7 @@ export class AccountStore {
    * self-conflict and leaves the wallet-only unique index to raise the real one.
    */
   async linkWallet(userId: string, wallet: string): Promise<AccountWallet> {
-    const address = wallet.trim().toLowerCase();
+    const address = stripAddressInvisibles(wallet).toLowerCase();
     if (!isEvmAddress(address)) throw new Error("linkWallet: not an EVM address");
     const res = await fetch(
       `${this.base}/rest/v1/account_wallets?select=wallet,verified_at,created_at`,
@@ -349,7 +349,7 @@ export class AccountStore {
    * naming a stranger's address gets `false`, not a deletion.
    */
   async unlinkWallet(userId: string, wallet: string): Promise<boolean> {
-    const address = wallet.trim().toLowerCase();
+    const address = stripAddressInvisibles(wallet).toLowerCase();
     if (!isEvmAddress(address)) return false;
     const url =
       `${this.base}/rest/v1/account_wallets?select=wallet` +
