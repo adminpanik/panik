@@ -19,6 +19,7 @@ import {
   exitFailureMessage,
   exitRpcUrls,
   PUBLIC_RPC_URLS,
+  StatedFailure,
   type ExitFailureKind,
 } from "./exitRpc";
 
@@ -287,8 +288,128 @@ describe("classifyExitError - the fork ExitFlow branches on per reserve", () => 
   });
 });
 
+/**
+ * The OPEN flow's generic catch routes through this classifier too.
+ *
+ * It used to render `err.message.split("\n")[0].slice(0, 300)` straight into
+ * the modal, which is the same defect §4.2 logged against the exit flow: the
+ * first line of a viem transport error is "HTTP request failed." followed, once
+ * the slice is wide enough, by the endpoint and the request body, and a wallet
+ * dismissal, an unreachable node and an on-chain revert all arrived looking
+ * alike. These pin the three shapes the open sequence can actually throw.
+ */
+describe("classifyExitError - the open flow's failures", () => {
+  it("gives a transport failure the classified sentence rather than the raw message", () => {
+    const { kind, message } = classifyExitError(RATE_LIMITED_HTTP_ERROR, NETWORK);
+    expect(kind).toBe("network");
+    expect(message).toBe(
+      "We could not reach Base Sepolia just now. Check your connection and try again in a moment.",
+    );
+    // The exact thing the old render leaked: the first line of the raw message.
+    expect(message).not.toContain(RATE_LIMITED_HTTP_ERROR.message.split("\n")[0]);
+    expect(message).not.toContain("https://");
+    expect(message).not.toContain("0x");
+  });
+
+  it("classifies the open flow's own post-receipt check, which throws a plain Error", () => {
+    // `runCall` throws `${label} reverted on-chain` after a `status !==
+    // "success"` receipt - one label per step, so all of them are checked.
+    for (const label of ["Approve cbBTC", "Supply cbBTC", "Borrow USDC", "Mint test cbBTC"]) {
+      expect(classifyExitError(new Error(`${label} reverted on-chain`), NETWORK).kind).toBe(
+        "reverted",
+      );
+    }
+  });
+
+  it("reads a wallet dismissal during an open as a dismissal, not a failure", () => {
+    const dismissed = Object.assign(new Error("User rejected the request."), {
+      name: "UserRejectedRequestError",
+      code: 4001,
+    });
+    expect(classifyExitError(dismissed, NETWORK).kind).toBe("rejected");
+  });
+
+  it("names the chain the modal is frozen to, whichever that is", () => {
+    // OpenFlow passes CHAIN_MODE_LABEL[chainMode], so the sentence follows the
+    // modal's frozen mode rather than the wallet's current network.
+    expect(classifyExitError(RATE_LIMITED_HTTP_ERROR, "Base").message).toContain("Base");
+    expect(classifyExitError(RATE_LIMITED_HTTP_ERROR, "Base").message).not.toContain("Sepolia");
+  });
+});
+
+/**
+ * A `StatedFailure` is the escape hatch for the one open-flow message that is
+ * already a sentence for a person: "Insufficient cbBTC: need ~0.00120, have
+ * 0.00000" tells the user to fund the wallet, and flattening it to "Something
+ * went wrong" would delete the only actionable thing on the screen.
+ *
+ * The marker, never the text, is what decides - so no future message can become
+ * user-facing by accident, and no existing caller can start receiving `stated`.
+ */
+describe("classifyExitError - a failure the flow stated itself", () => {
+  const SHORTFALL = "Insufficient cbBTC: need ~0.00120, have 0.00000";
+
+  it("hands the flow's own sentence through untouched", () => {
+    const { kind, message } = classifyExitError(new StatedFailure(SHORTFALL), NETWORK);
+    expect(kind).toBe("stated");
+    expect(message).toBe(SHORTFALL);
+  });
+
+  it("keeps the sentence on `detail` too, so the console shows what the user saw", () => {
+    expect(classifyExitError(new StatedFailure(SHORTFALL), NETWORK).detail).toBe(SHORTFALL);
+  });
+
+  it("does not promote a plain Error carrying the same text", () => {
+    // The class is the signal. A message that merely looks user-facing is still
+    // machine text as far as this function is concerned.
+    const { kind, message } = classifyExitError(new Error(SHORTFALL), NETWORK);
+    expect(kind).toBe("unknown");
+    expect(message).toBe("Something went wrong. Try again in a moment.");
+  });
+
+  it("does not change what the exit flow's own errors classify as", () => {
+    // The regression that matters for existing callers: nothing they throw or
+    // receive can come back `stated`.
+    const unchanged: [unknown, ExitFailureKind][] = [
+      [RATE_LIMITED_HTTP_ERROR, "network"],
+      [new Error("Exit transaction reverted on-chain"), "reverted"],
+      [{ code: 4001, message: "denied" }, "rejected"],
+      [new Error("something odd happened"), "unknown"],
+    ];
+    for (const [err, kind] of unchanged) {
+      expect(classifyExitError(err, NETWORK).kind).toBe(kind);
+    }
+  });
+
+  it("collapses whitespace so a multi-line sentence cannot reflow the notice", () => {
+    expect(classifyExitError(new StatedFailure("  need\n  more  cbBTC  "), NETWORK).message).toBe(
+      "need more cbBTC",
+    );
+  });
+
+  it("caps `detail` like every other kind", () => {
+    const long = new StatedFailure("x".repeat(5000));
+    expect(classifyExitError(long, NETWORK).detail.length).toBeLessThanOrEqual(500);
+  });
+});
+
 describe("exitFailureMessage", () => {
-  const kinds: ExitFailureKind[] = ["network", "rejected", "reverted", "unknown"];
+  /**
+   * `stated` is deliberately absent: it has no generic wording of its own, it
+   * carries the sentence the flow wrote (see `StatedFailure`), and
+   * `classifyExitError` never routes one through this function. Its fallback is
+   * asserted separately below.
+   */
+  const kinds: Exclude<ExitFailureKind, "stated">[] = [
+    "network",
+    "rejected",
+    "reverted",
+    "unknown",
+  ];
+
+  it("falls back to the catch-all for a stated failure asked without its error", () => {
+    expect(exitFailureMessage("stated", NETWORK)).toBe(exitFailureMessage("unknown", NETWORK));
+  });
 
   it("names the chain the flow actually runs on", () => {
     expect(exitFailureMessage("network", "Base Sepolia")).toContain("Base Sepolia");
