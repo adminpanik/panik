@@ -42,6 +42,48 @@ import { AccountConflict, type AccountStore, type AccountWallet, type Membership
 import { verifyWalletOwnership } from "./walletAuth";
 import type { NonceStore } from "./nonceStore";
 
+/**
+ * Everything that is not a character of the code: ordinary spaces and tabs, the
+ * non-breaking space a paste out of a PDF carries, and the zero-width joiners a
+ * messaging app can leave behind. All of it is removed, INTERNALLY as well as at
+ * the ends, because "PANIK-TRY- 45QUHHUP" is the same card as the one without
+ * the space and a reader retyping a printed string should not have to know that.
+ */
+const VOUCHER_BLANKS = /[\s\u200B-\u200D\uFEFF]/g;
+
+/**
+ * Every dash a keyboard can produce where a person meant a hyphen: the Unicode
+ * hyphens and dashes U+2010 to U+2015 (which includes the en dash and the em
+ * dash), the soft hyphen, the mathematical minus, and the small/fullwidth forms
+ * a CJK keyboard emits.
+ *
+ * THIS IS THE INCIDENT. On 2026-08-31 a tester retyped PANIK-TRY-45QUHHUP on an
+ * iPhone and was told the code was not recognised, with no attempt logged
+ * anywhere: iOS smart punctuation had turned the two hyphens into en dashes, so
+ * the string failed CAMPAIGN_CODE_RE below before any database call could record
+ * it. The characters were visually identical on screen, which is exactly why the
+ * user had nothing to correct.
+ */
+const VOUCHER_DASHES = /[\u00AD\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+
+/**
+ * The one shape a voucher code is compared in.
+ *
+ * TWIN: `normalizeVoucherCode` in `src/panik-core/lib/account.ts` is a
+ * character-for-character copy and must stay one. This module cannot import that
+ * one: lib/account.ts pulls in lib/goTrue.ts, which reads `import.meta.env` at
+ * module scope, and this side runs under plain Node where that is undefined and
+ * the import throws on load. `server/accounts.test.ts` imports both and asserts
+ * they agree on every case, so the copies cannot drift silently.
+ *
+ * Applied here as well as in the browser because the browser is not a trust
+ * boundary and, more prosaically, because a phone holding yesterday's bundle is
+ * the exact case this fix exists for.
+ */
+export function normalizeVoucherCode(raw: string): string {
+  return raw.replace(VOUCHER_BLANKS, "").replace(VOUCHER_DASHES, "-").toUpperCase();
+}
+
 /** The printed campaign code. Mirrors the CHECK on product_campaigns.campaign_code. */
 const CAMPAIGN_CODE_RE = /^PANIK-TRY-[2-9A-HJ-NP-Z]{4,8}$/;
 
@@ -102,7 +144,7 @@ export async function redeemVoucher(
   deps: VoucherDeps,
   input: VoucherInput,
 ): Promise<VoucherResult> {
-  const code = String(input.code ?? "").trim().toUpperCase();
+  const code = normalizeVoucherCode(String(input.code ?? ""));
   if (TRIAL_TOKEN_RE.test(code)) return { outcome: "trial_link" };
   if (!CAMPAIGN_CODE_RE.test(code)) return { outcome: "invalid" };
 
