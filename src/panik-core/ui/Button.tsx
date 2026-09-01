@@ -102,6 +102,12 @@ interface ButtonProps extends React.ComponentPropsWithRef<"button"> {
   children: React.ReactNode;
 }
 
+/**
+ * `whitespace-nowrap` on every variant: a button that wraps its own label
+ * reads as broken, not responsive. A caller that is out of room should
+ * shorten its copy or widen the footer, not let the label fold onto a
+ * second line inside the control.
+ */
 export function Button({
   variant = "primary",
   size = "md",
@@ -116,7 +122,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled}
-      className={`inline-flex cursor-pointer items-center justify-center gap-2 font-sans font-bold uppercase tracking-[0.02em] disabled:cursor-not-allowed disabled:opacity-40 ${BUTTON_SIZE[size]} ${BUTTON_VARIANT[variant]} ${press} ${className}`}
+      className={`inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap font-sans font-bold uppercase tracking-[0.02em] disabled:cursor-not-allowed disabled:opacity-40 ${BUTTON_SIZE[size]} ${BUTTON_VARIANT[variant]} ${press} ${className}`}
       {...rest}
     >
       {children}
