@@ -670,7 +670,7 @@ function withJsonBody(
 }
 
 /** Route table: pathname -> body. Returning undefined means "not mine". */
-function handle(url: URL): unknown {
+export function handle(url: URL): unknown {
   const profile = url.searchParams.get("profile") ?? "moderate";
   const updatedAt = Date.now();
   const sim = mockSimulation();
@@ -702,8 +702,16 @@ function handle(url: URL): unknown {
           : null,
       };
     }
-    case "/api/history":
-      return mockHistory();
+    case "/api/history": {
+      // Same rule as /api/positions: the real route is per-wallet, so a wallet
+      // that is not the seeded one gets no snapshots and no alerts, not the
+      // seeded wallet's history. Answering every wallet with the same fixture
+      // was what made an unbound address (no positions, score "Not measured")
+      // still draw a full 30d curve and trend caption in Portfolio.
+      const wallet = url.searchParams.get("wallet") ?? "";
+      const mine = wallet.toLowerCase() === MOCK_WALLET;
+      return mine ? mockHistory() : { alerts: [], snapshots: [] };
+    }
     case "/api/wallets":
       return { wallets: MOCK_WALLETS };
     case "/api/chain":
