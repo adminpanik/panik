@@ -91,6 +91,7 @@ import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
 import { logNarration, type NarrationLogRow, type NarrationStore } from "../server/narrationLog";
 import { createCampaignIdempotent, type RawCreateBody } from "../server/adminCampaigns";
+import { AdminTrialStore, END_TRIAL_REFUSAL, endTrialForEmail } from "../server/adminTrials";
 import { adminAuthGate } from "../server/adminAuth";
 import { adminBearerGate } from "../server/adminGate";
 import { MetricsStore } from "../server/metricsStore";
@@ -2239,11 +2240,60 @@ async function adminUsers(req: express.Request, res: express.Response): Promise<
   }
 }
 
+/**
+ * Forcibly END a named account's trial, so a renewal flow can be re-tested
+ * without waiting out a three-day clock. The whole decision, including what
+ * "ended" writes and the operator audit line, lives in server/adminTrials.ts;
+ * this is the transport.
+ *
+ * GET               every grant that is open right now, with its address. The
+ *                   console's three row-action placements ask this rather than
+ *                   guessing liveness from a redemption's own expiry.
+ * POST ?action=end  { email } -> the closed grant, or 404 saying which of the
+ *                   two misses it was.
+ *
+ * Behind the same admin gate and the same 10/min adminLimit as the rest of
+ * /api/admin. The email arrives in the body and is only ever a LOOKUP: the
+ * account it resolves to is the only thing that gets written.
+ */
+async function adminTrials(req: express.Request, res: express.Response): Promise<void> {
+  if (!requireAdmin(req, res)) return;
+  if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
+  try {
+    const store = AdminTrialStore.fromEnv();
+    if (req.method === "GET") {
+      res.json({ trials: await store.liveTrials() });
+      return;
+    }
+    if (String(req.query.action ?? "") !== "end") {
+      res.status(400).json({ error: "unknown action" });
+      return;
+    }
+    const body = (req.body ?? {}) as { email?: unknown };
+    const result = await endTrialForEmail(store, {
+      email: body.email,
+      // Stamped by adminBearerGate on a verified Supabase identity. Absent on
+      // the shared-secret path, which has no name to record.
+      actor: typeof res.locals.adminEmail === "string" ? res.locals.adminEmail : null,
+    });
+    if (result.outcome === "ended") {
+      res.json({ trial: result.trial });
+      return;
+    }
+    const refusal = END_TRIAL_REFUSAL[result.outcome];
+    res.status(refusal.status).json({ error: refusal.error });
+  } catch (err) {
+    serverError(req, res, 502, err);
+  }
+}
+
 app.get("/api/admin/users", adminLimit, adminBearerGate, adminUsers);
 app.get("/api/admin/metrics", adminLimit, adminBearerGate, adminMetrics);
 app.get("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.post("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.get("/api/admin/redemptions", adminLimit, adminBearerGate, adminRedemptions);
+app.get("/api/admin/trials", adminLimit, adminBearerGate, adminTrials);
+app.post("/api/admin/trials", adminLimit, adminBearerGate, adminTrials);
 app.get("/api/admin/simulation", adminLimit, adminBearerGate, adminSimulation);
 app.post("/api/admin/simulation", adminLimit, adminBearerGate, adminSimulation);
 app.delete("/api/admin/simulation", adminLimit, adminBearerGate, adminSimulation);
