@@ -1505,17 +1505,33 @@ function RiskBreakdownPanel({
         </BreakdownSection>
       </div>
 
-      {/* One primary action, and it is the only filled button in the panel. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-base p-4">
-        <Button variant="secondary" onClick={onClose}>
-          Close
-        </Button>
-        <Button variant="secondary" onClick={onSimulate}>
-          Open simulator
-        </Button>
-        <Button onClick={onOpen}>
+      {/* The house footer band: `border-t-[3px] border-border-strong px-6
+          py-4`, the same shell `WalletsPanel`'s footer uses, so a reader who
+          has seen one sheet's bottom edge recognises the other's. Close is
+          text, on the left; the two actions that leave this panel for
+          somewhere else are the right-aligned pair, and the filled button is
+          the only one of the three that is not `ghost` or `secondary`, so it
+          reads as the one thing this footer is FOR.
+
+          Flat, un-nested siblings rather than a left group and a right group:
+          `order-*` puts each button where it belongs at each width, and
+          `sm:mr-auto` on Close is what pushes the pair to the right without a
+          wrapping element the plain CSS box model already does for free. Below
+          `sm` the pairing itself changes, not just the order, which is why
+          `order` rather than a fixed left/right split does the work: Open
+          position stands alone, full width, first; Close and Open simulator
+          share the row under it, because neither is the answer to "what do I
+          do now" the way Open position is. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t-[3px] border-border-strong px-6 py-4 sm:flex-nowrap">
+        <Button onClick={onOpen} className="order-1 w-full sm:order-3 sm:w-auto">
           <Plus className="h-3.5 w-3.5" />
           Open position
+        </Button>
+        <Button variant="ghost" onClick={onClose} className="order-2 sm:order-1 sm:mr-auto">
+          Close
+        </Button>
+        <Button variant="secondary" onClick={onSimulate} className="order-2 sm:order-2">
+          Open simulator
         </Button>
         {opensDemo && <DemoChip />}
       </div>
