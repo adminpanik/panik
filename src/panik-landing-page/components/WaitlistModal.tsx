@@ -563,25 +563,37 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
             </StepHeading>
 
             {showManualInput ? (
-              <Field
-                id="manual-wallet-input"
-                label="Wallet address"
-                mono
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-                value={wallet}
-                // Stripped here, not only inside `isValidEvmAddress`: a paste out
-                // of a PDF or rich-text doc can carry a zero-width space, soft
-                // hyphen, or BOM anywhere in the string, and leaving it in
-                // `wallet` would mean the address this modal submits still
-                // carries it even once the format check tolerates it.
-                onChange={(e) => { setWallet(stripAddressInvisibles(e.target.value)); if (walletError) setWalletError(""); }}
-                onBlur={() => {
-                  if (wallet && !isValidEvmAddress(wallet))
-                    setWalletError("That does not look like a valid EVM address (0x + 40 hex characters).");
-                }}
-              />
+              <div className="relative">
+                <Field
+                  id="manual-wallet-input"
+                  label="Wallet address"
+                  mono
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  value={wallet}
+                  // Stripped here, not only inside `isValidEvmAddress`: a paste out
+                  // of a PDF or rich-text doc can carry a zero-width space, soft
+                  // hyphen, or BOM anywhere in the string, and leaving it in
+                  // `wallet` would mean the address this modal submits still
+                  // carries it even once the format check tolerates it.
+                  onChange={(e) => { setWallet(stripAddressInvisibles(e.target.value)); if (walletError) setWalletError(""); }}
+                  onBlur={() => {
+                    if (wallet && !isValidEvmAddress(wallet))
+                      setWalletError("That does not look like a valid EVM address (0x + 40 hex characters).");
+                  }}
+                  // Reserved unconditionally, not only once the check mark shows:
+                  // the icon appearing on the final valid keystroke must not shift
+                  // the caret or the text already typed.
+                  style={{ paddingRight: "2.25rem" }}
+                />
+                {walletValid && (
+                  <Check
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-text-primary"
+                  />
+                )}
+              </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
                 {WALLET_OPTIONS.map(({ rdns, label }) => (
@@ -606,10 +618,15 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
               {showManualInput ? "Use a browser wallet instead" : "Or paste a wallet address"}
             </Button>
 
-            {wallet && walletValid && connectingWallet === null && (
+            {/* Only for a browser-wallet connection: the buttons above give no
+                other sign that it worked, and the resulting address was never
+                typed anywhere on screen, so this is the one place reporting
+                it. The manual field carries its own in-field check mark
+                instead, since here the reader already sees what they typed. */}
+            {!showManualInput && wallet && walletValid && connectingWallet === null && (
               <p className="flex items-center gap-2 hard-edge bg-surface-sunken px-3 py-2 font-mono text-xs text-text-primary">
                 <Check aria-hidden="true" className="size-4 shrink-0" />
-                Address confirmed: {truncateAddress(wallet)}
+                Connected: {truncateAddress(wallet)}
               </p>
             )}
             {walletError && <Notice text={walletError} />}
