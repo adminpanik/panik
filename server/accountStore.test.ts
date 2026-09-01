@@ -125,6 +125,82 @@ describe("liveMembership", () => {
   });
 });
 
+describe("slotMembership", () => {
+  it("returns the row that holds the index even after its clock has run out", async () => {
+    // The whole point of it, and the 2026-09-01 incident: the partial unique
+    // index keys on status alone, so an expired trial still blocks an insert.
+    // liveMembership answers null for this row; the renewal path needs it.
+    routedFetch([
+      [
+        /^GET .*\/memberships\?/,
+        { body: [rawMembership({ expires_at: new Date(NOW - 1).toISOString() })] },
+      ],
+    ]);
+    const held = await store().slotMembership(USER);
+    expect(held).toMatchObject({ id: "m1", status: "trial" });
+    expect(isLiveMembership(held!, NOW)).toBe(false);
+  });
+
+  it("filters on exactly the statuses the unique index covers", async () => {
+    const calls = routedFetch([[/^GET .*\/memberships\?/, { body: [] }]]);
+    expect(await store().slotMembership(USER)).toBeNull();
+    expect(calls[0]!.url).toContain("status=in.(trial,active)");
+    expect(calls[0]!.url).toContain(`user_id=eq.${USER}`);
+  });
+});
+
+describe("renewMembership", () => {
+  it("rewrites the account's own row with the new voucher and clock", async () => {
+    const expiresAt = new Date(NOW + 86_400_000).toISOString();
+    const calls = routedFetch([
+      [
+        /^PATCH .*\/memberships\?/,
+        { body: [rawMembership({ voucher_code: "PANIK-TRY-45QUHHUP", expires_at: expiresAt })] },
+      ],
+    ]);
+    const renewed = await store().renewMembership("m1", {
+      userId: USER,
+      status: "trial",
+      source: "voucher",
+      voucherCode: "PANIK-TRY-45QUHHUP",
+      expiresAt,
+    });
+    expect(renewed).toMatchObject({ voucherCode: "PANIK-TRY-45QUHHUP", expiresAt });
+    expect(calls[0]!.method).toBe("PATCH");
+    // An UPDATE, not a second insert: the index would refuse the insert and the
+    // account would be left with a spent campaign slot and no way in.
+    expect(calls[0]!.url).toContain("id=eq.m1");
+    // Filtered by the owner as well as the id, so a row can only ever be
+    // rewritten for the account that just read it.
+    expect(calls[0]!.url).toContain(`user_id=eq.${USER}`);
+    expect(calls[0]!.body).toMatchObject({
+      status: "trial",
+      source: "voucher",
+      voucher_code: "PANIK-TRY-45QUHHUP",
+      expires_at: expiresAt,
+    });
+    // The clock restarts on renewal rather than keeping the dead trial's start.
+    expect(typeof (calls[0]!.body as { started_at?: unknown }).started_at).toBe("string");
+  });
+
+  it("returns null when the row it meant to renew is gone", async () => {
+    routedFetch([[/^PATCH .*\/memberships\?/, { body: [] }]]);
+    const renewed = await store().renewMembership("m1", {
+      userId: USER,
+      status: "trial",
+      source: "voucher",
+    });
+    expect(renewed).toBeNull();
+  });
+
+  it("turns the one-live-membership index into an AccountConflict", async () => {
+    routedFetch([[/^PATCH .*\/memberships\?/, { status: 409, body: { message: "duplicate key" } }]]);
+    await expect(
+      store().renewMembership("m1", { userId: USER, status: "trial", source: "voucher" }),
+    ).rejects.toBeInstanceOf(AccountConflict);
+  });
+});
+
 describe("createMembership", () => {
   it("inserts the grant and returns the decoded row", async () => {
     const calls = routedFetch([[/^POST .*\/memberships\?/, { status: 201, body: [rawMembership()] }]]);
