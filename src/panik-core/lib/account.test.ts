@@ -10,12 +10,14 @@
 import { describe, expect, it } from "vitest";
 import {
   asAccount,
+  endedMembership,
   membershipLedger,
   normalizeVoucherCode,
   gateScreen,
   readAuthHash,
   type Account,
   type AccountState,
+  type Membership,
 } from "./account";
 
 const NOW = Date.UTC(2026, 7, 16, 12, 0, 0);
@@ -134,6 +136,84 @@ describe("asAccount", () => {
     expect(asAccount({ ...body, membership: { ...body.membership, status: "vip" } })?.membership)
       .toBeNull();
   });
+
+  it("reads the grant history, newest first, as the server sent it", () => {
+    const account = asAccount({
+      ...body,
+      member: false,
+      membership: null,
+      history: [{ ...body.membership, status: "lapsed" }],
+    });
+    expect(account?.history).toHaveLength(1);
+    expect(account?.history[0]?.expiresAt).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  it("reads a body with no history as an account that has held nothing", () => {
+    // An older server, or a field that did not arrive, must read as "no past
+    // grant" rather than inventing one: the difference decides which gate a
+    // first-time visitor meets.
+    expect(asAccount(body)?.history).toEqual([]);
+    expect(asAccount({ ...body, history: "yes" })?.history).toEqual([]);
+  });
+
+  it("drops a history row it cannot decode rather than keeping a half one", () => {
+    expect(asAccount({ ...body, history: [{ ...body.membership, status: "vip" }] })?.history)
+      .toEqual([]);
+  });
+});
+
+describe("endedMembership", () => {
+  const grant = (over: Partial<Membership>): Membership => ({
+    id: "m-1",
+    status: "lapsed",
+    source: "voucher",
+    voucherCode: null,
+    startedAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2026-08-01T00:00:00.000Z",
+    ...over,
+  });
+
+  const account = (history: Membership[], member = false): Account => ({
+    userId: "u-1",
+    email: "reader@example.com",
+    member,
+    membership: null,
+    history,
+    wallets: [],
+  });
+
+  it("reports when the newest grant ended", () => {
+    expect(endedMembership(account([grant({})]))?.toISOString())
+      .toBe("2026-08-01T00:00:00.000Z");
+  });
+
+  it("takes the newest row, because history arrives newest first", () => {
+    const ended = endedMembership(
+      account([grant({ id: "m-2", expiresAt: "2026-08-20T00:00:00.000Z" }), grant({})]),
+    );
+    expect(ended?.toISOString()).toBe("2026-08-20T00:00:00.000Z");
+  });
+
+  it("skips a row with no end date rather than treating it as one", () => {
+    // A grant that never expires did not end on any date. Falling through to
+    // the older row is the only readable answer; inventing "today" is not.
+    const ended = endedMembership(account([grant({ expiresAt: null }), grant({})]));
+    expect(ended?.toISOString()).toBe("2026-08-01T00:00:00.000Z");
+  });
+
+  it("skips an expiry it cannot parse, rather than rendering Invalid Date", () => {
+    expect(endedMembership(account([grant({ expiresAt: "not-a-date" })]))).toBeNull();
+  });
+
+  it("says nothing about an account that has never held a grant", () => {
+    expect(endedMembership(account([]))).toBeNull();
+  });
+
+  it("says nothing about a live member", () => {
+    // The screen this feeds is never shown to a member, and the helper refuses
+    // to describe one as having ended rather than relying on that.
+    expect(endedMembership(account([grant({})], true))).toBeNull();
+  });
 });
 
 describe("membershipLedger", () => {
@@ -149,6 +229,7 @@ describe("membershipLedger", () => {
       startedAt: "2026-08-01T00:00:00.000Z",
       expiresAt: "2026-09-01T00:00:00.000Z",
     },
+    history: [],
     wallets: [],
   };
 
@@ -186,7 +267,18 @@ describe("gateScreen", () => {
     email: "reader@example.com",
     member: true,
     membership: null,
+    history: [],
     wallets: [],
+  };
+
+  /** A grant that ran out, as GET /api/account reports it once it has. */
+  const endedTrial: Membership = {
+    id: "m-0",
+    status: "lapsed",
+    source: "voucher",
+    voucherCode: "PANIK-TRY-BETA",
+    startedAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2026-08-01T00:00:00.000Z",
   };
 
   /** Only the five fields the predicate reads ever differ; the rest are inert. */
@@ -200,7 +292,7 @@ describe("gateScreen", () => {
     pendingVoucher: null,
     sendLink: async () => ({ ok: true, error: null }),
     startGoogle: () => {},
-    redeem: async () => ({ ok: true, error: null }),
+    redeem: async () => ({ ok: true, error: null, membership: null }),
     signOut: async () => {},
     reload: async () => {},
     ...over,
@@ -227,6 +319,33 @@ describe("gateScreen", () => {
 
   it("asks for the invite code when the server says this account is not a member", () => {
     expect(gateScreen(state({ account: { ...account, member: false } }))).toBe("voucher");
+  });
+
+  it("names the trial-ended screen when the account has held a grant that is over", () => {
+    // The state the generic voucher card used to swallow: this reader's trial
+    // ran out and the app said nothing about it.
+    expect(
+      gateScreen(state({ account: { ...account, member: false, history: [endedTrial] } })),
+    ).toBe("trial-ended");
+  });
+
+  it("keeps a first-timer on the first-time card", () => {
+    // No history at all, and a history with nothing datable in it, are the same
+    // answer: there is no ended trial this screen could name a date for.
+    expect(gateScreen(state({ account: { ...account, member: false, history: [] } })))
+      .toBe("voucher");
+    expect(
+      gateScreen(
+        state({
+          account: { ...account, member: false, history: [{ ...endedTrial, expiresAt: null }] },
+        }),
+      ),
+    ).toBe("voucher");
+  });
+
+  it("never shows the trial-ended screen to a member", () => {
+    // A live member is let straight in; a grant in the history is not news.
+    expect(gateScreen(state({ account: { ...account, history: [endedTrial] } }))).toBeNull();
   });
 
   it("stands aside for a member", () => {
