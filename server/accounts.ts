@@ -21,7 +21,10 @@
  *
  *   redeem_campaign_code(code, ip, ua, email)  ->  a per-user trial token
  *   open_trial(token, ip, ua)                  ->  the clock starts, expiry known
- *   insert into memberships                    ->  the account is in the beta
+ *   write public.memberships                   ->  the account is in the beta
+ *                                                  (an insert, or a renewal of
+ *                                                  the row a returning user's
+ *                                                  ended trial left behind)
  *
  * The account's OWN verified email is what gets captured on the grant, not a
  * form field. The /try flow had to ask for one and hope; here the address is
@@ -38,7 +41,14 @@
  */
 
 import type { CampaignStore } from "./campaignStore";
-import { AccountConflict, type AccountStore, type AccountWallet, type Membership } from "./accountStore";
+import {
+  AccountConflict,
+  isLiveMembership,
+  type AccountStore,
+  type AccountWallet,
+  type Membership,
+  type NewMembership,
+} from "./accountStore";
 import { verifyWalletOwnership } from "./walletAuth";
 import type { NonceStore } from "./nonceStore";
 
@@ -112,7 +122,8 @@ export type VoucherOutcome =
   | "invalid"
   | "expired"
   | "exhausted"
-  | "trial_link";
+  | "trial_link"
+  | "failed";
 
 export interface VoucherResult {
   outcome: VoucherOutcome;
@@ -125,6 +136,13 @@ export interface VoucherResult {
  * new one cannot be added without deciding what it says, and phrased as the
  * next thing to do rather than as a state — "this code has been used up" is
  * actionable in a way that "exhausted" is not.
+ *
+ * `invalid` IS A STATEMENT ABOUT THE CODE, and only the code. Nothing that
+ * happens after `redeem_campaign_code` says success may borrow that sentence:
+ * on 2026-09-01 a membership write that failed did exactly that, and told a
+ * user holding a perfectly good card that it was not recognised while their
+ * grant sat minted in trial_grants. Anything that goes wrong on our side of a
+ * successful redemption is `failed`, which blames nobody and says what to do.
  */
 export const VOUCHER_REFUSALS: Record<Exclude<VoucherOutcome, "success" | "already_member">, string> = {
   invalid: "that code was not recognised",
@@ -132,6 +150,7 @@ export const VOUCHER_REFUSALS: Record<Exclude<VoucherOutcome, "success" | "alrea
   exhausted: "that code has already been used its full number of times",
   trial_link:
     "that is a trial link, not a voucher code - use the code printed on the card",
+  failed: "that code could not be applied to your account. Try again in a moment",
 };
 
 export interface VoucherDeps {
@@ -151,10 +170,15 @@ export interface VoucherInput {
 /**
  * Redeem a voucher for a signed-in account.
  *
- * Order matters. The membership check comes FIRST so a double submit does not
- * burn a second campaign slot on someone who is already in, and the insert
+ * Order matters. The LIVE membership check comes FIRST so a double submit does
+ * not burn a second campaign slot on someone who is already in, and the insert
  * still tolerates a 409 because two requests can pass that check concurrently
  * — the partial unique index in the migration is the real arbiter.
+ *
+ * An ENDED membership is not that check's business: it grants nothing, so a
+ * returning user with one goes on to redeem exactly as a new account does. What
+ * it does do is hold the unique index, which is why the 409 is resolved by
+ * `resolveMembershipConflict` below rather than by re-reading the live grant.
  *
  * That check is a shortcut, NOT the guard. Two requests racing arrive here with
  * no membership either side of them, and until 2026-08-31 both went on to spend
@@ -204,24 +228,69 @@ export async function redeemVoucher(
     console.error(`voucher clock start failed for ${input.userId}: ${(err as Error).message}`);
   }
 
+  // ONE description of the grant, written either way. The expiry is the one the
+  // campaign just handed back through open_trial, so a renewal gets the new
+  // card's trial length rather than a duration hardcoded here or the dead one
+  // still on the row.
+  const grant: NewMembership = {
+    userId: input.userId,
+    status: "trial",
+    source: "voucher",
+    voucherCode: code,
+    expiresAt,
+  };
+
   try {
-    const membership = await deps.store.createMembership({
-      userId: input.userId,
-      status: "trial",
-      source: "voucher",
-      voucherCode: code,
-      expiresAt,
-    });
-    return { outcome: "success", membership };
+    return { outcome: "success", membership: await deps.store.createMembership(grant) };
   } catch (err) {
     if (err instanceof AccountConflict && err.kind === "membership-exists") {
-      // Lost a race with the account's own other tab. It is a member either
-      // way, and saying so is more truthful than a 409 the user cannot act on.
-      const live = await deps.store.liveMembership(input.userId);
-      return live ? { outcome: "already_member", membership: live } : { outcome: "invalid" };
+      return await resolveMembershipConflict(deps, grant, code);
     }
     throw err;
   }
+}
+
+/**
+ * The insert lost to `uq_memberships_live_per_user`. Something already sits in
+ * this account's one live-row slot, and WHICH SOMETHING decides the answer:
+ *
+ *   a live grant   another tab won the race and the user is in. Saying so is
+ *                  more truthful than a 409 they cannot act on.
+ *   an ended grant a returning user renewing. The index keys on status alone,
+ *                  so their expired trial blocks the insert while granting them
+ *                  nothing - rewrite that row and they are back in.
+ *   nothing        the blocking row went away between the 409 and this read.
+ *
+ * THE ENDED CASE IS THE 2026-09-01 INCIDENT. It used to re-query only the LIVE
+ * grant, find none, and fall through to `invalid`: a user who had just spent a
+ * valid code was told it was not recognised, and the retry hit the RPC's
+ * idempotent path and said it again. The re-query is now for the row the index
+ * actually holds, which is the same row the insert collided with.
+ *
+ * Ordering it after the insert rather than before keeps a first-time redeem at
+ * one write, and it is what makes the renewal race-safe: whoever gets the 409
+ * reads the row that beat them, so two submits converge on one grant instead of
+ * both deciding to renew from a stale read.
+ */
+async function resolveMembershipConflict(
+  deps: VoucherDeps,
+  grant: NewMembership,
+  code: string,
+): Promise<VoucherResult> {
+  const held = await deps.store.slotMembership(grant.userId);
+  if (held && isLiveMembership(held)) return { outcome: "already_member", membership: held };
+  if (held) {
+    const renewed = await deps.store.renewMembership(held.id, grant);
+    if (renewed) return { outcome: "success", membership: renewed };
+  }
+  // The slot conflicted and then held nothing to renew. The campaign slot is
+  // already spent, so this is ours to fix and the log has to carry enough to
+  // find the account - never the code itself, which doubles as a bearer token.
+  console.error(
+    `redeemVoucher: outcome=failed, membership write conflicted with no row to renew ` +
+      `for ${grant.userId} (${redactedCodeShape(code)})`,
+  );
+  return { outcome: "failed" };
 }
 
 // ── wallet linking ──────────────────────────────────────────────────────────
