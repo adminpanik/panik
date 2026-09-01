@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Wallet, X } from "lucide-react";
-import { Button, Card, Chip, LAYER, Notice, SCRIM, TextField } from "../../panik-core/ui";
+import { Button, Card, Chip, Field, LAYER, Notice, SCRIM } from "../../panik-core/ui";
 import { truncateAddress } from "../../panik-core/lib/utils";
 import { MarkPlate } from "./MarkPlate";
 import {
@@ -409,7 +409,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
               place. It takes about a minute.
             </StepHeading>
             <form noValidate onSubmit={handleEmailNext} className="flex flex-col gap-4">
-              <TextField
+              <Field
                 type="email"
                 id="modal-email-input"
                 label="Email address"
@@ -419,7 +419,6 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
                 spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
                 aria-describedby={emailError ? "email-error" : undefined}
                 required
               />
@@ -564,9 +563,9 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
             </StepHeading>
 
             {showManualInput ? (
-              <TextField
+              <Field
                 id="manual-wallet-input"
-                label="Public EVM address"
+                label="Wallet address"
                 mono
                 autoCorrect="off"
                 autoCapitalize="off"
@@ -582,7 +581,6 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
                   if (wallet && !isValidEvmAddress(wallet))
                     setWalletError("That does not look like a valid EVM address (0x + 40 hex characters).");
                 }}
-                placeholder="0x"
               />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -611,7 +609,7 @@ export function WaitlistModal({ isOpen, onClose, onJoinSuccess }: WaitlistModalP
             {wallet && walletValid && connectingWallet === null && (
               <p className="flex items-center gap-2 hard-edge bg-surface-sunken px-3 py-2 font-mono text-xs text-text-primary">
                 <Check aria-hidden="true" className="size-4 shrink-0" />
-                Reading {truncateAddress(wallet)}
+                Address confirmed: {truncateAddress(wallet)}
               </p>
             )}
             {walletError && <Notice text={walletError} />}
