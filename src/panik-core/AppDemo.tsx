@@ -1505,13 +1505,17 @@ function RiskBreakdownPanel({
         </BreakdownSection>
       </div>
 
-      {/* The house footer band: `border-t-[3px] border-border-strong px-6
-          py-4`, the same shell `WalletsPanel`'s footer uses, so a reader who
-          has seen one sheet's bottom edge recognises the other's. Close is
-          text, on the left; the two actions that leave this panel for
-          somewhere else are the right-aligned pair, and the filled button is
-          the only one of the three that is not `ghost` or `secondary`, so it
-          reads as the one thing this footer is FOR.
+      {/* The house footer band: `border-t-[3px] border-border-strong py-4`,
+          the same shell `WalletsPanel`'s footer uses. The horizontal padding
+          is the one place they part ways: this footer packs three controls
+          (four with the demo chip) into the same 500px sheet that
+          `WalletsPanel` gives a single button, so it runs `px-4` where
+          `WalletsPanel` keeps `px-6` - the narrower gutter is what buys back
+          the room those extra controls need. Close is text, on the left; the
+          two actions that leave this panel for somewhere else are the
+          right-aligned pair, and the filled button is the only one of the
+          three that is not `ghost` or `secondary`, so it reads as the one
+          thing this footer is FOR.
 
           Flat, un-nested siblings rather than a left group and a right group:
           `order-*` puts each button where it belongs at each width, and
@@ -1519,10 +1523,19 @@ function RiskBreakdownPanel({
           wrapping element the plain CSS box model already does for free. Below
           `sm` the pairing itself changes, not just the order, which is why
           `order` rather than a fixed left/right split does the work: Open
-          position stands alone, full width, first; Close and Open simulator
-          share the row under it, because neither is the answer to "what do I
-          do now" the way Open position is. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t-[3px] border-border-strong px-6 py-4 sm:flex-nowrap">
+          position stands alone, full width, first; Close and Simulator share
+          the row under it, because neither is the answer to "what do I do
+          now" the way Open position is.
+
+          "Simulator" rather than "Open simulator": at the sheet's real
+          500px, `Button`'s `whitespace-nowrap` means a label that does not
+          fit does not fold onto a second line inside its own button, it
+          pushes the row wide instead, and three full-length labels did not
+          fit even at `px-6`. Shortening this one label, together with `px-4`
+          and the tighter `gap-1.5` below, is what gets all three controls
+          (and, when it renders, the demo chip) onto one line without
+          crowding the type or the touch targets. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t-[3px] border-border-strong px-4 py-4 sm:flex-nowrap">
         <Button onClick={onOpen} className="order-1 w-full sm:order-3 sm:w-auto">
           <Plus className="h-3.5 w-3.5" />
           Open position
@@ -1531,7 +1544,7 @@ function RiskBreakdownPanel({
           Close
         </Button>
         <Button variant="secondary" onClick={onSimulate} className="order-2 sm:order-2">
-          Open simulator
+          Simulator
         </Button>
         {opensDemo && <DemoChip />}
       </div>
