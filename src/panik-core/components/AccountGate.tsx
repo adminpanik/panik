@@ -569,7 +569,12 @@ function YoureInScreen({
   const ends = grantEnd(membership);
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-brand px-4 py-10 font-sans antialiased">
-      <div className="w-full max-w-md space-y-6">
+      {/* CENTRED AS ONE COLUMN. `text-center` rather than four `mx-auto`s: the
+          mark plate is inline-level, so the same declaration that centres the
+          two lines of type centres it too, and the button already fills the
+          column's width. One property, so the four blocks cannot fall out of
+          alignment with each other one edit at a time. */}
+      <div className="w-full max-w-md space-y-6 text-center">
         {/* The mark on its own white plate: the asset draws in `currentColor`
             through an `<img>`, so it is black wherever it lands, and a black
             mark directly on cobalt is the one place this look would need a
