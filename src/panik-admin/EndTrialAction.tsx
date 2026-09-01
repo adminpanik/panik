@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * "End trial" — the one row action three of this console's panels share.
+ * "End trial": the one row action three of this console's panels share.
  *
  * WHAT IT IS FOR: a renewal flow can only be tested by somebody whose trial has
  * just run out, and waiting three days for one is not a test plan. This closes
@@ -13,7 +13,7 @@
  * Only the Accounts panel already knows: its rows carry the server's own
  * `live` verdict. The Trials roster and the voucher drill-down list
  * REDEMPTIONS, and a redemption's `expires_at` is the campaign grant's clock,
- * not the membership's — an operator can have ended the membership an hour ago
+ * not the membership's. An operator can have ended the membership an hour ago
  * and that column would still read as running. So those two ask
  * `/api/admin/trials` which addresses hold an open grant and look themselves
  * up in the answer. `useLiveTrialEmails` is that request, once per panel.
@@ -47,7 +47,7 @@ import type { Session } from "./lib/supabaseAuth";
 
 /**
  * The sentence the operator confirms against. Exported and pure so its two
- * promises — the account survives, the access does not — are pinned by a test
+ * promises (the account survives, the access does not) are pinned by a test
  * rather than living only in a dialog nobody can assert on.
  */
 export function endTrialConfirmText(email: string): string {

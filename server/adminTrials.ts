@@ -14,7 +14,7 @@
  *
  * It is not enough, because of the OTHER rule the same row is subject to.
  * `uq_memberships_live_per_user` (supabase/migrations/20260816000001_accounts.sql)
- * is a unique index over `user_id` WHERE status in ('trial','active') — it
+ * is a unique index over `user_id` WHERE status in ('trial','active'). It
  * reads the status column and knows nothing about expiry. A row left at
  * 'trial' therefore keeps occupying the account's one live-grant slot after
  * its clock has run out, and the next `createMembership` for that account
@@ -28,7 +28,7 @@
  * ── THE WRITE IS FILTERED, NOT JUST TARGETED ──────────────────────────────
  * The PATCH carries `status=in.(trial,active)` alongside the row id, so two
  * operators pressing End on the same person leave one winner and one honest
- * "that account has no live trial" — the database decides, not a read this
+ * "that account has no live trial": the database decides, not a read this
  * code did a moment earlier.
  *
  * ── WHAT IS DELIBERATELY NOT HERE ─────────────────────────────────────────
@@ -241,7 +241,7 @@ export class AdminTrialStore {
    *
    * The console needs this to decide which rows may be ended: the Trials
    * roster and the voucher drill-down both list REDEMPTIONS, and a redemption
-   * is not a membership — the grant's own clock says nothing about whether an
+   * is not a membership: the grant's own clock says nothing about whether an
    * operator already ended the membership it produced. Rather than let two
    * panels guess from an expiry they happen to hold, the server states which
    * addresses are live and they look themselves up in it.
@@ -288,7 +288,7 @@ export class AdminTrialStore {
 
   /**
    * Close one grant: 'lapsed', expiring now. Returns the updated row, or null
-   * if the filter matched nothing — which is the same answer as "somebody else
+   * if the filter matched nothing, which is the same answer as "somebody else
    * ended it first", and is why the status filter is on the write rather than
    * only on the read above.
    */
@@ -353,7 +353,7 @@ export async function endTrialForEmail(
   // than an error the caller cannot act on.
   if (!updated) return { outcome: "no_live_trial" };
 
-  // The audit line. Address, account, grant, who did it and when — and no
+  // The audit line. Address, account, grant, who did it and when, and no
   // token, no key and no voucher secret, because a log line is not a place to
   // move a credential.
   console.log(

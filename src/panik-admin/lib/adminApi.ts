@@ -297,8 +297,8 @@ export const listLiveTrials = (session: Session) =>
  * waiting out the clock. The address is a LOOKUP: the server resolves it to an
  * account and writes only that account's own grant.
  *
- * 404 is a real answer here, not a transport failure — either no account holds
- * that address, or its trial is already over — and the sentence the server
+ * 404 is a real answer here, not a transport failure: either no account holds
+ * that address, or its trial is already over, and the sentence the server
  * sends back says which.
  */
 export const endTrial = (session: Session, email: string) =>
