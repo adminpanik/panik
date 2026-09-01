@@ -311,9 +311,6 @@ export function AdvisorPopup({
               {notification.detail}
             </span>
           )}
-          {/* Where the press goes, in words rather than left to the arrow. An
-              arrow states that something happens; it does not state what. */}
-          <span className="font-sans text-xs text-text-muted">Open in Advisor</span>
         </span>
 
         {/* Centred on the card's own height, and inset by the width of the
@@ -323,9 +320,14 @@ export function AdvisorPopup({
             below the corner is centred at one of those heights and off at the
             rest, while a lane the dismissal cannot reach is clear at all of
             them. These are the card's only two targets and they must not share
-            a pixel. */}
-        <span className="flex shrink-0 items-center pr-8 pl-1">
-          <ArrowRight className="h-5 w-5 text-text-primary" aria-hidden="true" />
+            a pixel.
+
+            The label moved here from a visible line under the sentence: the
+            arrow is the whole affordance now, so it carries its own name
+            (`aria-label`, plus `title` for a mouse hover) rather than the
+            button repeating the words the sentence already led with. */}
+        <span className="flex shrink-0 items-center pr-8 pl-1" title="Open in Advisor">
+          <ArrowRight className="h-5 w-5 text-text-primary" aria-label="Open in Advisor" />
         </span>
       </button>
 

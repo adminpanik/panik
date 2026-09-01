@@ -282,10 +282,14 @@ export function MarketTable<T extends MarketRow>({
       >
         <td className={TD}>
           <div className="flex items-center gap-2">
-            {/* The one risk-hued element on the row, carrying the score and the
-                band word together. `RISK_CHIP` is still the single place a band
-                becomes pixels. */}
-            <RiskChip band={market.riskStatus} score={market.baseRisk}>
+            {/* The one risk-hued element on the row, carrying the band word.
+                `RISK_CHIP` is still the single place a band becomes pixels. No
+                score here: this table sits beside the risk-breakdown panel
+                that states the same market's composite as "N / 100", and a
+                second copy of that figure in the chip, uncentred against the
+                panel's own layout, restated a number a tap away rather than
+                telling the reader something new. */}
+            <RiskChip band={market.riskStatus}>
               {BAND_WORD[market.riskStatus]}
             </RiskChip>
             {/* Beside the figure it is about: a provenance mark reachable only
@@ -437,7 +441,7 @@ export function MarketTable<T extends MarketRow>({
             combination wide enough to ask for it. */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="flex flex-wrap items-center gap-2">
-            <RiskChip band={market.riskStatus} score={market.baseRisk}>
+            <RiskChip band={market.riskStatus}>
               {BAND_WORD[market.riskStatus]}
             </RiskChip>
             {fallback && <DemoChip title={fallbackScoreNote} />}
