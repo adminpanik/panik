@@ -555,12 +555,12 @@ export function OpenFlow({
             {heading}
           </h2>
           <div className="flex shrink-0 items-center gap-3.5">
-            {/* What kind of money this moves, in two words, from the same
-                faucet flag the deleted paragraph branched on. It is not
-                withheld on mainnet: "Real funds" is the half of this a reader
-                most needs. */}
+            {/* Which network this moves on, from the same faucet flag the
+                deleted paragraph branched on. A plain mode name, not a
+                warning: testnet is testnet and mainnet is mainnet, neither
+                needs alarm words to say so. */}
             {step !== "unsupported" ? (
-              <Chip>{config.faucet ? "Test assets" : "Real funds"}</Chip>
+              <Chip>{config.faucet ? "Testnet" : "Mainnet"}</Chip>
             ) : null}
             <button
               type="button"
