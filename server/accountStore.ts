@@ -94,7 +94,11 @@ export function buildAccountResponse(fields: {
   };
 }
 
-/** What POST /api/account/voucher inserts once the code has been validated. */
+/**
+ * What POST /api/account/voucher writes once the code has been validated -
+ * inserted for a first-time redeemer, and rewritten over the account's existing
+ * row when a returning user renews (`createMembership` / `renewMembership`).
+ */
 export interface NewMembership {
   userId: string;
   status: MembershipStatus;
@@ -216,27 +220,41 @@ export class AccountStore {
   // ── membership ────────────────────────────────────────────────────────────
 
   /**
-   * The account's live grant, or null. Filtered in SQL on the same statuses the
-   * partial unique index covers, so at most one row can come back; the expiry
-   * is then judged here by isLiveMembership rather than in the query, because
-   * "expired" and "never had one" are different answers and the caller may want
-   * to tell the user which it is.
+   * The row that OCCUPIES the one-live-row slot, whether or not its clock has
+   * run out. Filtered on exactly the statuses `uq_memberships_live_per_user`
+   * covers, so at most one row can come back, and deliberately NOT judged by
+   * `isLiveMembership`: the index keys on `status` alone, so a trial that
+   * expired last month still holds the slot and is still the row an insert for
+   * this account collides with.
+   *
+   * That distinction is the 2026-09-01 incident. A returning user's expired
+   * trial is invisible to `liveMembership` and immovable to `createMembership`,
+   * which is why the renewal path reads through here instead.
    */
-  async liveMembership(userId: string, now = Date.now()): Promise<Membership | null> {
+  async slotMembership(userId: string): Promise<Membership | null> {
     const url =
       `${this.base}/rest/v1/memberships?select=${MEMBERSHIP_COLS}` +
       `&user_id=eq.${encodeURIComponent(userId)}` +
       `&status=in.(trial,active)&order=created_at.desc&limit=1`;
     const res = await fetch(url, { headers: this.headers() });
     if (!res.ok) {
-      await logErrorBody("liveMembership", res);
-      throw new Error(`liveMembership: HTTP ${res.status}`);
+      await logErrorBody("slotMembership", res);
+      throw new Error(`slotMembership: HTTP ${res.status}`);
     }
     const rows = (await res.json()) as RawMembership[];
     const row = rows[0];
-    if (!row) return null;
-    const membership = decodeMembership(row);
-    return isLiveMembership(membership, now) ? membership : null;
+    return row ? decodeMembership(row) : null;
+  }
+
+  /**
+   * The account's live grant, or null. The status filter is SQL's (above); the
+   * expiry is judged here by isLiveMembership rather than in the query, because
+   * "expired" and "never had one" are different answers and the caller may want
+   * to tell the user which it is.
+   */
+  async liveMembership(userId: string, now = Date.now()): Promise<Membership | null> {
+    const held = await this.slotMembership(userId);
+    return held && isLiveMembership(held, now) ? held : null;
   }
 
   /** Every grant this account has ever held, newest first (GET /api/account). */
@@ -281,6 +299,51 @@ export class AccountStore {
     const row = rows[0];
     if (!row) throw new Error("createMembership: insert returned no row");
     return decodeMembership(row);
+  }
+
+  /**
+   * Renew a grant the account already holds: the same row, rewritten with the
+   * voucher that was just redeemed and a clock that starts now.
+   *
+   * AN UPDATE RATHER THAN A SECOND INSERT because `uq_memberships_live_per_user`
+   * keys on status alone. A returning user whose trial ended still has a row
+   * with status 'trial', so an insert can only ever 409 at them - which is
+   * exactly what it did on 2026-09-01, after the campaign slot had already been
+   * spent. Rewriting the row keeps the index satisfied by construction.
+   *
+   * `user_id` is part of the filter as well as `id`. The id comes from a read
+   * this account just made, so the extra term proves rather than assumes that
+   * the row being rewritten is the caller's own.
+   *
+   * Null means the filter matched nothing (the row was deleted between the read
+   * and this write). It is not an error to log at the store: the caller knows
+   * what it was trying to do and what to tell the user.
+   */
+  async renewMembership(id: string, input: NewMembership): Promise<Membership | null> {
+    const url =
+      `${this.base}/rest/v1/memberships?select=${MEMBERSHIP_COLS}` +
+      `&id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(input.userId)}`;
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: this.headers({ Prefer: "return=representation" }),
+      body: JSON.stringify({
+        status: input.status,
+        source: input.source,
+        voucher_code: input.voucherCode ?? null,
+        started_at: new Date().toISOString(),
+        expires_at: input.expiresAt ?? null,
+      }),
+    });
+    if (res.status === 409) {
+      throw new AccountConflict("this account already has a membership", "membership-exists");
+    }
+    if (!res.ok) {
+      await logErrorBody("renewMembership", res);
+      throw new Error(`renewMembership: HTTP ${res.status}`);
+    }
+    const rows = (await res.json()) as RawMembership[];
+    const row = rows[0];
+    return row ? decodeMembership(row) : null;
   }
 
   // ── wallets ───────────────────────────────────────────────────────────────
