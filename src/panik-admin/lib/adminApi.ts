@@ -68,7 +68,18 @@ export interface CampaignRedemption {
   created_at: string;
 }
 
-export type RedeemOutcome = "success" | "not_found" | "disabled" | "expired" | "exhausted";
+/**
+ * Frontend copy of `RedeemOutcome` in server/campaignStore.ts. `already_used`
+ * is one address re-entering a code whose trial is over: the card may still
+ * have slots, so it is not `exhausted`, and the ledger says so in words.
+ */
+export type RedeemOutcome =
+  | "success"
+  | "not_found"
+  | "disabled"
+  | "expired"
+  | "exhausted"
+  | "already_used";
 
 /** One attempt against a code, successful or not. Mirrors RedemptionAttempt. */
 export interface RedemptionAttempt {
@@ -122,6 +133,35 @@ export const listRedemptions = (session: Session, code: string) =>
     `/api/admin/redemptions?code=${encodeURIComponent(code)}`,
     session,
   );
+
+/** What the server reports after a use was cleared. Mirrors `ClearedUse`. */
+export interface ClearedUse {
+  code: string;
+  email: string;
+  grantId: string;
+  redeemedAt: string;
+  clearedAt: string;
+}
+
+/**
+ * Give one code back to one person: delete their grant so they can redeem it
+ * again. One trial code is good for one account, and this is the only thing
+ * that undoes a use.
+ *
+ * It does NOT reduce the code's redemption count, which is a running total of
+ * redemptions rather than a count of live ones, so the next redemption takes a
+ * fresh slot out of the batch. The confirm dialog says so before anything is
+ * sent (ClearUseAction.tsx).
+ *
+ * 404 is a real answer, not a transport failure: that address has no
+ * redemption of this code on file, either because it never had one or because
+ * another operator cleared it first.
+ */
+export const clearRedemptionUse = (session: Session, code: string, email: string) =>
+  call<{ cleared: ClearedUse }>("/api/admin/redemptions?action=clear", session, {
+    method: "POST",
+    body: JSON.stringify({ code, email }),
+  });
 
 export const createCampaign = (session: Session, input: CreateInput) =>
   call<{ campaign: Campaign }>("/api/admin/campaigns", session, {

@@ -29,6 +29,12 @@
  * said "Nobody has redeemed this code yet" over a counter reading 2 was the
  * actual defect.
  *
+ * "Clear use" below widens that same gap on purpose: it deletes a contact row
+ * so its owner can redeem the code again, and leaves the running total alone.
+ * The confirm dialog says so before anything is sent, because an operator who
+ * expected the batch to get a slot back would be reading the counter wrong
+ * from then on.
+ *
  * ── PERSONAL DATA ─────────────────────────────────────────────────────────
  * The claim IP and browser string are personal data. They are here because the
  * operator asked to see who redeemed a card, and they go no further than this
@@ -41,6 +47,7 @@ import { RefreshCw } from "lucide-react";
 
 import { Button, Chip, EmptyState, Skeleton } from "../panik-core/ui";
 import { Ledger, NotRecorded, StackedFact, StackedRow, Td, Th, Tr } from "./ui/controls";
+import { ClearUseAction } from "./ClearUseAction";
 import { EndTrialAction, isTrialLive, useLiveTrialEmails } from "./EndTrialAction";
 import {
   isSignedOut,
@@ -62,6 +69,10 @@ const OUTCOME_LABEL: Record<RedeemOutcome, string> = {
   disabled: "Code switched off",
   expired: "Claim window closed",
   exhausted: "Batch used up",
+  // Not "Batch used up": this batch may have plenty left. It is one person
+  // re-entering a card whose trial is over, which is a support question ("clear
+  // my use") rather than a fault in the print run.
+  already_used: "Already used by this account",
 };
 
 function when(iso: string): string {
@@ -228,14 +239,30 @@ export function RedemptionsPanel({
                     <Td className="font-sans text-text-secondary" title={r.claim_user_agent ?? undefined}>
                       {shortAgent(r.claim_user_agent) ?? <NotRecorded />}
                     </Td>
-                    <Td className="whitespace-nowrap">
-                      <EndTrialAction
-                        session={session}
-                        email={r.email}
-                        live={isTrialLive(live, r.email)}
-                        onEnded={refresh}
-                        onSignedOut={onSignedOut}
-                      />
+                    {/* Two controls, and `flex-wrap` rather than a wider table:
+                        End trial is absent on a row whose trial is over, so
+                        this cell is one button as often as two. Widening the
+                        ledger for the pair pushed the second one off the edge
+                        of its scroll container at 1440, where it read as
+                        clipped rather than as scrollable. They stack instead,
+                        each on one line of its own. */}
+                    <Td>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <EndTrialAction
+                          session={session}
+                          email={r.email}
+                          live={isTrialLive(live, r.email)}
+                          onEnded={refresh}
+                          onSignedOut={onSignedOut}
+                        />
+                        <ClearUseAction
+                          session={session}
+                          code={code}
+                          email={r.email}
+                          onCleared={refresh}
+                          onSignedOut={onSignedOut}
+                        />
+                      </span>
                     </Td>
                   </Tr>
                 ))}
@@ -264,13 +291,22 @@ export function RedemptionsPanel({
                   <StackedFact label="Browser">
                     {shortAgent(r.claim_user_agent) ?? <NotRecorded />}
                   </StackedFact>
-                  <EndTrialAction
-                    session={session}
-                    email={r.email}
-                    live={isTrialLive(live, r.email)}
-                    onEnded={refresh}
-                    onSignedOut={onSignedOut}
-                  />
+                  <span className="flex flex-wrap items-center gap-2">
+                    <EndTrialAction
+                      session={session}
+                      email={r.email}
+                      live={isTrialLive(live, r.email)}
+                      onEnded={refresh}
+                      onSignedOut={onSignedOut}
+                    />
+                    <ClearUseAction
+                      session={session}
+                      code={code}
+                      email={r.email}
+                      onCleared={refresh}
+                      onSignedOut={onSignedOut}
+                    />
+                  </span>
                 </StackedRow>
               ))}
             </div>
