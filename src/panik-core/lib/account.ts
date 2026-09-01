@@ -136,6 +136,17 @@ export interface Account {
    */
   member: boolean;
   membership: Membership | null;
+  /**
+   * EVERY grant this account has ever held, newest first, exactly as
+   * server/accountStore.ts `buildAccountResponse` sends it.
+   *
+   * `membership` above is the LIVE one and is null the moment a trial runs out
+   * (server/accountAuth.ts asks `liveMembership`), so it cannot tell "your
+   * trial ended on the 3rd" apart from "you have never had one". This list is
+   * the only place that difference exists on the wire, and `endedMembership`
+   * below is the one reader of it.
+   */
+  history: Membership[];
   wallets: AccountWallet[];
 }
 
@@ -374,6 +385,7 @@ export function asAccount(body: unknown): Account | null {
         account?: { userId?: unknown; email?: unknown };
         member?: unknown;
         membership?: unknown;
+        history?: unknown;
         wallets?: unknown;
       }
     | null;
@@ -387,6 +399,14 @@ export function asAccount(body: unknown): Account | null {
     email,
     member: wire.member,
     membership: asMembership(wire.membership),
+    // A row the reader cannot decode is DROPPED, not repaired: the list only
+    // exists to name a date, and a grant with an unreadable status is one this
+    // screen has nothing true to say about. An absent field is an empty list,
+    // which reads as "no past grant" and keeps a first-time visitor on the
+    // first-time card rather than inventing a trial for them.
+    history: Array.isArray(wire.history)
+      ? wire.history.map(asMembership).filter((m): m is Membership => m !== null)
+      : [],
     wallets: Array.isArray(wire.wallets) ? (wire.wallets as AccountWallet[]) : [],
   };
 }
@@ -529,6 +549,56 @@ const GRANT_FORMAT = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
 });
 
+/**
+ * A date, in the ONE shape this product prints a grant's deadline in ("Sep 11,
+ * 2026"). Exported because the gate now prints one too, and the settings
+ * ledger and the gate showing the same date two ways is the drift this
+ * formatter was pinned at module scope to prevent.
+ */
+export function formatGrantDate(when: Date): string {
+  return GRANT_FORMAT.format(when);
+}
+
+/**
+ * A grant's end date, or null when it has none this product may state.
+ *
+ * THE ONE PARSE. Three surfaces need "when does/did this end" (the settings
+ * ledger, the trial-ended gate, the screen that says you're in) and a second
+ * copy of `Date.parse` plus a NaN check is how one of them ends up rendering
+ * `Invalid Date` at a reader. A null expiry and an unreadable one both come
+ * back as null on purpose: neither is a date, and the callers all answer "no
+ * date" by saying nothing rather than by printing a placeholder.
+ */
+export function grantEnd(m: Membership | null): Date | null {
+  if (m === null || m.expiresAt === null) return null;
+  const when = new Date(m.expiresAt);
+  return Number.isNaN(when.getTime()) ? null : when;
+}
+
+/**
+ * When this account's most recent grant ENDED, or null if it never held one.
+ *
+ * Only ever asked of an account the server has refused (`member === false`), so
+ * a readable expiry on the newest row is by definition a grant that is over:
+ * either the clock ran out, or an operator closed it, which server/adminTrials
+ * does by writing `status = 'lapsed'` AND `expires_at = now()`. Both leave the
+ * true end date on the row, so this reads it rather than reconstructing it.
+ *
+ * `history` arrives newest first (server/accountStore.ts membershipHistory
+ * orders by created_at desc), so the first row with a readable expiry is the
+ * latest one. A row with no expiry at all is skipped rather than treated as an
+ * end: a grant that never expires did not end on any date, and the gate falls
+ * back to the first-time card rather than heading a screen with a blank.
+ */
+export function endedMembership(account: Account): Date | null {
+  if (account.member) return null;
+  for (const grant of account.history) {
+    const end = grantEnd(grant);
+    if (end !== null) return end;
+  }
+  return null;
+}
+
 /** A settings ledger line: what the row is called, and what it currently says. */
 export interface MembershipLedger {
   label: string;
@@ -553,12 +623,8 @@ export function membershipLedger(account: Account): MembershipLedger {
   const m = account.membership;
   if (!m || !account.member) return { label: "Beta access", value: "None" };
   const kind = m.status === "trial" ? "Beta trial" : "Beta access";
-  if (m.expiresAt !== null) {
-    const when = new Date(m.expiresAt);
-    if (!Number.isNaN(when.getTime())) {
-      return { label: `${kind} ends`, value: GRANT_FORMAT.format(when) };
-    }
-  }
+  const when = grantEnd(m);
+  if (when !== null) return { label: `${kind} ends`, value: formatGrantDate(when) };
   return { label: "Beta access", value: kind === "Beta trial" ? "Trial" : "Active" };
 }
 
@@ -792,8 +858,17 @@ export function useAccountSession(): AccountState {
  *   checking      we have not asked yet             wordless, no claim at all
  *   signin        nobody is signed in               ask them to
  *   unavailable   we asked and could not find out   say so, offer a retry
- *   voucher       we asked, the answer is no        ask for the invite code
+ *   voucher       no, and there never was one       ask for the invite code
+ *   trial-ended   no, and we know when it stopped   say when, then ask
  *   null          the server says they are a member let them in
+ *
+ * `trial-ended` is the fifth because it is a DIFFERENT piece of news, not a
+ * decoration on the fourth. A reader whose trial ran out and a reader who has
+ * never held one were both met by "Enter your invite code" with no explanation,
+ * which for the first of them is the app declining to mention the thing that
+ * just happened to their account. The split is named here rather than inside
+ * the component for the reason the whole enum exists: two chains over one state
+ * is how the shell and the gate end up disagreeing.
  *
  * `checking` is a gate rather than a null on purpose: rendering the dashboard
  * for a moment and replacing it with a sign-in page is the app telling someone
@@ -804,11 +879,16 @@ export function useAccountSession(): AccountState {
  * other and the two must not learn about each other. The shell holds both and
  * is where that precedence is decided.
  */
-export type GateScreen = "checking" | "signin" | "unavailable" | "voucher";
+export type GateScreen = "checking" | "signin" | "unavailable" | "voucher" | "trial-ended";
 
 export function gateScreen(state: AccountState): GateScreen | null {
   if (state.status !== "resolved") return "checking";
   if (state.session === null) return "signin";
   if (state.account === null) return "unavailable";
-  return state.account.member ? null : "voucher";
+  if (state.account.member) return null;
+  // The same helper the trial-ended card reads its date from, so the screen
+  // cannot be chosen on one rule and headed with a date found by another. No
+  // readable end date means no past grant we can describe, and that is the
+  // first-time card unchanged.
+  return endedMembership(state.account) === null ? "voucher" : "trial-ended";
 }

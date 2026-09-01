@@ -2,8 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The four screens a reader can meet before the app: sign in, check your email,
- * enter your invite code, and the one that says we could not find out.
+ * The screens a reader can meet before the app: sign in, check your email,
+ * enter your invite code, the one that says a trial has ended, the one that
+ * says we could not find out, and the one that says they are in.
  *
  * WHICH ONE IS NOT DECIDED HERE. `gateScreen` in lib/account.ts names it and
  * this component switches on that name, so the shell and the gate cannot walk
@@ -39,6 +40,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, LogIn, Mail, Ticket, type LucideIcon } from "lucide-react";
 import { BootSkeleton, Button, Card, EmptyState, Field, Notice } from "../ui";
 import {
+  endedMembership,
+  formatGrantDate,
   normalizeVoucherCode,
   RESEND_COOLDOWN_MS,
   WAITLIST_URL,
@@ -284,9 +287,22 @@ function SignInScreen({
   );
 }
 
-// ── 3. the invite code ──────────────────────────────────────────────────────
+// ── 3. the invite code, and the two screens that ask for one ────────────────
 
-function VoucherScreen({ account }: { account: AccountState }) {
+/**
+ * REDEEMING A CODE, ONCE, FOR BOTH SCREENS THAT DO IT.
+ *
+ * The first-time card and the trial-ended card ask the same question with
+ * different framing, so they must not each own a copy of this: the
+ * normalization, the `autoCorrect` the 2026-08-31 incident bought, and the
+ * double-submit guard below are all one-mistake-away details, and the second
+ * copy is where the mistake lands.
+ *
+ * It is held by `AccountGate` rather than by either card because the ANSWER
+ * outlives the card: a successful redemption replaces the whole gate with the
+ * cobalt screen, which is not a card and does not live inside the shell.
+ */
+function useRedeem(account: AccountState) {
   /**
    * A code the reader arrived holding, if they did: the `?code=` a scanned card
    * carried onto /try, kept by the account boot across the sign-in round trip.
@@ -295,14 +311,8 @@ function VoucherScreen({ account }: { account: AccountState }) {
    */
   const [code, setCode] = useState(account.pendingVoucher ?? "");
   const [error, setError] = useState<string | null>(null);
+  /** Whether the server has accepted a code on this screen. */
   const [redeemed, setRedeemed] = useState(false);
-  const email = account.account?.email ?? "";
-
-  /** Same rule as the sign-in screen: one sentence, one place to look. */
-  const message = error ?? account.error ?? null;
-
-  /** The one predicate the guard and the control's disabled state both use. */
-  const canSubmit = code.trim() !== "" && !account.busy;
 
   /**
    * The second half of the double-submit guard, and the half `account.busy`
@@ -313,11 +323,17 @@ function VoucherScreen({ account }: { account: AccountState }) {
    * `canSubmit === true` from this closure and both reach the network. A ref
    * changes on the spot, before the second call can read it. On 2026-08-31 one
    * account posted the same code twice in sixteen seconds and wrote two rows to
-   * trial_grants; the migration in this branch makes the SERVER refuse to spend
+   * trial_grants; the migration in that branch makes the SERVER refuse to spend
    * a second slot for it, which is where that has to be settled, and this stops
    * the browser sending the second request in the first place.
    */
   const inFlight = useRef(false);
+
+  /** Same rule as the sign-in screen: one sentence, one place to look. */
+  const message = error ?? account.error ?? null;
+
+  /** The one predicate the guard and the control's disabled state both use. */
+  const canSubmit = code.trim() !== "" && !account.busy;
 
   const submit = useCallback(async () => {
     if (!canSubmit || inFlight.current) return;
@@ -340,60 +356,98 @@ function VoucherScreen({ account }: { account: AccountState }) {
     }
   }, [account, canSubmit, code]);
 
-  if (redeemed) {
-    return (
-      <Card tone="raised" className="space-y-3">
-        <GateHeading icon={Check} title="You're in" />
-        <p className={PROSE}>
-          PANIK is open for <span className="text-text-primary">{email}</span>.
-        </p>
-        <Button onClick={() => void account.reload()} disabled={account.busy} className="w-full justify-center">
-          {account.busy ? "Opening..." : "Open PANIK"}
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </Button>
-      </Card>
-    );
-  }
+  const onChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      // Normalized on every keystroke, so what the reader sees in the box is
+      // exactly the string that will be posted. A field that accepts a
+      // character and then quietly sends a different one is how a refusal
+      // becomes unactionable: the code on screen looked right.
+      setCode(normalizeVoucherCode(e.target.value));
+      setError(null);
+    },
+    [],
+  );
 
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") void submit();
+    },
+    [submit],
+  );
+
+  return { code, message, canSubmit, submit, redeemed, onChange, onKeyDown };
+}
+
+type Redeem = ReturnType<typeof useRedeem>;
+
+/**
+ * The invite-code box, and the FOUR attributes that make it one.
+ *
+ * Mono, because it is a printed string a reader is copying character by
+ * character off a card: the face that makes 0/O and 1/l tell themselves apart
+ * is the one every address and hash in this product already uses.
+ *
+ * `autoCorrect="off"` is not a nicety. iOS "smart punctuation" lives under
+ * autocorrect, not under spellcheck: with it on, typing PANIK-TRY-45QUHHUP into
+ * a text field silently rewrites both hyphens as en dashes. That is the whole
+ * of the 2026-08-31 incident, and it is why the field says so out loud rather
+ * than relying on `normalizeVoucherCode` to clean up after it. One component
+ * for both cards so a second card cannot ship without the attribute.
+ */
+function CodeField({ redeem, busy }: { redeem: Redeem; busy: boolean }) {
+  return (
+    <Field
+      id="account-voucher"
+      label="Invite code"
+      mono
+      type="text"
+      autoComplete="off"
+      spellCheck={false}
+      autoCapitalize="characters"
+      autoCorrect="off"
+      value={redeem.code}
+      disabled={busy}
+      onChange={redeem.onChange}
+      onKeyDown={redeem.onKeyDown}
+    />
+  );
+}
+
+/** The account this browser is signed in as, and the way back out of it. */
+function GateFooter({ account }: { account: AccountState }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3">
+      <span className="min-w-0 truncate text-2xs font-sans text-text-muted">
+        {account.account?.email ?? ""}
+      </span>
+      <Button variant="ghost" onClick={() => void account.signOut()} disabled={account.busy}>
+        Sign out
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * A FULL-PAGE navigation to the waitlist, driven from a button.
+ *
+ * The landing page owns that flow and duplicating it here would give this
+ * product two places a person can be on a list, which is one more than anybody
+ * can keep in step. `window.location.assign` rather than an `<a>` dressed as a
+ * control: this look has exactly one button treatment (ui/Button) and a second
+ * hand-built copy of the plate, edge and shadow is how the two drift apart.
+ */
+const goToWaitlist = () => window.location.assign(WAITLIST_URL);
+
+/** The first-timer's card. Nobody here has ever held a grant. */
+function VoucherScreen({ account, redeem }: { account: AccountState; redeem: Redeem }) {
   return (
     <Card tone="raised" className="space-y-4">
       <GateHeading icon={Ticket} title="Enter your invite code" />
 
       <div className="space-y-2">
-        {/* Mono, because it is a printed string a reader is copying character
-            by character off a card: the face that makes 0/O and 1/l tell
-            themselves apart is the one every address and hash in this product
-            already uses. */}
-        <Field
-          id="account-voucher"
-          label="Invite code"
-          mono
-          type="text"
-          autoComplete="off"
-          spellCheck={false}
-          autoCapitalize="characters"
-          // iOS "smart punctuation" lives under autocorrect, not under
-          // spellcheck: with it on, typing PANIK-TRY-45QUHHUP into a text field
-          // silently rewrites both hyphens as en dashes. That is the whole of
-          // the 2026-08-31 incident, and it is why the field says so out loud
-          // rather than relying on the normalization below to clean up after it.
-          autoCorrect="off"
-          value={code}
-          disabled={account.busy}
-          onChange={(e) => {
-            // Normalized on every keystroke, so what the reader sees in the box
-            // is exactly the string that will be posted. A field that accepts a
-            // character and then quietly sends a different one is how a refusal
-            // becomes unactionable: the code on screen looked right.
-            setCode(normalizeVoucherCode(e.target.value));
-            if (error) setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void submit();
-          }}
-        />
-        {message && <Notice text={message} />}
-        <Button onClick={submit} disabled={!canSubmit} className="w-full justify-center">
+        <CodeField redeem={redeem} busy={account.busy} />
+        {redeem.message && <Notice text={redeem.message} />}
+        <Button onClick={redeem.submit} disabled={!redeem.canSubmit} className="w-full justify-center">
           {account.busy ? "Checking..." : "Redeem code"}
         </Button>
       </div>
@@ -406,14 +460,89 @@ function VoucherScreen({ account }: { account: AccountState }) {
         <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
       </a>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3">
-        <span className="min-w-0 truncate text-xs font-sans text-text-muted">
-          Signed in as {email}
-        </span>
-        <Button variant="ghost" onClick={() => void account.signOut()} disabled={account.busy}>
-          Sign out
-        </Button>
+      <GateFooter account={account} />
+    </Card>
+  );
+}
+
+/**
+ * The card for a reader whose grant is OVER.
+ *
+ * Until now this account met "Enter your invite code" with no explanation,
+ * which is the app declining to mention the one thing that just happened to it.
+ * The heading says what happened and the line under it says when, from
+ * `endedMembership` - the row's own `expires_at`, whether the clock ran out or
+ * an operator closed the grant (server/adminTrials.ts writes both columns). The
+ * gate only chooses this screen when that date is readable, so the line under
+ * the heading can never be blank or an invented "recently".
+ *
+ * The controls are the same three the first-time card offers, in the order this
+ * reader needs them: redeem a new code, ask for one, or leave.
+ */
+function TrialEndedScreen({
+  account,
+  redeem,
+  endedAt,
+}: {
+  account: AccountState;
+  redeem: Redeem;
+  endedAt: Date;
+}) {
+  return (
+    <Card tone="raised" className="space-y-4">
+      <div>
+        {/* 20px is this system's largest heading step below the stat scale:
+            `text-xl` is one of the sizes src/index.css resets to `initial`, so
+            the name does not exist and typing it would render nothing. */}
+        <h1 className="text-lg font-sans font-bold leading-tight text-text-primary">
+          Your trial ended
+        </h1>
+        {/* Mono, like every other date and figure in the product, and in the
+            same "Sep 1, 2026" shape the Settings ledger prints a deadline in. */}
+        <p className="font-mono text-xs text-text-secondary">{formatGrantDate(endedAt)}</p>
       </div>
+
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex-1">
+            <CodeField redeem={redeem} busy={account.busy} />
+          </div>
+          <Button onClick={redeem.submit} disabled={!redeem.canSubmit}>
+            {account.busy ? "Checking..." : "Redeem"}
+          </Button>
+        </div>
+        {redeem.message && <Notice text={redeem.message} />}
+      </div>
+
+      <Card tone="set-back" className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-sm font-sans font-bold text-text-primary">No code?</span>
+        <Button variant="secondary" onClick={goToWaitlist} disabled={account.busy}>
+          Join the waitlist
+        </Button>
+      </Card>
+
+      <GateFooter account={account} />
+    </Card>
+  );
+}
+
+/** What a reader is told once a code has been accepted. */
+function RedeemedScreen({ account }: { account: AccountState }) {
+  return (
+    <Card tone="raised" className="space-y-3">
+      <GateHeading icon={Check} title="You're in" />
+      <p className={PROSE}>
+        PANIK is open for{" "}
+        <span className="text-text-primary">{account.account?.email ?? ""}</span>.
+      </p>
+      <Button
+        onClick={() => void account.reload()}
+        disabled={account.busy}
+        className="w-full justify-center"
+      >
+        {account.busy ? "Opening..." : "Open PANIK"}
+        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+      </Button>
     </Card>
   );
 }
@@ -452,6 +581,13 @@ function UnavailableScreen({ account }: { account: AccountState }) {
  * `gateScreen(state)` decided in the shell is what renders here, so the two
  * cannot disagree about whether "we could not find out" is the same thing as
  * "you have no membership".
+ *
+ * The ONE thing decided here and not there is the moment after a redemption.
+ * `gateScreen` is a function of the account the server last reported, and the
+ * server has not been re-asked yet: the reader is still `voucher` or
+ * `trial-ended` to it, and stays so until they press Open PANIK. Which is the
+ * point - the good news is shown, then the app is entered, rather than the
+ * screen vanishing from under them.
  */
 export function AccountGate({
   screen,
@@ -470,15 +606,28 @@ export function AccountGate({
    */
   after?: React.ReactNode;
 }) {
+  const redeem = useRedeem(account);
+  /**
+   * The date the trial-ended card is headed with, found by the SAME helper
+   * `gateScreen` chose the screen with. Computed here rather than asserted
+   * non-null inside the branch: if the two ever disagreed, the honest fallback
+   * is the first-time card, not a heading with a hole in it.
+   */
+  const endedAt = account.account === null ? null : endedMembership(account.account);
+
   if (screen === "checking") return <BootSkeleton />;
   return (
     <GateShell after={after}>
-      {screen === "signin" ? (
+      {redeem.redeemed ? (
+        <RedeemedScreen account={account} />
+      ) : screen === "signin" ? (
         <SignInScreen account={account} note={note} />
       ) : screen === "unavailable" ? (
         <UnavailableScreen account={account} />
+      ) : screen === "trial-ended" && endedAt !== null ? (
+        <TrialEndedScreen account={account} redeem={redeem} endedAt={endedAt} />
       ) : (
-        <VoucherScreen account={account} />
+        <VoucherScreen account={account} redeem={redeem} />
       )}
     </GateShell>
   );
