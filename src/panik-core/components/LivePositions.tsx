@@ -591,7 +591,7 @@ export function LivePositions({
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                             <StripStat label="PANIK score" value={`${Math.round(p.total)} / 100`} />
-                            <StripStat label="alerts at" value={`${alertThreshold} / 100`} />
+                            <StripStat label="alerts at" value={`${alertThreshold}`} />
                             <StripStat label="checked" value={agoValue(checkedAt)} />
                           </div>
                           {/* `md:ml-auto` only matters below `md`, where the
