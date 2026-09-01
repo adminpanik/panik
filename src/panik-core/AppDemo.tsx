@@ -4537,6 +4537,20 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         setWatchSource("positions");
                         setActiveTab("watch");
                       }}
+                      /* No deep-link into a single Advisor leg exists today
+                         (`AdvisorPanel` takes the whole report, not a key), so
+                         this reuses the alert feed's own navigation: switch to
+                         the tab and set the highlight key. The Advisor does not
+                         yet read `highlightedPositionKey` to scroll a leg card
+                         into view the way `LivePositions` does, so today this
+                         opens the tab; wiring the highlight through is a small
+                         follow-up once Advisor has a leg to scroll to. */
+                      onOpenAdvisor={(pos) => {
+                        setActiveTab("advisor");
+                        setHighlightedPositionKey(positionKey(pos));
+                      }}
+                      alertThreshold={ALERT_THRESHOLD[selectedRiskProfile]}
+                      checkedAt={walletCheckedAt}
                     />
                   </div>
 

@@ -22,24 +22,19 @@
  */
 
 import React, { useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight, Eye } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight, Eye } from "lucide-react";
 import type { LiveWalletPosition, ScoringChainInfo } from "../lib/live";
 import { CardTitle } from "./CardTitle";
 import { ProtocolLogo } from "./ProtocolLogo";
 import {
   BAND_WORD,
   formatUsd,
-  limitStateCopy,
   liquidationOutlook,
-  MARKET_CONTEXT_MISSING_HINT,
-  MARKET_CONTEXT_MISSING_LABEL,
-  marketContextMissing,
   PROTOCOL_LABEL,
-  RISK_CHIP,
   USD_UNAVAILABLE_HINT,
   worseScoreFirst,
 } from "../lib/utils";
-import { Button, Card, Chip, EmptyState, Notice, RiskChip, RiskDial, SimulationChip, Skeleton } from "../ui";
+import { Button, Card, Chip, EmptyState, Notice, RiskChip, Skeleton } from "../ui";
 import { exitControlState, useChainMode } from "../lib/chainMode";
 import type { ExitPrefill } from "./ExitFlow";
 
@@ -172,6 +167,47 @@ function moneyCell(usd: number | null, unpriced: boolean) {
   );
 }
 
+/**
+ * One value in the row's disclosure strip: an 11px lowercase caption over a
+ * mono 16px reading. NOT `label-type` on the caption - that utility forces
+ * uppercase, and this strip's captions ("alerts at", "checked") are meant to
+ * read as lowercase prose, not as the chip and field labels `label-type`
+ * exists for.
+ */
+function StripStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-sans text-2xs text-text-muted">{label}</span>
+      <span className="whitespace-nowrap font-mono text-base font-bold tabular-nums text-text-primary">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * `checkedAgo`'s own sentence ("Checked 4 minutes ago"), trimmed to just the
+ * age: the strip's own caption already says "checked", so a value repeating
+ * the word would say it twice in one pair. Null - this wallet has never been
+ * read - renders the same "Not measured" words the money cells use for a gap,
+ * never a fabricated age.
+ */
+function agoValue(checkedAt: string | null): string {
+  return checkedAt ? checkedAt.replace(/^Checked /, "") : "Not measured";
+}
+
+/**
+ * The strip's own two small buttons, not `Button`: that primitive is 48px at
+ * `md` (`ui/Button.tsx`) and deliberately does not take `label-type` at that
+ * size, because 0.06em of tracking on a 14px control reads as gappy. A
+ * disclosure row does not have 48px to give a pair of secondary actions
+ * beside three readings, so this is a small, bespoke control at the row's own
+ * scale (`h-9`, `text-2xs`), in the same hard-edge, press-on-hover language
+ * every other button in the product uses.
+ */
+const STRIP_BUTTON =
+  "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 hard-edge shadow-hard-sm bg-surface-raised px-3 label-type text-2xs text-text-primary hover:bg-highlight hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-hard-sm active:translate-x-[6px] active:translate-y-[6px] active:shadow-none";
+
 interface LivePositionsProps {
   positions: LiveWalletPosition[] | null;
   offline: boolean;
@@ -198,11 +234,31 @@ interface LivePositionsProps {
   /** Runs the action above. Absent means no exit control is offered at all. */
   onExit?: (prefill: ExitPrefill) => void;
   /**
+   * Opens the Advisor for one position. Optional so a caller with no Advisor
+   * deep-link at all (there is none today) still gets a component that
+   * renders; when present, the disclosure's "Advisor" button appears.
+   */
+  onOpenAdvisor?: (position: LiveWalletPosition) => void;
+  /**
    * `positionKey` of the row an alert just pointed at, or null for none. The row
    * scrolls into view, takes focus and holds a neutral emphasis until the caller
    * clears it.
    */
   highlightKey: string | null;
+  /**
+   * The reader's own alert limit, out of 100 - `ALERT_THRESHOLD` in
+   * `packages/scoring`, read by the caller so this file never hardcodes a
+   * profile's number or reimplements the engine's lookup.
+   */
+  alertThreshold: number;
+  /**
+   * `checkedAgo(ownLive.updatedAt)`, computed once by the caller from the same
+   * poll every row's figures came from. There is no PER-POSITION timestamp in
+   * `LiveWalletPosition` - all of a wallet's rows arrive on one response - so
+   * this is the wallet's own reading age, not a per-row one. Null means the
+   * feed has never answered.
+   */
+  checkedAt: string | null;
 }
 
 export function LivePositions({
@@ -212,7 +268,10 @@ export function LivePositions({
   onStressTest,
   exitActions,
   onExit,
+  onOpenAdvisor,
   highlightKey,
+  alertThreshold,
+  checkedAt,
 }: LivePositionsProps) {
   /**
    * Whether an exit could be signed from here at all.
@@ -512,105 +571,68 @@ export function LivePositions({
                   </tr>
 
                   {open && (
-                    <tr id={detailId} className="border-t border-border-subtle">
-                      <td colSpan={6} className="px-4 pt-3 pb-4">
-                        <div className="flex flex-wrap items-start gap-4">
-                          <RiskDial
-                            score={p.total}
-                            band={p.band}
-                            subScores={p.subScores}
-                          />
-                          <div className="min-w-0 flex-1 space-y-2">
-                            {/* The columns this width could not show, so the
-                                disclosure is a complete reading of the position
-                                at every viewport rather than a phone-shaped
-                                subset of one. */}
-                            <p className="font-sans text-sm text-text-secondary md:hidden">
-                              <span className="cursor-help" title={outlook.hover}>
-                                {outlook.sentence}
-                              </span>
-                            </p>
-                            <p className="font-sans text-sm text-text-secondary xl:hidden">
-                              {unpriced ? (
-                                <span title={USD_UNAVAILABLE_HINT}>
-                                  Collateral and debt not measured
-                                </span>
-                              ) : (
-                                <>
-                                  <span className={FIGURE}>
-                                    {formatUsd(p.collateralValueUsd)}
-                                  </span>{" "}
-                                  collateral,{" "}
-                                  <span className={FIGURE}>{formatUsd(p.borrowValueUsd)}</span>{" "}
-                                  debt
-                                </>
-                              )}
-                            </p>
+                    <tr id={detailId} className="border-t-[3px] border-solid border-border-strong">
+                      {/* The disclosure, reduced to one strip on the table's
+                          sunken tint. The dial, the limit-state sentence, the
+                          market-context and simulated-price markers and the
+                          phone-only duplicates of the outlook and money
+                          columns are gone: the outlook column (and its hover)
+                          is the one place health factor is read now, and a
+                          second, dial-shaped reading of the same ratio a tap
+                          away from it was two answers to "how close is this"
+                          that could read differently the moment one of them
+                          redrew mid-poll. Three readings a table row does not
+                          otherwise carry replace all of it: the composite
+                          itself, the limit it is measured against, and how
+                          current the row is. Same `TD` padding as every other
+                          cell, so the button pair's right edge below lines up
+                          with the RISK chip's. */}
+                      <td colSpan={6} className={`${TD} bg-surface-sunken`}>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                            <StripStat label="PANIK score" value={`${Math.round(p.total)} / 100`} />
+                            <StripStat label="alerts at" value={`${alertThreshold} / 100`} />
+                            <StripStat label="checked" value={agoValue(checkedAt)} />
+                          </div>
+                          {/* `md:ml-auto` only matters below `md`, where the
+                              flex axis is a column and this group would
+                              otherwise sit flush left under the stats rather
+                              than at the row's own right edge.
 
-                            {/* Where this position stands against the limit the
-                                READER set, which is a different fact from the
-                                band beside it: the band is how exposed the
-                                position is in the absolute, this is whether
-                                that reading has crossed the level they asked to
-                                be told about. The engine sets it; no threshold
-                                is invented here. */}
-                            <p className="font-sans text-sm text-text-secondary">
-                              {limitStateCopy(p.profileStatus)}
-                            </p>
-
-                            {/* A market-context term the engine could not read.
-                                Separate from the unpriced cells above and never
-                                merged with them: the two failures are
-                                independent (a leg can be priced exactly and
-                                still lose its asset-risk lookup), and they
-                                withhold different things - that one withholds
-                                the dollars, this one withholds part of the
-                                score. The grey is `risk-unknown`, which is NOT
-                                a band, so it spends none of the screen's risk
-                                budget. */}
-                            {marketContextMissing(p.subScores) && (
-                              <span
-                                title={MARKET_CONTEXT_MISSING_HINT}
-                                className={`inline-flex cursor-help items-center gap-1.5 hard-edge px-2 py-0.5 font-sans text-xs font-semibold ${RISK_CHIP.UNKNOWN}`}
-                              >
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                {MARKET_CONTEXT_MISSING_LABEL}
-                              </span>
+                              The exit action, when the engine named one and it
+                              can fire, still leads this group: dropping a live
+                              money control because a mockup did not happen to
+                              show one open on a position with one available
+                              would be this file inventing a product decision,
+                              not a redesign of one. See the three facts it is
+                              gated on above, at `exitAction`'s definition. */}
+                          <div className="flex shrink-0 items-center gap-2 md:ml-auto">
+                            {exitAction && (
+                              <Button onClick={() => onExit?.(exitAction.prefill)}>
+                                {exitAction.label}
+                                <ArrowRight className="h-4 w-4" />
+                              </Button>
                             )}
-
-                            {/* A row whose figures came from a simulated price.
-                                PER ROW, not per screen: a scenario names
-                                assets, so one position can be simulated while
-                                the one under it is real. Deliberately NOT
-                                merged with the marker above: that one says "we
-                                could not measure this", this one says "we
-                                measured this against a price we invented", and
-                                a simulated figure is exact arithmetic on a
-                                stated price. */}
-                            {p.simulation && <SimulationChip />}
-
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                              {/* The way out, offered ONLY where it can fire.
-                                  Three facts hold and none of them is this
-                                  component's to decide: the engine named an
-                                  action for this protocol, the caller passed a
-                                  handler for a wallet a connected key can sign
-                                  for, and the selected chain can settle it.
-                                  When they do not hold there is no button, not
-                                  a greyed one. */}
-                              {exitAction && (
-                                <Button onClick={() => onExit?.(exitAction.prefill)}>
-                                  {exitAction.label}
-                                  <ArrowRight className="h-4 w-4" />
-                                </Button>
-                              )}
-                              {onStressTest && (
-                                <Button variant="secondary" onClick={() => onStressTest(p)}>
-                                  <Eye className="h-4 w-4" />
-                                  Stress-test
-                                </Button>
-                              )}
-                            </div>
+                            {onStressTest && (
+                              <button
+                                type="button"
+                                className={STRIP_BUTTON}
+                                onClick={() => onStressTest(p)}
+                              >
+                                <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                Stress-test
+                              </button>
+                            )}
+                            {onOpenAdvisor && (
+                              <button
+                                type="button"
+                                className={STRIP_BUTTON}
+                                onClick={() => onOpenAdvisor(p)}
+                              >
+                                Advisor
+                                <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       </td>
