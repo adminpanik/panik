@@ -2330,6 +2330,30 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
   }, [highlightedPositionKey]);
 
   /**
+   * "Link Telegram" on the empty-portfolio card switches to Settings and
+   * scrolls its Telegram card into view, the same scroll-and-focus shape as
+   * `highlightedRow` above, applied to a card instead of a table row.
+   *
+   * A ref CALLBACK, not a `useEffect` keyed on the flag: the five tabs mount
+   * inside an `AnimatePresence mode="wait"` (below, in the JSX), which exits
+   * the old panel before mounting the new one - so the Settings panel, and
+   * this card's ref, land a tick after the render where `activeTab` first
+   * became "settings". An effect keyed on that render's own dependencies
+   * fires before the ref exists, finds nothing, and the flag is spent for
+   * nothing. The callback form runs exactly when React attaches the node,
+   * whichever render that turns out to be.
+   */
+  const [focusTelegramCard, setFocusTelegramCard] = useState(false);
+  const telegramCardRef = useRef<HTMLDivElement | null>(null);
+  const attachTelegramCardRef = (el: HTMLDivElement | null) => {
+    telegramCardRef.current = el;
+    if (el && focusTelegramCard) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      setFocusTelegramCard(false);
+    }
+  };
+
+  /**
    * The alert log, newest first, sorted ONCE. The card previews the head of this
    * array and the history page groups all of it, so ordering them separately is
    * how the two end up disagreeing about which alert is the most recent. ISO-8601
@@ -4437,26 +4461,59 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                 )}
 
                 {/* STATE 3 of 4 - we reached the feed and this wallet holds
-                    nothing. "clear", not "problem": that is good news and it is
-                    safe to say so. ONE sentence and one affordance, per the
-                    primitive's contract. The invitation it used to carry
-                    ("browse risk-scored opportunities matched to your moderate
-                    profile") named the reader's profile at them, described a
-                    ranking Compass does not perform, and was an instruction a
-                    watch-only reader could not follow. */}
+                    nothing. A hero card rather than the thin `EmptyState`
+                    band: this is the whole tab's content on this branch (no
+                    stat row, no table, see `showPositionsCard` below), so it
+                    carries the weight a page-level state gets elsewhere
+                    (`FirstRunInvite`) rather than the caption-sized treatment
+                    a card WITHIN a populated dashboard uses.
+
+                    "Open Compass" is withheld on a watched wallet, same as
+                    before: a ranking sized to the READER's own risk profile is
+                    an instruction a watch-only reader cannot act on. "Link
+                    Telegram" is not withheld - alerts are a setting on this
+                    reader's own account, not an action on the wallet being
+                    viewed, which is also why the sidebar Alerts card a few
+                    states down does not gate on `viewingWatchOnly` either. It
+                    switches to Settings and scrolls its Telegram card into
+                    view rather than opening the connect flow inline: that flow
+                    ends in a wallet-ownership signature with its own pending /
+                    error states, all rendered by the Settings card already
+                    (`telegramLink.status`), and duplicating that here would be
+                    a second copy of a state machine this product can only
+                    afford to run once. */}
                 {portfolioEmpty && (
-                  <EmptyState
-                    tone="clear"
-                    title="No positions yet"
-                    hint="We read this wallet and found no open lending positions."
-                    action={
-                      viewingWatchOnly ? undefined : (
-                        <Button variant="secondary" onClick={() => setActiveTab("compass")}>
+                  <Card
+                    tone="raised"
+                    className="mx-auto flex w-full max-w-2xl flex-col items-center gap-4 px-6 py-12 text-center sm:px-10 sm:py-16"
+                  >
+                    <h2 className="font-sans text-2xl font-black uppercase tracking-tight text-text-primary sm:text-4xl">
+                      Nothing at risk yet
+                    </h2>
+                    <p className="max-w-md font-sans text-xs text-text-secondary">
+                      No lending positions in this wallet. Open one, or watch a wallet that has
+                      some.
+                    </p>
+                    <div className="flex w-full flex-col items-center gap-3 pt-2 sm:w-auto sm:flex-row sm:justify-center">
+                      {!viewingWatchOnly && (
+                        <Button className="w-full sm:w-auto" onClick={() => setActiveTab("compass")}>
+                          <CompassIcon className="h-4 w-4" aria-hidden="true" />
                           Open Compass
                         </Button>
-                      )
-                    }
-                  />
+                      )}
+                      <Button
+                        variant="secondary"
+                        className="w-full sm:w-auto"
+                        onClick={() => {
+                          setActiveTab("settings");
+                          setFocusTelegramCard(true);
+                        }}
+                      >
+                        <Bell className="h-4 w-4" aria-hidden="true" />
+                        Link Telegram
+                      </Button>
+                    </div>
+                  </Card>
                 )}
 
                 {/* WHAT THE READER CAME FOR, FIRST: the recommendation above, then the
@@ -4502,6 +4559,20 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         setWatchSource("positions");
                         setActiveTab("watch");
                       }}
+                      /* No deep-link into a single Advisor leg exists today
+                         (`AdvisorPanel` takes the whole report, not a key), so
+                         this reuses the alert feed's own navigation: switch to
+                         the tab and set the highlight key. The Advisor does not
+                         yet read `highlightedPositionKey` to scroll a leg card
+                         into view the way `LivePositions` does, so today this
+                         opens the tab; wiring the highlight through is a small
+                         follow-up once Advisor has a leg to scroll to. */
+                      onOpenAdvisor={(pos) => {
+                        setActiveTab("advisor");
+                        setHighlightedPositionKey(positionKey(pos));
+                      }}
+                      alertThreshold={ALERT_THRESHOLD[selectedRiskProfile]}
+                      checkedAt={walletCheckedAt}
                     />
                   </div>
 
@@ -5379,6 +5450,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                         the control at all: the banner above already says why,
                         and the Settings card above it says how to fix it. */}
                     {!readOnlySession && (
+                      <div ref={attachTelegramCardRef}>
                       <SettingsCard>
                         <SettingsCardTitle
                           icon={Bell}
@@ -5447,6 +5519,7 @@ export function AppDemo({ session, account: accountState }: AppDemoProps) {
                           </Button>
                         </SettingsCardFooter>
                       </SettingsCard>
+                      </div>
                     )}
 
                     {/* Emergency auto repayment trigger (interactive preference).
