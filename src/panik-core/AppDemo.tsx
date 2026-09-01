@@ -1205,7 +1205,7 @@ function ScoreBreakdownSection({
 }
 
 /**
- * The app's ONE slide-in: a dimmed backdrop over the content column, and a
+ * The app's ONE slide-in: a dimmed backdrop over the FULL viewport, and a
  * 500px panel hung from its right edge.
  *
  * Two surfaces use it (the risk breakdown and Wallets) and until now each wrote
@@ -1217,9 +1217,12 @@ function ScoreBreakdownSection({
  * thing showing different content, and nothing about either copy would have
  * failed to make that visible.
  *
- * `absolute`, not `fixed`, and deliberately: it covers the CONTENT COLUMN
- * only, so the sidebar stays lit and reachable and the reader can leave by
- * pressing a tab rather than by finding the close control.
+ * `fixed`, not `absolute`: the previous `absolute inset-0` dimmed only the
+ * content column its ancestor happened to be positioned in, so the sidebar sat
+ * undimmed beside a surface that is supposed to be covering the page. A sheet
+ * is a modal reading surface, not a panel beside the nav, so the scrim now
+ * covers the sidebar too; the panel itself still anchors to the viewport's
+ * right edge, which `fixed` does exactly as well as the `absolute` it replaces.
  *
  * The panel's own dismissal contract (focus on open, Escape to close) belongs
  * to the component inside it, which is the thing that knows what closing means.
@@ -1237,14 +1240,17 @@ function Sheet({ onDismiss, children }: { onDismiss: () => void; children: React
         animate={{ opacity: 0.5 }}
         exit={{ opacity: 0 }}
         onClick={onDismiss}
-        className={`absolute inset-0 ${SCRIM} ${LAYER.scrim} cursor-pointer`}
+        className={`fixed inset-0 ${SCRIM} ${LAYER.scrim} cursor-pointer`}
       />
       <motion.div
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", damping: 26, stiffness: 220 }}
-        className={`absolute right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l border-border-subtle shadow-[0_0_50px_rgba(0,0,0,0.8)] ${LAYER.sheet} flex flex-col overflow-hidden text-sm`}
+        /* No blurred shadow: this look draws depth with a 3px edge, never a
+           blur. The panel's separation from the dimmed page behind it is the
+           border alone. */
+        className={`fixed right-0 top-0 bottom-0 w-full sm:w-[500px] bg-surface-raised border-l-[3px] border-border-strong ${LAYER.sheet} flex flex-col overflow-hidden text-sm`}
       >
         {children}
       </motion.div>
