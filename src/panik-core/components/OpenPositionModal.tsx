@@ -137,8 +137,8 @@ export function OpenPositionModal(props: { target: OpenPositionTarget; onClose: 
           </h2>
           <div className="flex shrink-0 items-center gap-3.5">
             {/* What kind of money this moves, in one word, where `OpenFlow`
-                says "Real funds" or "Test assets". The sentence that used to
-                sit under the button is this chip's hover. */}
+                names the network ("Mainnet" or "Testnet"). The sentence that
+                used to sit under the button is this chip's hover. */}
             <Chip title="Nothing is signed and no funds move.">Demo</Chip>
             {phase !== "submitting" && (
               <button
