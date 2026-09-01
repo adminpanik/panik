@@ -44,7 +44,21 @@ async function logErrorBody(scope: string, res: { status: number; text(): Promis
   console.error(`${scope}: HTTP ${res.status} ${body.slice(0, 300)}`);
 }
 
-export type RedeemOutcome = "success" | "not_found" | "disabled" | "expired" | "exhausted";
+/**
+ * `already_used` is the 2026-09-01 outcome: this address redeemed this code
+ * once already and the access it bought is over, so the code is spent for them
+ * and nobody else's slot has been touched. It is DISTINCT from `exhausted`,
+ * which is a statement about the print run rather than about the caller, and
+ * the two send a reader to different places - one to the operator, one to a
+ * different card. See supabase/migrations/20260901000001_one_code_one_account.sql.
+ */
+export type RedeemOutcome =
+  | "success"
+  | "not_found"
+  | "disabled"
+  | "expired"
+  | "exhausted"
+  | "already_used";
 export interface RedeemResult {
   outcome: RedeemOutcome;
   token?: string;
@@ -119,6 +133,30 @@ export interface RedemptionAttempt {
   created_at: string;
 }
 
+/**
+ * One grant row as the two operator actions on it need it: enough to decide
+ * whether its clock has run, and the id every write below targets. No
+ * `access_token`, for the reason `CampaignRedemption` gives - it is a bearer
+ * credential for the trial and neither of those actions is a reason to move it.
+ */
+export interface TrialGrantRow {
+  id: string;
+  email: string | null;
+  first_opened_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+/**
+ * An address in the one shape it is compared in, matching `lower(email)` in
+ * the unique index and `lower(btrim(...))` in the redeem RPC. Same rule as
+ * `normalizeEmail` in server/adminTrials.ts: an operator pasting an address
+ * out of a support thread should not have to match its case or its spaces.
+ */
+export function normalizeGrantEmail(raw: string | null | undefined): string {
+  return String(raw ?? "").trim().toLowerCase();
+}
+
 /** Hard ceiling on rows either redemption read can return. */
 const REDEMPTION_PAGE_MAX = 500;
 
@@ -182,13 +220,20 @@ export class CampaignStore {
    * `email` is captured on the minted grant (the /try flow requires it) so the
    * roster reflects who redeemed each card.
    *
-   * IDEMPOTENT PER (campaign, email) since
-   * supabase/migrations/20260831000001_idempotent_campaign_redeem.sql: calling
-   * it again with an address that already holds a grant on this campaign
-   * returns that grant's token, mints nothing and spends no slot. Passing no
-   * email opts out of that, because there is then nobody to be idempotent
-   * about; the /try flow requires one and the account flow supplies the
-   * verified address, so in practice every caller is covered.
+   * ONCE PER ADDRESS, PER CAMPAIGN. An address that already holds a grant on
+   * this campaign gets one of two answers, and which one depends on what that
+   * grant is still worth (20260901000001_one_code_one_account.sql):
+   *
+   *   the grant is live   `success` with the token it already holds. Nothing
+   *                       is minted and no slot is spent - the double-submit
+   *                       protection 20260831000001 added.
+   *   the grant is over   `already_used`. The code redeems once per account,
+   *                       and giving it back is an operator action (Clear use)
+   *                       rather than something a retry can do.
+   *
+   * Passing no email opts out of both, because there is then nobody to key on;
+   * the account flow supplies the verified address, so in practice every
+   * caller is covered.
    */
   async redeem(
     code: string,
@@ -305,6 +350,94 @@ export class CampaignStore {
       expires_at: r.expires_at,
       created_at: r.created_at,
     }));
+  }
+
+  /**
+   * One person's grant on one campaign, or null.
+   *
+   * The address is matched HERE rather than in the query. PostgREST's `eq`
+   * would need the stored casing (the RPC lower-cases on the way in, but rows
+   * predating 20260707000001 were never guaranteed to) and `ilike` would treat
+   * the underscore in first_last@example.com as a wildcard, which is how a
+   * lookup ends up on somebody else's row. The campaign filter is the same
+   * inner embed `listRedemptions` uses, so this is one round trip either way.
+   */
+  async findGrant(code: string, email: string): Promise<TrialGrantRow | null> {
+    const wanted = normalizeGrantEmail(email);
+    if (wanted === "") return null;
+    const select =
+      "id,email,first_opened_at,expires_at,created_at,product_campaigns!inner(campaign_code)";
+    const url =
+      `${this.base}/rest/v1/trial_grants?select=${encodeURIComponent(select)}` +
+      `&product_campaigns.campaign_code=eq.${encodeURIComponent(code)}` +
+      `&order=created_at.desc&limit=${REDEMPTION_PAGE_MAX}`;
+    const res = await fetch(url, { headers: this.headers() });
+    if (!res.ok) {
+      await logErrorBody("findGrant", res);
+      throw new Error(`findGrant: HTTP ${res.status}`);
+    }
+    const rows = (await res.json()) as (TrialGrantRow & { product_campaigns?: unknown })[];
+    const hit = rows.find((r) => normalizeGrantEmail(r.email) === wanted);
+    if (!hit) return null;
+    return {
+      id: hit.id,
+      email: hit.email,
+      first_opened_at: hit.first_opened_at,
+      expires_at: hit.expires_at,
+      created_at: hit.created_at,
+    };
+  }
+
+  /**
+   * Run one grant's clock out NOW, so the row states what already happened to
+   * the trial it bought. Used by the operator's End trial action, which closes
+   * the membership and this together: `redeem_campaign_code` decides "spent"
+   * from these two columns and cannot see memberships, so a grant left running
+   * behind an ended trial would let the same card back in.
+   *
+   * `openedAt` is passed rather than coalesced in SQL because PostgREST sends
+   * a value, not an expression. The caller hands back the grant's own
+   * `first_opened_at` where it has one, so a real first open is never
+   * overwritten; a grant whose open never landed gets stamped, because a
+   * closed clock with no start would read as "unopened" and so as live.
+   */
+  async closeGrant(id: string, at: string, openedAt: string | null): Promise<boolean> {
+    const res = await fetch(
+      `${this.base}/rest/v1/trial_grants?id=eq.${encodeURIComponent(id)}&select=id`,
+      {
+        method: "PATCH",
+        headers: this.headers({ Prefer: "return=representation" }),
+        body: JSON.stringify({ expires_at: at, first_opened_at: openedAt ?? at }),
+      },
+    );
+    if (!res.ok) {
+      await logErrorBody("closeGrant", res);
+      throw new Error(`closeGrant: HTTP ${res.status}`);
+    }
+    return ((await res.json()) as unknown[]).length > 0;
+  }
+
+  /**
+   * Delete one grant, freeing the (campaign_id, lower(email)) slot the unique
+   * index in 20260831000001 holds so that address can redeem the code again.
+   *
+   * This is the ONLY thing that gives a spent code back, and it is deliberately
+   * narrow: `redemption_count` is untouched (a running total, never a
+   * population - see 20260831000001), and the attempt log is untouched (it is
+   * the evidence). The attempt that minted this grant keeps its row and its
+   * outcome; only its `granted_token_id` pointer nulls, which is what the
+   * ON DELETE SET NULL on that FK was declared to do.
+   */
+  async deleteGrant(id: string): Promise<boolean> {
+    const res = await fetch(
+      `${this.base}/rest/v1/trial_grants?id=eq.${encodeURIComponent(id)}&select=id`,
+      { method: "DELETE", headers: this.headers({ Prefer: "return=representation" }) },
+    );
+    if (!res.ok) {
+      await logErrorBody("deleteGrant", res);
+      throw new Error(`deleteGrant: HTTP ${res.status}`);
+    }
+    return ((await res.json()) as unknown[]).length > 0;
   }
 
   /** Every attempt against ONE campaign code, newest first, failures included. */

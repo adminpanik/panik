@@ -40,7 +40,7 @@
  * is deferred and needs its own single-use burn.
  */
 
-import type { CampaignStore } from "./campaignStore";
+import type { CampaignStore, RedeemOutcome } from "./campaignStore";
 import {
   AccountConflict,
   isLiveMembership,
@@ -119,6 +119,7 @@ const TRIAL_TOKEN_RE = /^PANIK-[2-9A-HJ-NP-Z]{6}$/;
 export type VoucherOutcome =
   | "success"
   | "already_member"
+  | "already_used"
   | "invalid"
   | "expired"
   | "exhausted"
@@ -148,9 +149,35 @@ export const VOUCHER_REFUSALS: Record<Exclude<VoucherOutcome, "success" | "alrea
   invalid: "that code was not recognised",
   expired: "that code is past its claim window",
   exhausted: "that code has already been used its full number of times",
+  // A statement about THIS account, and the reason it is not `exhausted`: the
+  // card may have slots left and be perfectly good for somebody else. A reader
+  // told "used up" would go looking for a fault in the card; what they need to
+  // know is that theirs is spent and a different one still works.
+  already_used: "that code was already used on this account. A different code will let you back in",
   trial_link:
     "that is a trial link, not a voucher code - use the code printed on the card",
   failed: "that code could not be applied to your account. Try again in a moment",
+};
+
+/**
+ * What each answer from `redeem_campaign_code` becomes on the way out. A
+ * Record over the RPC's own vocabulary rather than a chain of ifs, so a new
+ * outcome in SQL cannot reach a user as a silent `invalid`: it stops the build
+ * until somebody decides what it means here and what it says above.
+ *
+ * `not_found` and `disabled` collapse to `invalid` on purpose. Telling a
+ * stranger that a code exists but was switched off is a hint they can use to
+ * enumerate the print run. `expired`, `exhausted` and `already_used` describe
+ * a code the caller demonstrably has, so those stay distinct: the user needs to
+ * know whether to wait, to ask for a different card, or that this one is spent
+ * for them specifically.
+ */
+const REDEEM_REFUSAL: Record<Exclude<RedeemOutcome, "success">, VoucherOutcome> = {
+  not_found: "invalid",
+  disabled: "invalid",
+  expired: "expired",
+  exhausted: "exhausted",
+  already_used: "already_used",
 };
 
 export interface VoucherDeps {
@@ -183,12 +210,21 @@ export interface VoucherInput {
  * That check is a shortcut, NOT the guard. Two requests racing arrive here with
  * no membership either side of them, and until 2026-08-31 both went on to spend
  * a campaign slot: one account took two of PANIK-TRY-45QUHHUP's in sixteen
- * seconds. `redeem_campaign_code` is now idempotent per (campaign, email) -
- * supabase/migrations/20260831000001_idempotent_campaign_redeem.sql - so a
- * second call for an address that already holds a grant hands back THAT grant's
- * token without minting a row or incrementing the count. The email below is the
- * account's own verified address, which is what makes that key trustworthy
- * here: it is not a field the caller chose.
+ * seconds. `redeem_campaign_code` is keyed per (campaign, email) since
+ * supabase/migrations/20260831000001_idempotent_campaign_redeem.sql, so a
+ * second call for an address that already holds a LIVE grant hands back THAT
+ * grant's token without minting a row or incrementing the count.
+ *
+ * ONE CODE IS GOOD FOR ONE ACCOUNT. 20260901000001_one_code_one_account.sql
+ * splits that branch: an address whose grant has run out gets `already_used`
+ * rather than its old token back, so a card cannot renew itself forever after
+ * the trial it bought ends. A DIFFERENT valid code still renews the account,
+ * through the ended-row path in `resolveMembershipConflict` below, and an
+ * operator can hand this one back by clearing its use in the console. None of
+ * that is decided here: the grant is the thing that knows, and the SQL reads it.
+ *
+ * The email below is the account's own verified address, which is what makes
+ * that key trustworthy here: it is not a field the caller chose.
  */
 export async function redeemVoucher(
   deps: VoucherDeps,
@@ -205,15 +241,17 @@ export async function redeemVoucher(
   if (existing) return { outcome: "already_member", membership: existing };
 
   const redeemed = await deps.campaigns.redeem(code, input.email, deps.ip, deps.userAgent);
-  if (redeemed.outcome !== "success" || !redeemed.token) {
-    // `not_found` and `disabled` collapse to "invalid" on purpose: telling a
-    // stranger that a code exists but was switched off is a hint they can use
-    // to enumerate the print run. `expired` and `exhausted` describe a code the
-    // caller demonstrably has, so those stay distinct — the user needs to know
-    // whether to wait, or to ask for a different card.
-    if (redeemed.outcome === "expired") return { outcome: "expired" };
-    if (redeemed.outcome === "exhausted") return { outcome: "exhausted" };
-    return { outcome: "invalid" };
+  if (redeemed.outcome !== "success") return { outcome: REDEEM_REFUSAL[redeemed.outcome] };
+  if (!redeemed.token) {
+    // A success with nothing in it. Whatever went wrong is on our side of a
+    // redemption the database called good, so it is `failed` and never
+    // `invalid`: the code was fine, and saying otherwise sends the user to
+    // look for a new card.
+    console.error(
+      `redeemVoucher: outcome=failed, redemption succeeded with no token ` +
+        `for ${input.userId} (${redactedCodeShape(code)})`,
+    );
+    return { outcome: "failed" };
   }
 
   // Redeeming ON an account IS the first open, so start the clock now rather
