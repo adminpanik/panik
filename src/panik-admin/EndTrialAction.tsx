@@ -164,8 +164,12 @@ export function EndTrialAction({
 
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
+      {/* `whitespace-nowrap` since Clear use joined it in the drill-down's
+          Action column: two controls in the narrowest column of a ledger, and
+          without it both labels break across two lines. */}
       <Button
         variant="secondary"
+        className="whitespace-nowrap"
         onClick={end}
         disabled={busy || reason !== null}
         title={reason ?? undefined}

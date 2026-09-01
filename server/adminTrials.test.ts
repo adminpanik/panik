@@ -94,7 +94,10 @@ const summary = (over: Partial<TrialSummary> = {}): TrialSummary => ({
   ...over,
 });
 
-/** Deps that find the account, find a live grant and end it. Overridable. */
+/**
+ * Deps that find the account, find a live grant, end it, and close the
+ * campaign grant behind it. Overridable.
+ */
 function deps(over: Partial<EndTrialDeps> = {}): EndTrialDeps {
   return {
     findUserByEmail: vi.fn(async () => ({ userId: USER, email: EMAIL })),
@@ -102,6 +105,7 @@ function deps(over: Partial<EndTrialDeps> = {}): EndTrialDeps {
     endTrial: vi.fn(async (_id: string, at: string) =>
       summary({ status: "lapsed", expiresAt: at }),
     ),
+    closeGrantFor: vi.fn(async () => true),
     ...over,
   };
 }
@@ -201,6 +205,145 @@ describe("endTrialForEmail", () => {
     expect(END_TRIAL_REFUSAL.no_live_trial.status).toBe(404);
     expect(END_TRIAL_REFUSAL.no_account.error).not.toBe(END_TRIAL_REFUSAL.no_live_trial.error);
     expect(END_TRIAL_REFUSAL.missing_email.status).toBe(400);
+  });
+});
+
+/**
+ * The half added on 2026-09-01. `redeem_campaign_code` decides whether a code
+ * is spent for an address from the GRANT's two clock columns and cannot see
+ * memberships, so an operator ending a membership has to close the grant with
+ * it. A grant left running behind an ended trial answers the next redemption
+ * of the same card with "here is your token", which is the renewal loop the
+ * whole change exists to close, reopened by the action meant to test it.
+ */
+describe("endTrialForEmail, closing the grant behind the membership", () => {
+  it("closes the campaign grant with the same code, address and timestamp", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = deps();
+
+    const result = await endTrialForEmail(d, { email: EMAIL, now: NOW });
+
+    expect(result.outcome).toBe("ended");
+    expect(d.closeGrantFor).toHaveBeenCalledWith(
+      "PANIK-TRY-ABCDEFGH",
+      EMAIL,
+      new Date(NOW).toISOString(),
+    );
+  });
+
+  it("ends the membership FIRST, so a grant is never closed on a live trial", async () => {
+    const order: string[] = [];
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = deps({
+      endTrial: vi.fn(async (_id: string, at: string) => {
+        order.push("membership");
+        return summary({ status: "lapsed", expiresAt: at });
+      }),
+      closeGrantFor: vi.fn(async () => {
+        order.push("grant");
+        return true;
+      }),
+    });
+
+    await endTrialForEmail(d, { email: EMAIL, now: NOW });
+    expect(order).toEqual(["membership", "grant"]);
+  });
+
+  it("still reports the trial ended when the grant close fails, and logs it", async () => {
+    // The operator asked for the access to stop and it has. Refusing here
+    // would leave the trial running, which is strictly worse than a code that
+    // can still be re-redeemed.
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = deps({
+      closeGrantFor: vi.fn(async () => {
+        throw new Error("PostgREST unreachable");
+      }),
+    });
+
+    const result = await endTrialForEmail(d, { email: EMAIL, now: NOW });
+
+    expect(result.outcome).toBe("ended");
+    // The audit line is still written, and the failure is loud beside it.
+    expect(log).toHaveBeenCalledTimes(1);
+    const line = errors.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(line).toContain("grant close FAILED");
+    expect(line).toContain(EMAIL);
+    expect(line).toContain("re-redeemed");
+  });
+
+  it("notes a grant that was not there rather than claiming one was closed", async () => {
+    // Retention clears grants 30 days past expiry, and Clear use deletes them
+    // outright, so a membership can outlive the row it was redeemed from.
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const d = deps({ closeGrantFor: vi.fn(async () => false) });
+
+    expect((await endTrialForEmail(d, { email: EMAIL, now: NOW })).outcome).toBe("ended");
+    expect(warn.mock.calls.map((c) => c.join(" ")).join("\n")).toContain("no campaign grant to close");
+  });
+
+  it("looks for no grant when the membership carries no code", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = deps({
+      endTrial: vi.fn(async (_id: string, at: string) =>
+        summary({ status: "lapsed", expiresAt: at, voucherCode: null }),
+      ),
+    });
+
+    expect((await endTrialForEmail(d, { email: EMAIL, now: NOW })).outcome).toBe("ended");
+    expect(d.closeGrantFor).not.toHaveBeenCalled();
+  });
+});
+
+describe("AdminTrialStore.closeGrantFor", () => {
+  const grantRow = (over: Record<string, unknown> = {}) => ({
+    id: "g1",
+    email: EMAIL,
+    first_opened_at: new Date(NOW - 3_600_000).toISOString(),
+    expires_at: new Date(NOW + 86_400_000).toISOString(),
+    created_at: new Date(NOW - 7_200_000).toISOString(),
+    ...over,
+  });
+
+  it("runs the clock out without rewriting a real first open", async () => {
+    const at = new Date(NOW).toISOString();
+    const calls = routedFetch([
+      [/^GET .*\/trial_grants/, { body: [grantRow()] }],
+      [/^PATCH .*\/trial_grants/, { body: [{ id: "g1" }] }],
+    ]);
+
+    expect(await store().closeGrantFor("PANIK-TRY-ABCDEFGH", EMAIL, at)).toBe(true);
+
+    const patch = calls[1]!;
+    expect(patch.url).toContain("id=eq.g1");
+    // The first open is the campaign's record of when the clock started and is
+    // not an operator's to move; only the end of it is.
+    expect(patch.body).toEqual({
+      expires_at: at,
+      first_opened_at: grantRow().first_opened_at,
+    });
+  });
+
+  it("stamps a first open on a grant whose open never landed", async () => {
+    // A closed clock with no start reads as "unopened", and an unopened grant
+    // is judged LIVE by the redeem RPC, so the code would come straight back.
+    const at = new Date(NOW).toISOString();
+    const calls = routedFetch([
+      [/^GET .*\/trial_grants/, { body: [grantRow({ first_opened_at: null, expires_at: null })] }],
+      [/^PATCH .*\/trial_grants/, { body: [{ id: "g1" }] }],
+    ]);
+
+    await store().closeGrantFor("PANIK-TRY-ABCDEFGH", EMAIL, at);
+    expect(calls[1]!.body).toEqual({ expires_at: at, first_opened_at: at });
+  });
+
+  it("is false, and writes nothing, when that address has no grant on the code", async () => {
+    const calls = routedFetch([[/^GET .*\/trial_grants/, { body: [grantRow({ email: "someone@else.test" })] }]]);
+    expect(await store().closeGrantFor("PANIK-TRY-ABCDEFGH", EMAIL, new Date(NOW).toISOString())).toBe(
+      false,
+    );
+    expect(calls).toHaveLength(1);
   });
 });
 

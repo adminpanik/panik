@@ -90,7 +90,12 @@ import { clientIp, userAgent } from "../server/clientIp";
 import { rateLimit } from "../server/rateLimit";
 import { LruCache } from "../server/lruCache";
 import { logNarration, type NarrationLogRow, type NarrationStore } from "../server/narrationLog";
-import { createCampaignIdempotent, type RawCreateBody } from "../server/adminCampaigns";
+import {
+  CLEAR_USE_REFUSAL,
+  clearRedemptionUse,
+  createCampaignIdempotent,
+  type RawCreateBody,
+} from "../server/adminCampaigns";
 import { AdminTrialStore, END_TRIAL_REFUSAL, endTrialForEmail } from "../server/adminTrials";
 import { adminAuthGate } from "../server/adminAuth";
 import { adminBearerGate } from "../server/adminGate";
@@ -2045,19 +2050,50 @@ async function adminCampaigns(req: express.Request, res: express.Response): Prom
 }
 /**
  * Who redeemed ONE campaign, plus every attempt against it (failures included).
- * Returns personal data (claim IP + user agent), so it sits behind the same
- * admin gate as the rest and inherits adminLimit's 10/min ceiling. Nothing here
- * is logged: the rows go to the operator's screen and no further.
+ *
+ * GET                 the roster and the attempt log. Returns personal data
+ *                     (claim IP + user agent), so it sits behind the same admin
+ *                     gate as the rest and inherits adminLimit's 10/min
+ *                     ceiling. Nothing here is logged: the rows go to the
+ *                     operator's screen and no further.
+ * POST ?action=clear  { code, email } -> delete that person's grant, so they
+ *                     can redeem this code again. One trial code is good for
+ *                     one account, and this is the only thing that gives one
+ *                     back. The decision and the audit line live in
+ *                     server/adminCampaigns.ts.
  */
 async function adminRedemptions(req: express.Request, res: express.Response): Promise<void> {
   if (!requireAdmin(req, res)) return;
   if (!campaignsConfigured) { res.status(503).json({ error: "unconfigured (SUPABASE_*)" }); return; }
-  // Same normalization the SQL applies (upper(btrim(...))), so a code copied
-  // from a printed card with stray case or spaces still resolves.
-  const code = String(req.query.code ?? "").trim().toUpperCase();
-  if (!code) { res.status(400).json({ error: "missing code" }); return; }
   try {
     const store = CampaignStore.fromEnv();
+
+    if (req.method === "POST") {
+      if (String(req.query.action ?? "") !== "clear") {
+        res.status(400).json({ error: "unknown action" });
+        return;
+      }
+      const body = (req.body ?? {}) as { code?: unknown; email?: unknown };
+      const result = await clearRedemptionUse(store, {
+        code: body.code,
+        email: body.email,
+        // Stamped by adminBearerGate on a verified Supabase identity. Absent on
+        // the shared-secret path, which has no name to record.
+        actor: typeof res.locals.adminEmail === "string" ? res.locals.adminEmail : null,
+      });
+      if (result.outcome === "cleared") {
+        res.json({ cleared: result.cleared });
+        return;
+      }
+      const refusal = CLEAR_USE_REFUSAL[result.outcome];
+      res.status(refusal.status).json({ error: refusal.error });
+      return;
+    }
+
+    // Same normalization the SQL applies (upper(btrim(...))), so a code copied
+    // from a printed card with stray case or spaces still resolves.
+    const code = String(req.query.code ?? "").trim().toUpperCase();
+    if (!code) { res.status(400).json({ error: "missing code" }); return; }
     const [redemptions, attempts] = await Promise.all([
       store.listRedemptions(code),
       store.listAttempts(code),
@@ -2292,6 +2328,7 @@ app.get("/api/admin/metrics", adminLimit, adminBearerGate, adminMetrics);
 app.get("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.post("/api/admin/campaigns", adminLimit, adminBearerGate, adminCampaigns);
 app.get("/api/admin/redemptions", adminLimit, adminBearerGate, adminRedemptions);
+app.post("/api/admin/redemptions", adminLimit, adminBearerGate, adminRedemptions);
 app.get("/api/admin/trials", adminLimit, adminBearerGate, adminTrials);
 app.post("/api/admin/trials", adminLimit, adminBearerGate, adminTrials);
 app.get("/api/admin/simulation", adminLimit, adminBearerGate, adminSimulation);

@@ -552,49 +552,111 @@ describe("redeemVoucher, on a code a phone rewrote", () => {
 
 // ── one account, one slot ───────────────────────────────────────────────────
 
+/** One trial_grants row, as much of it as the two RPCs actually read. */
+interface FakeGrant {
+  token: string;
+  firstOpenedAt: number | null;
+  expiresAt: number | null;
+}
+
 /**
- * `redeem_campaign_code` as the 2026-08-31 migration defines it, with the
- * interleaving left visible.
+ * `redeem_campaign_code` and `open_trial` as the 2026-08-31 and 2026-09-01
+ * migrations define them, with the interleaving left visible.
  *
  * The `await` between reading the grants and writing one is the window the
- * incident went through: on that day two submits from one account sixteen
- * seconds apart both read "no grant for this address", both incremented
- * redemption_count and both minted a row. `serialised` decides whether the
- * critical section is held the way `pg_advisory_xact_lock(campaign, email)`
- * holds it in SQL, so the two arrangements can be compared in one test file.
+ * 2026-08-31 incident went through: on that day two submits from one account
+ * sixteen seconds apart both read "no grant for this address", both
+ * incremented redemption_count and both minted a row. `serialised` decides
+ * whether the critical section is held the way
+ * `pg_advisory_xact_lock(campaign, email)` holds it in SQL, so the two
+ * arrangements can be compared in one test file.
+ *
+ * Grants carry their CLOCK here, because that is now what the idempotent
+ * branch decides on: a live grant hands its token back and a spent one is
+ * refused. `now` is the fake's own, so "the trial ran out" is a fact this file
+ * states rather than something the wall clock has to be coaxed into.
  */
 class CampaignRpc {
   maxRedemptions = 50;
   redemptionCount = 0;
-  /** lower(email) -> access_token, i.e. trial_grants keyed by the new index. */
-  readonly grants = new Map<string, string>();
+  /** The fake's clock, so expiry is decided rather than waited for. */
+  now = NOW;
+  /** "CODE|lower(email)" -> the grant, i.e. trial_grants keyed by its index. */
+  readonly grants = new Map<string, FakeGrant>();
+  private readonly byToken = new Map<string, FakeGrant>();
   private minted = 0;
   private tail: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly serialised = true) {}
 
-  redeem(_code: string, email?: string | null): Promise<RedeemResult> {
-    const run = () => this.attempt(email);
+  private static key(code: string, email?: string | null): string {
+    return `${code.trim().toUpperCase()}|${(email ?? "").trim().toLowerCase()}`;
+  }
+
+  redeem(code: string, email?: string | null): Promise<RedeemResult> {
+    const run = () => this.attempt(code, email);
     if (!this.serialised) return run();
     const next = this.tail.then(run);
     this.tail = next.catch(() => undefined);
     return next;
   }
 
-  private async attempt(email?: string | null): Promise<RedeemResult> {
-    const key = (email ?? "").trim().toLowerCase();
-    const held = key === "" ? undefined : this.grants.get(key);
+  private async attempt(code: string, email?: string | null): Promise<RedeemResult> {
+    const keyed = (email ?? "").trim() !== "";
+    const key = CampaignRpc.key(code, email);
+    const held = keyed ? this.grants.get(key) : undefined;
     await Promise.resolve();
-    if (held !== undefined) return { outcome: "success", token: held };
+    if (held !== undefined) {
+      // Opened and run out: one code is good for one account, and only an
+      // operator clearing the use gives it back.
+      if (held.firstOpenedAt !== null && held.expiresAt !== null && this.now >= held.expiresAt) {
+        return { outcome: "already_used" };
+      }
+      return { outcome: "success", token: held.token };
+    }
     if (this.redemptionCount >= this.maxRedemptions) return { outcome: "exhausted" };
     this.redemptionCount += 1;
-    const token = `PANIK-8X2QR${this.minted++}`;
-    if (key !== "") this.grants.set(key, token);
-    return { outcome: "success", token };
+    const grant: FakeGrant = {
+      token: `PANIK-8X2QR${this.minted++}`,
+      firstOpenedAt: null,
+      expiresAt: null,
+    };
+    if (keyed) this.grants.set(key, grant);
+    this.byToken.set(grant.token, grant);
+    return { outcome: "success", token: grant.token };
   }
 
-  async openTrial(): Promise<OpenResult> {
-    return { outcome: "active", expiresAt: new Date(NOW + 86_400_000).toISOString() };
+  /** First open starts the clock; a later one only reports it. */
+  async openTrial(token: string): Promise<OpenResult> {
+    const grant = this.byToken.get(token);
+    if (!grant) return { outcome: "invalid" };
+    if (grant.firstOpenedAt === null) {
+      grant.firstOpenedAt = this.now;
+      grant.expiresAt = this.now + 86_400_000;
+    }
+    const expiresAt = new Date(grant.expiresAt!).toISOString();
+    return { outcome: this.now < grant.expiresAt! ? "active" : "expired", expiresAt };
+  }
+
+  /**
+   * The trial this grant bought is over: it ran out on its own, or an operator
+   * ended it and `endTrialForEmail` closed the grant's clock with it. Both
+   * arrive at the same two columns, which is the point of closing it there.
+   */
+  expire(code: string, email: string): void {
+    const grant = this.grants.get(CampaignRpc.key(code, email));
+    if (!grant) throw new Error(`expire: no grant for ${email} on ${code}`);
+    grant.firstOpenedAt = this.now - 86_400_000;
+    grant.expiresAt = this.now - 1_000;
+  }
+
+  /** The console's "Clear use": delete the row, freeing the slot it held. */
+  clearUse(code: string, email: string): void {
+    const key = CampaignRpc.key(code, email);
+    const grant = this.grants.get(key);
+    if (!grant) throw new Error(`clearUse: no grant for ${email} on ${code}`);
+    this.grants.delete(key);
+    this.byToken.delete(grant.token);
   }
 }
 
@@ -711,5 +773,175 @@ describe("redeemVoucher, submitted twice by one account", () => {
     await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE });
     await redeemVoucher(deps, { userId: USER, email: EMAIL.toUpperCase(), code: CODE });
     expect(campaigns.redemptionCount).toBe(1);
+  });
+});
+
+// ── one code, one account ───────────────────────────────────────────────────
+
+/**
+ * The 2026-09-01 policy, stated by the operator as: one trial code is good for
+ * one account, and the dashboard is where a use gets cleared if somebody is to
+ * have another.
+ *
+ * What made this a bug rather than a missing feature is that the FIX for the
+ * double-submit incident became the loophole. 20260831000001 answered a
+ * repeat redemption with the grant that address already held, forever, and
+ * never asked whether that grant was still worth anything - so a card renewed
+ * itself every time its trial ran out.
+ *
+ * The line between the two is the grant's own clock, and these tests are
+ * arranged around it: live means idempotent success (the double-submit
+ * protection, which must survive), over means refused, and the only thing that
+ * moves a row back across it is an operator deleting it.
+ */
+describe("one code, one account", () => {
+  it("stays an idempotent success while the trial it opened is still running", async () => {
+    // The double-submit protection from 20260831000001, unchanged. Nothing is
+    // refused and no second slot is spent.
+    const campaigns = new CampaignRpc();
+    const deps = { store: fakeStore(), campaigns: asRpc(campaigns) };
+
+    const first = await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE });
+    const second = await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE });
+
+    expect(first.outcome).toBe("success");
+    expect(second.outcome).toBe("success");
+    expect(campaigns.redemptionCount).toBe(1);
+    expect(campaigns.grants.size).toBe(1);
+  });
+
+  it("stays an idempotent success on a grant that was never opened", async () => {
+    // The clock start is allowed to fail without costing the membership, so a
+    // grant can sit unopened. An unknown clock is not a finished one: refusing
+    // here would strand somebody on a code they demonstrably just redeemed.
+    const campaigns = new CampaignRpc();
+    const store = fakeStore();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    campaigns.openTrial = async () => {
+      throw new Error("PostgREST unreachable");
+    };
+
+    await redeemVoucher({ store, campaigns: asRpc(campaigns) }, { userId: USER, email: EMAIL, code: CODE });
+    const again = await redeemVoucher(
+      { store, campaigns: asRpc(campaigns) },
+      { userId: USER, email: EMAIL, code: CODE },
+    );
+    errors.mockRestore();
+
+    expect(again.outcome).toBe("success");
+    expect(campaigns.redemptionCount).toBe(1);
+  });
+
+  it("refuses the same code once the trial it opened is over", async () => {
+    const campaigns = new CampaignRpc();
+    const store = fakeStore();
+    await redeemVoucher({ store, campaigns: asRpc(campaigns) }, { userId: USER, email: EMAIL, code: CODE });
+    // The clock ran out on its own, or an operator ended the membership and
+    // `endTrialForEmail` closed this grant with it. Both are these two columns.
+    campaigns.expire(CODE, EMAIL);
+    vi.mocked(store.createMembership).mockClear();
+
+    const again = await redeemVoucher(
+      { store, campaigns: asRpc(campaigns) },
+      { userId: USER, email: EMAIL, code: CODE },
+    );
+
+    expect(again.outcome).toBe("already_used");
+    expect(again.membership).toBeUndefined();
+    // Nothing was written and nothing was spent: the refusal is free.
+    expect(store.createMembership).not.toHaveBeenCalled();
+    expect(campaigns.redemptionCount).toBe(1);
+    expect(campaigns.grants.size).toBe(1);
+  });
+
+  it("says the code is spent for THIS account, not that the batch is used up", async () => {
+    // The two refusals send a reader to different places: one to the operator,
+    // one to a different card. Collapsing them would send half of each wrong.
+    expect(VOUCHER_REFUSALS.already_used).toMatch(/already used on this account/i);
+    expect(VOUCHER_REFUSALS.already_used).not.toBe(VOUCHER_REFUSALS.exhausted);
+    expect(VOUCHER_REFUSALS.already_used).not.toBe(VOUCHER_REFUSALS.invalid);
+    // No jargon and no em dash, the same bar every other sentence here meets.
+    expect(VOUCHER_REFUSALS.already_used).not.toContain(String.fromCharCode(0x2014));
+    expect(VOUCHER_REFUSALS.already_used).not.toMatch(/already_used|grant/i);
+  });
+
+  it("still lets a DIFFERENT code renew an account whose last trial is over", async () => {
+    // PR #157's behaviour, and the half of it this change must not take away:
+    // the account is refused its OLD card and let in on a new one.
+    const campaigns = new CampaignRpc();
+    await campaigns.redeem(OLD_CODE, EMAIL);
+    campaigns.expire(OLD_CODE, EMAIL);
+
+    const spent = await redeemVoucher(
+      { store: fakeStore(), campaigns: asRpc(campaigns) },
+      { userId: USER, email: EMAIL, code: OLD_CODE },
+    );
+    expect(spent.outcome).toBe("already_used");
+
+    // The ended membership still holds the account's one live-row slot, so the
+    // insert 409s and the row is rewritten rather than duplicated.
+    const ended = membership({ id: "m-old", voucherCode: OLD_CODE, expiresAt: TRIAL_ENDED });
+    const renewed = membership({ id: "m-old", voucherCode: INCIDENT_CODE });
+    const store = conflictingStore(ended, renewed);
+
+    const result = await redeemVoucher(
+      { store, campaigns: asRpc(campaigns) },
+      { userId: USER, email: EMAIL, code: INCIDENT_CODE },
+    );
+
+    expect(result).toEqual({ outcome: "success", membership: renewed });
+    expect(store.renewMembership).toHaveBeenCalled();
+    // A fresh grant on the new card, and a real slot spent for it.
+    expect(campaigns.grants.size).toBe(2);
+    expect(campaigns.redemptionCount).toBe(2);
+  });
+
+  it("mints a new grant once an operator has cleared the use", async () => {
+    // The console's Clear use deletes the grant row, which frees the
+    // (campaign, email) slot the unique index holds. Nothing else gives a
+    // spent code back, and the count is deliberately not given back with it.
+    const campaigns = new CampaignRpc();
+    const store = fakeStore();
+    const deps = { store, campaigns: asRpc(campaigns) };
+    await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE });
+    campaigns.expire(CODE, EMAIL);
+    expect((await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE })).outcome).toBe(
+      "already_used",
+    );
+
+    campaigns.clearUse(CODE, EMAIL);
+    const after = await redeemVoucher(deps, { userId: USER, email: EMAIL, code: CODE });
+
+    expect(after.outcome).toBe("success");
+    expect(campaigns.grants.size).toBe(1);
+    // A second real slot out of the batch. The running total is not a
+    // population count and clearing a use never hands one back.
+    expect(campaigns.redemptionCount).toBe(2);
+  });
+
+  it("refuses one address without touching anybody else's grant", async () => {
+    const campaigns = new CampaignRpc();
+    const other = "other@example.com";
+    await redeemVoucher(
+      { store: fakeStore(), campaigns: asRpc(campaigns) },
+      { userId: USER, email: EMAIL, code: CODE },
+    );
+    await redeemVoucher(
+      { store: fakeStore(), campaigns: asRpc(campaigns) },
+      { userId: "6f1c0d3a-0d7e-4a1e-9f2a-2c4b8d5e7a90", email: other, code: CODE },
+    );
+    campaigns.expire(CODE, EMAIL);
+
+    const mine = await redeemVoucher(
+      { store: fakeStore(), campaigns: asRpc(campaigns) },
+      { userId: USER, email: EMAIL, code: CODE },
+    );
+    const theirs = await redeemVoucher(
+      { store: fakeStore(), campaigns: asRpc(campaigns) },
+      { userId: "6f1c0d3a-0d7e-4a1e-9f2a-2c4b8d5e7a90", email: other, code: CODE },
+    );
+
+    expect(mine.outcome).toBe("already_used");
+    expect(theirs.outcome).toBe("success");
   });
 });

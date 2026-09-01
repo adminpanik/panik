@@ -1,7 +1,9 @@
 /**
- * Shared helpers for the admin campaign endpoints (api/admin/campaigns.ts and
- * the mirrored Express route). Keeps auth + input validation in one place so the
- * two transports stay in lockstep.
+ * Shared helpers for the admin campaign endpoints (api/admin/campaigns.ts,
+ * api/admin/redemptions.ts and their mirrored Express routes). Keeps auth,
+ * input validation and the two decisions that write - create a campaign, clear
+ * one person's use of a code - in one place, so the two transports stay in
+ * lockstep.
  *
  * Auth: a shared secret in ADMIN_ACCESS_KEY, sent by the admin page as the
  * `x-admin-key` header - the same header-secret pattern as the Telegram webhook
@@ -10,7 +12,12 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import type { Campaign, CreateCampaignInput } from "./campaignStore";
+import {
+  normalizeGrantEmail,
+  type Campaign,
+  type CreateCampaignInput,
+  type TrialGrantRow,
+} from "./campaignStore";
 
 export type AdminAuth = "ok" | "unconfigured" | "forbidden";
 
@@ -152,4 +159,118 @@ export async function createCampaignIdempotent(
   const campaign = await deps.createCampaign(input!);
   rememberCampaignForIdempotencyKey(body.idempotencyKey, campaign);
   return { status: 201, campaign };
+}
+
+// ── clearing one person's use of a code ─────────────────────────────────────
+//
+// One trial code is good for one account. Once the access it bought is over,
+// `redeem_campaign_code` refuses the same code from the same address with
+// `already_used` (supabase/migrations/20260901000001_one_code_one_account.sql).
+// This is the operator's way to hand it back: delete that address's grant row,
+// which frees the (campaign_id, lower(email)) slot the unique index holds, so
+// the next redemption falls through to the ordinary mint path.
+//
+// WHAT IT DELIBERATELY DOES NOT DO. `redemption_count` is not decremented: it
+// is a running total of successful redemptions and never a live population
+// (the argument is set out at length in 20260831000001), so giving a slot back
+// here would hand the campaign capacity its operator never authorised, and the
+// re-redemption then takes a real one. The attempt log is not edited either:
+// it is what the 2026-08-31 incident was reconstructed from, and the attempt
+// that minted this grant keeps its row, its outcome and its timestamp. Only
+// its `granted_token_id` pointer nulls, through the ON DELETE SET NULL the FK
+// was declared with.
+//
+// Reached only through the admin gate (server/adminGate.ts), from
+// POST /api/admin/redemptions in scripts/api-server.ts and its
+// api/admin/redemptions.ts mirror, on the same adminLimit as its siblings.
+
+/** What the operator gets back after a use is cleared. No access token. */
+export interface ClearedUse {
+  code: string;
+  email: string;
+  grantId: string;
+  /** When that grant was redeemed, so the audit trail reads as a history. */
+  redeemedAt: string;
+  clearedAt: string;
+}
+
+export type ClearUseOutcome = "cleared" | "missing_code" | "missing_email" | "no_redemption";
+
+export type ClearUseResult =
+  | { outcome: "cleared"; cleared: ClearedUse }
+  | { outcome: Exclude<ClearUseOutcome, "cleared"> };
+
+/**
+ * What each refusal answers with, status and sentence together so a new
+ * outcome cannot be added without deciding both. Same shape and same reason as
+ * `END_TRIAL_REFUSAL` in server/adminTrials.ts.
+ *
+ * `no_redemption` names both halves of what was looked for, because this route
+ * is behind the admin gate and an operator who mistyped needs to know which
+ * one missed. It is also the honest answer when another operator cleared the
+ * same row a moment earlier.
+ */
+export const CLEAR_USE_REFUSAL: Record<
+  Exclude<ClearUseOutcome, "cleared">,
+  { status: number; error: string }
+> = {
+  missing_code: { status: 400, error: "missing code" },
+  missing_email: { status: 400, error: "missing email" },
+  no_redemption: { status: 404, error: "that address has no redemption of this code on file" },
+};
+
+/** The parts of the store the decision below actually uses. */
+export interface ClearUseDeps {
+  findGrant(code: string, email: string): Promise<TrialGrantRow | null>;
+  deleteGrant(id: string): Promise<boolean>;
+}
+
+export interface ClearUseInput {
+  code: unknown;
+  email: unknown;
+  /** The signed-in operator, for the audit line. Null on the shared-secret path. */
+  actor?: string | null;
+  now?: number;
+}
+
+/**
+ * Clear one address's use of one code.
+ *
+ * Transport-free so both routes call one decision, and so the four answers can
+ * be pinned without a database. The audit line is written HERE, on the success
+ * path only: an operator action that hands a spent voucher back has to leave a
+ * trace wherever it was invoked from.
+ */
+export async function clearRedemptionUse(
+  deps: ClearUseDeps,
+  input: ClearUseInput,
+): Promise<ClearUseResult> {
+  // The same normalization the SQL applies (upper(btrim(...))), so a code
+  // pasted with stray case or spaces still resolves.
+  const code = String(input.code ?? "").trim().toUpperCase();
+  if (code === "") return { outcome: "missing_code" };
+  const email = normalizeGrantEmail(input.email as string | null | undefined);
+  if (email === "") return { outcome: "missing_email" };
+
+  const grant = await deps.findGrant(code, email);
+  if (!grant) return { outcome: "no_redemption" };
+
+  // Targeted by id, so two operators clearing the same row leave one winner
+  // and one honest "no redemption on file": the database decides, not a read
+  // this code did a moment earlier.
+  const gone = await deps.deleteGrant(grant.id);
+  if (!gone) return { outcome: "no_redemption" };
+
+  const clearedAt = new Date(input.now ?? Date.now()).toISOString();
+  // Address, code, grant, who did it and when. No access token and no key,
+  // because a log line is not a place to move a credential.
+  console.log(
+    `admin voucher clear use: ${email} on ${code} (grant ${grant.id}) ` +
+      `by ${input.actor ?? "shared-secret"} at ${clearedAt}`,
+  );
+
+  return {
+    outcome: "cleared",
+    cleared: { code, email, grantId: grant.id, redeemedAt: grant.created_at, clearedAt },
+  };
 }
