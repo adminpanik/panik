@@ -292,7 +292,7 @@ describe("gateScreen", () => {
     pendingVoucher: null,
     sendLink: async () => ({ ok: true, error: null }),
     startGoogle: () => {},
-    redeem: async () => ({ ok: true, error: null }),
+    redeem: async () => ({ ok: true, error: null, membership: null }),
     signOut: async () => {},
     reload: async () => {},
     ...over,

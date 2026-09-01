@@ -517,18 +517,31 @@ export function normalizeVoucherCode(raw: string): string {
  * on the way to the screen (no em dashes, sentence case) and falls back when
  * the body is not a short string.
  */
-export async function redeemVoucher(
-  token: string,
-  code: string,
-): Promise<{ ok: boolean; error: string | null }> {
+export interface VoucherRedemption {
+  ok: boolean;
+  error: string | null;
+  /**
+   * The grant the server just wrote, as it wrote it. Carried back so the screen
+   * that says "you're in" can name the trial's own end date without a second
+   * round trip and without guessing a duration: the expiry is whatever
+   * `open_trial` handed the campaign, and the client is not entitled to invent
+   * one. Null whenever the redemption failed, and also when it succeeded with
+   * no expiry to report, which is a grant this UI simply says nothing about.
+   */
+  membership: Membership | null;
+}
+
+export async function redeemVoucher(token: string, code: string): Promise<VoucherRedemption> {
   const res = await callApi(VOUCHER_URL, token, { code: normalizeVoucherCode(code) });
   if (!res) {
     console.error("panik account: redeemVoucher could not reach the server");
-    return { ok: false, error: UNREACHABLE };
+    return { ok: false, error: UNREACHABLE, membership: null };
   }
-  const body = res.body as { ok?: unknown; error?: unknown } | null;
-  if (res.ok && body?.ok === true) return { ok: true, error: null };
-  return { ok: false, error: readableServerError(body?.error, VOUCHER_FAILED) };
+  const body = res.body as { ok?: unknown; error?: unknown; membership?: unknown } | null;
+  if (res.ok && body?.ok === true) {
+    return { ok: true, error: null, membership: asMembership(body.membership) };
+  }
+  return { ok: false, error: readableServerError(body?.error, VOUCHER_FAILED), membership: null };
 }
 
 // ── describing a membership ─────────────────────────────────────────────────
@@ -648,7 +661,7 @@ export interface AccountState {
   pendingVoucher: string | null;
   sendLink: (email: string) => Promise<{ ok: boolean; error: string | null }>;
   startGoogle: () => void;
-  redeem: (code: string) => Promise<{ ok: boolean; error: string | null }>;
+  redeem: (code: string) => Promise<VoucherRedemption>;
   signOut: () => Promise<void>;
   /** Re-read GET /api/account, e.g. right after a code was accepted. */
   reload: () => Promise<void>;
@@ -789,11 +802,11 @@ export function useAccountSession(): AccountState {
     (code: string) =>
       runBusy(async () => {
         const held = session;
-        if (!held) return { ok: false, error: SIGN_IN_EXPIRED };
+        if (!held) return { ok: false, error: SIGN_IN_EXPIRED, membership: null };
         const fresh = await ensureFresh(held);
         if (!fresh) {
           dropSession(false);
-          return { ok: false, error: SIGN_IN_EXPIRED };
+          return { ok: false, error: SIGN_IN_EXPIRED, membership: null };
         }
         setSession(fresh);
         const result = await redeemVoucher(fresh.accessToken, code);

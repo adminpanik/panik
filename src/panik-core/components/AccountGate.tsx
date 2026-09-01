@@ -29,6 +29,10 @@
  * can be on a list, which is one more than anybody can keep in step. The
  * secondary path is a link.
  *
+ * ONE SCREEN RAISES ITS VOICE. `YoureInScreen` is full-bleed cobalt and it is
+ * the only surface in the product that is; see the note on it for why that is a
+ * ration rather than a style. Everything above it is the calm card.
+ *
  * ONE HEADING, ONE INPUT, ONE BUTTON, the same treatment `Settings` gets. Each
  * screen used to carry a sentence restating what its own heading and control
  * already said ("PANIK is in closed beta. Sign in first, then enter your
@@ -37,16 +41,19 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, LogIn, Mail, Ticket, type LucideIcon } from "lucide-react";
+import { ArrowRight, LogIn, Mail, Ticket, type LucideIcon } from "lucide-react";
 import { BootSkeleton, Button, Card, EmptyState, Field, Notice } from "../ui";
 import {
   endedMembership,
   formatGrantDate,
+  grantEnd,
   normalizeVoucherCode,
   RESEND_COOLDOWN_MS,
   WAITLIST_URL,
   type AccountState,
   type GateScreen,
+  type Membership,
+  type VoucherRedemption,
 } from "../lib/account";
 
 /** Every explanatory line on these screens reads the same. */
@@ -311,8 +318,12 @@ function useRedeem(account: AccountState) {
    */
   const [code, setCode] = useState(account.pendingVoucher ?? "");
   const [error, setError] = useState<string | null>(null);
-  /** Whether the server has accepted a code on this screen. */
-  const [redeemed, setRedeemed] = useState(false);
+  /**
+   * The grant the server wrote, once it has written one. Null means "not yet",
+   * which is why this is the whole redemption rather than a boolean beside a
+   * membership: the two would be settable apart.
+   */
+  const [granted, setGranted] = useState<VoucherRedemption | null>(null);
 
   /**
    * The second half of the double-submit guard, and the half `account.busy`
@@ -350,7 +361,7 @@ function useRedeem(account: AccountState) {
       // told the code worked instead of being teleported by a screen that
       // vanished; it also means the membership on screen is the server's answer
       // rather than this component's assumption about what the POST did.
-      setRedeemed(true);
+      setGranted(result);
     } finally {
       inFlight.current = false;
     }
@@ -375,7 +386,7 @@ function useRedeem(account: AccountState) {
     [submit],
   );
 
-  return { code, message, canSubmit, submit, redeemed, onChange, onKeyDown };
+  return { code, message, canSubmit, submit, granted, onChange, onKeyDown };
 }
 
 type Redeem = ReturnType<typeof useRedeem>;
@@ -526,24 +537,72 @@ function TrialEndedScreen({
   );
 }
 
-/** What a reader is told once a code has been accepted. */
-function RedeemedScreen({ account }: { account: AccountState }) {
+// ── the one moment this product raises its voice ────────────────────────────
+
+/**
+ * THE ONLY FULL-BLEED COBALT SURFACE IN PANIK, and it is spent here on purpose.
+ *
+ * Cobalt is the single brand accent and it is nowhere on the risk ramp, so it
+ * is the one colour that can be loud without making a claim about anybody's
+ * positions (docs/DESIGN_SYSTEM.md). Getting into a closed beta is the one
+ * moment in this product that is unambiguously good news and is about the
+ * READER rather than about a position, so it is the one screen that says so at
+ * volume. Nothing else may take this treatment; a second one turns it into a
+ * background.
+ *
+ * It replaced a card that said "PANIK is open for you@example.com", which is
+ * the same three words the footer of the card behind it had just said.
+ *
+ * THE DATE IS THE SERVER'S. `granted.membership` is the row POST
+ * /api/account/voucher just wrote, carried back through `lib/account.ts` rather
+ * than re-fetched, and the line is omitted entirely when that row has no
+ * readable expiry - a redemption whose clock start failed grants access with no
+ * end date this product knows, and "Trial runs until" would be inventing one.
+ */
+function YoureInScreen({
+  membership,
+  account,
+}: {
+  membership: Membership | null;
+  account: AccountState;
+}) {
+  const ends = grantEnd(membership);
   return (
-    <Card tone="raised" className="space-y-3">
-      <GateHeading icon={Check} title="You're in" />
-      <p className={PROSE}>
-        PANIK is open for{" "}
-        <span className="text-text-primary">{account.account?.email ?? ""}</span>.
-      </p>
-      <Button
-        onClick={() => void account.reload()}
-        disabled={account.busy}
-        className="w-full justify-center"
-      >
-        {account.busy ? "Opening..." : "Open PANIK"}
-        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-      </Button>
-    </Card>
+    <div className="flex min-h-screen w-full flex-col items-center justify-center bg-brand px-4 py-10 font-sans antialiased">
+      <div className="w-full max-w-md space-y-6">
+        {/* The mark on its own white plate: the asset draws in `currentColor`
+            through an `<img>`, so it is black wherever it lands, and a black
+            mark directly on cobalt is the one place this look would need a
+            second version of the file. */}
+        <div className="inline-flex hard-edge bg-surface-raised p-2">
+          <img src="/panik-mark.svg" alt="PANIK" width={36} height={36} style={{ objectFit: "contain" }} />
+        </div>
+
+        <h1 className="font-sans text-score font-black uppercase leading-none text-white sm:text-display">
+          You&apos;re in
+        </h1>
+
+        {ends && (
+          <p className="font-mono text-sm text-white/92">Trial runs until {formatGrantDate(ends)}</p>
+        )}
+
+        {/* `secondary` at `lg`: the white plate with black ink, the 3px edge and
+            the hard offset shadow, 56px tall and the width of the card this
+            screen replaced. A `className` shadow override here would put two
+            box-shadow utilities on one element and leave which of them wins to
+            Tailwind's emit order. */}
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => void account.reload()}
+          disabled={account.busy}
+          className="w-full justify-center"
+        >
+          {account.busy ? "Opening..." : "Open PANIK"}
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -616,11 +675,12 @@ export function AccountGate({
   const endedAt = account.account === null ? null : endedMembership(account.account);
 
   if (screen === "checking") return <BootSkeleton />;
+  if (redeem.granted) {
+    return <YoureInScreen membership={redeem.granted.membership} account={account} />;
+  }
   return (
     <GateShell after={after}>
-      {redeem.redeemed ? (
-        <RedeemedScreen account={account} />
-      ) : screen === "signin" ? (
+      {screen === "signin" ? (
         <SignInScreen account={account} note={note} />
       ) : screen === "unavailable" ? (
         <UnavailableScreen account={account} />
