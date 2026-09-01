@@ -31,12 +31,36 @@
  * "that account has no live trial": the database decides, not a read this
  * code did a moment earlier.
  *
+ * ── THE GRANT'S CLOCK MOVES TOO, AND THAT IS NEW ──────────────────────────
+ * It did not, until 2026-09-01, and the reason it now does is that "ended"
+ * has to mean the same thing to `redeem_campaign_code` as it means here.
+ *
+ * That function decides whether a code is spent for an address from the grant
+ * row's own two columns (20260901000001_one_code_one_account.sql). It cannot
+ * see memberships and should not learn to: it serves the printed-card flow as
+ * well as the account flow, and only one of those has accounts. So a grant
+ * left running behind a membership an operator just ended would answer the
+ * next redemption of the same card with "here is your token" - which is the
+ * renewal loop this whole change exists to close, reopened by the very action
+ * meant to test it.
+ *
+ * Closing the grant is also the honest record. The trial that grant bought is
+ * over; the row saying otherwise would be a false statement about a real
+ * person's access. And it makes End trial a faithful simulation of expiry,
+ * which is the entire reason the action exists.
+ *
+ * It happens AFTER the membership write and never gates it. If the grant close
+ * fails, the operator still got what they asked for (access is gone) and the
+ * failure is logged loudly; refusing the whole action at that point would
+ * leave the trial running, which is strictly worse.
+ *
  * ── WHAT IS DELIBERATELY NOT HERE ─────────────────────────────────────────
- * No delete. The migration keeps lapsed rows on purpose ("a spent voucher must
- * not read as an unredeemed one"), and an operator tool that erases history to
- * make a test easier is how support loses the ability to answer questions.
- * The trial_grants row is left alone too: it is the campaign's own record of a
- * redemption, and the membership is what the beta gate reads.
+ * No delete, of either row. The migration keeps lapsed memberships on purpose
+ * ("a spent voucher must not read as an unredeemed one"), and an operator tool
+ * that erases history to make a test easier is how support loses the ability
+ * to answer questions. The grant is CLOSED, not removed: deleting it would
+ * hand the code back, and that is a separate, separately confirmed action
+ * ("Clear use", server/adminCampaigns.ts).
  *
  * Reached only through the admin gate (server/adminGate.ts), from
  * `/api/admin/trials` in scripts/api-server.ts and its api/admin/trials.ts
@@ -46,6 +70,7 @@
  */
 
 import { isLiveMembership, type Membership, type MembershipStatus } from "./accountStore";
+import { CampaignStore } from "./campaignStore";
 
 /**
  * PostgREST and GoTrue error bodies quote the failing SQL and, on an auth
@@ -168,11 +193,19 @@ export function normalizeEmail(raw: unknown): string {
 export class AdminTrialStore {
   private readonly base: string;
 
+  /**
+   * trial_grants is server/campaignStore.ts's table, and the reads and writes
+   * against it stay there rather than being copied here on the same
+   * credentials. This module owns the DECISION; that one owns the row.
+   */
+  private readonly campaigns: CampaignStore;
+
   constructor(
     supabaseUrl: string,
     private readonly serviceKey: string,
   ) {
     this.base = supabaseUrl.replace(/\/+$/, "");
+    this.campaigns = new CampaignStore(supabaseUrl, serviceKey);
   }
 
   /** Build from env; throws if unconfigured (caller maps to 503). */
@@ -308,6 +341,19 @@ export class AdminTrialStore {
     const row = ((await res.json()) as RawMembership[])[0];
     return row ? asSummary(row, null) : null;
   }
+
+  /**
+   * Run out the clock on the campaign grant this membership was redeemed
+   * from, so `redeem_campaign_code` sees the same "over" the memberships table
+   * now says. False when there is no such grant, which is not a failure: the
+   * retention job clears grants 30 days past expiry, and an operator can end a
+   * membership whose grant has already gone.
+   */
+  async closeGrantFor(code: string, email: string, at: string): Promise<boolean> {
+    const grant = await this.campaigns.findGrant(code, email);
+    if (!grant) return false;
+    return this.campaigns.closeGrant(grant.id, at, grant.first_opened_at);
+  }
 }
 
 /** The parts of the store the decision below actually uses. */
@@ -315,6 +361,7 @@ export interface EndTrialDeps {
   findUserByEmail(email: string): Promise<{ userId: string; email: string } | null>;
   liveTrialFor(userId: string, now?: number): Promise<TrialSummary | null>;
   endTrial(membershipId: string, at: string): Promise<TrialSummary | null>;
+  closeGrantFor(code: string, email: string, at: string): Promise<boolean>;
 }
 
 export interface EndTrialInput {
@@ -352,6 +399,29 @@ export async function endTrialForEmail(
   // either way, and "somebody already did this" is the honest answer rather
   // than an error the caller cannot act on.
   if (!updated) return { outcome: "no_live_trial" };
+
+  // Close the campaign grant behind it, so the code this account redeemed
+  // reads as spent to `redeem_campaign_code` rather than letting the same card
+  // straight back in. Never gates the answer: the access is already gone, and
+  // a membership ended with its grant still running is the old behaviour, not
+  // a new harm. A membership from some other source carries no code, so there
+  // is nothing to close and nothing to report.
+  if (updated.voucherCode) {
+    try {
+      const closed = await deps.closeGrantFor(updated.voucherCode, account.email, at);
+      if (!closed) {
+        console.warn(
+          `admin trial end: no campaign grant to close for ${account.email} ` +
+            `on ${updated.voucherCode} (already cleared, or past retention)`,
+        );
+      }
+    } catch (err) {
+      console.error(
+        `admin trial end: grant close FAILED for ${account.email} on ${updated.voucherCode}: ` +
+          `${(err as Error).message}. The membership is ended; that code can still be re-redeemed`,
+      );
+    }
+  }
 
   // The audit line. Address, account, grant, who did it and when, and no
   // token, no key and no voucher secret, because a log line is not a place to
