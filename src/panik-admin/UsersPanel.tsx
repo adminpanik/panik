@@ -34,6 +34,7 @@ import {
   Th,
   Tr,
 } from "./ui/controls";
+import { EndTrialAction } from "./EndTrialAction";
 import { describeAccess, isSignedOut, listAccounts, type AccountSummary } from "./lib/adminApi";
 import type { Session } from "./lib/supabaseAuth";
 
@@ -124,7 +125,7 @@ export function UsersPanel({
         <>
           <div className="hidden md:block">
             <Ledger
-              minWidth="min-w-[56rem]"
+              minWidth="min-w-[68rem]"
               head={
                 <>
                   <Th>Email</Th>
@@ -134,6 +135,7 @@ export function UsersPanel({
                   <Th>Telegram</Th>
                   <Th>Signed up</Th>
                   <Th>Last sign-in</Th>
+                  <Th>Action</Th>
                 </>
               }
             >
@@ -178,6 +180,20 @@ export function UsersPanel({
                     <Td className="whitespace-nowrap font-mono text-text-secondary">
                       {u.lastSignInAt ? day(u.lastSignInAt) : <NotRecorded>never signed in</NotRecorded>}
                     </Td>
+                    {/* `u.live` is the server's own verdict, shipped on the
+                        row: this panel never re-reads `expiresAt` to decide
+                        whether the door is open. On a row whose grant is over
+                        the action renders nothing, and the "Ended" chip two
+                        columns left is what says so. */}
+                    <Td className="whitespace-nowrap">
+                      <EndTrialAction
+                        session={session}
+                        email={u.email}
+                        live={u.live}
+                        onEnded={reload}
+                        onSignedOut={onSignedOut}
+                      />
+                    </Td>
                   </Tr>
                 );
               })}
@@ -219,6 +235,13 @@ export function UsersPanel({
                       <NotRecorded>never signed in</NotRecorded>
                     )}
                   </StackedFact>
+                  <EndTrialAction
+                    session={session}
+                    email={u.email}
+                    live={u.live}
+                    onEnded={reload}
+                    onSignedOut={onSignedOut}
+                  />
                 </StackedRow>
               );
             })}

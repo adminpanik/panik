@@ -41,6 +41,7 @@ import { RefreshCw } from "lucide-react";
 
 import { Button, Chip, EmptyState, Skeleton } from "../panik-core/ui";
 import { Ledger, NotRecorded, StackedFact, StackedRow, Td, Th, Tr } from "./ui/controls";
+import { EndTrialAction, isTrialLive, useLiveTrialEmails } from "./EndTrialAction";
 import {
   isSignedOut,
   listRedemptions,
@@ -96,6 +97,14 @@ export function RedemptionsPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  /**
+   * Which of these addresses still hold an OPEN membership. A redemption's own
+   * `expires_at` is the campaign grant's clock and says nothing about a
+   * membership an operator may already have ended, so the server is asked
+   * instead of this panel reading a column that answers a different question.
+   */
+  const { live, reloadLive } = useLiveTrialEmails(session, onSignedOut);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     const res = await listRedemptions(session, code);
@@ -109,7 +118,10 @@ export function RedemptionsPanel({
     } else {
       setError(res.error ?? "Could not load redemptions.");
     }
-  }, [session, code, onSignedOut]);
+    // Both halves together: a reloaded list beside a stale live set is how a
+    // button outlives its trial.
+    await reloadLive();
+  }, [session, code, onSignedOut, reloadLive]);
 
   useEffect(() => {
     void refresh();
@@ -189,7 +201,7 @@ export function RedemptionsPanel({
           <>
             <div className="hidden md:block hard-edge bg-surface-raised">
               <Ledger
-                minWidth="min-w-[44rem]"
+                minWidth="min-w-[56rem]"
                 head={
                   <>
                     <Th>Email</Th>
@@ -197,6 +209,7 @@ export function RedemptionsPanel({
                     <Th>First opened</Th>
                     <Th>Claim address</Th>
                     <Th>Browser</Th>
+                    <Th>Action</Th>
                   </>
                 }
               >
@@ -214,6 +227,15 @@ export function RedemptionsPanel({
                     <Td className="font-mono text-text-secondary">{r.claim_ip ?? <NotRecorded />}</Td>
                     <Td className="font-sans text-text-secondary" title={r.claim_user_agent ?? undefined}>
                       {shortAgent(r.claim_user_agent) ?? <NotRecorded />}
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      <EndTrialAction
+                        session={session}
+                        email={r.email}
+                        live={isTrialLive(live, r.email)}
+                        onEnded={refresh}
+                        onSignedOut={onSignedOut}
+                      />
                     </Td>
                   </Tr>
                 ))}
@@ -242,6 +264,13 @@ export function RedemptionsPanel({
                   <StackedFact label="Browser">
                     {shortAgent(r.claim_user_agent) ?? <NotRecorded />}
                   </StackedFact>
+                  <EndTrialAction
+                    session={session}
+                    email={r.email}
+                    live={isTrialLive(live, r.email)}
+                    onEnded={refresh}
+                    onSignedOut={onSignedOut}
+                  />
                 </StackedRow>
               ))}
             </div>

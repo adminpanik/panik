@@ -259,6 +259,54 @@ export interface AccountPage {
 export const listAccounts = (session: Session, page: number, perPage: number) =>
   call<AccountPage>(`/api/admin/users?page=${page}&perPage=${perPage}`, session);
 
+// ── ending a trial (operator QA) ────────────────────────────────────────────
+
+/**
+ * One open beta grant, with the address it belongs to. Frontend copy of
+ * `TrialSummary` in server/adminTrials.ts.
+ *
+ * WHY THE CONSOLE ASKS FOR THIS AT ALL: the Trials roster and the voucher
+ * drill-down list REDEMPTIONS, and a redemption's own `expires_at` is the
+ * campaign grant's clock, not the membership's. An operator can have ended the
+ * membership an hour ago and that clock would still read as running. So the
+ * server states which addresses hold an open grant and the panels look
+ * themselves up in it, rather than deriving liveness from a column that
+ * answers a different question.
+ */
+export interface TrialSummary {
+  userId: string;
+  email: string | null;
+  membershipId: string;
+  status: Membership["status"];
+  source: string;
+  voucherCode: string | null;
+  startedAt: string;
+  expiresAt: string | null;
+}
+
+/** The grant as it stands after the operator ended it. */
+export interface EndedTrial extends TrialSummary {
+  endedAt: string;
+}
+
+export const listLiveTrials = (session: Session) =>
+  call<{ trials: TrialSummary[] }>("/api/admin/trials", session);
+
+/**
+ * End a named account's trial NOW, so a renewal can be re-tested without
+ * waiting out the clock. The address is a LOOKUP: the server resolves it to an
+ * account and writes only that account's own grant.
+ *
+ * 404 is a real answer here, not a transport failure: either no account holds
+ * that address, or its trial is already over, and the sentence the server
+ * sends back says which.
+ */
+export const endTrial = (session: Session, email: string) =>
+  call<{ trial: EndedTrial }>("/api/admin/trials?action=end", session, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+
 /**
  * A grant as words, and the ONLY place a membership status becomes any. The
  * status is an engine enum and must never reach a screen, so the panel renders

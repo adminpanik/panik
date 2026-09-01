@@ -31,6 +31,7 @@ import {
   Th,
   Tr,
 } from "./ui/controls";
+import { EndTrialAction, isTrialLive, useLiveTrialEmails } from "./EndTrialAction";
 import { isSignedOut, listGrants, type TrialGrant } from "./lib/adminApi";
 import type { Session } from "./lib/supabaseAuth";
 
@@ -51,6 +52,15 @@ export function RosterPanel({
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
+  /**
+   * Which addresses still hold an OPEN membership. Not derivable from a row
+   * here: `expires_at` on a grant is the campaign trial's own clock, and an
+   * operator ending the membership it produced does not touch it. So the
+   * server is asked, and a row whose address is absent from the answer gets no
+   * End control.
+   */
+  const { live, reloadLive } = useLiveTrialEmails(session, onSignedOut);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     const res = await listGrants(session);
@@ -63,7 +73,10 @@ export function RosterPanel({
     } else {
       setError(res.error ?? "Could not load the roster.");
     }
-  }, [session, onSignedOut]);
+    // Both halves of a row's state, refreshed together: reloading the list
+    // while keeping a stale live set is how a button outlives its trial.
+    await reloadLive();
+  }, [session, onSignedOut, reloadLive]);
 
   useEffect(() => {
     void refresh();
@@ -132,12 +145,14 @@ export function RosterPanel({
         <>
           <div className="hidden md:block">
             <Ledger
+              minWidth="min-w-[48rem]"
               head={
                 <>
                   <Th>Email</Th>
                   <Th>Voucher code</Th>
                   <Th>Redeemed</Th>
                   <Th>First opened</Th>
+                  <Th>Action</Th>
                 </>
               }
             >
@@ -154,6 +169,15 @@ export function RosterPanel({
                   </Td>
                   <Td className="whitespace-nowrap font-mono text-text-secondary">
                     {g.first_opened_at ? day(g.first_opened_at) : <NotRecorded>not opened yet</NotRecorded>}
+                  </Td>
+                  <Td className="whitespace-nowrap">
+                    <EndTrialAction
+                      session={session}
+                      email={g.email}
+                      live={isTrialLive(live, g.email)}
+                      onEnded={refresh}
+                      onSignedOut={onSignedOut}
+                    />
                   </Td>
                 </Tr>
               ))}
@@ -183,6 +207,13 @@ export function RosterPanel({
                     <NotRecorded>not opened yet</NotRecorded>
                   )}
                 </StackedFact>
+                <EndTrialAction
+                  session={session}
+                  email={g.email}
+                  live={isTrialLive(live, g.email)}
+                  onEnded={refresh}
+                  onSignedOut={onSignedOut}
+                />
               </StackedRow>
             ))}
           </div>
